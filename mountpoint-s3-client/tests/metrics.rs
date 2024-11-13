@@ -20,7 +20,7 @@ use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::types::HeadObjectParams;
+use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use regex::Regex;
 use rusty_fork::rusty_fork_test;
@@ -172,7 +172,7 @@ async fn test_get_object_metrics() {
 
     let client: S3CrtClient = get_test_client();
     let result = client
-        .get_object(&bucket, &key, None, None)
+        .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
     let result = result

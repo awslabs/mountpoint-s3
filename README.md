@@ -48,10 +48,10 @@ or the `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables,
 or from [several other sources](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#aws-credentials).
 
 To mount your bucket, run this command,
-replacing `DOC-EXAMPLE-BUCKET` with the name of your bucket
+replacing `amzn-s3-demo-bucket` with the name of your bucket
 and `/path/to/mount` with the directory you want to mount the bucket to:
 
-    mount-s3 DOC-EXAMPLE-BUCKET /path/to/mount
+    mount-s3 amzn-s3-demo-bucket /path/to/mount
 
 Now you can work with your bucket contents as if they were a local file system:
 

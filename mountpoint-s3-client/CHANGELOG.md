@@ -5,6 +5,9 @@
 * Add parameter to request checksum information as part of a `HeadObject` request.
   If specified, the result should contain the checksum for the object if available in the S3 response.
   ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
+* Add parameter to request checksum information as part of a `GetObject` request.
+  If specified, calling `get_object_checksum` on `GetObjectRequest` will return the checksum information.
+  ([#1123](https://github.com/awslabs/mountpoint-s3/pull/1123))
 * Expose checksum algorithm in `ListObjectsResult`'s `ObjectInfo` struct.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086),
   [#1093](https://github.com/awslabs/mountpoint-s3/pull/1093))
@@ -26,6 +29,10 @@
 * Both `ObjectInfo` and `ChecksumAlgorithm` structs are now marked `non_exhaustive`, to indicate that new fields may be added in the future.
   `ChecksumAlgorithm` no longer implements `Copy`.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
+* `get_object` method now requires a `GetObjectParams` parameter.
+  Two of the existing parameters, `range` and `if_match` have been moved to `GetObjectParams`.
+  ([#1121](https://github.com/awslabs/mountpoint-s3/pull/1121))
+
 
 ## v0.11.0 (October 17, 2024)
 

@@ -18,7 +18,7 @@ use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
-use mountpoint_s3_crt::http::request_response::{Header, Headers, Message};
+use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError, Message};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
@@ -1119,6 +1119,21 @@ fn extract_range_header(headers: &Headers) -> Option<Range<u64>> {
     Some(start..end + 1)
 }
 
+/// Extract the [Checksum] information from headers
+fn parse_checksum(headers: &Headers) -> Result<Checksum, HeadersError> {
+    let checksum_crc32 = headers.get_as_optional_string("x-amz-checksum-crc32")?;
+    let checksum_crc32c = headers.get_as_optional_string("x-amz-checksum-crc32c")?;
+    let checksum_sha1 = headers.get_as_optional_string("x-amz-checksum-sha1")?;
+    let checksum_sha256 = headers.get_as_optional_string("x-amz-checksum-sha256")?;
+
+    Ok(Checksum {
+        checksum_crc32,
+        checksum_crc32c,
+        checksum_sha1,
+        checksum_sha256,
+    })
+}
+
 /// Try to parse a modeled error out of a failing meta request
 fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3RequestError> {
     /// Look for a redirect header pointing to a different region for the bucket
@@ -1281,12 +1296,9 @@ impl ObjectClient for S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
-        // TODO: If more arguments are added to get object, make a request struct having those arguments
-        // along with bucket and key.
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        self.get_object(bucket, key, range, if_match)
+        self.get_object(bucket, key, params)
     }
 
     async fn list_objects(
@@ -1658,5 +1670,23 @@ mod tests {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(error, error_code.into());
+    }
+
+    #[test]
+    fn test_checksum_sha256() {
+        let mut headers = Headers::new(&Allocator::default()).unwrap();
+        let value = "QwzjTQIHJO11oZbfwq1nx3dy0Wk=";
+        let header = Header::new("x-amz-checksum-sha256", value.to_owned());
+        headers.add_header(&header).unwrap();
+
+        let checksum = parse_checksum(&headers).expect("failed to parse headers");
+        assert_eq!(checksum.checksum_crc32, None, "other checksums shouldn't be set");
+        assert_eq!(checksum.checksum_crc32c, None, "other checksums shouldn't be set");
+        assert_eq!(checksum.checksum_sha1, None, "other checksums shouldn't be set");
+        assert_eq!(
+            checksum.checksum_sha256,
+            Some(value.to_owned()),
+            "sha256 header should match"
+        );
     }
 }

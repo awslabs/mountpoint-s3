@@ -11,7 +11,7 @@ use mountpoint_s3_client::checksums::crc32c_to_base64;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
-    ChecksumAlgorithm, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
+    ChecksumAlgorithm, GetObjectParams, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
     PutObjectTrailingChecksums,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
@@ -41,7 +41,11 @@ async fn test_put_object(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
+        .get_object(
+            bucket,
+            key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &contents[..]).await;
@@ -67,7 +71,11 @@ async fn test_put_object_empty(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
+        .get_object(
+            bucket,
+            key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &[]).await;
@@ -102,7 +110,11 @@ async fn test_put_object_multi_part(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
+        .get_object(
+            bucket,
+            key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -139,7 +151,11 @@ async fn test_put_object_large(
     let put_object_result = request.complete().await.unwrap();
 
     let result = client
-        .get_object(bucket, key, None, Some(put_object_result.etag.clone()))
+        .get_object(
+            bucket,
+            key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
         .await
         .expect("get_object failed");
     check_get_result(result, None, &contents[..]).await;
@@ -486,7 +502,7 @@ async fn check_get_object<Client: ObjectClient>(
     bucket: &str,
     key: &str,
 ) -> ObjectClientResult<(), GetObjectError, Client::ClientError> {
-    let result = client.get_object(bucket, key, None, None).await?;
+    let result = client.get_object(bucket, key, &GetObjectParams::new()).await?;
     pin_mut!(result);
     result.next().await.unwrap()?;
     Ok(())

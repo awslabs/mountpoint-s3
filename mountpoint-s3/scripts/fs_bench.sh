@@ -146,6 +146,7 @@ run_benchmarks() {
       --allow-overwrite \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
+      --log-metrics \
       $part_size_option \
       ${optional_args}
     mount_status=$?

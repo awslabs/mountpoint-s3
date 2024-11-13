@@ -6,16 +6,14 @@ use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionCreator};
 
 fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Create local directory
     let dirname = "local_dir";
-    let dirpath = mount_point.path().join(dirname);
+    let dirpath = test_session.mount_path().join(dirname);
 
     DirBuilder::new().recursive(true).create(&dirpath).unwrap();
 
-    assert!(!test_client.contains_dir(dirname).unwrap());
+    assert!(!test_session.client().contains_dir(dirname).unwrap());
 
     let m = metadata(&dirpath).unwrap();
     assert!(m.file_type().is_dir());
@@ -29,10 +27,13 @@ fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     }
 
     // Remove the new object from the client
-    test_client.remove_object(&format!("{dirname}/{filename}")).unwrap();
+    test_session
+        .client()
+        .remove_object(&format!("{dirname}/{filename}"))
+        .unwrap();
 
     // Verify that the directory disappeared
-    let read_dir_iter = fs::read_dir(mount_point.path()).unwrap();
+    let read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, Vec::<String>::new());
 }

@@ -1,4 +1,3 @@
-use std::ops::Range;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -14,10 +13,11 @@ use crate::mock_client::{
     MockClient, MockClientConfig, MockClientError, MockGetObjectRequest, MockObject, MockPutObjectRequest,
 };
 use crate::object_client::{
-    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
-    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectResult, PutObjectSingleParams,
+    Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
+    HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
+    ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectResult,
+    PutObjectSingleParams,
 };
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
@@ -66,8 +66,17 @@ pub struct ThroughputGetObjectRequest {
     rate_limiter: LeakyBucket,
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        Ok(self.request.object.object_metadata.clone())
+    }
+
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+        Ok(self.request.object.checksum.clone())
+    }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();
@@ -143,10 +152,9 @@ impl ObjectClient for ThroughputMockClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        let request = self.inner.get_object(bucket, key, range, if_match).await?;
+        let request = self.inner.get_object(bucket, key, params).await?;
         let rate_limiter = self.rate_limiter.clone();
         Ok(ThroughputGetObjectRequest { request, rate_limiter })
     }
@@ -214,6 +222,7 @@ mod tests {
     use futures::StreamExt;
 
     use crate::mock_client::MockObject;
+    use crate::types::ETag;
 
     use super::*;
 
@@ -240,7 +249,10 @@ mod tests {
                 let start = Instant::now();
                 let num_bytes = block_on(async move {
                     let mut num_bytes = 0;
-                    let mut get = client.get_object("test_bucket", "testfile", None, None).await.unwrap();
+                    let mut get = client
+                        .get_object("test_bucket", "testfile", &GetObjectParams::new())
+                        .await
+                        .unwrap();
                     while let Some(part) = get.next().await {
                         let (_offset, part) = part.unwrap();
                         num_bytes += part.len();

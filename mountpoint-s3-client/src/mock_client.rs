@@ -5,7 +5,6 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
-use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
@@ -28,10 +27,11 @@ use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
     DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
-    GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError, HeadObjectParams, HeadObjectResult,
-    ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError, ObjectClientResult,
-    ObjectInfo, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-    PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+    GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest, HeadObjectError, HeadObjectParams,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
+    ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest,
+    PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview,
+    UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -530,8 +530,17 @@ impl MockGetObjectRequest {
     }
 }
 
+#[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        Ok(self.object.object_metadata.clone())
+    }
+
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+        Ok(self.object.checksum.clone())
+    }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
         self.read_window_end_offset += len as u64;
@@ -655,10 +664,9 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        trace!(bucket, key, ?range, ?if_match, "GetObject");
+        trace!(bucket, key, ?params.range, ?params.if_match, "GetObject");
         self.inc_op_count(Operation::GetObject);
 
         if bucket != self.config.bucket {
@@ -668,13 +676,13 @@ impl ObjectClient for MockClient {
         let objects = self.objects.read().unwrap();
 
         if let Some(object) = objects.get(key) {
-            if let Some(etag_match) = if_match {
-                if etag_match != object.etag {
+            if let Some(etag_match) = params.if_match.as_ref() {
+                if etag_match != &object.etag {
                     return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
                 }
             }
 
-            let (next_offset, length) = if let Some(range) = range {
+            let (next_offset, length) = if let Some(range) = params.range.as_ref() {
                 if range.start >= object.len() as u64 || range.end > object.len() as u64 {
                     return mock_client_error(format!("invalid range, length={}", object.len()));
                 }
@@ -1045,6 +1053,7 @@ mod tests {
     use futures::{pin_mut, StreamExt};
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
+    use std::ops::Range;
     use test_case::test_case;
 
     use super::*;
@@ -1061,7 +1070,12 @@ mod tests {
         };
     }
 
-    async fn test_get_object(key: &str, size: usize, range: Option<Range<u64>>) {
+    async fn test_get_object(
+        key: &str,
+        size: usize,
+        range: Option<Range<u64>>,
+        object_metadata: HashMap<String, String>,
+    ) {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
         let client = MockClient::new(MockClientConfig {
@@ -1073,10 +1087,13 @@ mod tests {
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
-        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+
+        let mut object = MockObject::from_bytes(&body, ETag::for_tests());
+        object.set_object_metadata(object_metadata.clone());
+        client.add_object(key, object);
 
         let mut get_request = client
-            .get_object("test_bucket", key, range.clone(), None)
+            .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
             .await
             .expect("should not fail");
 
@@ -1091,13 +1108,22 @@ mod tests {
         let expected_range = range.unwrap_or(0..size as u64);
         let expected_range = expected_range.start as usize..expected_range.end as usize;
         assert_eq!(&accum[..], &body[expected_range], "body does not match");
+
+        assert_eq!(get_request.get_object_metadata().await, Ok(object_metadata));
     }
 
     #[tokio::test]
     async fn get_object() {
-        test_get_object("key1", 2000, None).await;
-        test_get_object("key1", 9000, Some(50..2000)).await;
-        test_get_object("key1", 10, Some(0..10)).await;
+        test_get_object("key1", 2000, None, Default::default()).await;
+        test_get_object("key1", 9000, Some(50..2000), Default::default()).await;
+        test_get_object("key1", 10, Some(0..10), Default::default()).await;
+        test_get_object(
+            "key1",
+            10,
+            None,
+            HashMap::from([("foo".to_string(), "bar".to_string())]),
+        )
+        .await;
     }
 
     async fn test_get_object_backpressure(
@@ -1121,7 +1147,7 @@ mod tests {
         client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let get_request = client
-            .get_object("test_bucket", key, range.clone(), None)
+            .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
             .await
             .expect("should not fail");
         pin_mut!(get_request);
@@ -1169,33 +1195,45 @@ mod tests {
         client.add_object("key1", body[..].into());
 
         assert!(matches!(
-            client.get_object("wrong_bucket", "key1", None, None).await,
+            client.get_object("wrong_bucket", "key1", &GetObjectParams::new()).await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
         ));
 
         assert!(matches!(
-            client.get_object("test_bucket", "wrong_key", None, None).await,
+            client
+                .get_object("test_bucket", "wrong_key", &GetObjectParams::new())
+                .await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
         ));
 
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(0..2001), None).await,
+            client
+                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(0..2001)))
+                .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(2000..2000), None).await,
+            client
+                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(2000..2000)))
+                .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(500..2001), None).await,
+            client
+                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(500..2001)))
+                .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(5000..2001), None).await,
+            client
+                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(5000..2001)))
+                .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
-            client.get_object("test_bucket", "key1", Some(5000..1), None).await,
+            client
+                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(5000..1)))
+                .await,
             "invalid range, length=2000"
         );
     }
@@ -1223,7 +1261,7 @@ mod tests {
         client.add_object(key, MockObject::from_bytes(&expected_body, ETag::for_tests()));
 
         let mut get_request = client
-            .get_object("test_bucket", key, Some(range.clone()), None)
+            .get_object("test_bucket", key, &GetObjectParams::new().range(Some(range.clone())))
             .await
             .expect("should not fail");
 
@@ -1260,7 +1298,7 @@ mod tests {
             .expect("Should not fail");
 
         client
-            .get_object(bucket, dst_key, None, None)
+            .get_object(bucket, dst_key, &GetObjectParams::new())
             .await
             .expect("get_object should succeed");
     }
@@ -1684,7 +1722,7 @@ mod tests {
         put_request.complete().await.expect("put_object failed");
 
         let mut get_request = client
-            .get_object("test_bucket", "key1", None, None)
+            .get_object("test_bucket", "key1", &GetObjectParams::new())
             .await
             .expect("get_object failed");
 
@@ -1717,7 +1755,7 @@ mod tests {
             .expect("put_object failed");
 
         let get_request = client
-            .get_object("test_bucket", "key1", None, None)
+            .get_object("test_bucket", "key1", &GetObjectParams::new())
             .await
             .expect("get_object failed");
 

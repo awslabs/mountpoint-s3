@@ -20,13 +20,14 @@ fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File>
 
 fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     // Make sure there's an existing directory
-    test_client.put_object("dir/hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
 
-    let path = mount_point.path().join("dir/new.txt");
+    let path = test_session.mount_path().join("dir/new.txt");
 
     let f = open_for_write(&path, append).unwrap();
 

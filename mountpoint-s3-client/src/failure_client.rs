@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
@@ -15,11 +14,11 @@ use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use pin_project::pin_project;
 
 use crate::object_client::{
-    CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
-    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectRequest, HeadObjectError,
-    HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient,
-    ObjectClientError, ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
-    PutObjectSingleParams, UploadReview,
+    Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
+    HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
+    ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -36,8 +35,7 @@ pub struct FailureClient<Client: ObjectClient, State, RequestWrapperState> {
         &mut State,
         &str,
         &str,
-        Option<Range<u64>>,
-        Option<ETag>,
+        &GetObjectParams,
     ) -> Result<
         FailureRequestWrapper<Client::ClientError, RequestWrapperState>,
         ObjectClientError<GetObjectError, Client::ClientError>,
@@ -123,17 +121,10 @@ where
         &self,
         bucket: &str,
         key: &str,
-        range: Option<Range<u64>>,
-        if_match: Option<ETag>,
+        params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        let wrapper = (self.get_object_cb)(
-            &mut *self.state.lock().unwrap(),
-            bucket,
-            key,
-            range.clone(),
-            if_match.clone(),
-        )?;
-        let request = self.client.get_object(bucket, key, range, if_match).await?;
+        let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, params)?;
+        let request = self.client.get_object(bucket, key, params).await?;
         Ok(FailureGetRequest {
             state: wrapper.state,
             result_fn: wrapper.result_fn,
@@ -222,8 +213,19 @@ pub struct FailureGetRequest<Client: ObjectClient, GetWrapperState> {
     request: Client::GetObjectRequest,
 }
 
-impl<Client: ObjectClient, FailState: Send> GetObjectRequest for FailureGetRequest<Client, FailState> {
+#[cfg_attr(not(docsrs), async_trait)]
+impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRequest
+    for FailureGetRequest<Client, FailState>
+{
     type ClientError = Client::ClientError;
+
+    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
+        self.request.get_object_metadata().await
+    }
+
+    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+        self.request.get_object_checksum().await
+    }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
         let this = self.project();
@@ -357,7 +359,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
     FailureClient {
         client,
         state,
-        get_object_cb: |state, _bucket, _key, _range, _if_match| {
+        get_object_cb: |state, _bucket, _key, _get_object_params| {
             state.get_count += 1;
             let (fail_count, error) = if let Some(result) = state.get_failures.remove(&state.get_count) {
                 let (fail_count, error) = result?;
@@ -436,6 +438,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
 mod tests {
     use super::*;
     use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject};
+    use crate::types::ETag;
     use std::collections::HashSet;
 
     #[tokio::test]
@@ -479,7 +482,7 @@ mod tests {
 
         let fail_set = HashSet::from([2, 4, 5]);
         for i in 1..=6 {
-            let r = fail_client.get_object(bucket, key, None, None).await;
+            let r = fail_client.get_object(bucket, key, &GetObjectParams::new()).await;
             if fail_set.contains(&i) {
                 assert!(r.is_err());
             } else {

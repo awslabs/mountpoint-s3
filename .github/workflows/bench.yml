@@ -24,7 +24,7 @@ env:
   S3_BUCKET_BENCH_FILE: ${{ vars.BENCH_FILE_NAME || 'bench100GB.bin' }}
   S3_BUCKET_SMALL_BENCH_FILE: ${{ vars.SMALL_BENCH_FILE_NAME || 'bench5MB.bin' }}
   # Optional endpoint url, can be empty
-  S3_ENDPOINT_URL: ${{ vars.S3_ENDPOINT_URL }}
+  S3_ENDPOINT_URL: ${{ vars.S3_BENCH_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_BENCH_REGION }}
 
 jobs:
@@ -74,6 +74,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Throughput Benchmark (S3 Standard)
         tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
         # This is default value, just make it more explicit
@@ -86,9 +87,11 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: true
         max-items-in-chart: 20
+        summary-always: true
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Throughput Benchmark - Peak Memory Usage (S3 Standard)
         tool: 'customSmallerIsBetter'
         output-file-path: results/peak_mem_usage.json
         benchmark-data-dir-path: dev/bench/peak_mem_usage
@@ -101,6 +104,7 @@ jobs:
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
+        summary-always: true
 
   latency-bench:
     name: Benchmark (Latency)
@@ -148,6 +152,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Latency Benchmark (S3 Standard)
         tool: 'customSmallerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/latency_bench
@@ -159,6 +164,7 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: false
         max-items-in-chart: 20
+        summary-always: true
 
   cache-bench:
     name: Benchmark (Cache)
@@ -208,6 +214,7 @@ jobs:
     - name: Check benchmark results
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Cache Throughput Benchmark (S3 Standard)
         tool: 'customBiggerIsBetter'
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/cache_bench
@@ -219,9 +226,11 @@ jobs:
         auto-push: ${{ inputs.publish }}
         comment-on-alert: false
         max-items-in-chart: 20
+        summary-always: true
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
       with:
+        name: Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)
         tool: 'customSmallerIsBetter'
         output-file-path: results/peak_mem_usage.json
         benchmark-data-dir-path: dev/cache_bench/peak_mem_usage
@@ -234,3 +243,4 @@ jobs:
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
+        summary-always: true

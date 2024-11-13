@@ -33,27 +33,25 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_conf);
-    let mount_point = test_session.mount_dir;
-    let mut test_client = test_session.test_client;
 
     let file_name = "file.bin";
 
     // Create the first version of the file
     let old_contents = vec![0x0fu8; OBJECT_SIZE];
-    test_client.put_object(file_name, &old_contents).unwrap();
+    test_session.client().put_object(file_name, &old_contents).unwrap();
 
     // Open and read fully the file before updating it remotely
-    let old_file = File::open(mount_point.path().join(file_name)).unwrap();
+    let old_file = File::open(test_session.mount_path().join(file_name)).unwrap();
     let mut buf = vec![0u8; OBJECT_SIZE];
     old_file.read_exact_at(&mut buf, 0).unwrap();
     assert_eq!(buf, &old_contents[..buf.len()]);
 
     let new_contents = vec![0xffu8; OBJECT_SIZE];
-    test_client.put_object(file_name, &new_contents).unwrap();
+    test_session.client().put_object(file_name, &new_contents).unwrap();
 
     // Open the file again, which should be reading from cache
     for _ in 0..2 {
-        let new_file = File::open(mount_point.path().join(file_name)).unwrap();
+        let new_file = File::open(test_session.mount_path().join(file_name)).unwrap();
         new_file
             .read_exact_at(&mut buf, 0)
             .expect("should be OK as result is cached");
@@ -69,7 +67,7 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let new_file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECT)
-        .open(mount_point.path().join(file_name))
+        .open(test_session.mount_path().join(file_name))
         .unwrap();
     new_file
         .read_exact_at(&mut buf, 0)
