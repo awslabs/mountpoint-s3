@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1731355364136,
+  "lastUpdate": 1731510772041,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Benchmark": [
@@ -3928,6 +3928,125 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 417.74609375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f8ca2ba4eb6cbc2009ca318ab4342b95ab7c3f9e",
+          "message": "Update vendored fuser to daad5673 (#1129)\n\n## Description of change\n\nThis change updates the vendored fuser version. The changes include an\namended README to include information on how to maintain the fork, as\nwell as rebasing our patches on top of the upstream fuser repository.\n\nThe main changes we're interested in here is to eliminate many of the\nbuild warnings that are currently showing up in pull requests.\n\nRelevant issues: N/A\n\n## Does this change impact existing behavior?\n\nNo change in behavior of any crate.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo change log needed.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-11-13T13:15:53Z",
+          "tree_id": "63be6bd94b20cf8230dfb36fad6ef365abbc7e87",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f8ca2ba4eb6cbc2009ca318ab4342b95ab7c3f9e"
+        },
+        "date": 1731510772000,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 106.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 361.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 116,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 394.51171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 74.58203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 299.9921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 78.21875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 310.12109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 40290.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 388.83203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 46510.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 515.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 11145.23828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 260.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 9943.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 13247.16015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 261.49609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 778.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 437.60546875,
             "unit": "MiB"
           }
         ]
