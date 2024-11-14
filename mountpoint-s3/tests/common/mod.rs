@@ -2,6 +2,8 @@
 //! Allow for unused items since this is included independently in each module.
 #![allow(dead_code)]
 
+pub mod cache;
+
 pub mod creds;
 
 #[cfg(feature = "fuse_tests")]
