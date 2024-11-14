@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use base64ct::{Base64, Encoding};
 use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
-use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
+use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
-    ChecksumMode, GetObjectParams, GetObjectRequest, PutObjectSingleParams, UploadChecksum,
+    ChecksumMode, GetObjectParams, GetObjectRequest, ObjectClientResult, PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
@@ -71,6 +71,30 @@ where
             config,
             bucket_name: bucket_name.to_owned(),
         }
+    }
+
+    pub async fn verify_cache_valid(&self) -> ObjectClientResult<(), PutObjectError, Client::ClientError> {
+        let object_key = format!("{}/_mountpoint_cache_metadata", &self.prefix);
+        // This data is human-readable, and not expected to be read by Mountpoint.
+        // The file format used here is NOT stable.
+        // For now, let's just include the data that's guaranteed to be correct as it's what
+        // calculates the prefix.
+        let data = format!(
+            "source_bucket={}\nblock_size={}",
+            self.bucket_name, self.config.block_size
+        );
+
+        self.client
+            .put_object_single(
+                &self.bucket_name,
+                &object_key,
+                &PutObjectSingleParams::new().storage_class("EXPRESS_ONEZONE".to_string()),
+                data,
+            )
+            .in_current_span()
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -328,10 +352,10 @@ mod tests {
     use crate::sync::Arc;
     use proptest::{prop_assert, proptest};
 
-    use test_case::test_case;
-
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use mountpoint_s3_client::types::ETag;
+    use test_case::test_case;
 
     #[test_case(1024, 512 * 1024; "block_size smaller than part_size")]
     #[test_case(8 * 1024 * 1024, 512 * 1024; "block_size larger than part_size")]
@@ -550,6 +574,55 @@ mod tests {
             .await
             .expect_err("cache should return error if object metadata doesn't match data");
         assert!(matches!(err, DataCacheError::InvalidBlockHeader(_)));
+    }
+
+    #[tokio::test]
+    async fn test_verify_cache_valid_success() {
+        let source_bucket = "source-bucket";
+        let bucket = "test-bucket";
+        let config = MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 8 * 1024 * 1024,
+            enable_backpressure: true,
+            initial_read_window_size: 8 * 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(config));
+        let cache = ExpressDataCache::new(client.clone(), Default::default(), source_bucket, bucket);
+
+        cache.verify_cache_valid().await.expect("cache should work");
+    }
+
+    #[tokio::test]
+    async fn test_verify_cache_valid_failure() {
+        let source_bucket = "source-bucket";
+        let bucket = "test-bucket";
+        let config = MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 8 * 1024 * 1024,
+            enable_backpressure: true,
+            initial_read_window_size: 8 * 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(config));
+
+        let mut put_single_failures = HashMap::new();
+        put_single_failures.insert(1, MockClientError("error".to_owned().into()).into());
+
+        let failure_client = Arc::new(countdown_failure_client(
+            client.clone(),
+            CountdownFailureConfig {
+                put_single_failures,
+                ..Default::default()
+            },
+        ));
+
+        let cache = ExpressDataCache::new(failure_client, Default::default(), source_bucket, bucket);
+
+        cache
+            .verify_cache_valid()
+            .await
+            .expect_err("cache should not report valid if cannot write");
     }
 
     proptest! {
