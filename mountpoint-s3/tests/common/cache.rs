@@ -77,14 +77,16 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
         block_offset: u64,
         object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        let result = self
+        let result: Option<ChecksummedBytes> = self
             .inner
             .cache
             .get_block(cache_key, block_idx, block_offset, object_size)
-            .await?
-            .inspect(|_| {
-                self.inner.get_block_hit_count.fetch_add(1, Ordering::SeqCst);
-            });
+            .await?;
+
+        // The cache hit happens only if the `get_block` was successful and returned data
+        if result.is_some() {
+            self.inner.get_block_hit_count.fetch_add(1, Ordering::SeqCst);
+        }
 
         Ok(result)
     }
