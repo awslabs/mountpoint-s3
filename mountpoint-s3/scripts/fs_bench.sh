@@ -37,7 +37,7 @@ cd ${project_dir}
 results_dir=results
 runtime_seconds=30
 startdelay_seconds=30
-iterations=10
+: ${iterations:=10}
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
@@ -74,13 +74,28 @@ run_fio_job() {
   done
   echo "done"
 
-  # combine the results and find an average value
-  jq -n 'reduce inputs.jobs[] as $job (null; .name = $job.jobname | .len += 1 | .value += (if ($job."job options".rw == "read")
-      then $job.read.bw / 1024
-      elif ($job."job options".rw == "randread") then $job.read.bw / 1024
-      elif ($job."job options".rw == "randwrite") then $job.write.bw / 1024
-      elif ($job."job options".rw | startswith("read")) then $job.read.bw / 1024
-      else $job.write.bw / 1024 end)) | {name: .name, value: (.value / .len), unit: "MiB/s"}' ${results_dir}/${job_name}_iter*.json | tee ${results_dir}/${job_name}_parsed.json
+  # combine the results and find an average value.  If the test was a single job, take the
+  # average across all iterations.  If it was multiple jobs, take the average across all
+  # iterations of each job, then sum the averages to get the final results.  For example,
+  # for a mixed read/write test, this would average all read jobs, all write jobs, and
+  # combine the two averages into a throughput.
+  jq -s '[
+      [.[].jobs] | add | group_by(.jobname)[] |
+          {
+              name: .[0].jobname,
+              value: ((map(
+                  if .["job options"].rw | test("^(rand)?read")
+                  then .read.bw
+                  else .write.bw
+                  end
+              ) | add) / (length * 1024))
+          }
+      ] | {
+          name: map(.name) | unique | join(","),
+          value: map(.value) | add,
+          unit: "MiB/s"
+      }' \
+      ${results_dir}/${job_name}_iter*.json | tee ${results_dir}/${job_name}_parsed.json
 }
 
 should_run_job() {
@@ -179,6 +194,7 @@ run_benchmarks() {
 
 run_benchmarks read
 run_benchmarks write
+run_benchmarks mix
 
 # combine all bench results into one json file
 echo "Throughput:"
