@@ -241,8 +241,9 @@ impl BlockMetadata {
         }
     }
 
-    /// Convert to object metadata that is HTTP header safe (ASCII only)
+    /// Build parameters to be used when running a PutObject for this block
     pub fn to_put_object_params(&self) -> PutObjectSingleParams {
+        // Convert to object metadata that is HTTP header safe (ASCII only)
         let source_key_encoded = Base64::encode_string(self.source_key.as_bytes());
         let object_metadata = HashMap::from([
             ("cache-version".to_string(), CACHE_VERSION.to_string()),
@@ -259,7 +260,7 @@ impl BlockMetadata {
             .checksum(Some(UploadChecksum::Crc32c(Crc32c::new(self.data_checksum))))
     }
 
-    /// Validate the object metadata headers received match this BlockHeader object.
+    /// Validate the object metadata headers received match this BlockMetadata object.
     pub fn validate_object_metadata(&self, headers: &HashMap<String, String>) -> Result<(), DataCacheError> {
         self.validate_header(headers, "cache-version", |version| version == CACHE_VERSION)?;
         self.validate_header(headers, "block-idx", |block_idx| {
