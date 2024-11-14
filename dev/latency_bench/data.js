@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1731597616488,
+  "lastUpdate": 1731600846526,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
@@ -1025,6 +1025,60 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 28.464555100000002,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "625d7dbb9b9b0ed4f072cfad48ef859522f3075b",
+          "message": "Verify object metadata in Express cache (#1125)\n\n## Description of change\n\n- Verify S3 Express cache objects have valid object metadata which\nmatches the keys\n- Verifies the CRC32C of the object content post-download from S3\n  - If checksum is missing, return `BlockChecksumMissing`.\n\nRelevant issues: N/A\n\n## Does this change impact existing behavior?\n\nChanges S3 Express cache to require object metadata and CRC32C to be\npresent. Old caches will not be used.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2024-11-14T15:49:49Z",
+          "tree_id": "ed8468dd3fab76e53de1d182aebd2d30d80d48c5",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/625d7dbb9b9b0ed4f072cfad48ef859522f3075b"
+        },
+        "date": 1731600845960,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.057,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.134,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.892,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.664,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 27.2032617,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.8436994,
             "unit": "milliseconds"
           }
         ]
