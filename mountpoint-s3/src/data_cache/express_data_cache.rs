@@ -300,7 +300,7 @@ impl BlockMetadata {
 }
 
 /// Get the prefix for objects we'll be creating in S3
-fn build_prefix(source_bucket_name: &str, block_size: u64) -> String {
+pub fn build_prefix(source_bucket_name: &str, block_size: u64) -> String {
     hex::encode(
         Sha256::new()
             .chain_update(CACHE_VERSION.as_bytes())
@@ -311,7 +311,7 @@ fn build_prefix(source_bucket_name: &str, block_size: u64) -> String {
 }
 
 /// Get the S3 key this block should be written to or read from.
-fn get_s3_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
+pub fn get_s3_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
     let hashed_cache_key = hex::encode(
         Sha256::new()
             .chain_update(cache_key.key())
