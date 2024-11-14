@@ -293,10 +293,10 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
 
 #[test_case(Some("aws:kms"), Some(get_test_kms_key_id()), get_express_sse_kms_bucket(), false)]
 #[test_case(Some("aws:kms"), None, get_express_sse_kms_bucket(), false)]
-#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()), get_express_bucket(), true)] // this may start working in future, requires server-side changes
-#[test_case(Some("aws:kms"), None, get_express_bucket(), true)] // this may start working in future, requires server-side changes
+#[test_case(Some("aws:kms"), Some(get_test_kms_key_id()), get_express_bucket(), true)]
+#[test_case(Some("aws:kms"), None, get_express_bucket(), true)]
 #[test_case(Some("AES256"), None, get_express_bucket(), false)]
-#[test_case(Some("AES256"), None, get_express_sse_kms_bucket(), true)] // this may start working in future, requires changes in CRT
+#[test_case(Some("AES256"), None, get_express_sse_kms_bucket(), true)]
 #[test_case(None, None, get_express_bucket(), false)]
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
