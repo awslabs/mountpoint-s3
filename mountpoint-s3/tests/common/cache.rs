@@ -15,11 +15,11 @@ use mountpoint_s3::{
 /// A wrapper around any type implementing [DataCache], which counts operations
 pub struct CacheTestWrapper<Cache> {
     cache: Arc<Cache>,
-    pub get_block_ok_count: Arc<AtomicU64>,
-    pub get_block_hit_count: Arc<AtomicU64>,
-    pub get_block_failed_count: Arc<AtomicU64>,
-    pub put_block_ok_count: Arc<AtomicU64>,
-    pub put_block_failed_count: Arc<AtomicU64>,
+    get_block_ok_count: Arc<AtomicU64>,
+    get_block_hit_count: Arc<AtomicU64>,
+    get_block_failed_count: Arc<AtomicU64>,
+    put_block_ok_count: Arc<AtomicU64>,
+    put_block_failed_count: Arc<AtomicU64>,
 }
 
 impl<Cache> Clone for CacheTestWrapper<Cache> {
@@ -47,20 +47,31 @@ impl<Cache> CacheTestWrapper<Cache> {
         }
     }
 
-    pub fn wait_for_put(&self, max_wait_duration: Duration, should_fail: bool) {
+    pub fn wait_for_put(&self, max_wait_duration: Duration) {
         let st = std::time::Instant::now();
         loop {
             if st.elapsed() > max_wait_duration {
-                panic!("timeout on waiting for data being stored to the cache")
+                panic!("timeout on waiting for a write to the cache to happen")
             }
-            if should_fail && self.put_block_failed_count.load(Ordering::SeqCst) > 1 {
-                break;
-            }
-            if !should_fail && self.put_block_ok_count.load(Ordering::SeqCst) > 1 {
+            if self.put_block_failed_count.load(Ordering::SeqCst) > 0
+                || self.put_block_ok_count.load(Ordering::SeqCst) > 0
+            {
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
+    }
+
+    pub fn get_block_hit_count(&self) -> u64 {
+        self.get_block_hit_count.load(Ordering::SeqCst)
+    }
+
+    pub fn put_block_ok_count(&self) -> u64 {
+        self.put_block_ok_count.load(Ordering::SeqCst)
+    }
+
+    pub fn put_block_failed_count(&self) -> u64 {
+        self.put_block_failed_count.load(Ordering::SeqCst)
     }
 }
 

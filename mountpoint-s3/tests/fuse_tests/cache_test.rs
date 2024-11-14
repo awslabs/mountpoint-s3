@@ -1,8 +1,4 @@
-use std::{
-    fs,
-    sync::{atomic::Ordering, Arc},
-    time::Duration,
-};
+use std::{fs, sync::Arc, time::Duration};
 
 use mountpoint_s3::{data_cache::ExpressDataCache, prefetch::caching_prefetch, ServerSideEncryption};
 use rand::{Rng, RngCore, SeedableRng};
@@ -21,7 +17,7 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 /// In some cases this is not possible, thus we expect a failure.
 #[test_case("aws:sse", true; "Invalid SSE (does not match the default)")]
 #[test_case("AES256", false; "Valid SSE (matches the default)")]
-fn express_cache_put_enforced_sse(sse: &str, should_fail: bool) {
+fn express_cache_enforced_sse_on_put(sse: &str, should_fail: bool) {
     let bucket_name = get_standard_bucket();
     let prefix = get_test_prefix("express_cache_bad_sse");
     let express_bucket_name = get_express_bucket();
@@ -59,32 +55,29 @@ fn express_cache_put_enforced_sse(sse: &str, should_fail: bool) {
     assert_eq!(read, written);
 
     // Cache writes are async, wait for that to happen
-    express_cache.wait_for_put(Duration::from_secs(10), should_fail);
+    express_cache.wait_for_put(Duration::from_secs(10));
 
     // Depending on the test case check that either or writes failed or all were successful
     if should_fail {
-        assert_eq!(express_cache.put_block_ok_count.load(Ordering::SeqCst), 0)
+        assert_eq!(express_cache.put_block_ok_count(), 0)
     } else {
-        assert_eq!(express_cache.put_block_failed_count.load(Ordering::SeqCst), 0);
+        assert_eq!(express_cache.put_block_failed_count(), 0);
     }
 
     // TODO: check with sdk client that data is stored with the right settings or not stored at all
 }
 
 // #[test]
-// fn express_cache_get_enforced_sse() {
-//     // put
-//     // get
-// }
+// fn express_cache_enforced_sse_on_get();
 
 // #[test]
-// fn express_cache_expected_bucket_owner() {
-//     // put
-//     // get
-// }
+// fn express_cache_expected_bucket_owner_on_get();
 
 // #[test]
-// fn express_cache_wrong_etag() {}
+// fn express_cache_expected_bucket_owner_on_put();
+
+// #[test]
+// fn express_cache_wrong_etag();
 
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::thread_rng().gen();
