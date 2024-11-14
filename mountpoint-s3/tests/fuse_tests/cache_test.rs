@@ -8,7 +8,6 @@ use mountpoint_s3_client::S3CrtClient;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
-use std::sync::Arc;
 use std::time::Duration;
 use test_case::test_case;
 
@@ -74,7 +73,7 @@ fn cache_write_read_base<Cache>(
     // Mount a bucket
     let mount_point = tempfile::tempdir().unwrap();
     let runtime = client.event_loop_group();
-    let cache = CacheTestWrapper::new(Arc::new(cache));
+    let cache = CacheTestWrapper::new(cache);
     let prefetcher = caching_prefetch(cache.clone(), runtime, Default::default());
     let _session = create_fuse_session(
         client,
@@ -90,13 +89,15 @@ fn cache_write_read_base<Cache>(
     let path = mount_point.path().join(&key);
     let written = random_binary_data(object_size);
     fs::write(&path, &written).expect("write should succeed");
+    let put_block_count = cache.put_block_count();
+    assert_eq!(put_block_count, 0, "no cache writes should happen yet");
 
     // First read should be from the source bucket and be cached
     let read = fs::read(&path).expect("read should succeed");
     assert_eq!(read, written);
 
     // Cache population is async, wait for it to happen
-    cache.wait_for_put(Duration::from_secs(10));
+    cache.wait_for_put(Duration::from_secs(10), put_block_count);
 
     // Second read should be from the cache
     let cache_hits_before_read = cache.get_block_hit_count();

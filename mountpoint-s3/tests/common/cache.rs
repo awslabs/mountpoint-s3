@@ -14,56 +14,57 @@ use mountpoint_s3::{
 
 /// A wrapper around any type implementing [DataCache], which counts operations
 pub struct CacheTestWrapper<Cache> {
-    cache: Arc<Cache>,
-    get_block_ok_count: Arc<AtomicU64>,
-    get_block_hit_count: Arc<AtomicU64>,
-    get_block_failed_count: Arc<AtomicU64>,
-    put_block_ok_count: Arc<AtomicU64>,
-    put_block_failed_count: Arc<AtomicU64>,
+    inner: Arc<CacheTestWrapperInner<Cache>>,
+}
+
+struct CacheTestWrapperInner<Cache> {
+    cache: Cache,
+    /// Number of times the `get_block` succeded and returned data
+    get_block_hit_count: AtomicU64,
+    /// Number of times the `put_block` was completed
+    put_block_count: AtomicU64,
 }
 
 impl<Cache> Clone for CacheTestWrapper<Cache> {
     fn clone(&self) -> Self {
         Self {
-            cache: self.cache.clone(),
-            get_block_ok_count: self.get_block_ok_count.clone(),
-            get_block_hit_count: self.get_block_hit_count.clone(),
-            get_block_failed_count: self.get_block_failed_count.clone(),
-            put_block_ok_count: self.put_block_ok_count.clone(),
-            put_block_failed_count: self.put_block_failed_count.clone(),
+            inner: self.inner.clone(),
         }
     }
 }
 
 impl<Cache> CacheTestWrapper<Cache> {
-    pub fn new(cache: Arc<Cache>) -> Self {
+    pub fn new(cache: Cache) -> Self {
         CacheTestWrapper {
-            cache,
-            get_block_ok_count: Arc::new(AtomicU64::new(0)),
-            get_block_hit_count: Arc::new(AtomicU64::new(0)),
-            get_block_failed_count: Arc::new(AtomicU64::new(0)),
-            put_block_ok_count: Arc::new(AtomicU64::new(0)),
-            put_block_failed_count: Arc::new(AtomicU64::new(0)),
+            inner: Arc::new(CacheTestWrapperInner {
+                cache,
+                get_block_hit_count: AtomicU64::new(0),
+                put_block_count: AtomicU64::new(0),
+            }),
         }
     }
 
-    pub fn wait_for_put(&self, max_wait_duration: Duration) {
+    pub fn wait_for_put(&self, max_wait_duration: Duration, previous_value: u64) {
         let st = std::time::Instant::now();
         loop {
             if st.elapsed() > max_wait_duration {
                 panic!("timeout on waiting for a write to the cache to happen")
             }
-            if self.put_block_failed_count.load(Ordering::SeqCst) > 0
-                || self.put_block_ok_count.load(Ordering::SeqCst) > 0
-            {
+            if self.put_block_count() > previous_value {
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
 
+    /// Number of times the `get_block` succeded and returned data
     pub fn get_block_hit_count(&self) -> u64 {
-        self.get_block_hit_count.load(Ordering::SeqCst)
+        self.inner.get_block_hit_count.load(Ordering::SeqCst)
+    }
+
+    /// Number of times the `put_block` was completed
+    pub fn put_block_count(&self) -> u64 {
+        self.inner.put_block_count.load(Ordering::SeqCst)
     }
 }
 
@@ -77,17 +78,12 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
         object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let result = self
+            .inner
             .cache
             .get_block(cache_key, block_idx, block_offset, object_size)
-            .await
+            .await?
             .inspect(|_| {
-                self.get_block_ok_count.fetch_add(1, Ordering::SeqCst);
-            })
-            .inspect_err(|_| {
-                self.get_block_failed_count.fetch_add(1, Ordering::SeqCst);
-            })?
-            .inspect(|_| {
-                self.get_block_hit_count.fetch_add(1, Ordering::SeqCst);
+                self.inner.get_block_hit_count.fetch_add(1, Ordering::SeqCst);
             });
 
         Ok(result)
@@ -101,18 +97,16 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
         bytes: ChecksummedBytes,
         object_size: usize,
     ) -> DataCacheResult<()> {
-        self.cache
+        let result = self
+            .inner
+            .cache
             .put_block(cache_key, block_idx, block_offset, bytes, object_size)
-            .await
-            .inspect(|_| {
-                self.put_block_ok_count.fetch_add(1, Ordering::SeqCst);
-            })
-            .inspect_err(|_| {
-                self.put_block_failed_count.fetch_add(1, Ordering::SeqCst);
-            })
+            .await;
+        self.inner.put_block_count.fetch_add(1, Ordering::SeqCst);
+        result
     }
 
     fn block_size(&self) -> u64 {
-        self.cache.block_size()
+        self.inner.cache.block_size()
     }
 }
