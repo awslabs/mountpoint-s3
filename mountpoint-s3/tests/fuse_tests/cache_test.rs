@@ -1,15 +1,14 @@
-use crate::common::fuse::s3_session::{create_crt_client, create_test_client};
-use crate::common::fuse::{create_fuse_session, TestClient};
-use crate::common::s3::{get_express_bucket, get_standard_bucket, get_test_prefix, get_test_region};
+use crate::common::cache::CacheTestWrapper;
+use crate::common::fuse::create_fuse_session;
+use crate::common::fuse::s3_session::create_crt_client;
+use crate::common::s3::{get_express_bucket, get_standard_bucket, get_test_bucket_and_prefix};
 use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig, ExpressDataCache};
-use mountpoint_s3::fs::CacheConfig;
 use mountpoint_s3::prefetch::caching_prefetch;
-use mountpoint_s3::S3FilesystemConfig;
 use mountpoint_s3_client::S3CrtClient;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
-use std::thread::sleep;
+use std::sync::Arc;
 use std::time::Duration;
 use test_case::test_case;
 
@@ -24,7 +23,7 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE);
     let bucket_name = get_standard_bucket();
     let express_bucket_name = get_express_bucket();
-    let cache = ExpressDataCache::new(&express_bucket_name, client.clone(), &bucket_name, CACHE_BLOCK_SIZE);
+    let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket_name, &express_bucket_name);
 
     cache_write_read_base(
         client,
@@ -70,30 +69,20 @@ fn cache_write_read_base<Cache>(
 ) where
     Cache: DataCache + Send + Sync + 'static,
 {
-    let region = get_test_region();
-    let bucket = get_standard_bucket();
-    let prefix = get_test_prefix(test_name);
+    let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
 
     // Mount a bucket
-    let filesystem_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: true,
-            file_ttl: Duration::from_secs(3600),
-            dir_ttl: Duration::from_secs(3600),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
     let mount_point = tempfile::tempdir().unwrap();
     let runtime = client.event_loop_group();
-    let prefetcher = caching_prefetch(cache, runtime, Default::default());
+    let cache = CacheTestWrapper::new(Arc::new(cache));
+    let prefetcher = caching_prefetch(cache.clone(), runtime, Default::default());
     let _session = create_fuse_session(
         client,
         prefetcher,
         &bucket,
         &prefix,
         mount_point.path(),
-        filesystem_config,
+        Default::default(),
     );
 
     // Write an object, no caching happens yet
@@ -106,27 +95,20 @@ fn cache_write_read_base<Cache>(
     let read = fs::read(&path).expect("read should succeed");
     assert_eq!(read, written);
 
-    // Cache population is async, 3 seconds should be enough for it to finish
-    sleep(Duration::from_secs(3));
-
-    // Ensure data may not be served from the source bucket.
-    //
-    // NOTE, that we assume that the metadata cache will hold an entry for the removed object
-    // at the point of the next read. This assumption must be valid since there are no other
-    // FS operations done before the read. Currently, an entry in the metadata cache may be
-    // invalidated by TTL expiry or a READDIR(PLUS) call.
-    let test_client = create_test_client(&region, &bucket, &prefix);
-    test_client.remove_object(&key).expect("remove must succeed");
-    assert!(
-        !test_client.contains_key(&key).expect("head object must succeed"),
-        "object should not exist in the source bucket"
-    );
+    // Cache population is async, wait for it to happen
+    cache.wait_for_put(Duration::from_secs(10));
 
     // Second read should be from the cache
+    let cache_hits_before_read = cache.get_block_hit_count();
     let read = fs::read(&path).expect("read from the cache should succeed");
     assert_eq!(read, written);
+    assert!(
+        cache.get_block_hit_count() > cache_hits_before_read,
+        "read should result in a cache hit"
+    );
 }
 
+/// Generates random data of the specified size
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::thread_rng().gen();
     let mut rng = ChaChaRng::seed_from_u64(seed);
@@ -135,7 +117,7 @@ fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     data
 }
 
-// Creates a random key which has a size of at least `min_size_in_bytes`
+/// Creates a random key which has a size of at least `min_size_in_bytes`
 fn get_object_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
     let random_suffix: u64 = rand::thread_rng().gen();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"

@@ -389,7 +389,7 @@ pub mod s3_session {
         S3CrtClient::new(client_config).unwrap()
     }
 
-    pub fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {
+    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {
         let sdk_client = tokio_block_on(async { get_test_sdk_client(region).await });
         SDKTestClient {
             prefix: prefix.to_owned(),
