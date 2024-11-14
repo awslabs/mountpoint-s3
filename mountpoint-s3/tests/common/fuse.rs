@@ -258,8 +258,8 @@ pub mod mock_session {
             Ok(())
         }
 
-        fn get_object_etag(&self, _key: &str) -> Result<String, Box<dyn std::error::Error>> {
-            panic!("not implemented");
+        fn get_object_etag(&self, key: &str) -> Result<String, Box<dyn std::error::Error>> {
+            Ok(self.client.get_object_etag(key)?.into_inner())
         }
 
         fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
