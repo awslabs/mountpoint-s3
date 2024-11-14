@@ -797,13 +797,21 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
+        let content_crc32 = crc32c::checksum(contents.as_ref());
         let mut object: MockObject = contents.into();
         object.set_storage_class(params.storage_class.clone());
         object.set_object_metadata(params.object_metadata.clone());
         if let Some(upload_checksum) = &params.checksum {
             let mut checksum = Checksum::empty();
             match upload_checksum {
-                UploadChecksum::Crc32c(crc32c) => checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c)),
+                UploadChecksum::Crc32c(crc32c) => {
+                    if crc32c != &content_crc32 {
+                        return Err(ObjectClientError::ClientError(MockClientError(
+                            "crc32c specified did not match data content".into(),
+                        )));
+                    }
+                    checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c));
+                }
             }
             object.set_checksum(checksum);
         }
