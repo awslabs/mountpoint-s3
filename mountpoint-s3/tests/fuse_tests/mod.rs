@@ -1,4 +1,4 @@
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+#[cfg(feature = "s3_tests")]
 mod cache_test;
 mod consistency_test;
 mod fork_test;

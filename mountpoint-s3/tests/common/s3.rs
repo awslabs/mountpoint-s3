@@ -8,11 +8,7 @@ use rand_chacha::rand_core::OsRng;
 use crate::common::tokio_block_on;
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
-    #[cfg(not(feature = "s3express_tests"))]
-    let bucket = get_standard_bucket();
-    #[cfg(feature = "s3express_tests")]
-    let bucket = get_express_bucket();
-
+    let bucket = get_test_bucket();
     let prefix = get_test_prefix(test_name);
 
     (bucket, prefix)
@@ -27,6 +23,13 @@ pub fn get_test_prefix(test_name: &str) -> String {
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
 
     format!("{prefix}{test_name}/{nonce}/")
+}
+
+pub fn get_test_bucket() -> String {
+    #[cfg(not(feature = "s3express_tests"))]
+    return get_standard_bucket();
+    #[cfg(feature = "s3express_tests")]
+    return get_express_bucket();
 }
 
 #[cfg(feature = "s3express_tests")]

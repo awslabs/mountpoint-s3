@@ -1,17 +1,25 @@
 use crate::common::cache::CacheTestWrapper;
 use crate::common::fuse::create_fuse_session;
 use crate::common::fuse::s3_session::create_crt_client;
-use crate::common::s3::{get_express_bucket, get_standard_bucket, get_test_prefix};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use crate::common::s3::{get_express_bucket, get_standard_bucket};
+use crate::common::s3::{get_test_bucket, get_test_prefix};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use crate::common::tokio_block_on;
 use fuser::BackgroundSession;
-use mountpoint_s3::data_cache::{
-    build_prefix, get_s3_key, BlockIndex, DataCache, DiskDataCache, DiskDataCacheConfig, ExpressDataCache,
-};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
+use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::caching_prefetch;
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::S3CrtClient;
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use mountpoint_s3_crt::checksums::crc32c;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
@@ -25,6 +33,7 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 
 /// A test that checks that an invalid block may not be served from the cache
 #[test]
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 fn express_invalid_block_read() {
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
@@ -41,7 +50,7 @@ fn express_invalid_block_read() {
     let (mount_point, _session) = mount_bucket(client.clone(), cache.clone(), &bucket, &prefix);
 
     // Put an object to the mounted bucket
-    let object_key = get_object_key(&prefix, "key", 100);
+    let object_key = generate_unprefixed_key(&prefix, "key", 100);
     let full_object_key = format!("{prefix}{object_key}");
     let object_data = "object_data";
     let result = tokio_block_on(client.put_object_single(&bucket, &full_object_key, &Default::default(), object_data))
@@ -62,7 +71,7 @@ fn express_invalid_block_read() {
     assert_eq!(cache.get_block_invalid_count(), 0, "no invalid blocks yet");
     assert!(cache.get_block_hit_count() > 0, "reads should result in a cache hit");
 
-    // Corrupt the cache block
+    // Corrupt the cache block by replacing it with an object holding no metadata
     let object_id = get_object_id(&prefix, &object_key, &object_etag);
     let block_key = get_express_cache_block_key(&bucket, &object_id, 0);
     let corrupted_block = "corrupted_block";
@@ -71,7 +80,7 @@ fn express_invalid_block_read() {
     tokio_block_on(client.put_object_single(&cache_bucket, &block_key, &put_object_params, corrupted_block))
         .expect("put object must succeed");
 
-    // Read data after the block was corrupted, expect errors, but still the correct data
+    // Expect a successfull read from the source bucket. We expect cache errors being recorded because of the corrupted block.
     let path = mount_point.path().join(&object_key);
     let read = fs::read(&path).expect("read should succeed");
     assert_eq!(read, object_data.as_bytes());
@@ -85,6 +94,7 @@ fn express_invalid_block_read() {
 #[test_case("£", 100, 1024; "non-ascii key")]
 #[test_case("key", 1024, 1024; "long key")]
 #[test_case("key", 100, 1024 * 1024; "big file")]
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE);
     let bucket_name = get_standard_bucket();
@@ -106,6 +116,7 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
 #[test_case("£", 100, 1024; "non-ascii key")]
 #[test_case("key", 1024, 1024; "long key")]
 #[test_case("key", 100, 1024 * 1024; "big file")]
+#[cfg(feature = "s3_tests")]
 fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
@@ -116,7 +127,7 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE);
 
-    let bucket_name = get_standard_bucket();
+    let bucket_name = get_test_bucket();
     cache_write_read_base(
         client,
         &bucket_name,
@@ -146,7 +157,7 @@ fn cache_write_read_base<Cache>(
     let (mount_point, _session) = mount_bucket(client, cache.clone(), bucket, &prefix);
 
     // Write an object, no caching happens yet
-    let key = get_object_key(&prefix, key_suffix, key_size);
+    let key = generate_unprefixed_key(&prefix, key_suffix, key_size);
     let path = mount_point.path().join(&key);
     let written = random_binary_data(object_size);
     fs::write(&path, &written).expect("write should succeed");
@@ -180,7 +191,8 @@ fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
 }
 
 /// Creates a random key which has a size of at least `min_size_in_bytes`
-fn get_object_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
+/// The `key_prefix` is not included in the return value.
+fn generate_unprefixed_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
     let random_suffix: u64 = rand::thread_rng().gen();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"
     let full_key = format!("{key_prefix}{last_key_part}");
@@ -208,10 +220,12 @@ where
     (mount_point, session)
 }
 
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 fn get_object_id(prefix: &str, key: &str, etag: &str) -> ObjectId {
     ObjectId::new(format!("{prefix}{key}"), etag.into())
 }
 
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 fn get_express_cache_block_key(bucket: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
     let block_key_prefix = build_prefix(bucket, CACHE_BLOCK_SIZE);
     get_s3_key(&block_key_prefix, cache_key, block_idx)
