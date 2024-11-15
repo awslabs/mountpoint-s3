@@ -7,6 +7,7 @@ use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3::prefetch::caching_prefetch;
 use mountpoint_s3_client::S3CrtClient;
 
+use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
@@ -16,8 +17,6 @@ use test_case::test_case;
 
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use crate::common::s3::{get_express_bucket, get_standard_bucket};
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use fuser::BackgroundSession;
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
