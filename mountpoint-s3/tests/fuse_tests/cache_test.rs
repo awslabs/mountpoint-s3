@@ -1,26 +1,12 @@
 use crate::common::cache::CacheTestWrapper;
 use crate::common::fuse::create_fuse_session;
 use crate::common::fuse::s3_session::create_crt_client;
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use crate::common::s3::{get_express_bucket, get_standard_bucket};
 use crate::common::s3::{get_test_bucket, get_test_prefix};
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use crate::common::tokio_block_on;
-use fuser::BackgroundSession;
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
-use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3::object::ObjectId;
+use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3::prefetch::caching_prefetch;
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::S3CrtClient;
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3_crt::checksums::crc32c;
+
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
@@ -28,13 +14,28 @@ use std::time::Duration;
 use tempfile::TempDir;
 use test_case::test_case;
 
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use crate::common::s3::{get_express_bucket, get_standard_bucket};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use fuser::BackgroundSession;
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3::object::ObjectId;
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3_client::ObjectClient;
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+use mountpoint_s3_crt::checksums::crc32c;
+
 const CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 
 /// A test that checks that an invalid block may not be served from the cache
-#[test]
+#[tokio::test]
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-fn express_invalid_block_read() {
+async fn express_invalid_block_read() {
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
     let prefix = get_test_prefix("express_invalid_block_read");
@@ -53,7 +54,9 @@ fn express_invalid_block_read() {
     let object_key = generate_unprefixed_key(&prefix, "key", 100);
     let full_object_key = format!("{prefix}{object_key}");
     let object_data = "object_data";
-    let result = tokio_block_on(client.put_object_single(&bucket, &full_object_key, &Default::default(), object_data))
+    let result = client
+        .put_object_single(&bucket, &full_object_key, &Default::default(), object_data)
+        .await
         .expect("put object must succeed");
     let object_etag = result.etag.into_inner();
 
@@ -77,7 +80,9 @@ fn express_invalid_block_read() {
     let corrupted_block = "corrupted_block";
     let checksum = crc32c::checksum(corrupted_block.as_bytes());
     let put_object_params = PutObjectSingleParams::default().checksum(Some(UploadChecksum::Crc32c(checksum)));
-    tokio_block_on(client.put_object_single(&cache_bucket, &block_key, &put_object_params, corrupted_block))
+    client
+        .put_object_single(&cache_bucket, &block_key, &put_object_params, corrupted_block)
+        .await
         .expect("put object must succeed");
 
     // Expect a successfull read from the source bucket. We expect cache errors being recorded because of the corrupted block.
