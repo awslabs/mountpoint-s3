@@ -21,8 +21,6 @@ pub trait TestClient: Send {
         self.put_object_params(key, value, PutObjectParams::default())
     }
 
-    fn get_object_etag(&self, key: &str) -> Result<String, Box<dyn std::error::Error>>;
-
     fn put_object_params(
         &self,
         key: &str,
@@ -258,10 +256,6 @@ pub mod mock_session {
             Ok(())
         }
 
-        fn get_object_etag(&self, key: &str) -> Result<String, Box<dyn std::error::Error>> {
-            Ok(self.client.get_object_etag(key)?.into_inner())
-        }
-
         fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             self.client.remove_object(&full_key);
@@ -395,7 +389,7 @@ pub mod s3_session {
         S3CrtClient::new(client_config).unwrap()
     }
 
-    pub fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {
+    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {
         let sdk_client = tokio_block_on(async { get_test_sdk_client(region).await });
         SDKTestClient {
             prefix: prefix.to_owned(),
@@ -432,15 +426,6 @@ pub mod s3_session {
                 request = request.set_checksum_algorithm(Some(ChecksumAlgorithm::Crc32C));
             }
             Ok(tokio_block_on(request.send()).map(|_| ())?)
-        }
-
-        fn get_object_etag(&self, key: &str) -> Result<String, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let request = self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send();
-            Ok(
-                tokio_block_on(request)
-                    .map(|result| result.e_tag.expect("head object response must return an etag"))?,
-            )
         }
 
         fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {

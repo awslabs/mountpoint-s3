@@ -102,14 +102,6 @@ impl MockClient {
         add_object(&self.objects, key, value);
     }
 
-    /// Get object's etag
-    pub fn get_object_etag(&self, key: &str) -> Result<ETag, MockClientError> {
-        match self.objects.read().unwrap().get(key) {
-            Some(object) => Ok(object.etag.clone()),
-            None => Err(MockClientError("object not found".into())),
-        }
-    }
-
     /// Remove object for the mock client's bucket
     pub fn remove_object(&self, key: &str) {
         self.objects.write().unwrap().remove(key);

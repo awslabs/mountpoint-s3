@@ -1,15 +1,18 @@
 use crate::common::cache::CacheTestWrapper;
-use crate::common::fuse::s3_session::{create_crt_client, create_test_client};
-use crate::common::fuse::{create_fuse_session, TestClient};
-use crate::common::s3::{get_express_bucket, get_standard_bucket, get_test_prefix, get_test_region};
+use crate::common::fuse::create_fuse_session;
+use crate::common::fuse::s3_session::create_crt_client;
+use crate::common::s3::{get_express_bucket, get_standard_bucket, get_test_prefix};
+use crate::common::tokio_block_on;
 use fuser::BackgroundSession;
 use mountpoint_s3::data_cache::{
     build_prefix, get_s3_key, BlockIndex, DataCache, DiskDataCache, DiskDataCacheConfig, ExpressDataCache,
 };
+
 use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::caching_prefetch;
-use mountpoint_s3_client::types::{PutObjectParams, PutObjectTrailingChecksums};
-use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_crt::checksums::crc32c;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
@@ -23,7 +26,6 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 /// A test that checks that an invalid block may not be served from the cache
 #[test]
 fn express_invalid_block_read() {
-    let region = get_test_region();
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
     let prefix = get_test_prefix("express_invalid_block_read");
@@ -36,14 +38,15 @@ fn express_invalid_block_read() {
         &bucket,
         &cache_bucket,
     ));
-    let (mount_point, _session) = mount_bucket(client, cache.clone(), &bucket, &prefix);
+    let (mount_point, _session) = mount_bucket(client.clone(), cache.clone(), &bucket, &prefix);
 
     // Put an object to the mounted bucket
-    let bucket_client = create_test_client(&region, &bucket, &prefix);
     let object_key = get_object_key(&prefix, "key", 100);
+    let full_object_key = format!("{prefix}{object_key}");
     let object_data = "object_data";
-    bucket_client.put_object(&object_key, object_data.as_bytes()).unwrap();
-    let object_etag = bucket_client.get_object_etag(&object_key).unwrap();
+    let result = tokio_block_on(client.put_object_single(&bucket, &full_object_key, &Default::default(), object_data))
+        .expect("put object must succeed");
+    let object_etag = result.etag.into_inner();
 
     // Read data twice, expect cache hits and no errors
     let path = mount_point.path().join(&object_key);
@@ -60,13 +63,13 @@ fn express_invalid_block_read() {
     assert!(cache.get_block_hit_count() > 0, "reads should result in a cache hit");
 
     // Corrupt the cache block
-    let cache_bucket_client = create_test_client(&region, &cache_bucket, "");
     let object_id = get_object_id(&prefix, &object_key, &object_etag);
     let block_key = get_express_cache_block_key(&bucket, &object_id, 0);
-    let put_object_params = PutObjectParams::default().trailing_checksums(PutObjectTrailingChecksums::Enabled);
-    cache_bucket_client
-        .put_object_params(&block_key, "invalid_block".as_bytes(), put_object_params)
-        .unwrap();
+    let corrupted_block = "corrupted_block";
+    let checksum = crc32c::checksum(corrupted_block.as_bytes());
+    let put_object_params = PutObjectSingleParams::default().checksum(Some(UploadChecksum::Crc32c(checksum)));
+    tokio_block_on(client.put_object_single(&cache_bucket, &block_key, &put_object_params, corrupted_block))
+        .expect("put object must succeed");
 
     // Read data after the block was corrupted, expect errors, but still the correct data
     let path = mount_point.path().join(&object_key);
