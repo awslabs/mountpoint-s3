@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use mountpoint_s3::{
-    data_cache::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult},
+    data_cache::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult},
     object::ObjectId,
 };
 
@@ -21,6 +21,8 @@ struct CacheTestWrapperInner<Cache> {
     cache: Cache,
     /// Number of times the `get_block` succeded and returned data
     get_block_hit_count: AtomicU64,
+    /// Number of times the `get_block` failed because of an invalid block
+    get_block_invalid_count: AtomicU64,
     /// Number of times the `put_block` was completed
     put_block_count: AtomicU64,
 }
@@ -39,6 +41,7 @@ impl<Cache> CacheTestWrapper<Cache> {
             inner: Arc::new(CacheTestWrapperInner {
                 cache,
                 get_block_hit_count: AtomicU64::new(0),
+                get_block_invalid_count: AtomicU64::new(0),
                 put_block_count: AtomicU64::new(0),
             }),
         }
@@ -62,6 +65,11 @@ impl<Cache> CacheTestWrapper<Cache> {
         self.inner.get_block_hit_count.load(Ordering::SeqCst)
     }
 
+    /// Number of times the `get_block` finished because of an invalid block
+    pub fn get_block_invalid_count(&self) -> u64 {
+        self.inner.get_block_invalid_count.load(Ordering::SeqCst)
+    }
+
     /// Number of times the `put_block` was completed
     pub fn put_block_count(&self) -> u64 {
         self.inner.put_block_count.load(Ordering::SeqCst)
@@ -77,18 +85,23 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
         block_offset: u64,
         object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
-        let result: Option<ChecksummedBytes> = self
+        let result = self
             .inner
             .cache
             .get_block(cache_key, block_idx, block_offset, object_size)
-            .await?;
+            .await;
 
-        // The cache hit happens only if the `get_block` was successful and returned data
-        if result.is_some() {
-            self.inner.get_block_hit_count.fetch_add(1, Ordering::SeqCst);
-        }
+        match result.as_ref() {
+            Ok(Some(_)) => {
+                self.inner.get_block_hit_count.fetch_add(1, Ordering::SeqCst);
+            }
+            Err(DataCacheError::InvalidBlockHeader(_)) => {
+                self.inner.get_block_invalid_count.fetch_add(1, Ordering::SeqCst);
+            }
+            _ => (),
+        };
 
-        Ok(result)
+        result
     }
 
     async fn put_block(
