@@ -153,36 +153,53 @@ where
         self.next_handle.fetch_add(1, Ordering::SeqCst)
     }
 
+    /// Helper to return the u16 value in an environment variable, or panic.  Useful for unstable overrides.
+    fn parse_env_var_to_u16(var_name: &str, var_value: std::ffi::OsString) -> u16 {
+        var_value.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
+            panic!(
+                "Invalid value for environment variable {}. Must be positive integer.",
+                var_name
+            )
+        })
+    }
+
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+        const ENV_VAR_KEY_MAX_BACKGROUND: &str = "UNSTABLE_MOUNTPOINT_MAX_BACKGROUND";
+        const ENV_VAR_KEY_CONGESTION_THRESHOLD: &str = "UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD";
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
-        // Set max_background FUSE parameter to 64 by default, or override with environment variable:
+        // Set max_background FUSE parameter to 64 by default, or override with environment variable.
         // NOTE: Support for this environment variable may be removed in future without notice.
-        if let Some(user_max_background) = std::env::var_os("UNSTABLE_MAX_BACKGROUND") {
-            let max_background = user_max_background
-                .to_string_lossy()
-                .parse::<u16>()
-                .expect("invalid env var value for UNSTABLE_MAX_BACKGROUND");
+        if let Some(user_max_background) = std::env::var_os(ENV_VAR_KEY_MAX_BACKGROUND) {
+            let max_background = Self::parse_env_var_to_u16(ENV_VAR_KEY_MAX_BACKGROUND, user_max_background);
             let old = config
                 .set_max_background(max_background)
-                .expect("unable to set max background");
-            tracing::warn!("set max background to {} from {}", max_background, old)
+                .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {}", max_background));
+            tracing::warn!(
+                "Successfully overridden FUSE max_background configuration to {} (was {}) from unstable environment variable.",
+                max_background,
+                old
+            );
         } else {
             let _ = config
                 .set_max_background(64)
-                .expect("unable to set max background to default value");
+                .expect("unable to set FUSE max_background to default value");
         }
-        // Override FUSE congestion threshold if environment variable is present:
+
+        // Override FUSE congestion threshold if environment variable is present.
         // NOTE: Support for this environment variable may be removed in future without notice.
-        if let Some(user_congestion_threshold) = std::env::var_os("UNSTABLE_CONGESTION_THRESHOLD") {
-            let congestion_threshold = user_congestion_threshold
-                .to_string_lossy()
-                .parse::<u16>()
-                .expect("invalid env var value for UNSTABLE_CONGESTION_THRESHOLD");
+        if let Some(user_congestion_threshold) = std::env::var_os(ENV_VAR_KEY_CONGESTION_THRESHOLD) {
+            let congestion_threshold =
+                Self::parse_env_var_to_u16(ENV_VAR_KEY_CONGESTION_THRESHOLD, user_congestion_threshold);
             let old = config
                 .set_congestion_threshold(congestion_threshold)
-                .expect("unable to set congestion threshold");
-            tracing::warn!("set congestion threshold to {} from {}", congestion_threshold, old);
+                .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {}", congestion_threshold));
+            tracing::warn!(
+                "Successfully overridden FUSE congestion_threshold configuration to {} (was {}) from unstable environment variable.",
+                congestion_threshold, // Note: fixed a bug here, was using max_background
+                old
+            );
         }
+
         if self.config.allow_overwrite {
             // Overwrites require FUSE_ATOMIC_O_TRUNC capability on the host, so we will panic if the
             // host doesn't support it.
