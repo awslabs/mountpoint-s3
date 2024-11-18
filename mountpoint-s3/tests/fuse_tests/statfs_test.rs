@@ -30,7 +30,7 @@ fn statfs_test_fuser_defaults(creator_fn: impl TestSessionCreator, prefix: &str)
     // This may be a bit surprising, however as we set fsize to 0,
     // it will be automatically set to the block_size, if it is not available
     // c.f. https://stackoverflow.com/questions/54823541/what-do-f-bsize-and-f-frsize-in-struct-statvfs-stand-for
-    assert_eq!(stats.fragment_size(), 255);
+    assert_eq!(stats.fragment_size(), 512);
 }
 
 /// Test that total blocks >= blocks_free,

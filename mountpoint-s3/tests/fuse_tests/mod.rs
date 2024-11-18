@@ -11,6 +11,6 @@ mod readdir_test;
 mod rmdir_test;
 mod semantics_doc_test;
 mod setattr_test;
+mod statfs_test;
 mod unlink_test;
 mod write_test;
-mod statfs_test;
