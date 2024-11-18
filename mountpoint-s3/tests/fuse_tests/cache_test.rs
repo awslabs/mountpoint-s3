@@ -1,17 +1,11 @@
 use crate::common::cache::CacheTestWrapper;
-use crate::common::creds::get_scoped_down_credentials;
 use crate::common::fuse::create_fuse_session;
 use crate::common::fuse::s3_session::create_crt_client;
 use crate::common::s3::{get_test_bucket, get_test_prefix};
 
 use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3::prefetch::caching_prefetch;
-use mountpoint_s3_client::config::S3ClientAuthConfig;
-use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::S3CrtClient;
-use mountpoint_s3_client::S3RequestError::{CrtError, ResponseError};
-use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::common::allocator::Allocator;
 
 use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
@@ -150,7 +144,11 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 }
 
 #[tokio::test]
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 async fn express_cache_verify_fail_non_express() {
+    use mountpoint_s3_client::error::ObjectClientError;
+    use mountpoint_s3_client::S3RequestError::ResponseError;
+
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_standard_bucket();
@@ -170,10 +168,19 @@ async fn express_cache_verify_fail_non_express() {
 }
 
 #[tokio::test]
+#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 async fn express_cache_verify_fail_forbidden() {
+    use crate::common::creds::get_scoped_down_credentials;
+    use mountpoint_s3_client::config::S3ClientAuthConfig;
+    use mountpoint_s3_client::error::ObjectClientError;
+    use mountpoint_s3_client::S3RequestError::CrtError;
+    use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
+    use mountpoint_s3_crt::common::allocator::Allocator;
+
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_express_bucket();
 
+    // No `s3express:CreateSession` in this policy, so we should get a forbidden error.
     let policy = r#"{"Statement": [
         {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"], "Resource": "arn:aws:s3:::__BUCKET__/*"},
         {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::__BUCKET__"}

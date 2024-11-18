@@ -896,7 +896,8 @@ where
         (None, Some((config, bucket_name, cache_bucket_name))) => {
             tracing::trace!("using S3 Express One Zone bucket as a cache for object content");
             let express_cache = ExpressDataCache::new(client.clone(), config, bucket_name, cache_bucket_name);
-            block_on(express_cache.verify_cache_valid())?;
+            block_on(express_cache.verify_cache_valid())
+                .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
 
             let prefetcher = caching_prefetch(express_cache, runtime, prefetcher_config);
             let fuse_session = create_filesystem(
@@ -936,7 +937,8 @@ where
             tracing::trace!("using both local disk and S3 Express One Zone bucket as a cache for object content");
             let (managed_cache_dir, disk_cache) = create_disk_cache(cache_dir_path, disk_data_cache_config)?;
             let express_cache = ExpressDataCache::new(client.clone(), config, bucket_name, cache_bucket_name);
-            block_on(express_cache.verify_cache_valid())?;
+            block_on(express_cache.verify_cache_valid())
+                .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
             let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
 
             let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);

@@ -84,6 +84,9 @@ where
             self.bucket_name, self.config.block_size
         );
 
+        // put_object is sufficient for validating cache, as S3 Directory buckets only support
+        // read-only, or read-write. Write implies read access.
+        // Validating we're in a directory bucket by using the `EXPRESS_ONEZONE` storage class.
         self.client
             .put_object_single(
                 &self.bucket_name,
