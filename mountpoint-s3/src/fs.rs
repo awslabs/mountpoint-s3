@@ -180,9 +180,12 @@ where
                 old
             );
         } else {
-            let _ = config
-                .set_max_background(64)
-                .expect("unable to set FUSE max_background to default value");
+            const DEFAULT_MAX_BACKGROUND: u16 = 64;
+            let max_background_result = config
+                .set_max_background(DEFAULT_MAX_BACKGROUND);
+            if max_background_result.is_err() {
+                tracing::warn!("failed to set FUSE max_background to {}, using Kernel default", DEFAULT_MAX_BACKGROUND);
+            }
         }
 
         // Override FUSE congestion threshold if environment variable is present.
