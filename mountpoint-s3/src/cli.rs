@@ -736,8 +736,17 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, EventLoo
         user_agent.value("mp-readonly");
     }
 
-    if args.cache.is_some() {
-        user_agent.value("mp-cache");
+    match (&args.cache, args.cache_express_bucket_name()) {
+        (None, None) => (),
+        (None, Some(_)) => {
+            user_agent.key_value("mp-cache", "shared");
+        }
+        (Some(_), None) => {
+            user_agent.key_value("mp-cache", "local");
+        }
+        (Some(_), Some(_)) => {
+            user_agent.key_values("mp-cache", &["shared", "local"]);
+        }
     }
     if let Some(ttl) = args.metadata_ttl {
         user_agent.key_value("mp-cache-ttl", &ttl.to_string());

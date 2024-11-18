@@ -57,6 +57,14 @@ impl UserAgent {
         self
     }
 
+    /// Add a key-value metadata field to the header with multiple values
+    pub fn key_values(&mut self, key: &str, values: &[&str]) -> &mut Self {
+        let value = values.join("+");
+        self.fields
+            .push(format!("md/{}#{}", sanitize_string(key), sanitize_string(value)));
+        self
+    }
+
     /// Add a value-only metadata field to the header
     pub fn value(&mut self, value: &str) -> &mut Self {
         self.fields.push(format!("md/{}", sanitize_string(value)));
@@ -163,5 +171,13 @@ mod tests {
             sanitize_string("Java_HotSpot_(TM)_64-Bit_Server_VM"),
             "Java_HotSpot_-TM-_64-Bit_Server_VM"
         );
+    }
+
+    #[test]
+    fn test_multiple_values() {
+        let mut user_agent = UserAgent::new(None);
+        user_agent.key_values("mp-cache", &["shared", "local"]);
+        let user_agent_string = user_agent.build();
+        assert!(user_agent_string.contains("md/mp-cache#shared+local"));
     }
 }
