@@ -153,8 +153,58 @@ where
         self.next_handle.fetch_add(1, Ordering::SeqCst)
     }
 
+    /// Helper to return the u16 value in an environment variable, or panic.  Useful for unstable overrides.
+    fn parse_env_var_to_u16(var_name: &str, var_value: std::ffi::OsString) -> u16 {
+        var_value.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
+            panic!(
+                "Invalid value for environment variable {}. Must be positive integer.",
+                var_name
+            )
+        })
+    }
+
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+        const ENV_VAR_KEY_MAX_BACKGROUND: &str = "UNSTABLE_MOUNTPOINT_MAX_BACKGROUND";
+        const ENV_VAR_KEY_CONGESTION_THRESHOLD: &str = "UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD";
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
+        // Set max_background FUSE parameter to 64 by default, or override with environment variable.
+        // NOTE: Support for this environment variable may be removed in future without notice.
+        if let Some(user_max_background) = std::env::var_os(ENV_VAR_KEY_MAX_BACKGROUND) {
+            let max_background = Self::parse_env_var_to_u16(ENV_VAR_KEY_MAX_BACKGROUND, user_max_background);
+            let old = config
+                .set_max_background(max_background)
+                .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {}", max_background));
+            tracing::warn!(
+                "Successfully overridden FUSE max_background configuration to {} (was {}) from unstable environment variable.",
+                max_background,
+                old
+            );
+        } else {
+            const DEFAULT_MAX_BACKGROUND: u16 = 64;
+            let max_background_result = config.set_max_background(DEFAULT_MAX_BACKGROUND);
+            if max_background_result.is_err() {
+                tracing::warn!(
+                    "failed to set FUSE max_background to {}, using Kernel default",
+                    DEFAULT_MAX_BACKGROUND
+                );
+            }
+        }
+
+        // Override FUSE congestion threshold if environment variable is present.
+        // NOTE: Support for this environment variable may be removed in future without notice.
+        if let Some(user_congestion_threshold) = std::env::var_os(ENV_VAR_KEY_CONGESTION_THRESHOLD) {
+            let congestion_threshold =
+                Self::parse_env_var_to_u16(ENV_VAR_KEY_CONGESTION_THRESHOLD, user_congestion_threshold);
+            let old = config
+                .set_congestion_threshold(congestion_threshold)
+                .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {}", congestion_threshold));
+            tracing::warn!(
+                "Successfully overridden FUSE congestion_threshold configuration to {} (was {}) from unstable environment variable.",
+                congestion_threshold,
+                old
+            );
+        }
+
         if self.config.allow_overwrite {
             // Overwrites require FUSE_ATOMIC_O_TRUNC capability on the host, so we will panic if the
             // host doesn't support it.
