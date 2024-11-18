@@ -130,6 +130,7 @@ pub struct StatFs {
 
 impl Default for StatFs {
     fn default() -> Self {
+        // Default values copied from Fuser (https://github.com/cberner/fuser/blob/e18bd9bf9071ecd8be62993726e06ff11d6ec709/src/lib.rs#L695-L698)
         Self {
             total_blocks: 0,
             free_blocks: 0,
@@ -878,18 +879,15 @@ where
     }
 
     pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
-        const FREE_BLOCKS: u64 = u64::MAX / 2;
-        const FREE_INODES: u64 = u64::MAX / 2;
-        // According to https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html any S3 object name can be at most
-        // 1024 bytes.
-        const MAX_NAME_LENGTH: u32 = 1024;
+        const FREE_BLOCKS: u64 = u64::MAX / 1024;
+        const FREE_INODES: u64 = u64::MAX / 1024;
 
         let reply = StatFs {
             free_blocks: FREE_BLOCKS,
             available_blocks: FREE_BLOCKS,
             free_inodes: FREE_INODES,
-            maximum_name_length: MAX_NAME_LENGTH,
             total_blocks: FREE_BLOCKS,
+            total_inodes: FREE_INODES,
             ..Default::default()
         };
         Ok(reply)
