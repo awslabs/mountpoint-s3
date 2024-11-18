@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1731940894942,
+  "lastUpdate": 1731953943243,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0faeac4f7a4e8c7378ad00ab22f021a347069aa6",
-          "message": "Add GitHub runner architecture to CI cache key (#1110)\n\n<!--\nThe title and description of pull requests will be used when creating a\nsquash commit to the base branch (usually `main`).\nPlease keep them both up-to-date as the code change evolves, to ensure\nthat the commit message is useful for future readers.\n-->\n\n## Description of change\n\nThis change adds the architecture of the runner to the cache key. In a\nprevious change where we upgraded macOS runners from macOS 12 to macOS\n15, the architecture changed however the cache was not invalidated.\n\nLikely we should find a way to key the cache on the actual operating\nsystem version used however there doesn't seem to be an obvious way to\ndo that right now. This quick fix should at least protect us from\narchitecture changes (which macOS runners do have, but I understand its\nonly for larger runners at this time).\n\nRelevant issues: #1097\n\n## Does this change impact existing behavior?\n\nNo, only CI change.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo, only CI change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-11-07T10:33:22Z",
-          "tree_id": "ebd89a8ffd256c498bb1a40f7fb715bc7f630360",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/0faeac4f7a4e8c7378ad00ab22f021a347069aa6"
-        },
-        "date": 1730982534313,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 0,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2469,6 +2350,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 512.76171875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "378a56c2efbdbc423d745bbcf7cf3018d770dc7c",
+          "message": "Validate that shared cache bucket is usable (#1141)\n\n## Description of change\n\n- Validates the shared cache bucket is write-able\n- Validates the shared cache bucket supports the `EXPRESS_ONEZONE`\nstorage class\n\nRelevant issues: N/A\n\n## Does this change impact existing behavior?\n\nYes, the shared cache bucket is now validated that it supports the\n`EXPRESS_ONEZONE` storage class\n\n## Does this change need a changelog entry in any of the crates?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2024-11-18T16:04:15Z",
+          "tree_id": "f3f7e68465c924b7f18f84e29f68d921bd948dd1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/378a56c2efbdbc423d745bbcf7cf3018d770dc7c"
+        },
+        "date": 1731953943205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 9750.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 16373.171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 29567.44921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 84.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 362.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 80.8125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 365.3125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 72.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 299.2421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 72.6640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 297.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 28355.5859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 376.421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 31014.01953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 401.73828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 9634.6328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 259.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 8226.1015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 9665.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 256.09765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 866.19921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 507.5,
             "unit": "MiB"
           }
         ]
