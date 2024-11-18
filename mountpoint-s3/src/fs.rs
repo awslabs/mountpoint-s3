@@ -195,7 +195,7 @@ where
                 .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {}", congestion_threshold));
             tracing::warn!(
                 "Successfully overridden FUSE congestion_threshold configuration to {} (was {}) from unstable environment variable.",
-                congestion_threshold, // Note: fixed a bug here, was using max_background
+                congestion_threshold,
                 old
             );
         }
