@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1731940198047,
+  "lastUpdate": 1731940894942,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "011043e1a336888254df2c5451d644eba4742341",
-          "message": "Add descriptive name to benchmarks, enable CI summaries (#1109)\n\n## Description of change\n\nThis change leverages our benchmark action's GitHub Action's job summary\nintegration to display a summary for throughput and latency benchmarks.\nBefore this change, we would need to check the webpage or the JSON\noutput to compare. For pull requests, only the JSON output would be\navailable. This change applies to both commits on `main` as well as pull\nrequests.\n\nThis should also address issues we had in the past where commit comments\ndid not describe which benchmark failed. See implementation:\nhttps://github.com/benchmark-action/github-action-benchmark/blob/6bae118c112083251560ad8b3a1ff2e43aa23351/src/write.ts#L203-L239\n\nMore information on benchmark GH Action's integration:\nhttps://github.com/benchmark-action/github-action-benchmark?tab=readme-ov-file#job-summary\n\nRelevant issues: N/A\n\n## Does this change impact existing behavior?\n\nNo impact to Mountpoint file system or client.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo, no customer-facing change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2024-11-07T10:10:32Z",
-          "tree_id": "d1aaf31b582c86345aeb8a2e0489f046d98d4ad9",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/011043e1a336888254df2c5451d644eba4742341"
-        },
-        "date": 1730981236414,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 0,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2454,6 +2335,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 484.43359375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e30bff37aa35be2e54e06a0bc92f7a684414bc8",
+          "message": "Update user-agent on express cache usage (#1122)\n\n## Description of change\n\nAdd `mp-cache-express` to the user agent when caching in express is\nenabled.\n\nRelevant issues: N/A\n\n## Does this change impact existing behavior?\n\nNo.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2024-11-18T12:27:52Z",
+          "tree_id": "aac263066f2f280609c1413e05ad01a64b2ec469",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/1e30bff37aa35be2e54e06a0bc92f7a684414bc8"
+        },
+        "date": 1731940894904,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 9851.52734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 18287.984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 31458.8046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 81.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 355.3984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 85.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 359.3984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 75.4140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 298.49609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 76.83203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 301.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 30314.671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 398.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 33944.97265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 391.140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 9479.8984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 259.92578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 9969.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10594.48046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 258.796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 696.56640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 512.76171875,
             "unit": "MiB"
           }
         ]
