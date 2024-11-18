@@ -4,8 +4,8 @@ use test_case::test_case;
 /// Tests that non-zero empty space is reported
 fn statfs_test_available_nonzero(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_dir = test_session.mount_dir;
-    let stats = nix::sys::statvfs::statvfs(&mount_dir.into_path()).unwrap();
+    let mount_dir = test_session.mount_path();
+    let stats = nix::sys::statvfs::statvfs(mount_dir.into()).unwrap();
     assert_ne!(stats.blocks_free(), 0);
     assert_ne!(stats.blocks_available(), 0);
     assert_ne!(stats.blocks(), 0);
@@ -14,8 +14,8 @@ fn statfs_test_available_nonzero(creator_fn: impl TestSessionCreator, prefix: &s
 /// Tests that default values from FUSER are reported for mpst fields
 fn statfs_test_fuser_defaults(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_dir = test_session.mount_dir;
-    let stats = nix::sys::statvfs::statvfs(&mount_dir.into_path()).unwrap();
+    let mount_dir = test_session.mount_path();
+    let stats = nix::sys::statvfs::statvfs(mount_dir.into()).unwrap();
     //assert_eq!(stats.name_max(), 255);
     // These five aren't default values but set by us, so maybe drop
     assert_eq!(stats.blocks(), u64::MAX / 1024);
@@ -37,8 +37,8 @@ fn statfs_test_fuser_defaults(creator_fn: impl TestSessionCreator, prefix: &str)
 /// as some tools rely on calculations with these values to determine percentage of blocks available
 fn statfs_test_block_arithmetic(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
-    let mount_dir = test_session.mount_dir;
-    let stats = nix::sys::statvfs::statvfs(&mount_dir.into_path()).unwrap();
+    let mount_dir = test_session.mount_path();
+    let stats = nix::sys::statvfs::statvfs(mount_dir.into()).unwrap();
     assert!(stats.blocks() >= stats.blocks_available());
 }
 
