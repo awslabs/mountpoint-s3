@@ -264,21 +264,14 @@ async fn test_head_object_sse(
     kms_key_id: Option<String>,
 ) {
     let key = format!("{prefix}hello");
-    let expected_sdk_sse = match sse_type {
-        None => aws_sdk_s3::types::ServerSideEncryption::Aes256,
-        Some("AES256") => aws_sdk_s3::types::ServerSideEncryption::Aes256,
-        Some("aws:kms") => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
-        Some("aws:kms:dsse") => aws_sdk_s3::types::ServerSideEncryption::AwsKmsDsse,
-        _ => panic!("unexpected sse type was used in a test"),
-    };
-
+    let expected_sdk_sse = sse_type.map(|sse| sse.parse().expect("unexpected sse type was used in a test"));
     let sdk_client = get_test_sdk_client().await;
     let put_output = sdk_client
         .put_object()
         .bucket(bucket)
         .key(&key)
         .body(ByteStream::from_static(b"test"))
-        .server_side_encryption(expected_sdk_sse)
+        .set_server_side_encryption(expected_sdk_sse)
         .set_ssekms_key_id(kms_key_id)
         .send()
         .await
@@ -316,15 +309,16 @@ async fn test_head_object_sse_s3(sse_type: Option<&str>, kms_key_id: Option<Stri
     test_head_object_sse(client, &bucket, &prefix, sse_type, kms_key_id).await;
 }
 
-/// See [Server-side encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-data-protection.html#s3-express-ecnryption) for directory buckets.
-#[test_case(None, None)]
-#[test_case(Some("AES256"), None)]
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
-async fn test_head_object_sse_s3express(sse_type: Option<&str>, kms_key_id: Option<String>) {
+async fn test_head_object_sse_s3express() {
+    // Directory buckets only allow to set sse on the whole bucket. See
+    // [Server-side encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-data-protection.html#s3-express-ecnryption) for directory buckets.
+    // We will only test the default here.
+
     let prefix = get_unique_test_prefix("test_head_object_sse_s3express");
     let bucket = get_test_bucket();
     let client: S3CrtClient = get_test_client();
 
-    test_head_object_sse(client, &bucket, &prefix, sse_type, kms_key_id).await;
+    test_head_object_sse(client, &bucket, &prefix, None, None).await;
 }
