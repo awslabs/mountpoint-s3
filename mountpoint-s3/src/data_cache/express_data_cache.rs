@@ -62,8 +62,6 @@ where
     Client: ObjectClient + Send + Sync + 'static,
 {
     /// Create a new instance.
-    ///
-    /// TODO: consider adding some validation of the bucket.
     pub fn new(client: Client, config: ExpressDataCacheConfig, source_bucket_name: &str, bucket_name: &str) -> Self {
         Self {
             client,
