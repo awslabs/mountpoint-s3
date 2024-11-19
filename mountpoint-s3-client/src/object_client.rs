@@ -300,6 +300,12 @@ pub struct HeadObjectResult {
     /// HeadObject must explicitly request for this field to be included,
     /// otherwise the values will be empty.
     pub checksum: Checksum,
+
+    /// Server-side encryption type that was used to store the object.
+    pub sse_type: Option<String>,
+
+    /// Server-side encryption KMS key ID that was used to store the object.
+    pub sse_kms_key_id: Option<String>,
 }
 
 /// Errors returned by a [`head_object`](ObjectClient::head_object) request

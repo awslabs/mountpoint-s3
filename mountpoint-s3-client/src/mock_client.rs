@@ -732,6 +732,8 @@ impl ObjectClient for MockClient {
                 storage_class: object.storage_class.clone(),
                 restore_status: object.restore_status,
                 checksum,
+                sse_type: None,
+                sse_kms_key_id: None,
             })
         } else {
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
