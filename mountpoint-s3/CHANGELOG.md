@@ -2,6 +2,8 @@
 
 ### New features
 
+* Mountpoint now offers a new command-line argument `--cache-express <BUCKET>` which enables caching of object content to the specified bucket on S3 Express One Zone. ([#1145](https://github.com/awslabs/mountpoint-s3/pull/1145))
+
 ### Breaking changes
 
 ### Other changes
