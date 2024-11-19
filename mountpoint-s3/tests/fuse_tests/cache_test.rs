@@ -22,11 +22,7 @@ use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDat
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use mountpoint_s3::object::ObjectId;
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 use mountpoint_s3_client::ObjectClient;
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
-use mountpoint_s3_crt::checksums::crc32c;
 
 const CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
@@ -35,6 +31,9 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 #[tokio::test]
 #[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
 async fn express_invalid_block_read() {
+    use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
+    use mountpoint_s3_crt::checksums::crc32c;
+
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
     let prefix = get_test_prefix("express_invalid_block_read");
@@ -50,7 +49,7 @@ async fn express_invalid_block_read() {
     let (mount_point, _session) = mount_bucket(client.clone(), cache.clone(), &bucket, &prefix);
 
     // Put an object to the mounted bucket
-    let object_key = generate_unprefixed_key(&prefix, "key", 100);
+    let object_key = "key";
     let full_object_key = format!("{prefix}{object_key}");
     let object_data = "object_data";
     let result = client
@@ -60,7 +59,7 @@ async fn express_invalid_block_read() {
     let object_etag = result.etag.into_inner();
 
     // Read data twice, expect cache hits and no errors
-    let path = mount_point.path().join(&object_key);
+    let path = mount_point.path().join(object_key);
 
     let put_block_count = cache.put_block_count();
     let read = fs::read(&path).expect("read should succeed");
@@ -74,7 +73,7 @@ async fn express_invalid_block_read() {
     assert!(cache.get_block_hit_count() > 0, "reads should result in a cache hit");
 
     // Corrupt the cache block by replacing it with an object holding no metadata
-    let object_id = get_object_id(&prefix, &object_key, &object_etag);
+    let object_id = get_object_id(&prefix, object_key, &object_etag);
     let block_key = get_express_cache_block_key(&bucket, &object_id, 0);
     let corrupted_block = "corrupted_block";
     let checksum = crc32c::checksum(corrupted_block.as_bytes());
@@ -84,8 +83,8 @@ async fn express_invalid_block_read() {
         .await
         .expect("put object must succeed");
 
-    // Expect a successfull read from the source bucket. We expect cache errors being recorded because of the corrupted block.
-    let path = mount_point.path().join(&object_key);
+    // Expect a successful read from the source bucket. We expect cache errors being recorded because of the corrupted block.
+    let path = mount_point.path().join(object_key);
     let read = fs::read(&path).expect("read should succeed");
     assert_eq!(read, object_data.as_bytes());
     assert!(
