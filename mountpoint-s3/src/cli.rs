@@ -318,7 +318,6 @@ pub struct CliArgs {
     )]
     pub cache_block_size: Option<u64>,
 
-    #[cfg(feature = "express_cache")]
     #[clap(
         long,
         help = "Enable caching of object content to the specified bucket on S3 Express One Zone (same region only)",
@@ -440,7 +439,6 @@ impl CliArgs {
     }
 
     fn cache_express_bucket_name(&self) -> Option<&str> {
-        #[cfg(feature = "express_cache")]
         if let Some(bucket_name) = &self.cache_xz {
             return Some(bucket_name);
         }
