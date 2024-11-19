@@ -327,7 +327,7 @@ pub struct CliArgs {
         value_parser = parse_bucket_name,
         group = "cache_group",
     )]
-    pub cache_express: Option<String>,
+    pub cache_xz: Option<String>,
 
     #[clap(
         long,
@@ -441,7 +441,7 @@ impl CliArgs {
 
     fn cache_express_bucket_name(&self) -> Option<&str> {
         #[cfg(feature = "express_cache")]
-        if let Some(bucket_name) = &self.cache_express {
+        if let Some(bucket_name) = &self.cache_xz {
             return Some(bucket_name);
         }
         None
