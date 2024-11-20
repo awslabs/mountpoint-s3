@@ -107,8 +107,8 @@ pub struct DirectoryEntry {
     lookup: LookedUp,
 }
 
-#[derive(Debug)]
 /// Reply to a 'statfs' call
+#[derive(Debug)]
 pub struct StatFs {
     /// Total number of blocks
     pub total_blocks: u64,
