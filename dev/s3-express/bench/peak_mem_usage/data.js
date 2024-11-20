@@ -1,127 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1732105190627,
+  "lastUpdate": 1732106175550,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "e3540671baac9d34d280e6815f3d58778dac7eed",
-          "message": "Ensure that the file system in tests is unmounted before removing the temp dir (#1116)\n\n## Description of change\n\nEnsure that the file system in integration tests is unmounted before\nremoving the temporary directory. The introduction of `TestSession` in\n#1096 inadvertently changed the order in which the temporary directory\nand the FUSE session are dropped. Previously it was hidden in the\ndeclaration order. This change makes it explicit in `drop`.\n\n## Does this change impact existing behavior?\n\nNo.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-11-07T17:03:39Z",
-          "tree_id": "e43376caad9c90efa6772986f7d033c45ce6ea68",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/e3540671baac9d34d280e6815f3d58778dac7eed"
-        },
-        "date": 1731005980677,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 0,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2529,6 +2410,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 253.25390625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "87ce33f3376e98e91fea351187bc0c9048ea543c",
+          "message": "Improve the corrupted block test (#1147)\n\n## Description of change\n\nJust test improvements. Addresses comments from the\nhttps://github.com/awslabs/mountpoint-s3/pull/1139.\n\nRelevant issues: N/A.\n\n## Does this change impact existing behavior?\n\nNo.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2024-11-20T10:22:48Z",
+          "tree_id": "46e17a13aaedf014b55589a894220ff007d27565",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/87ce33f3376e98e91fea351187bc0c9048ea543c"
+        },
+        "date": 1732106175512,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 15546.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 26803.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 39464.46484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 155.078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 393.421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 213.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 411.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 83.671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 328.078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 88.7734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 323.1796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 34066.015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 396.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 39557.66015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 388.1015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13671.4609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 258.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13684.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 14424.09765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 262.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 371.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 236.1171875,
             "unit": "MiB"
           }
         ]
