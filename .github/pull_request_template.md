@@ -1,33 +1,14 @@
-<!--
-    The title and description of pull requests will be used when creating a squash commit to the base branch (usually `main`).
-    Please keep them both up-to-date as the code change evolves, to ensure that the commit message is useful for future readers.
--->
+**TODO: Remove all TODO messages in desc. For PR description guidance, review https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONTRIBUTING.md#pull-request-title-and-description**.
 
-## Description of change
+**TODO: What changed and why?**
 
-<!--
-    Please describe your contribution here.
-    What is the change and why are you making it?
--->
+### Does this change impact existing behavior?
 
-Relevant issues: <!-- Please add issue numbers. -->
+**TODO: Please confirm there's no breaking change, or call out any that are made.**
 
-## Does this change impact existing behavior?
+### Does this change need a changelog entry?
 
-<!-- Please confirm there's no breaking change, or call our any behavior changes you think are necessary. -->
-
-## Does this change need a changelog entry in any of the crates?
-
-<!--
-    Please confirm yes or no.
-    If no, add justification. If unsure, ask a reviewer.
-
-    You can find the changelog for each crate here:
-    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
-    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/CHANGELOG.md
-    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt/CHANGELOG.md
-    - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt-sys/CHANGELOG.md
--->
+**TODO: Confirm with justification if not added.**
 
 ---
 

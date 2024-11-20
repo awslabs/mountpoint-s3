@@ -43,6 +43,27 @@ We require all contributors to agree to the terms of the [Developer Certificate 
 and to indicate this agreement by signing their commits using [Git's `Signed-off-by` support](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff).
 To add this trailer to your commits, use the `-s, --sign-off` option to `git commit`.
 
+### Pull request title and description
+
+The pull request title and description is there to describe the change - both what is changing and why.
+
+It is important to address each section of the pull request template, and additionally to keep it maintained.
+The title and description will be used at merge time to create the squash commit message on the base branch (usually `main`).
+Keeping them both up-to-date as the code change evolves ensures that the commit message is useful for future readers.
+
+### Changelog updates
+
+New features, bug fixes, or changes in behavior often justify a note in the `CHANGELOG.md` file for the relevant crate.
+
+The main Mountpoint changelog lives in the `mountpoint-s3` crate/directory, but we also maintain changelog entries for each of the crates that are published to crates.io.
+
+Here is the full list of changelog files we maintain for reference.
+
+- https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
+- https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/CHANGELOG.md
+- https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt/CHANGELOG.md
+- https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt-sys/CHANGELOG.md
+
 ## Finding contributions to work on
 
 Looking at the existing issues is a great way to find something to contribute on. We use issue labels to identify [good first issues](https://github.com/awslabs/mountpoint-s3/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) as a great place to start.
