@@ -113,7 +113,7 @@ pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
 // `FnOnce(...)` in place of `impl TestSessionCreator`.
 impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
 
-fn create_fuse_session<Client, Prefetcher>(
+pub fn create_fuse_session<Client, Prefetcher>(
     client: Client,
     prefetcher: Prefetcher,
     bucket: &str,
@@ -310,6 +310,9 @@ pub mod mock_session {
 pub mod s3_session {
     use super::*;
 
+    use crate::common::s3::{
+        get_test_bucket_and_prefix, get_test_endpoint_config, get_test_region, get_test_sdk_client,
+    };
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use aws_sdk_s3::primitives::ByteStream;
     use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
@@ -318,10 +321,6 @@ pub mod s3_session {
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
     use mountpoint_s3_client::S3CrtClient;
-
-    use crate::common::s3::{
-        get_test_bucket_and_prefix, get_test_endpoint_config, get_test_region, get_test_sdk_client,
-    };
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
@@ -363,12 +362,11 @@ pub mod s3_session {
             let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
             let region = get_test_region();
 
-            let client_config = S3ClientConfig::default()
-                .part_size(test_config.part_size)
-                .endpoint_config(get_test_endpoint_config())
-                .read_backpressure(true)
-                .initial_read_window(test_config.initial_read_window_size);
-            let client = S3CrtClient::new(client_config).unwrap();
+            let client = create_crt_client(
+                test_config.part_size,
+                test_config.initial_read_window_size,
+                Default::default(),
+            );
             let runtime = client.event_loop_group();
             let prefetcher = caching_prefetch(cache, runtime, test_config.prefetcher_config);
             let session = create_fuse_session(
@@ -383,6 +381,20 @@ pub mod s3_session {
 
             TestSession::new(mount_dir, session, test_client)
         }
+    }
+
+    pub fn create_crt_client(
+        part_size: usize,
+        initial_read_window_size: usize,
+        auth_config: S3ClientAuthConfig,
+    ) -> S3CrtClient {
+        let client_config = S3ClientConfig::default()
+            .part_size(part_size)
+            .endpoint_config(get_test_endpoint_config())
+            .read_backpressure(true)
+            .initial_read_window(initial_read_window_size)
+            .auth_config(auth_config);
+        S3CrtClient::new(client_config).unwrap()
     }
 
     fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {

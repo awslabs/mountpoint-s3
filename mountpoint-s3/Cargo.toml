@@ -46,6 +46,7 @@ tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 async-stream = "0.3.6"
 humansize = "2.1.3"
+base64ct = "1.6.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.17.0", default-features = false }

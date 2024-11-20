@@ -8,13 +8,13 @@ use rand_chacha::rand_core::OsRng;
 use crate::common::tokio_block_on;
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
-    let bucket = if cfg!(feature = "s3express_tests") {
-        std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
-            .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
-    } else {
-        std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
-    };
+    let bucket = get_test_bucket();
+    let prefix = get_test_prefix(test_name);
 
+    (bucket, prefix)
+}
+
+pub fn get_test_prefix(test_name: &str) -> String {
     // Generate a random nonce to make sure this prefix is truly unique
     let nonce = OsRng.next_u64();
 
@@ -22,9 +22,24 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
 
-    let prefix = format!("{prefix}{test_name}/{nonce}/");
+    format!("{prefix}{test_name}/{nonce}/")
+}
 
-    (bucket, prefix)
+pub fn get_test_bucket() -> String {
+    #[cfg(not(feature = "s3express_tests"))]
+    return get_standard_bucket();
+    #[cfg(feature = "s3express_tests")]
+    return get_express_bucket();
+}
+
+#[cfg(feature = "s3express_tests")]
+pub fn get_express_bucket() -> String {
+    std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")
+        .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
+}
+
+pub fn get_standard_bucket() -> String {
+    std::env::var("S3_BUCKET_NAME").expect("Set S3_BUCKET_NAME to run integration tests")
 }
 
 pub fn get_test_bucket_forbidden() -> String {

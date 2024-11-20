@@ -2370,6 +2370,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "base64ct",
  "bincode",
  "bitflags",
  "built",

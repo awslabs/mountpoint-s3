@@ -2,6 +2,8 @@
 
 ### Other changes
 
+* `HeadObjectResult` now includes the server-side encryption settings used when storing the object.
+  ([#1143](https://github.com/awslabs/mountpoint-s3/pull/1143))
 * Add parameter to request checksum information as part of a `HeadObject` request.
   If specified, the result should contain the checksum for the object if available in the S3 response.
   ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))

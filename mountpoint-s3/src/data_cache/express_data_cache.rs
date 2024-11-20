@@ -1,15 +1,22 @@
 use crate::object::ObjectId;
+use std::collections::HashMap;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 
 use async_trait::async_trait;
+use base64ct::{Base64, Encoding};
 use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
-use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{GetObjectParams, GetObjectRequest, PutObjectParams};
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
+use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
+use mountpoint_s3_client::types::{
+    ChecksumMode, GetObjectParams, GetObjectRequest, ObjectClientResult, PutObjectSingleParams, UploadChecksum,
+};
+use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
+
+use mountpoint_s3_client::checksums::crc32c_from_base64;
 
 const CACHE_VERSION: &str = "V1";
 
@@ -55,22 +62,40 @@ where
     Client: ObjectClient + Send + Sync + 'static,
 {
     /// Create a new instance.
-    ///
-    /// TODO: consider adding some validation of the bucket.
     pub fn new(client: Client, config: ExpressDataCacheConfig, source_bucket_name: &str, bucket_name: &str) -> Self {
-        let prefix = hex::encode(
-            Sha256::new()
-                .chain_update(CACHE_VERSION.as_bytes())
-                .chain_update(config.block_size.to_be_bytes())
-                .chain_update(source_bucket_name.as_bytes())
-                .finalize(),
-        );
         Self {
             client,
-            prefix,
+            prefix: build_prefix(source_bucket_name, config.block_size),
             config,
             bucket_name: bucket_name.to_owned(),
         }
+    }
+
+    pub async fn verify_cache_valid(&self) -> ObjectClientResult<(), PutObjectError, Client::ClientError> {
+        let object_key = format!("{}/_mountpoint_cache_metadata", &self.prefix);
+        // This data is human-readable, and not expected to be read by Mountpoint.
+        // The file format used here is NOT stable.
+        // For now, let's just include the data that's guaranteed to be correct as it's what
+        // calculates the prefix.
+        let data = format!(
+            "source_bucket={}\nblock_size={}",
+            self.bucket_name, self.config.block_size
+        );
+
+        // put_object is sufficient for validating cache, as S3 Directory buckets only support
+        // read-only, or read-write. Write implies read access.
+        // Validating we're in a directory bucket by using the `EXPRESS_ONEZONE` storage class.
+        self.client
+            .put_object_single(
+                &self.bucket_name,
+                &object_key,
+                &PutObjectSingleParams::new().storage_class("EXPRESS_ONEZONE".to_string()),
+                data,
+            )
+            .in_current_span()
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -94,16 +119,35 @@ where
             return Err(DataCacheError::InvalidBlockOffset);
         }
 
-        let object_key = block_key(&self.prefix, cache_key, block_idx);
+        let object_key = get_s3_key(&self.prefix, cache_key, block_idx);
         let result = match self
             .client
-            .get_object(&self.bucket_name, &object_key, &GetObjectParams::new())
+            .get_object(
+                &self.bucket_name,
+                &object_key,
+                &GetObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+            )
             .await
         {
             Ok(result) => result,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => return Ok(None),
             Err(e) => return Err(e.into()),
         };
+
+        let object_metadata = result
+            .get_object_metadata()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
+        let checksum = result
+            .get_object_checksum()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+        let crc32c = crc32c_from_base64(&checksum.checksum_crc32c.ok_or(DataCacheError::BlockChecksumMissing)?)
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
+        let block_metadata = BlockMetadata::new(block_idx, block_offset, cache_key, &self.bucket_name, crc32c);
+        block_metadata.validate_object_metadata(&object_metadata)?;
 
         pin_mut!(result);
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
@@ -127,7 +171,7 @@ where
             }
         }
         let buffer = buffer.freeze();
-        DataCacheResult::Ok(Some(buffer.into()))
+        Ok(Some(ChecksummedBytes::new_from_inner_data(buffer, crc32c)))
     }
 
     async fn put_block(
@@ -146,20 +190,22 @@ where
             return Err(DataCacheError::InvalidBlockOffset);
         }
 
-        let object_key = block_key(&self.prefix, &cache_key, block_idx);
+        let object_key = get_s3_key(&self.prefix, &cache_key, block_idx);
 
-        // TODO: ideally we should use a simple Put rather than MPU.
-        let params = PutObjectParams::new();
-        let mut req = self
-            .client
-            .put_object(&self.bucket_name, &object_key, &params)
+        let (data, checksum) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
+        let block_metadata = BlockMetadata::new(block_idx, block_offset, &cache_key, &self.bucket_name, checksum);
+
+        self.client
+            .put_object_single(
+                &self.bucket_name,
+                &object_key,
+                &block_metadata.to_put_object_params(),
+                data,
+            )
             .in_current_span()
             .await?;
-        let (data, _crc) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
-        req.write(&data).await?;
-        req.complete().await?;
 
-        DataCacheResult::Ok(())
+        Ok(())
     }
 
     fn block_size(&self) -> u64 {
@@ -167,7 +213,130 @@ where
     }
 }
 
-fn block_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
+/// Metadata about the cached object to ensure that the object we've retrieved is the one we were
+/// wanting to get (and avoid collisions with the key).
+/// On miss, bypass the cache and go to the main data source.
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[derive(Debug, PartialEq, Eq)]
+struct BlockMetadata {
+    block_idx: BlockIndex,
+    block_offset: u64,
+    etag: String,
+    source_key: String,
+    source_bucket_name: String,
+    data_checksum: u32,
+    header_checksum: u32,
+}
+
+impl BlockMetadata {
+    pub fn new(
+        block_idx: BlockIndex,
+        block_offset: u64,
+        cache_key: &ObjectId,
+        source_bucket_name: &str,
+        data_checksum: Crc32c,
+    ) -> Self {
+        let header_checksum =
+            Self::get_header_checksum(block_idx, block_offset, cache_key, source_bucket_name, data_checksum).value();
+        Self {
+            block_idx,
+            block_offset,
+            etag: cache_key.etag().as_str().to_string(),
+            source_key: cache_key.key().to_string(),
+            source_bucket_name: source_bucket_name.to_string(),
+            data_checksum: data_checksum.value(),
+            header_checksum,
+        }
+    }
+
+    /// Build parameters to be used when running a PutObject for this block
+    pub fn to_put_object_params(&self) -> PutObjectSingleParams {
+        // Convert to object metadata that is HTTP header safe (ASCII only)
+        let source_key_encoded = Base64::encode_string(self.source_key.as_bytes());
+        let object_metadata = HashMap::from([
+            ("cache-version".to_string(), CACHE_VERSION.to_string()),
+            ("block-idx".to_string(), format!("{}", self.block_idx)),
+            ("block-offset".to_string(), format!("{}", self.block_offset)),
+            ("etag".to_string(), self.etag.clone()),
+            ("source-key".to_string(), source_key_encoded),
+            ("source-bucket-name".to_string(), self.source_bucket_name.clone()),
+            ("header-checksum".to_string(), format!("{}", self.header_checksum)),
+        ]);
+
+        PutObjectSingleParams::new()
+            .object_metadata(object_metadata)
+            .checksum(Some(UploadChecksum::Crc32c(Crc32c::new(self.data_checksum))))
+    }
+
+    /// Validate the object metadata headers received match this BlockMetadata object.
+    pub fn validate_object_metadata(&self, headers: &HashMap<String, String>) -> Result<(), DataCacheError> {
+        self.validate_header(headers, "cache-version", |version| version == CACHE_VERSION)?;
+        self.validate_header(headers, "block-idx", |block_idx| {
+            block_idx.parse() == Ok(self.block_idx)
+        })?;
+        self.validate_header(headers, "block-offset", |block_offset| {
+            block_offset.parse() == Ok(self.block_offset)
+        })?;
+        self.validate_header(headers, "etag", |etag| etag == self.etag)?;
+        self.validate_header(headers, "source-key", |source_key| {
+            source_key == Base64::encode_string(self.source_key.as_bytes())
+        })?;
+        self.validate_header(headers, "source-bucket-name", |source_bucket_name| {
+            source_bucket_name == self.source_bucket_name
+        })?;
+        self.validate_header(headers, "header-checksum", |header_checksum| {
+            header_checksum.parse() == Ok(self.header_checksum)
+        })?;
+
+        Ok(())
+    }
+
+    fn validate_header<F: Fn(&str) -> bool>(
+        &self,
+        headers: &HashMap<String, String>,
+        header: &str,
+        is_valid: F,
+    ) -> Result<(), DataCacheError> {
+        let value = headers
+            .get(header)
+            .ok_or(DataCacheError::InvalidBlockHeader(header.to_string()))?;
+        is_valid(value)
+            .then_some(())
+            .ok_or(DataCacheError::InvalidBlockHeader(header.to_string()))
+    }
+
+    fn get_header_checksum(
+        block_idx: BlockIndex,
+        block_offset: u64,
+        cache_key: &ObjectId,
+        source_bucket_name: &str,
+        data_checksum: Crc32c,
+    ) -> Crc32c {
+        let mut hasher = crc32c::Hasher::new();
+        hasher.update(CACHE_VERSION.as_bytes());
+        hasher.update(&block_idx.to_be_bytes());
+        hasher.update(&block_offset.to_be_bytes());
+        hasher.update(cache_key.etag().as_str().as_bytes());
+        hasher.update(cache_key.key().as_bytes());
+        hasher.update(source_bucket_name.as_bytes());
+        hasher.update(&data_checksum.value().to_be_bytes());
+        hasher.finalize()
+    }
+}
+
+/// Get the prefix for objects we'll be creating in S3
+pub fn build_prefix(source_bucket_name: &str, block_size: u64) -> String {
+    hex::encode(
+        Sha256::new()
+            .chain_update(CACHE_VERSION.as_bytes())
+            .chain_update(block_size.to_be_bytes())
+            .chain_update(source_bucket_name.as_bytes())
+            .finalize(),
+    )
+}
+
+/// Get the S3 key this block should be written to or read from.
+pub fn get_s3_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
     let hashed_cache_key = hex::encode(
         Sha256::new()
             .chain_update(cache_key.key())
@@ -182,11 +351,12 @@ mod tests {
     use super::*;
     use crate::checksums::ChecksummedBytes;
     use crate::sync::Arc;
+    use proptest::{prop_assert, proptest};
 
-    use test_case::test_case;
-
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use mountpoint_s3_client::types::ETag;
+    use test_case::test_case;
 
     #[test_case(1024, 512 * 1024; "block_size smaller than part_size")]
     #[test_case(8 * 1024 * 1024, 512 * 1024; "block_size larger than part_size")]
@@ -241,6 +411,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_1, entry,
             "cache entry returned should match original bytes after put"
@@ -256,6 +427,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_2, entry,
             "cache entry returned should match original bytes after put"
@@ -271,6 +443,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_3, entry,
             "cache entry returned should match original bytes after put"
@@ -282,6 +455,7 @@ mod tests {
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
+        assert!(entry.validate().is_ok(), "CRC32C should match");
         assert_eq!(
             data_1, entry,
             "cache entry returned should match original bytes after put"
@@ -314,5 +488,177 @@ mod tests {
             .expect("cache should be accessible");
         assert!(get_result.is_none());
         assert_eq!(client.object_count(), 0, "cache must be empty");
+    }
+
+    #[tokio::test]
+    async fn test_get_validate_failure() {
+        let source_bucket = "source-bucket";
+        let bucket = "test-bucket";
+        let config = MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 8 * 1024 * 1024,
+            enable_backpressure: true,
+            initial_read_window_size: 8 * 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(config));
+        let cache = ExpressDataCache::new(client.clone(), Default::default(), source_bucket, bucket);
+
+        let data = ChecksummedBytes::new("Foo".into());
+        let data_2 = ChecksummedBytes::new("Bar".into());
+        let cache_key = ObjectId::new("a".into(), ETag::for_tests());
+
+        // Setup cache
+        let object_key = get_s3_key(
+            &build_prefix(source_bucket, ExpressDataCacheConfig::default().block_size),
+            &cache_key,
+            0,
+        );
+
+        let (data, checksum) = data.into_inner().unwrap();
+        let block_metadata = BlockMetadata::new(0, 0, &cache_key, bucket, checksum);
+        let put_params = block_metadata.to_put_object_params();
+
+        let (data_2, checksum_2) = data_2.into_inner().unwrap();
+        let block_metadata_2 = BlockMetadata::new(0, 0, &cache_key, bucket, checksum_2);
+        let put_params_2 = block_metadata_2.to_put_object_params();
+
+        // Remove the checksum when writing.
+        client
+            .put_object_single(bucket, &object_key, &put_params.clone().checksum(None), data.clone())
+            .in_current_span()
+            .await
+            .unwrap();
+        let err = cache
+            .get_block(&cache_key, 0, 0, data.len())
+            .await
+            .expect_err("cache should return error if checksum isn't present");
+        assert!(matches!(err, DataCacheError::BlockChecksumMissing));
+
+        // Remove the object metadata when writing.
+        client
+            .put_object_single(
+                bucket,
+                &object_key,
+                &put_params.clone().object_metadata(HashMap::new()),
+                data.clone(),
+            )
+            .in_current_span()
+            .await
+            .unwrap();
+        let err = cache
+            .get_block(&cache_key, 0, 0, data.len())
+            .await
+            .expect_err("cache should return error if object metadata isn't present");
+        assert!(matches!(err, DataCacheError::InvalidBlockHeader(_)));
+
+        // Emulate corrupt data by writing 'incorrect' data.
+        client
+            .put_object_single(bucket, &object_key, &put_params.clone(), data_2.clone())
+            .in_current_span()
+            .await
+            .expect_err("should fail to write as checksum incorrect");
+
+        // Write data with object metadata header for different object
+        client
+            .put_object_single(
+                bucket,
+                &object_key,
+                &put_params.clone().checksum(put_params_2.checksum.clone()),
+                data_2.clone(),
+            )
+            .in_current_span()
+            .await
+            .unwrap();
+        let err = cache
+            .get_block(&cache_key, 0, 0, data_2.len())
+            .await
+            .expect_err("cache should return error if object metadata doesn't match data");
+        assert!(matches!(err, DataCacheError::InvalidBlockHeader(_)));
+    }
+
+    #[tokio::test]
+    async fn test_verify_cache_valid_success() {
+        let source_bucket = "source-bucket";
+        let bucket = "test-bucket";
+        let config = MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 8 * 1024 * 1024,
+            enable_backpressure: true,
+            initial_read_window_size: 8 * 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(config));
+        let cache = ExpressDataCache::new(client.clone(), Default::default(), source_bucket, bucket);
+
+        cache.verify_cache_valid().await.expect("cache should work");
+    }
+
+    #[tokio::test]
+    async fn test_verify_cache_valid_failure() {
+        let source_bucket = "source-bucket";
+        let bucket = "test-bucket";
+        let config = MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 8 * 1024 * 1024,
+            enable_backpressure: true,
+            initial_read_window_size: 8 * 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(config));
+
+        let mut put_single_failures = HashMap::new();
+        put_single_failures.insert(1, MockClientError("error".to_owned().into()).into());
+
+        let failure_client = Arc::new(countdown_failure_client(
+            client.clone(),
+            CountdownFailureConfig {
+                put_single_failures,
+                ..Default::default()
+            },
+        ));
+
+        let cache = ExpressDataCache::new(failure_client, Default::default(), source_bucket, bucket);
+
+        cache
+            .verify_cache_valid()
+            .await
+            .expect_err("cache should not report valid if cannot write");
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_creates_small_s3_keys(key: String, etag: String, block_idx: BlockIndex, source_description: String, block_size: u64) {
+            // Ensure we can always serialise to S3 keys smaller than 1kb
+            let cache_key = ObjectId::new(key, etag.into());
+            let prefix = build_prefix(&source_description, block_size);
+            prop_assert!(get_s3_key(&prefix, &cache_key, block_idx).len() <= 1024);
+        }
+
+        #[test]
+        fn proptest_block_metadata_to_headers_s3_key_ascii_only(block_metadata: BlockMetadata) {
+            // Validate that even with UTF keys, the source key is always ascii
+            let params = block_metadata.to_put_object_params();
+            prop_assert!(params.object_metadata.get("source-key").unwrap().is_ascii());
+        }
+
+        #[test]
+        fn proptest_block_metadata_validates_headers(block_metadata: BlockMetadata, block_metadata2: BlockMetadata) {
+            // `to_headers` should contain enough information that `validate_headers` acts as equality
+            let params = block_metadata.to_put_object_params();
+            if block_metadata == block_metadata2 {
+                prop_assert!(block_metadata2.validate_object_metadata(&params.object_metadata).is_ok());
+            } else {
+                prop_assert!(block_metadata2.validate_object_metadata(&params.object_metadata).is_err());
+            }
+        }
+
+        #[test]
+        fn proptest_block_metadata_validates_headers_is_equal(block_metadata: BlockMetadata) {
+            // More checks to verify the equals path, as generating lots of equals examples may be hard
+            let params = block_metadata.to_put_object_params();
+            prop_assert!(block_metadata.validate_object_metadata(&params.object_metadata).is_ok());
+            prop_assert!(matches!(params.checksum, Some(UploadChecksum::Crc32c(x)) if x == Crc32c::new(block_metadata.data_checksum)));
+        }
     }
 }

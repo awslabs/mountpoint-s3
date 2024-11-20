@@ -16,7 +16,7 @@ use thiserror::Error;
 pub use crate::checksums::ChecksummedBytes;
 pub use crate::data_cache::cache_directory::ManagedCacheDir;
 pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
-pub use crate::data_cache::express_data_cache::{ExpressDataCache, ExpressDataCacheConfig};
+pub use crate::data_cache::express_data_cache::{build_prefix, get_s3_key, ExpressDataCache, ExpressDataCacheConfig};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 pub use crate::data_cache::multilevel_cache::MultilevelDataCache;
 
@@ -30,6 +30,10 @@ pub type BlockIndex = u64;
 pub enum DataCacheError {
     #[error("IO error when reading or writing from cache: {0}")]
     IoFailure(#[source] anyhow::Error),
+    #[error("Block header was not valid: {0}")]
+    InvalidBlockHeader(String),
+    #[error("Block checksum was not present")]
+    BlockChecksumMissing,
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
     #[error("Block offset does not match block index")]
