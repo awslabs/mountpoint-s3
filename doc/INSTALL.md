@@ -60,7 +60,7 @@ To download and install Mountpoint for Amazon S3 on DEB-based distributions, fol
 
    Then see [Verifying the signature of the Mountpoint for Amazon S3 package](#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) below.
 
-3. Ensure that package index files are up to date (so that on Ubuntu 24.04 and later, package ``libfuse2t64`` is used to satisfy the libfuse dependency) by running the following command:
+3. Ensure that package index files are up to date (so that on Ubuntu 24.04 and later, package ``libfuse2t64`` is used to satisfy the ``fuse2`` dependency) by running the following command:
    ```
    sudo apt-get update
    ```
