@@ -81,7 +81,6 @@ built = { version = "0.7.5", features = ["git2"] }
 
 [features]
 # Unreleased feature flags
-express_cache = ["block_size"]
 block_size = []
 event_log = []
 mem_limiter = []
