@@ -4,6 +4,7 @@ use crate::common::fuse::s3_session::create_crt_client;
 use crate::common::s3::{get_test_bucket, get_test_prefix};
 
 use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
+use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::caching_prefetch;
 use mountpoint_s3_client::S3CrtClient;
 
@@ -19,8 +20,6 @@ use test_case::test_case;
 use crate::common::s3::{get_express_bucket, get_standard_bucket};
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
-#[cfg(feature = "s3express_tests")]
-use mountpoint_s3::object::ObjectId;
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3_client::ObjectClient;
 
@@ -143,6 +142,29 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
+async fn express_cache_read_empty() {
+    let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
+    let bucket_name = get_standard_bucket();
+    let express_bucket_name = get_express_bucket();
+    let cache = ExpressDataCache::new(client, Default::default(), &bucket_name, &express_bucket_name);
+
+    cache_read_empty(cache, "express_cache_read_empty").await;
+}
+
+#[tokio::test]
+async fn disk_cache_read_empty() {
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache_config = DiskDataCacheConfig {
+        block_size: CACHE_BLOCK_SIZE,
+        limit: Default::default(),
+    };
+    let cache = DiskDataCache::new(cache_dir.path().to_path_buf(), cache_config);
+
+    cache_read_empty(cache, "disk_cache_read_empty").await;
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
 async fn express_cache_verify_fail_non_express() {
     use mountpoint_s3_client::error::ObjectClientError;
     use mountpoint_s3_client::S3RequestError::ResponseError;
@@ -252,6 +274,20 @@ fn cache_write_read_base<Cache>(
     );
 }
 
+async fn cache_read_empty<Cache>(cache: Cache, test_name: &str)
+where
+    Cache: DataCache + Send + Sync + 'static,
+{
+    let prefix = get_test_prefix(test_name);
+
+    // Try reading a block that hasn't had anything written to it
+    let block = cache
+        .get_block(&get_object_id(&prefix, "does-not-exist", "etag"), 0, 0, 1000)
+        .await
+        .expect("should not return an error");
+    assert!(block.is_none());
+}
+
 /// Generates random data of the specified size
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::thread_rng().gen();
@@ -291,7 +327,6 @@ where
     (mount_point, session)
 }
 
-#[cfg(feature = "s3express_tests")]
 fn get_object_id(prefix: &str, key: &str, etag: &str) -> ObjectId {
     ObjectId::new(format!("{prefix}{key}"), etag.into())
 }

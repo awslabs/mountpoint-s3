@@ -134,21 +134,6 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        let object_metadata = result
-            .get_object_metadata()
-            .await
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-
-        let checksum = result
-            .get_object_checksum()
-            .await
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-        let crc32c = crc32c_from_base64(&checksum.checksum_crc32c.ok_or(DataCacheError::BlockChecksumMissing)?)
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-
-        let block_metadata = BlockMetadata::new(block_idx, block_offset, cache_key, &self.bucket_name, crc32c);
-        block_metadata.validate_object_metadata(&object_metadata)?;
-
         pin_mut!(result);
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
         result.as_mut().increment_read_window(self.config.block_size as usize);
@@ -171,6 +156,22 @@ where
             }
         }
         let buffer = buffer.freeze();
+
+        let object_metadata = result
+            .get_object_metadata()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
+        let checksum = result
+            .get_object_checksum()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+        let crc32c = crc32c_from_base64(&checksum.checksum_crc32c.ok_or(DataCacheError::BlockChecksumMissing)?)
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
+        let block_metadata = BlockMetadata::new(block_idx, block_offset, cache_key, &self.bucket_name, crc32c);
+        block_metadata.validate_object_metadata(&object_metadata)?;
+
         Ok(Some(ChecksummedBytes::new_from_inner_data(buffer, crc32c)))
     }
 
