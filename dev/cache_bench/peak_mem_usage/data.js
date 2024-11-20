@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1732042457226,
+  "lastUpdate": 1732104398768,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "e3540671baac9d34d280e6815f3d58778dac7eed",
-          "message": "Ensure that the file system in tests is unmounted before removing the temp dir (#1116)\n\n## Description of change\n\nEnsure that the file system in integration tests is unmounted before\nremoving the temporary directory. The introduction of `TestSession` in\n#1096 inadvertently changed the order in which the temporary directory\nand the FUSE session are dropped. Previously it was hidden in the\ndeclaration order. This change makes it explicit in `drop`.\n\n## Does this change impact existing behavior?\n\nNo.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-11-07T17:03:39Z",
-          "tree_id": "e43376caad9c90efa6772986f7d033c45ce6ea68",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/e3540671baac9d34d280e6815f3d58778dac7eed"
-        },
-        "date": 1731006131995,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 0,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 224.01953125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84c3e5467d252830d5297d1d6b67f5915e32933b",
+          "message": "Rename the shared cache CLI flag (#1144)\n\n## Description of change\n\nRename the CLI flag for the shared cache. New help message:\n\n```bash\n--cache-xz <BUCKET>\n    Enable caching of object content to the specified bucket on S3 Express One Zone (same region only)\n```\n\nRelevant issues: N/A\n\n## Does this change impact existing behavior?\n\nNo, it's behind a feature flag.\n\n## Does this change need a changelog entry in any of the crates?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2024-11-20T10:05:27Z",
+          "tree_id": "b7946c1f0149cfed9838ace088cbec96f2ee3b92",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/84c3e5467d252830d5297d1d6b67f5915e32933b"
+        },
+        "date": 1732104398729,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3478.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 336.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3275.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 360.33984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3371.234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 267.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3290.37890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 220.53515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 18507.703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 353.9765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3163.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 368.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3237.62890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 222.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3386.05859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3558.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 211.15234375,
             "unit": "MiB"
           }
         ]
