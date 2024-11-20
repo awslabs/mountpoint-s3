@@ -723,7 +723,7 @@ mod tests {
             .await
             .expect("get_object failed");
 
-        let checksum = get_request.get_object_checksum().await.expect("failed to get checksum");
+        let checksum = get_request.get_object_checksum().expect("failed to get checksum");
         assert_eq!(checksum.algorithms(), expected_checksum_algorithm);
 
         let actual = get_request.collect().await.expect("failed to collect body");

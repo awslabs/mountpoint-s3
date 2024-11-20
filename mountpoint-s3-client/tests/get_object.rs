@@ -202,14 +202,13 @@ async fn test_get_object_404_key() {
 
     let client: S3CrtClient = get_test_client();
 
-    let mut result = client
+    let err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
-        .expect("get_object should succeed");
-    let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
+        .expect_err("get_object should fail");
     assert!(matches!(
-        next,
-        Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
+        err,
+        ObjectClientError::ServiceError(GetObjectError::NoSuchKey)
     ));
 
     // TODO: what happens if the object is deleted mid-GET? the CRT does lots of ranged GETs, so they
@@ -223,14 +222,13 @@ async fn test_get_object_404_bucket() {
 
     let client: S3CrtClient = get_test_client();
 
-    let mut result = client
+    let err = client
         .get_object("amzn-s3-demo-bucket", &key, &GetObjectParams::new())
         .await
-        .expect("get_object failed");
-    let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
+        .expect_err("get_object should fail");
     assert!(matches!(
-        next,
-        Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
+        err,
+        ObjectClientError::ServiceError(GetObjectError::NoSuchBucket)
     ));
 }
 
@@ -282,16 +280,14 @@ async fn test_get_object_412_if_match() {
     let client: S3CrtClient = get_test_client();
     let etag = Some(ETag::from_str("incorrect_etag").unwrap());
 
-    let mut result = client
+    let err = client
         .get_object(&bucket, &key, &GetObjectParams::new().if_match(etag))
         .await
-        .expect("get_object should succeed");
-
-    let next = StreamExt::next(&mut result).await.expect("stream needs to return Err");
+        .expect_err("get_object should fail");
 
     assert!(matches!(
-        next,
-        Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed))
+        err,
+        ObjectClientError::ServiceError(GetObjectError::PreconditionFailed)
     ));
 }
 
@@ -367,17 +363,12 @@ async fn test_get_object_user_metadata(size: usize, metadata: HashMap<String, St
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect("get_object should succeed");
-    let actual_metadata = result.get_object_metadata().await.expect("should return metadata");
-    let actual_metadata_2 = result
-        .get_object_metadata()
-        .await
-        .expect("should return metadata multiple times");
+    let actual_metadata = result.get_object_metadata();
 
     pin_mut!(result);
     let expected = &body;
     check_get_result(result, None, expected).await;
     assert_eq!(actual_metadata, metadata);
-    assert_eq!(actual_metadata_2, metadata);
 }
 
 #[test_case(50, HashMap::from([("foo".to_string(), "bar".to_string())]); "50-byte object with metadata")]
@@ -404,28 +395,8 @@ async fn test_get_object_user_metadata_with_zero_backpressure(size: usize, metad
         .get_object(&bucket, &key, &GetObjectParams::new().range(Some(1..5)))
         .await
         .expect("get_object should succeed");
-    result
-        .get_object_metadata()
-        .await
-        .expect_err("should not return metadata for empty read window");
-}
-
-#[tokio::test]
-async fn test_get_object_metadata_404() {
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_metadata_404");
-
-    let key = format!("{prefix}/test");
-
-    let client: S3CrtClient = get_test_client();
-
-    let result = client
-        .get_object(&bucket, &key, &GetObjectParams::new())
-        .await
-        .expect("get_object should succeed");
-    result
-        .get_object_metadata()
-        .await
-        .expect_err("should not return metadata");
+    let actual_metadata = result.get_object_metadata();
+    assert_eq!(actual_metadata, metadata);
 }
 
 #[test_case(1, HashMap::from([("foo".to_string(), "bar".to_string())]); "1-byte object with metadata")]
@@ -459,11 +430,7 @@ async fn test_get_object_user_metadata_after_stream(size: usize, metadata: HashM
     while let Some(r) = result.next().await {
         let _ = r.expect("get_object body part failed");
     }
-    let actual_metadata = result
-        .as_ref()
-        .get_object_metadata()
-        .await
-        .expect("should return metadata");
+    let actual_metadata = result.as_ref().get_object_metadata();
     assert_eq!(actual_metadata, metadata);
 }
 
@@ -499,7 +466,7 @@ async fn test_get_object_checksum(checksum_algorithm: ChecksumAlgorithm) {
         .await
         .expect("get_object should succeed");
 
-    let checksum: Checksum = result.get_object_checksum().await.expect("should return checksum");
+    let checksum: Checksum = result.get_object_checksum().expect("should return checksum");
 
     match checksum_algorithm {
         ChecksumAlgorithm::Crc32 => assert_eq!(
@@ -548,6 +515,5 @@ async fn test_get_object_checksum_checksums_disabled() {
 
     result
         .get_object_checksum()
-        .await
         .expect_err("should not return a checksum object as not requested");
 }

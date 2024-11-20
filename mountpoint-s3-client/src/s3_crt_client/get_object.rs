@@ -1,15 +1,12 @@
-use async_cell::sync::AsyncCell;
 use async_trait::async_trait;
 use std::future::Future;
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::channel::mpsc::UnboundedReceiver;
-use futures::Stream;
-use mountpoint_s3_crt::common::error::Error;
+use futures::{select_biased, Stream};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use pin_project::pin_project;
@@ -23,119 +20,127 @@ use crate::s3_crt_client::{
 };
 use crate::types::ChecksumMode;
 
-/// Failures to return object metadata
-#[derive(Clone, Error, Debug)]
-pub enum ObjectHeadersError {
-    #[error("unknown error occurred receiving object headers")]
-    UnknownError,
-    #[error("requested object checksums, but did not specify it in the request")]
-    DidNotRequestChecksums,
-}
+use super::ObjectChecksumError;
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
     /// body parts of the object, which will be delivered in order.
-    pub(super) fn get_object(
+    pub(super) async fn get_object(
         &self,
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
     ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
-        let span = request_span!(self.inner, "get_object", bucket, key, range=?params.range, if_match=?params.if_match);
-
-        let mut message = self
-            .inner
-            .new_request_template("GET", bucket)
-            .map_err(S3RequestError::construction_failure)?;
-
-        // Overwrite "accept" header since this returns raw object data.
-        message
-            .set_header(&Header::new("accept", "*/*"))
-            .map_err(S3RequestError::construction_failure)?;
-
         let requested_checksums = params.checksum_mode.as_ref() == Some(&ChecksumMode::Enabled);
-        if requested_checksums {
-            // Add checksum header to receive object checksums.
-            message
-                .set_header(&Header::new("x-amz-checksum-mode", "enabled"))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-
-        if let Some(etag) = params.if_match.as_ref() {
-            // Return the object only if its entity tag (ETag) is matched
-            message
-                .set_header(&Header::new("If-Match", etag.as_str()))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-
-        let next_offset = if let Some(range) = params.range.as_ref() {
-            // Range HTTP header is bounded below *inclusive*
-            let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
-            message
-                .set_header(&Header::new("Range", range_value))
-                .map_err(S3RequestError::construction_failure)?;
-            range.start
-        } else {
-            0
-        };
-
-        let key = format!("/{key}");
-        message
-            .set_request_path(key)
-            .map_err(S3RequestError::construction_failure)?;
-
-        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let next_offset = params.range.as_ref().map(|r| r.start).unwrap_or(0);
         let read_window_end_offset = next_offset + self.inner.initial_read_window_size as u64;
 
-        let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
-        options.part_size(self.inner.read_part_size as u64);
+        let (part_sender, part_receiver) = futures::channel::mpsc::unbounded();
+        let (headers_sender, mut headers_receiver) = futures::channel::oneshot::channel();
 
-        let object_headers = AsyncCell::shared();
+        let mut request = {
+            let span =
+                request_span!(self.inner, "get_object", bucket, key, range=?params.range, if_match=?params.if_match);
 
-        let object_headers_setter_on_headers = object_headers.clone();
-        let object_headers_setter_on_finish = object_headers.clone();
+            let mut message = self
+                .inner
+                .new_request_template("GET", bucket)
+                .map_err(S3RequestError::construction_failure)?;
 
-        let request = self.inner.make_meta_request_from_options(
-            options,
-            span,
-            |_| (),
-            move |headers, status| {
-                // Headers can be returned multiple times, but the metadata/checksums don't change.
-                // Explicitly ignore the case where we've already set object metadata.
+            // Overwrite "accept" header since this returns raw object data.
+            message
+                .set_header(&Header::new("accept", "*/*"))
+                .map_err(S3RequestError::construction_failure)?;
 
-                // Only set headers if we have a 2xx status code. If we only get other status codes,
-                // then on_finish sets an error.
-                if (200..300).contains(&status) {
-                    // Don't overwrite if already set - the first headers are fine.
-                    object_headers_setter_on_headers.or_set(Ok(headers.clone()));
-                }
-            },
-            move |offset, data| {
-                let _ = sender.unbounded_send(Ok((offset, data.into())));
-            },
-            move |result| {
-                // FIXME - Ideally we'd include a reason why we failed here.
-                object_headers_setter_on_finish.or_set(Err(ObjectHeadersError::UnknownError));
-                if result.is_err() {
-                    Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
-                } else {
-                    Ok(())
-                }
-            },
-        )?;
+            if requested_checksums {
+                // Add checksum header to receive object checksums.
+                message
+                    .set_header(&Header::new("x-amz-checksum-mode", "enabled"))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
+            if let Some(etag) = params.if_match.as_ref() {
+                // Return the object only if its entity tag (ETag) is matched
+                message
+                    .set_header(&Header::new("If-Match", etag.as_str()))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
+            if let Some(range) = params.range.as_ref() {
+                // Range HTTP header is bounded below *inclusive*
+                let range_value = format!("bytes={}-{}", range.start, range.end.saturating_sub(1));
+                message
+                    .set_header(&Header::new("Range", range_value))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
+            let key = format!("/{key}");
+            message
+                .set_request_path(key)
+                .map_err(S3RequestError::construction_failure)?;
+
+            let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
+            options.part_size(self.inner.read_part_size as u64);
+
+            let mut headers_sender = Some(headers_sender);
+
+            self.inner.make_meta_request_from_options(
+                options,
+                span,
+                |_| (),
+                move |headers, status| {
+                    // Headers can be returned multiple times, but the metadata/checksums don't change.
+                    // Explicitly ignore the case where we've already set object metadata.
+
+                    // Only set headers if we have a 2xx status code. If we only get other status codes,
+                    // then on_finish sets an error.
+                    if (200..300).contains(&status) {
+                        if let Some(sender) = headers_sender.take() {
+                            // Only send the headers once.
+                            _ = sender.send(headers.clone());
+                        }
+                    }
+                },
+                move |offset, data| {
+                    let _ = part_sender.unbounded_send((offset, data.into()));
+                },
+                move |result| {
+                    if result.is_err() {
+                        Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
+                    } else {
+                        Ok(())
+                    }
+                },
+            )?
+        };
+
+        let headers = select_biased! {
+            headers = headers_receiver => headers.unwrap(),
+            result = request => {
+                // If we did not received the headers first, the request must have failed.
+                result?;
+                return Err(ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(ObjectHeadersError::MissingHeaders))));
+            }
+        };
 
         Ok(S3GetObjectRequest {
             request,
-            finish_receiver: receiver,
+            part_receiver,
             finished: false,
             requested_checksums,
             enable_backpressure: self.inner.enable_backpressure,
-            headers: object_headers,
-            initial_read_window_empty: self.inner.initial_read_window_size == 0,
+            headers,
             next_offset,
             read_window_end_offset,
         })
     }
+}
+
+/// Failure retrieving headers
+#[derive(Debug, Error)]
+enum ObjectHeadersError {
+    #[error("response headers are missing")]
+    MissingHeaders,
 }
 
 /// A streaming response to a GetObject request.
@@ -149,12 +154,11 @@ pub struct S3GetObjectRequest {
     #[pin]
     request: S3HttpRequest<(), GetObjectError>,
     #[pin]
-    finish_receiver: UnboundedReceiver<Result<GetBodyPart, Error>>,
+    part_receiver: UnboundedReceiver<GetBodyPart>,
     finished: bool,
     requested_checksums: bool,
     enable_backpressure: bool,
-    headers: Arc<AsyncCell<Result<Headers, ObjectHeadersError>>>,
-    initial_read_window_empty: bool,
+    headers: Headers,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
     /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
@@ -162,46 +166,27 @@ pub struct S3GetObjectRequest {
     read_window_end_offset: u64,
 }
 
-impl S3GetObjectRequest {
-    async fn get_object_headers(&self) -> ObjectClientResult<Headers, GetObjectError, S3RequestError> {
-        match self.headers.try_get() {
-            Some(result) => result,
-            None => {
-                if self.enable_backpressure && self.initial_read_window_empty {
-                    return Err(ObjectClientError::ClientError(S3RequestError::EmptyReadWindow));
-                }
-                self.headers.get().await
-            }
-        }
-        .map_err(|_| ObjectClientError::ClientError(S3RequestError::RequestCanceled))
-    }
-}
-
 #[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectRequest for S3GetObjectRequest {
     type ClientError = S3RequestError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        let headers = self.get_object_headers().await?;
-        Ok(headers
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.headers
             .iter()
             .filter_map(|(key, value)| {
                 let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
                 let value = value.to_str()?;
                 Some((metadata_header.to_string(), value.to_string()))
             })
-            .collect())
+            .collect()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         if !self.requested_checksums {
-            return Err(ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(
-                ObjectHeadersError::DidNotRequestChecksums,
-            ))));
+            return Err(ObjectChecksumError::DidNotRequestChecksums);
         }
 
-        let headers = self.get_object_headers().await?;
-        parse_checksum(&headers).map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+        parse_checksum(&self.headers).map_err(|e| ObjectChecksumError::HeadersError(Box::new(e)))
     }
 
     fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
@@ -224,15 +209,9 @@ impl Stream for S3GetObjectRequest {
 
         let this = self.project();
 
-        if let Poll::Ready(Some(val)) = this.finish_receiver.poll_next(cx) {
-            let result = match val {
-                Ok(item) => {
-                    *this.next_offset = item.0 + item.1.len() as u64;
-                    Some(Ok(item))
-                }
-                Err(e) => Some(Err(ObjectClientError::ClientError(e.into()))),
-            };
-            return Poll::Ready(result);
+        if let Poll::Ready(Some(item)) = this.part_receiver.poll_next(cx) {
+            *this.next_offset = item.0 + item.1.len() as u64;
+            return Poll::Ready(Some(Ok(item)));
         }
 
         match this.request.poll(cx) {

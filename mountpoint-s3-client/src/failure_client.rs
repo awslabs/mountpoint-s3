@@ -17,8 +17,8 @@ use crate::object_client::{
     Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
+    ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError,
+    PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -219,12 +219,12 @@ impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectReques
 {
     type ClientError = Client::ClientError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        self.request.get_object_metadata().await
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.request.get_object_metadata()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
-        self.request.get_object_checksum().await
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
+        self.request.get_object_checksum()
     }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {

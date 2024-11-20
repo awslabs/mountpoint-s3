@@ -175,12 +175,9 @@ where
         }
         let buffer = buffer.freeze();
 
-        let object_metadata = result.get_object_metadata().await.map_err(|err| {
-            emit_failure_metric_read("invalid_block_metadata");
-            DataCacheError::IoFailure(err.into())
-        })?;
+        let object_metadata = result.get_object_metadata();
 
-        let checksum = result.get_object_checksum().await.map_err(|err| {
+        let checksum = result.get_object_checksum().map_err(|err| {
             emit_failure_metric_read("invalid_block_checksum");
             DataCacheError::IoFailure(err.into())
         })?;

@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use futures::future::{Fuse, FusedFuture};
+use futures::FutureExt;
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -699,7 +701,7 @@ impl S3CrtClientInner {
         Self::poll_client_metrics(&self.s3_client);
 
         Ok(S3HttpRequest {
-            receiver: rx,
+            receiver: rx.fuse(),
             meta_request,
         })
     }
@@ -951,7 +953,7 @@ impl<'a> S3Message<'a> {
 #[pin_project(PinnedDrop)]
 struct S3HttpRequest<T, E> {
     #[pin]
-    receiver: oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>,
+    receiver: Fuse<oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>>,
     meta_request: MetaRequest,
 }
 
@@ -974,6 +976,12 @@ impl<T: Send, E: Send> Future for S3HttpRequest<T, E> {
 impl<T, E> PinnedDrop for S3HttpRequest<T, E> {
     fn drop(self: Pin<&mut Self>) {
         self.meta_request.cancel();
+    }
+}
+
+impl<T: Send, E: Send> FusedFuture for S3HttpRequest<T, E> {
+    fn is_terminated(&self) -> bool {
+        self.receiver.is_terminated()
     }
 }
 
@@ -1301,7 +1309,7 @@ impl ObjectClient for S3CrtClient {
         key: &str,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        self.get_object(bucket, key, params)
+        self.get_object(bucket, key, params).await
     }
 
     async fn list_objects(

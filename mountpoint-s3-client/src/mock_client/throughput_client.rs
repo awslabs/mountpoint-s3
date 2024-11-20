@@ -16,8 +16,8 @@ use crate::object_client::{
     Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectResult,
-    PutObjectSingleParams,
+    ObjectChecksumError, ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
+    PutObjectResult, PutObjectSingleParams,
 };
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
@@ -70,11 +70,11 @@ pub struct ThroughputGetObjectRequest {
 impl GetObjectRequest for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        Ok(self.request.object.object_metadata.clone())
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.request.object.object_metadata.clone()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         Ok(self.request.object.checksum.clone())
     }
 

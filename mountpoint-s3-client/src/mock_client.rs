@@ -29,10 +29,10 @@ use crate::object_client::{
     Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
     DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
     GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest, HeadObjectError, HeadObjectParams,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
-    ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview,
-    UploadReviewPart,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectChecksumError, ObjectClient,
+    ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus,
+    UploadChecksum, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -698,11 +698,11 @@ impl MockGetObjectRequest {
 impl GetObjectRequest for MockGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        Ok(self.object.object_metadata.clone())
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.object.object_metadata.clone()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         Ok(self.object.checksum.clone())
     }
 
@@ -1258,7 +1258,7 @@ mod tests {
         let expected_range = expected_range.start as usize..expected_range.end as usize;
         assert_eq!(&accum[..], &body[expected_range], "body does not match");
 
-        assert_eq!(get_request.get_object_metadata().await, Ok(object_metadata));
+        assert_eq!(get_request.get_object_metadata(), object_metadata);
     }
 
     #[tokio::test]
