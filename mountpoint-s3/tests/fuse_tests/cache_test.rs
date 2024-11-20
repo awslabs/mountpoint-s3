@@ -4,6 +4,7 @@ use crate::common::fuse::s3_session::create_crt_client;
 use crate::common::s3::{get_test_bucket, get_test_prefix};
 
 use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
+use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::caching_prefetch;
 use mountpoint_s3_client::S3CrtClient;
 
@@ -19,8 +20,6 @@ use test_case::test_case;
 use crate::common::s3::{get_express_bucket, get_standard_bucket};
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
-#[cfg(feature = "s3express_tests")]
-use mountpoint_s3::object::ObjectId;
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3_client::ObjectClient;
 
@@ -142,7 +141,7 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 }
 
 #[tokio::test]
-#[cfg(all(feature = "s3_tests", feature = "s3express_tests"))]
+#[cfg(feature = "s3express_tests")]
 async fn express_cache_read_empty() {
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
@@ -153,7 +152,6 @@ async fn express_cache_read_empty() {
 }
 
 #[tokio::test]
-#[cfg(feature = "s3_tests")]
 async fn disk_cache_read_empty() {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
