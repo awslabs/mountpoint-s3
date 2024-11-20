@@ -1098,6 +1098,10 @@ impl Filesystem for SimpleFS {
         flags: u32,
         reply: ReplyEmpty,
     ) {
+        debug!(
+            "rename() called with: source {parent:?} {name:?}, \
+            destination {new_parent:?} {new_name:?}, flags {flags:#b}",
+        );
         let mut inode_attrs = match self.lookup_name(parent, name) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1922,8 +1926,7 @@ fn as_file_kind(mut mode: u32) -> FileKind {
 }
 
 fn get_groups(pid: u32) -> Vec<u32> {
-    #[cfg(not(target_os = "macos"))]
-    {
+    if cfg!(not(target_os = "macos")) {
         let path = format!("/proc/{pid}/task/{pid}/status");
         let file = File::open(path).unwrap();
         for line in BufReader::new(file).lines() {

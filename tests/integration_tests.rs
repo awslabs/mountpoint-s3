@@ -1,3 +1,6 @@
+// No integration tests for non-Linux targets, so turn off the module for now.
+#![cfg(target_os = "linux")]
+
 use fuser::{Filesystem, Session};
 use std::rc::Rc;
 use std::thread;
@@ -7,8 +10,10 @@ use tempfile::TempDir;
 #[test]
 #[cfg(target_os = "linux")]
 fn unmount_no_send() {
-    // Rc to make this !Send
-    struct NoSendFS(Rc<()>);
+    struct NoSendFS(
+        // Rc to make this !Send
+        #[allow(dead_code)] Rc<()>,
+    );
 
     impl Filesystem for NoSendFS {}
 

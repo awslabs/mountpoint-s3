@@ -615,9 +615,9 @@ impl<'a> Request<'a> {
                 se.filesystem.setvolname(self, x.name(), self.reply());
             }
             #[cfg(target_os = "macos")]
-            ll::Operation::GetXTimes(_) => {
+            ll::Operation::GetXTimes(x) => {
                 se.filesystem
-                    .getxtimes(self, self.request.nodeid().into(), self.reply());
+                    .getxtimes(self, x.nodeid().into(), self.reply());
             }
             #[cfg(target_os = "macos")]
             ll::Operation::Exchange(x) => {
