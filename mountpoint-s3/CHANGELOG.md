@@ -1,14 +1,15 @@
 ## Unreleased
 
+## v1.11.0 (November 21, 2024)
+
 ### New features
 
-* Mountpoint now offers a new command-line argument `--cache-xz <BUCKET>` which enables caching of object content to the specified bucket on S3 Express One Zone. ([#1145](https://github.com/awslabs/mountpoint-s3/pull/1145))
-
-### Breaking changes
+* Mountpoint now offers a new command-line argument `--cache-xz <BUCKET>` which enables caching of object content to the specified bucket on S3 Express One Zone. To get started, see the [shared cache section of the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#shared-cache). ([#1145](https://github.com/awslabs/mountpoint-s3/pull/1145))
 
 ### Other changes
 
 * Fix an issue where `fstat` would fail and return `ESTALE` when invoked on a file descriptor after a successful `fsync`. ([#1085](https://github.com/awslabs/mountpoint-s3/pull/1085))
+* Mountpoint now configures FUSE to allow up to 64 background requests to be in flight. This is expected to improve read throughput for some use cases. ([#1137](https://github.com/awslabs/mountpoint-s3/pull/1137))
 
 ## v1.10.0 (October 15, 2024)
 
