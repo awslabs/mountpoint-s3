@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+
+* Implement statfs to report non-zero value for total blocks, free blocks, free inodes and maximum file name length (before 0 was reported ([#1118](https://github.com/awslabs/mountpoint-s3/pull/1118))).
+
 ## v1.11.0 (November 21, 2024)
 
 ### New features
