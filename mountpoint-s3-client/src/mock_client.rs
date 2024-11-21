@@ -186,6 +186,11 @@ impl MockClient {
         params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send + 'a,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
+        if let Some(offset) = params.write_offset_bytes {
+            // Handle as an Append request.
+            return self.append_object(key, offset, params, contents);
+        }
+
         let checksum = validate_checksum(contents.as_ref(), params.checksum.as_ref())?;
 
         let mut object: MockObject = contents.into();
@@ -368,6 +373,75 @@ impl MockClient {
             next_continuation_token,
         }
     }
+
+    // TODO: we may want to extend testing of failure conditions.
+    fn append_object(
+        &self,
+        key: &str,
+        offset: u64,
+        params: &PutObjectSingleParams,
+        contents: impl AsRef<[u8]> + Send,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
+        let contents = contents.as_ref();
+        let mut objects = self.objects.write().unwrap();
+        let object = match objects.get_mut(key) {
+            None => {
+                // Allow creating a new object if append at offset is 0, otherwise the request should fail
+                if offset != 0 {
+                    return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchKey));
+                }
+                if params.if_match.is_some() {
+                    return Err(ObjectClientError::ServiceError(PutObjectError::PreconditionFailed));
+                }
+                let checksum = validate_checksum(contents, params.checksum.as_ref())?;
+
+                let mut object = MockObject::from(contents);
+                object.set_storage_class(params.storage_class.clone());
+                object.set_object_metadata(params.object_metadata.clone());
+                object.set_checksum(checksum);
+                objects.insert(key.to_owned(), object);
+                objects.get_mut(key).unwrap()
+            }
+            Some(object) => {
+                if let Some(etag) = &params.if_match {
+                    if object.etag != *etag {
+                        return Err(ObjectClientError::ServiceError(PutObjectError::PreconditionFailed));
+                    }
+                }
+
+                // Append empty contents to non-empty object is not allowed
+                if contents.is_empty() && !object.is_empty() {
+                    return Err(ObjectClientError::ServiceError(PutObjectError::EmptyBody));
+                }
+
+                if object.len() as u64 != offset {
+                    return Err(ObjectClientError::ServiceError(PutObjectError::InvalidWriteOffset));
+                }
+
+                let current_algorithms = object.checksum.algorithms();
+                let checksum_matches = match &params.checksum {
+                    Some(checksum) => current_algorithms.contains(&checksum.checksum_algorithm()),
+                    None => current_algorithms.is_empty(),
+                };
+                if !checksum_matches {
+                    return Err(ObjectClientError::ServiceError(PutObjectError::InvalidChecksumType));
+                }
+
+                // We only use the provided checksum for validation. [MockObject::append] below will
+                // compact the data and compute the full checksum.
+                _ = validate_checksum(contents, params.checksum.as_ref())?;
+
+                object.append(contents);
+                object
+            }
+        };
+        let etag = object.etag.clone();
+        Ok(PutObjectResult {
+            etag,
+            sse_type: None,
+            sse_kms_key_id: None,
+        })
+    }
 }
 
 /// Operations for use in operation counters.
@@ -481,6 +555,27 @@ impl MockObject {
     pub fn with_computed_checksums(mut self, algorithms: &[ChecksumAlgorithm]) -> Self {
         self.checksum = compute_checksum(&self.read(0, self.size), algorithms);
         self
+    }
+
+    /// Append data to this object.
+    ///
+    /// The whole content of the object will be compacted and a new checksum calculated.
+    /// Pre-existing part information will be lost.
+    pub fn append(&mut self, bytes: &[u8]) -> ETag {
+        let mut buffer = Vec::with_capacity(self.size + bytes.len());
+        buffer.extend_from_slice(&self.read(0, self.size));
+        buffer.extend_from_slice(bytes);
+        let new_bytes = buffer.into_boxed_slice();
+        let new_etag = ETag::from_object_bytes(&new_bytes);
+        let new_checksum = compute_checksum(&new_bytes, &self.checksum.algorithms());
+
+        self.size = new_bytes.len();
+        self.generator = Arc::new(move |offset, size| new_bytes[offset as usize..offset as usize + size].into());
+        self.last_modified = OffsetDateTime::now_utc();
+        self.etag = new_etag.clone();
+        self.checksum = new_checksum;
+        self.parts = None; // Ignore the part layout. Review if required.
+        new_etag
     }
 
     pub fn set_last_modified(&mut self, last_modified: OffsetDateTime) {
@@ -2098,5 +2193,127 @@ mod tests {
                 "parts should not be returned if checksums disabled"
             );
         }
+    }
+
+    #[test_case(MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests()))]
+    #[test_case(MockObject::constant(0xab, 20, ETag::for_tests()))]
+    #[test_case(MockObject::from([]))]
+    #[test_case(MockObject::from([0xbb; 128]))]
+    #[tokio::test]
+    async fn test_append_object(obj: MockObject) {
+        let bucket = "test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        let key = "test_object";
+        client.add_object(key, obj.clone());
+
+        let append_data = vec![42u8; 10];
+        let params = PutObjectSingleParams::new_for_append(obj.len() as u64);
+        client
+            .put_object_single(bucket, key, &params, &append_data)
+            .await
+            .expect("append failed");
+
+        let get_request = client
+            .get_object(bucket, key, &GetObjectParams::default())
+            .await
+            .expect("get_object failed");
+
+        // Check that the result of get_object is correct.
+        let actual = get_request.collect().await.expect("failed to collect body");
+
+        let expected = {
+            let mut expected = Vec::with_capacity(obj.len() + append_data.len());
+            expected.extend_from_slice(&obj.read(0, obj.len()));
+            expected.extend_from_slice(&append_data);
+            expected
+        };
+
+        assert_eq!(&expected, &*actual);
+    }
+
+    #[test_case(20, 10)]
+    #[test_case(20, 20)]
+    #[test_case(20, 30)]
+    #[tokio::test]
+    async fn test_append_object_fails_with_wrong_offset(original_size: usize, append_offset: u64) {
+        let bucket = "test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        let key = "test_object";
+        let obj = MockObject::constant(0xab, original_size, ETag::for_tests());
+        client.add_object(key, obj.clone());
+
+        let append_data = vec![42u8; 10];
+        let params = PutObjectSingleParams::new_for_append(append_offset);
+        let result = client.put_object_single(bucket, key, &params, &append_data).await;
+
+        if append_offset != original_size as u64 {
+            let err = result.expect_err("append should reject invalid offset");
+            assert!(matches!(
+                err,
+                ObjectClientError::ServiceError(PutObjectError::InvalidWriteOffset)
+            ));
+        } else {
+            result.expect("append with valid offset failed");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_append_object_checksums() {
+        let bucket = "test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: bucket.to_string(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            ..Default::default()
+        });
+
+        let key = "test_object";
+        let content = [0xbb; 128];
+        let obj = MockObject::from(content).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
+        client.add_object(key, obj.clone());
+
+        let append_data = vec![42u8; 10];
+        let checksum = crc32c::checksum(&append_data);
+        let mut offset = obj.len() as u64;
+
+        // Append with matching checksum algorithm.
+        client
+            .put_object_single(
+                bucket,
+                key,
+                &PutObjectSingleParams::new_for_append(offset).checksum(Some(UploadChecksum::Crc32c(checksum))),
+                &append_data,
+            )
+            .await
+            .expect("append with correct checksum failed");
+
+        offset += append_data.len() as u64;
+
+        // Append with no checksum, while existing object uses CRC32C.
+        let err = client
+            .put_object_single(
+                bucket,
+                key,
+                &PutObjectSingleParams::new_for_append(offset),
+                &append_data,
+            )
+            .await
+            .expect_err("append with no checksum succeeded");
+        assert!(matches!(
+            err,
+            ObjectClientError::ServiceError(PutObjectError::InvalidChecksumType)
+        ));
     }
 }

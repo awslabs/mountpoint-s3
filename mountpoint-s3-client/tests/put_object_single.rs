@@ -4,6 +4,7 @@ pub mod common;
 
 use std::collections::HashMap;
 
+use aws_sdk_s3::primitives::ByteStream;
 use common::*;
 use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientConfig;
@@ -338,4 +339,469 @@ async fn test_put_object_header() {
     let output = sdk_client.head_object().bucket(bucket).key(key).send().await.unwrap();
 
     assert_eq!(Some(content_type), output.content_type());
+}
+
+#[tokio::test]
+#[cfg(not(feature = "s3express_tests"))]
+async fn test_append_fails_if_not_supported() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_fails_if_not_supported");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(b"data"))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let params = PutObjectSingleParams::new_for_append(4);
+    let put_object_error = client
+        .put_object_single(&bucket, &key, &params, b"more data")
+        .await
+        .expect_err("put_object_single should fail");
+
+    assert!(matches!(
+        put_object_error,
+        ObjectClientError::ServiceError(PutObjectError::NotImplemented)
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_new_object() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_new_object");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectSingleParams::new_for_append(0);
+    let put_object_result = client
+        .put_object_single(&bucket, &key, &params, &contents)
+        .await
+        .expect("put_object_single should succeed");
+
+    // Verify object contents
+    let result = client
+        .get_object(
+            &bucket,
+            &key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &contents[..]).await;
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_new_object_with_empty() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_new_object_with_empty");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let contents = vec![0u8; 0];
+    let params = PutObjectSingleParams::new_for_append(0);
+    let put_object_result = client
+        .put_object_single(&bucket, &key, &params, &contents)
+        .await
+        .expect("put_object_single should succeed");
+
+    // Verify object contents
+    let result = client
+        .get_object(
+            &bucket,
+            &key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &contents[..]).await;
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_existing_object() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_existing_object");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+    let mut expected_contents = Vec::new();
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    expected_contents.extend_from_slice(contents);
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+    expected_contents.extend_from_slice(&contents);
+
+    let params = PutObjectSingleParams::new_for_append(object_size as u64);
+    let put_object_result = client
+        .put_object_single(&bucket, &key, &params, &contents)
+        .await
+        .expect("put_object_single should succeed");
+
+    // Verify object contents
+    let result = client
+        .get_object(
+            &bucket,
+            &key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &expected_contents[..]).await;
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_existing_object_if_match() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_existing_object_if_match");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+    let mut expected_contents = Vec::new();
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    expected_contents.extend_from_slice(contents);
+    let object_size = contents.len();
+    let result = sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+    let etag = result.e_tag().expect("sdk put_object should return etag");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+    expected_contents.extend_from_slice(&contents);
+
+    let params = PutObjectSingleParams::new_for_append(object_size as u64).if_match(Some(etag.to_owned().into()));
+    let put_object_result = client
+        .put_object_single(&bucket, &key, &params, &contents)
+        .await
+        .expect("put_object_single should succeed");
+
+    // Verify object contents
+    let result = client
+        .get_object(
+            &bucket,
+            &key,
+            &GetObjectParams::new().if_match(Some(put_object_result.etag.clone())),
+        )
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &expected_contents[..]).await;
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_existing_object_if_match_fails() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_existing_object_if_match_fails");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    const INITIAL_CONTENT: &[u8] = b"original";
+    let original_result = sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(INITIAL_CONTENT))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+    let etag = original_result.e_tag().expect("sdk put_object should return etag");
+    let object_size = INITIAL_CONTENT.len();
+
+    let replace_result = sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(b"replace"))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+    assert_ne!(etag, replace_result.e_tag().expect("sdk put_object should return etag"));
+
+    let params = PutObjectSingleParams::new_for_append(object_size as u64).if_match(Some(etag.to_owned().into()));
+    let put_object_result = client.put_object_single(&bucket, &key, &params, b"append").await;
+
+    let error = put_object_result.expect_err("put_object_single with the old etag should fail");
+    assert!(matches!(
+        error,
+        ObjectClientError::ServiceError(PutObjectError::PreconditionFailed)
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_existing_object_with_empty() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_existing_object_with_empty");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let contents = vec![0u8; 0];
+    let params = PutObjectSingleParams::new_for_append(object_size as u64);
+    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(PutObjectError::EmptyBody))
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_empty_object_with_empty() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_existing_object_with_empty");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"";
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let contents = vec![0u8; 0];
+    let params = PutObjectSingleParams::new_for_append(object_size as u64);
+    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(PutObjectError::EmptyBody))
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_non_existing_object() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_non_existing_object");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectSingleParams::new_for_append(1024);
+    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(PutObjectError::NoSuchKey))
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_invalid_offset() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_invalid_offset");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+
+    let params = PutObjectSingleParams::new_for_append(object_size as u64 + 1);
+    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(PutObjectError::InvalidWriteOffset))
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_with_bad_checksum() {
+    use mountpoint_s3_crt::checksums::crc32c;
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_with_bad_checksum");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc32C)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+    // Generate bad checksum
+    let checksum = UploadChecksum::Crc32c(crc32c::checksum(b"bad data"));
+
+    let mut params = PutObjectSingleParams::new_for_append(object_size as u64);
+    params = params.checksum(Some(checksum));
+    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(PutObjectError::BadChecksum))
+    ));
+}
+
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_with_invalid_checksum() {
+    use mountpoint_s3_client::checksums::crc32c;
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_with_invalid_checksum");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Sha256)
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+    let checksum = UploadChecksum::Crc32c(crc32c::checksum(&contents));
+
+    let mut params = PutObjectSingleParams::new_for_append(object_size as u64);
+    params = params.checksum(Some(checksum));
+    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    assert!(matches!(
+        result,
+        Err(ObjectClientError::ServiceError(PutObjectError::InvalidChecksumType))
+    ));
+}
+
+#[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Crc32C)]
+#[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Crc32)]
+#[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Sha1)]
+#[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Sha256)]
+#[tokio::test]
+#[cfg(feature = "s3express_tests")]
+async fn test_append_with_matching_checksum(checksum_algorithm: aws_sdk_s3::types::ChecksumAlgorithm) {
+    use mountpoint_s3_client::checksums::{crc32, crc32c, sha1, sha256};
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_with_matching_checksum");
+    let client = get_test_client();
+    let key = format!("{prefix}hello");
+
+    let sdk_client = get_test_sdk_client().await;
+
+    // Create a new object for the test
+    let contents = b"data";
+    let object_size = contents.len();
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .checksum_algorithm(checksum_algorithm.clone())
+        .body(ByteStream::from_static(contents))
+        .send()
+        .await
+        .expect("sdk put_object should succeed");
+
+    let mut rng = rand::thread_rng();
+
+    let mut contents = vec![0u8; 32];
+    rng.fill(&mut contents[..]);
+    let checksum = match checksum_algorithm {
+        aws_sdk_s3::types::ChecksumAlgorithm::Crc32C => UploadChecksum::Crc32c(crc32c::checksum(&contents)),
+        aws_sdk_s3::types::ChecksumAlgorithm::Crc32 => UploadChecksum::Crc32(crc32::checksum(&contents)),
+        aws_sdk_s3::types::ChecksumAlgorithm::Sha1 => UploadChecksum::Sha1(sha1::checksum(&contents).unwrap()),
+        aws_sdk_s3::types::ChecksumAlgorithm::Sha256 => UploadChecksum::Sha256(sha256::checksum(&contents).unwrap()),
+        other => unimplemented!("checksum algorithm {}", other),
+    };
+
+    let mut params = PutObjectSingleParams::new_for_append(object_size as u64);
+    params = params.checksum(Some(checksum));
+    _ = client
+        .put_object_single(&bucket, &key, &params, &contents)
+        .await
+        .expect("append should succeed");
 }
