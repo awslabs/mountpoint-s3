@@ -120,6 +120,11 @@ fn basic_read_test_mock_with_cache(prefix: &str, read_only: bool) {
 enum RestorationOptions {
     None,
     RestoreAndWait,
+    #[allow(dead_code)]
+    /// Restore object but do not wait for it to be available for reading.
+    ///
+    /// Mock client does not implement objects in a 'restoring' state,
+    /// it simply is or is not restored.
     RestoreInProgress,
 }
 
