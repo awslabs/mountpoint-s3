@@ -39,10 +39,13 @@ pub fn checksum(buf: &[u8]) -> Result<Sha256, Error> {
 }
 
 /// SHA256 Hasher
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Sha256Hasher {
     inner: NonNull<aws_hash>,
 }
+
+/// Safety: [Sha256Hasher] is not [Clone] and owns the inner [aws_hash].
+unsafe impl Send for Sha256Hasher {}
 
 impl Sha256Hasher {
     /// Create a new SHA256 hasher.

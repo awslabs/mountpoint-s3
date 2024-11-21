@@ -8,8 +8,6 @@ use std::time::{Duration, Instant};
 
 use mountpoint_s3::data_cache::InMemoryDataCache;
 use mountpoint_s3::S3FilesystemConfig;
-#[cfg(not(feature = "s3express_tests"))]
-use mountpoint_s3_client::types::PutObjectParams;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
@@ -135,17 +133,19 @@ fn read_flexible_retrieval_test(
     files: &[&str],
     restore: RestorationOptions,
 ) {
+    use mountpoint_s3_client::types::PutObjectSingleParams;
+
     let test_session = creator_fn(prefix, Default::default());
 
     for file in files {
-        let mut put_params = PutObjectParams::default();
+        let mut put_params = PutObjectSingleParams::default();
         if *file != "STANDARD" {
             put_params.storage_class = Some(file.to_string());
         }
         let key = format!("{file}.txt");
         test_session
             .client()
-            .put_object_params(&key, b"hello world", put_params)
+            .put_object_single(&key, b"hello world", put_params)
             .unwrap();
         match restore {
             RestorationOptions::None => (),

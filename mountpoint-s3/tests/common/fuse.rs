@@ -9,8 +9,9 @@ use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
-use mountpoint_s3_client::types::{ObjectPart, PutObjectParams};
+use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_client::ObjectClient;
 use tempfile::TempDir;
 
@@ -18,14 +19,18 @@ use crate::common::{get_crt_client_auth_config, tokio_block_on};
 
 pub trait TestClient: Send {
     fn put_object(&self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        self.put_object_params(key, value, PutObjectParams::default())
+        self.put_object_single(
+            key,
+            value,
+            PutObjectSingleParams::new().checksum(Some(UploadChecksum::Crc32c(crc32c::checksum(value)))),
+        )
     }
 
-    fn put_object_params(
+    fn put_object_single(
         &self,
         key: &str,
         value: &[u8],
-        params: PutObjectParams,
+        params: PutObjectSingleParams,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
@@ -38,12 +43,17 @@ pub trait TestClient: Send {
 
     fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
 
-    fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>>;
+    fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>>;
+
+    fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
 
     fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
     fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
+
+/// Checksum for the whole object, if present, and [Vec] of the checksum for each part, if present.
+type ObjectChecksums = (Option<Checksum>, Vec<Option<Checksum>>);
 
 pub struct TestSessionConfig {
     pub part_size: usize,
@@ -154,8 +164,8 @@ pub mod mock_session {
 
     use futures::executor::ThreadPool;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
-    use mountpoint_s3_client::types::ObjectAttribute;
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
 
     const BUCKET_NAME: &str = "test_bucket";
 
@@ -243,16 +253,14 @@ pub mod mock_session {
     }
 
     impl TestClient for MockTestClient {
-        fn put_object_params(
+        fn put_object_single(
             &self,
             key: &str,
             value: &[u8],
-            params: PutObjectParams,
+            params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let mut mock_object = MockObject::from(value);
-            mock_object.set_storage_class(params.storage_class);
-            self.client.add_object(&full_key, mock_object);
+            _ = self.client.mock_put_object(&full_key, &params, value)?;
             Ok(())
         }
 
@@ -282,16 +290,35 @@ pub mod mock_session {
             Ok(self.client.get_object_storage_class(&full_key)?)
         }
 
-        fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>> {
+        fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let attrs = tokio_block_on(self.client.get_object_attributes(
                 BUCKET_NAME,
                 &full_key,
                 None,
                 None,
-                &[ObjectAttribute::ObjectParts],
+                &[ObjectAttribute::ObjectParts, ObjectAttribute::Checksum],
             ))?;
-            Ok(attrs.object_parts.and_then(|parts| parts.parts))
+            let part_checksums = attrs
+                .object_parts
+                .map(|parts| {
+                    parts
+                        .parts
+                        .map(|parts| parts.into_iter().map(|part| part.checksum).collect())
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            Ok((attrs.checksum, part_checksums))
+        }
+
+        fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let head_object = tokio_block_on(self.client.head_object(
+                BUCKET_NAME,
+                &full_key,
+                &HeadObjectParams::new(),
+            ))?;
+            Ok(head_object.size as usize)
         }
 
         fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -319,7 +346,7 @@ pub mod s3_session {
     use aws_sdk_s3::Client;
     use mountpoint_s3::prefetch::{caching_prefetch, default_prefetch};
     use mountpoint_s3_client::config::S3ClientConfig;
-    use mountpoint_s3_client::types::{Checksum, PutObjectTrailingChecksums};
+    use mountpoint_s3_client::types::Checksum;
     use mountpoint_s3_client::S3CrtClient;
 
     /// Create a FUSE mount backed by a real S3 client
@@ -413,26 +440,32 @@ pub mod s3_session {
     }
 
     impl TestClient for SDKTestClient {
-        fn put_object_params(
+        fn put_object_single(
             &self,
             key: &str,
             value: &[u8],
-            params: PutObjectParams,
+            params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
+            let checksum_algorithm = params.checksum.map(|c| match c.checksum_algorithm() {
+                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
+                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
+                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
+                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
+                other => panic!("Unsupported algorithm: {}", other),
+            });
             let full_key = format!("{}{}", self.prefix, key);
             let mut request = self
                 .sdk_client
                 .put_object()
                 .bucket(&self.bucket)
                 .key(full_key)
+                .set_checksum_algorithm(checksum_algorithm)
                 .body(ByteStream::from(value.to_vec()));
 
             if let Some(storage_class) = params.storage_class {
                 request = request.set_storage_class(Some(storage_class.as_str().into()));
             }
-            if params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
-                request = request.set_checksum_algorithm(Some(ChecksumAlgorithm::Crc32C));
-            }
+
             Ok(tokio_block_on(request.send()).map(|_| ())?)
         }
 
@@ -496,7 +529,7 @@ pub mod s3_session {
             Ok(attrs.storage_class().map(|s| s.as_str().to_string()))
         }
 
-        fn get_object_parts(&self, key: &str) -> Result<Option<Vec<ObjectPart>>, Box<dyn std::error::Error>> {
+        fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let attrs = tokio_block_on(
                 self.sdk_client
@@ -504,28 +537,42 @@ pub mod s3_session {
                     .bucket(&self.bucket)
                     .key(full_key)
                     .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
+                    .object_attributes(aws_sdk_s3::types::ObjectAttributes::Checksum)
                     .send(),
             )?;
-            let Some(parts) = attrs.object_parts else {
-                return Ok(None);
-            };
-            let Some(parts) = parts.parts else {
-                return Ok(None);
-            };
-            let parts = parts
-                .iter()
-                .map(|part| ObjectPart {
-                    checksum: Some(Checksum {
-                        checksum_crc32: part.checksum_crc32.to_owned(),
-                        checksum_crc32c: part.checksum_crc32_c.to_owned(),
-                        checksum_sha1: part.checksum_sha1.to_owned(),
-                        checksum_sha256: part.checksum_sha256.to_owned(),
-                    }),
-                    part_number: part.part_number.unwrap() as usize,
-                    size: part.size.unwrap() as usize,
+            let object_checksum = attrs.checksum.map(|checksum| Checksum {
+                checksum_crc32: checksum.checksum_crc32,
+                checksum_crc32c: checksum.checksum_crc32_c,
+                checksum_sha1: checksum.checksum_sha1,
+                checksum_sha256: checksum.checksum_sha256,
+            });
+
+            let part_checksums = attrs
+                .object_parts
+                .map(|parts| {
+                    parts
+                        .parts
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|part| {
+                            Some(Checksum {
+                                checksum_crc32: part.checksum_crc32,
+                                checksum_crc32c: part.checksum_crc32_c,
+                                checksum_sha1: part.checksum_sha1,
+                                checksum_sha256: part.checksum_sha256,
+                            })
+                        })
+                        .collect()
                 })
-                .collect();
-            Ok(Some(parts))
+                .unwrap_or_default();
+
+            Ok((object_checksum, part_checksums))
+        }
+
+        fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
+            Ok(head_object.content_length().unwrap() as usize)
         }
 
         // Schedule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.

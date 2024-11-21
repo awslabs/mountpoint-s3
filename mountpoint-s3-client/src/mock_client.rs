@@ -13,7 +13,6 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
-use mountpoint_s3_crt::checksums::crc32c;
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -22,7 +21,9 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
 
-use crate::checksums::crc32c_to_base64;
+use crate::checksums::{
+    crc32, crc32_to_base64, crc32c, crc32c_to_base64, sha1, sha1_to_base64, sha256, sha256_to_base64,
+};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
@@ -176,6 +177,29 @@ impl MockClient {
             initial_count,
             operation,
         }
+    }
+
+    /// Mock implementation of PutObject.
+    pub fn mock_put_object<'a>(
+        &self,
+        key: &str,
+        params: &PutObjectSingleParams,
+        contents: impl AsRef<[u8]> + Send + 'a,
+    ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
+        let checksum = validate_checksum(contents.as_ref(), params.checksum.as_ref())?;
+
+        let mut object: MockObject = contents.into();
+        object.set_storage_class(params.storage_class.clone());
+        object.set_object_metadata(params.object_metadata.clone());
+        object.set_checksum(checksum);
+
+        let etag = object.etag.clone();
+        add_object(&self.objects, key, object);
+        Ok(PutObjectResult {
+            etag,
+            sse_type: None,
+            sse_kms_key_id: None,
+        })
     }
 
     /// Track number of operations for verifying API calls made by the client in testing.
@@ -454,6 +478,11 @@ impl MockObject {
         }
     }
 
+    pub fn with_computed_checksums(mut self, algorithms: &[ChecksumAlgorithm]) -> Self {
+        self.checksum = compute_checksum(&self.read(0, self.size), algorithms);
+        self
+    }
+
     pub fn set_last_modified(&mut self, last_modified: OffsetDateTime) {
         self.last_modified = last_modified;
     }
@@ -503,6 +532,58 @@ impl std::fmt::Debug for MockObject {
             .field("restored", &self.restore_status)
             .finish()
     }
+}
+
+fn compute_checksum(content: &[u8], algorithms: &[ChecksumAlgorithm]) -> Checksum {
+    let mut checksum = Checksum::empty();
+    for algorithm in algorithms {
+        match algorithm {
+            ChecksumAlgorithm::Crc32 => {
+                let crc32 = crc32::checksum(content);
+                checksum.checksum_crc32 = Some(crc32_to_base64(&crc32));
+            }
+            ChecksumAlgorithm::Crc32c => {
+                let crc32c = crc32c::checksum(content);
+                checksum.checksum_crc32c = Some(crc32c_to_base64(&crc32c));
+            }
+            ChecksumAlgorithm::Sha1 => {
+                let sha1 = sha1::checksum(content).expect("sha1 computation failed");
+                checksum.checksum_sha1 = Some(sha1_to_base64(&sha1));
+            }
+            ChecksumAlgorithm::Sha256 => {
+                let sha256 = sha256::checksum(content).expect("sha256 computation failed");
+                checksum.checksum_sha256 = Some(sha256_to_base64(&sha256));
+            }
+            algorithm => unimplemented!("unknown checksum algorithm: {:?}", algorithm),
+        };
+    }
+    checksum
+}
+
+fn convert_checksum(upload_checksum: Option<&UploadChecksum>) -> Checksum {
+    let mut checksum = Checksum::empty();
+    match upload_checksum {
+        Some(UploadChecksum::Crc32c(crc32c)) => checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c)),
+        Some(UploadChecksum::Crc32(crc32)) => checksum.checksum_crc32 = Some(crc32_to_base64(crc32)),
+        Some(UploadChecksum::Sha1(sha1)) => checksum.checksum_sha1 = Some(sha1_to_base64(sha1)),
+        Some(UploadChecksum::Sha256(sha256)) => checksum.checksum_sha256 = Some(sha256_to_base64(sha256)),
+        None => {}
+    };
+    checksum
+}
+
+/// Validate data against the [UploadChecksum] and return the [Checksum] to be stored.
+fn validate_checksum(
+    contents: &[u8],
+    upload_checksum: Option<&UploadChecksum>,
+) -> ObjectClientResult<Checksum, PutObjectError, MockClientError> {
+    let algorithm = upload_checksum.map(|c| c.checksum_algorithm());
+    let content_checksum = compute_checksum(contents, algorithm.as_slice());
+    let provided_checksum = convert_checksum(upload_checksum);
+    if provided_checksum != content_checksum {
+        return Err(ObjectClientError::ServiceError(PutObjectError::BadChecksum));
+    }
+    Ok(provided_checksum)
 }
 
 #[derive(Debug)]
@@ -799,32 +880,7 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
-        let content_crc32 = crc32c::checksum(contents.as_ref());
-        let mut object: MockObject = contents.into();
-        object.set_storage_class(params.storage_class.clone());
-        object.set_object_metadata(params.object_metadata.clone());
-        if let Some(upload_checksum) = &params.checksum {
-            let mut checksum = Checksum::empty();
-            match upload_checksum {
-                UploadChecksum::Crc32c(crc32c) => {
-                    if crc32c != &content_crc32 {
-                        return Err(ObjectClientError::ClientError(MockClientError(
-                            "crc32c specified did not match data content".into(),
-                        )));
-                    }
-                    checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c));
-                }
-            }
-            object.set_checksum(checksum);
-        }
-
-        let etag = object.etag.clone();
-        add_object(&self.objects, key, object);
-        Ok(PutObjectResult {
-            etag,
-            sse_type: None,
-            sse_kms_key_id: None,
-        })
+        self.mock_put_object(key, params, contents)
     }
 
     async fn get_object_attributes(
@@ -847,7 +903,7 @@ impl ObjectClient for MockClient {
             let mut result = GetObjectAttributesResult::default();
             for attribute in object_attributes.iter() {
                 match attribute {
-                    ObjectAttribute::ETag => result.etag = Some("TODO".to_owned()),
+                    ObjectAttribute::ETag => result.etag = Some(object.etag.as_str().to_owned()),
                     ObjectAttribute::Checksum => result.checksum = Some(object.checksum.clone()),
                     ObjectAttribute::ObjectParts => {
                         let parts = match &object.parts {
@@ -1288,6 +1344,7 @@ mod tests {
         let next = get_request.next().await.expect("result should not be empty");
         assert_client_error!(next, "empty read window");
     }
+
     #[tokio::test]
     async fn test_copy_object() {
         let bucket = "test_bucket";

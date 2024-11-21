@@ -15,7 +15,7 @@ use futures::Future;
 use mountpoint_s3_crt_sys::*;
 
 use std::ffi::{OsStr, OsString};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomPinned;
 use std::mem::MaybeUninit;
 use std::os::unix::prelude::OsStrExt;
@@ -1472,6 +1472,18 @@ impl ChecksumAlgorithm {
             aws_s3_checksum_algorithm::AWS_SCA_SHA1 => Some(ChecksumAlgorithm::Sha1),
             aws_s3_checksum_algorithm::AWS_SCA_SHA256 => Some(ChecksumAlgorithm::Sha256),
             _ => unreachable!("unknown aws_s3_checksum_algorithm"),
+        }
+    }
+}
+
+impl Display for ChecksumAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChecksumAlgorithm::Crc32c => f.write_str("CRC32C"),
+            ChecksumAlgorithm::Crc32 => f.write_str("CRC32"),
+            ChecksumAlgorithm::Sha1 => f.write_str("SHA1"),
+            ChecksumAlgorithm::Sha256 => f.write_str("SHA256"),
+            ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {:?}", algorithm),
         }
     }
 }

@@ -548,6 +548,9 @@ impl PutObjectSingleParams {
 #[non_exhaustive]
 pub enum UploadChecksum {
     Crc32c(checksums::Crc32c),
+    Crc32(checksums::Crc32),
+    Sha1(checksums::Sha1),
+    Sha256(checksums::Sha256),
 }
 
 impl UploadChecksum {
@@ -555,6 +558,9 @@ impl UploadChecksum {
     pub fn checksum_algorithm(&self) -> ChecksumAlgorithm {
         match self {
             UploadChecksum::Crc32c(_) => ChecksumAlgorithm::Crc32c,
+            UploadChecksum::Crc32(_) => ChecksumAlgorithm::Crc32,
+            UploadChecksum::Sha1(_) => ChecksumAlgorithm::Sha1,
+            UploadChecksum::Sha256(_) => ChecksumAlgorithm::Sha256,
         }
     }
 }
@@ -648,6 +654,12 @@ pub struct PutObjectResult {
 pub enum PutObjectError {
     #[error("The bucket does not exist")]
     NoSuchBucket,
+
+    #[error("The provided checksum does not match the data")]
+    BadChecksum,
+
+    #[error("The server does not support the functionality required to fulfill the request")]
+    NotImplemented,
 }
 
 /// Restoration status for S3 objects in flexible retrieval storage classes.

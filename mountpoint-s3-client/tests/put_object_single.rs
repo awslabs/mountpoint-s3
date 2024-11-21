@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use common::*;
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
 use mountpoint_s3_client::config::S3ClientConfig;
+use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
 };
@@ -127,6 +128,29 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
             );
         }
     }
+}
+
+#[tokio::test]
+async fn test_put_bad_checksums() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_bad_checksums");
+    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let contents = vec![0u8; 128];
+
+    let checksum = Some(UploadChecksum::Crc32c(crc32c::Crc32c::new(99)));
+
+    let params = PutObjectSingleParams::new().checksum(checksum.clone());
+    let error = client
+        .put_object_single(&bucket, &key, &params, &contents)
+        .await
+        .expect_err("put_object should fail");
+
+    assert!(matches!(
+        error,
+        ObjectClientError::ServiceError(PutObjectError::BadChecksum)
+    ));
 }
 
 #[test_case(HashMap::new(); "Empty")]
@@ -288,7 +312,7 @@ async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>)
 
     let prefix = get_unique_test_prefix("test_put_object_sse");
     let key = format!("{prefix}hello");
-    let put_object_result = test_put_object_single(&client, &bucket, &key, request_params.clone()).await;
+    let put_object_result = test_put_object_single_empty(&client, &bucket, &key, request_params.clone()).await;
     check_sse(&bucket, &key, sse_type, &kms_key_id, put_object_result).await;
 }
 
