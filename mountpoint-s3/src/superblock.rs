@@ -50,7 +50,7 @@ use expiry::Expiry;
 mod inode;
 use inode::{valid_inode_name, InodeErrorInfo, InodeKindData, InodeStat, InodeState, WriteStatus};
 
-pub use inode::{Inode, InodeKind, InodeNo, ReadHandle, WriteHandle};
+pub use inode::{Inode, InodeKind, InodeNo, ReadHandle, WriteHandle, WriteMode};
 
 mod negative_cache;
 use negative_cache::NegativeCache;
@@ -262,12 +262,12 @@ impl Superblock {
         &self,
         _client: &OC,
         ino: InodeNo,
-        allow_overwrite: bool,
+        mode: &WriteMode,
         is_truncate: bool,
     ) -> Result<WriteHandle, InodeError> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
-        WriteHandle::new(self.inner.clone(), inode, allow_overwrite, is_truncate)
+        WriteHandle::new(self.inner.clone(), inode, mode, is_truncate)
     }
 
     /// Create a new handle for a file being read. The handle can be used to update the state of
@@ -1522,7 +1522,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), false, false)
+                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename);
@@ -1574,7 +1574,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), false, false)
+                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename);
@@ -1728,7 +1728,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), false, false)
+                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
         }
@@ -1958,7 +1958,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), false, false)
+            .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 
@@ -2124,7 +2124,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), false, false)
+            .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 

@@ -416,6 +416,29 @@ impl InodeStat {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct WriteMode {
+    /// Allow overwrite
+    pub allow_overwrite: bool,
+    /// Enable incremental uploads
+    pub incremental_upload: bool,
+}
+
+impl WriteMode {
+    fn is_inode_writable(&self, is_truncate: bool) -> bool {
+        if self.incremental_upload || (self.allow_overwrite && is_truncate) {
+            true
+        } else {
+            if is_truncate {
+                tracing::warn!("file overwrite is disabled by default, you need to remount with --allow-overwrite flag to enable it");
+            } else {
+                tracing::warn!("modifying an existing file is disabled by default, you need to remount with the --allow-overwrite or the --incremental-upload flag to enable it");
+            }
+            false
+        }
+    }
+}
+
 /// Handle for a file writing that we use to interact with [Superblock]
 #[derive(Debug, Clone)]
 pub struct WriteHandle {
@@ -428,7 +451,7 @@ impl WriteHandle {
     pub(super) fn new(
         inner: Arc<SuperblockInner>,
         inode: Inode,
-        allow_overwrite: bool,
+        mode: &WriteMode,
         is_truncate: bool,
     ) -> Result<Self, InodeError> {
         let mut state = inode.get_mut_inode_state()?;
@@ -442,22 +465,15 @@ impl WriteHandle {
             }
             WriteStatus::LocalOpen => return Err(InodeError::InodeAlreadyWriting(inode.err())),
             WriteStatus::Remote => {
-                if !allow_overwrite {
-                    tracing::warn!(
-                        "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
-                    );
+                if !mode.is_inode_writable(is_truncate) {
                     return Err(InodeError::InodeNotWritable(inode.err()));
                 }
 
-                if !is_truncate {
-                    tracing::warn!(
-                        "modifying an existing file is only allowed when the file is opened in truncate mode (O_TRUNC)"
-                    );
-                    return Err(InodeError::InodeNotWritable(inode.err()));
+                if is_truncate {
+                    state.stat.size = 0;
                 }
 
                 state.write_status = WriteStatus::LocalOpen;
-                state.stat.size = 0;
             }
         }
         drop(state);

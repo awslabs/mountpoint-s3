@@ -1,6 +1,7 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
 use bytes::Bytes;
+use futures::task::Spawn;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, UNIX_EPOCH};
@@ -10,6 +11,7 @@ use tracing::{debug, trace, Level};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::logging;
@@ -19,7 +21,7 @@ use crate::prefix::Prefix;
 use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::Uploader;
+use crate::upload::{AppendUploader, Uploader};
 
 pub use crate::superblock::InodeNo;
 
@@ -37,7 +39,7 @@ mod flags;
 pub use flags::OpenFlags;
 
 mod handles;
-use handles::{DirHandle, FileHandle, FileHandleState, UploadState};
+use handles::{DirHandle, FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};
@@ -59,6 +61,7 @@ where
     superblock: Superblock,
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
+    append_uploader: AppendUploader<Client>,
     bucket: String,
     #[allow(unused)]
     prefix: Prefix,
@@ -152,6 +155,7 @@ where
     pub fn new(
         client: Client,
         prefetcher: Prefetcher,
+        runtime: impl Spawn + Send + Sync + 'static,
         bucket: &str,
         prefix: &Prefix,
         config: S3FilesystemConfig,
@@ -170,6 +174,14 @@ where
             config.server_side_encryption.clone(),
             config.use_upload_checksums,
         );
+        let append_uploader = AppendUploader::new(
+            client.clone(),
+            runtime,
+            mem_limiter.clone(),
+            client.write_part_size().unwrap(),
+            config.server_side_encryption.clone(),
+            config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c),
+        );
 
         Self {
             config,
@@ -178,6 +190,7 @@ where
             superblock,
             prefetcher,
             uploader,
+            append_uploader,
             bucket: bucket.to_string(),
             prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
@@ -393,39 +406,35 @@ where
             InodeKind::File => (),
         }
 
-        let inode = lookup.inode.clone();
-        let full_key = lookup.inode.full_key().to_owned();
-        let remote_file = lookup.inode.is_remote()?;
-
-        // Open with O_APPEND is ok for new files because it's same as creating a new one.
-        // but we can't support it on existing files and we should explicitly say we don't allow that.
-        if remote_file && flags.contains(OpenFlags::O_APPEND) {
-            return Err(err!(libc::EINVAL, "O_APPEND is not supported on existing files"));
-        }
-
         let state = if flags.contains(OpenFlags::O_RDWR) {
-            let is_truncate = flags.contains(OpenFlags::O_TRUNC);
-            if !remote_file || (self.config.allow_overwrite && is_truncate) {
-                // If the file is new or opened in truncate mode, we know it must be a write handle.
+            if !lookup.inode.is_remote()?
+                || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
+                || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
+            {
+                // If the file is new or if it was opened in truncate or in append mode,
+                // we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?
+                FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, pid, self).await?
+            FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
         } else {
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let fh = self.next_handle();
+        let inode = lookup.inode.clone();
+        let full_key = lookup.inode.full_key().to_owned();
         let handle = FileHandle {
             inode,
             full_key,
+            open_pid: pid,
             state: AsyncMutex::new(state),
         };
+        let fh = self.next_handle();
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
@@ -746,21 +755,6 @@ where
         }
     }
 
-    async fn complete_upload(
-        &self,
-        request: &mut UploadState<Client>,
-        full_key: &str,
-        ignore_if_empty: bool,
-        pid: Option<u32>,
-    ) -> Result<(), Error> {
-        match request.complete(full_key, ignore_if_empty, pid).await {
-            // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
-            // space-related failure.
-            Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
-            ret => ret,
-        }
-    }
-
     pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
@@ -771,11 +765,16 @@ where
         };
         logging::record_name(file_handle.inode.name());
         let mut state = file_handle.state.lock().await;
-        let request = match &mut *state {
+        let write_state = match &mut *state {
             FileHandleState::Read { .. } => return Ok(()),
-            FileHandleState::Write(request) => request,
+            FileHandleState::Write(write_state) => write_state,
         };
-        self.complete_upload(request, &file_handle.full_key, false, None).await
+        match write_state.commit(&file_handle.full_key, self).await {
+            // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
+            // space-related failure.
+            Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
+            ret => ret,
+        }
     }
 
     pub async fn flush(&self, _ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
@@ -803,8 +802,9 @@ where
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { .. } => Ok(()),
-            FileHandleState::Write(request) => {
-                self.complete_upload(request, &file_handle.full_key, true, Some(pid))
+            FileHandleState::Write(write_state) => {
+                write_state
+                    .complete(&file_handle.full_key, pid, file_handle.open_pid, self)
                     .await
             }
         }
@@ -838,17 +838,17 @@ where
             }
         };
 
-        let request = match file_handle.state.into_inner() {
+        let write_state = match file_handle.state.into_inner() {
             FileHandleState::Read { handle, .. } => {
                 // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
                 handle.finish()?;
                 return Ok(());
             }
-            FileHandleState::Write(request) => request,
+            FileHandleState::Write(write_state) => write_state,
         };
 
-        let result = request.complete_if_in_progress(&file_handle.full_key).await;
+        let result = write_state.complete_if_in_progress(&file_handle.full_key).await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
         // Errors won't actually be seen by the user because `release` is async,
         // but it's the right thing to do.
@@ -918,14 +918,14 @@ mod tests {
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-        let prefetcher = default_prefetch(runtime, Default::default());
+        let prefetcher = default_prefetch(runtime.clone(), Default::default());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
         let fs_config = S3FilesystemConfig {
             server_side_encryption,
             ..Default::default()
         };
-        let mut fs = S3Filesystem::new(client, prefetcher, bucket, &Default::default(), fs_config);
+        let mut fs = S3Filesystem::new(client, prefetcher, runtime, bucket, &Default::default(), fs_config);
 
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();

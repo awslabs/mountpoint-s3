@@ -9,7 +9,7 @@ use crate::prefetch::Prefetch;
 use crate::superblock::{Inode, LookedUp, ReadHandle, ReaddirHandle, WriteHandle};
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::AsyncMutex;
-use crate::upload::UploadRequest;
+use crate::upload::{AppendUploadRequest, UploadRequest};
 
 use super::{DirectoryEntry, Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 
@@ -53,6 +53,8 @@ where
     pub inode: Inode,
     pub full_key: String,
     pub state: AsyncMutex<FileHandleState<Client, Prefetcher>>,
+    /// Process that created the handle
+    pub open_pid: u32,
 }
 
 pub enum FileHandleState<Client, Prefetcher>
@@ -91,24 +93,37 @@ where
         lookup: &LookedUp,
         ino: InodeNo,
         flags: OpenFlags,
-        pid: u32,
         fs: &S3Filesystem<Client, Prefetcher>,
     ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
-        let handle = fs
-            .superblock
-            .write(&fs.client, ino, fs.config.allow_overwrite, is_truncate)
-            .await?;
+        let write_mode = fs.config.write_mode();
+        let handle = fs.superblock.write(&fs.client, ino, &write_mode, is_truncate).await?;
+        let bucket = &fs.bucket;
         let key = lookup.inode.full_key();
-        let handle = match fs.uploader.put(&fs.bucket, key).await {
-            Err(e) => {
-                return Err(err!(libc::EIO, source:e, "put failed to start"));
-            }
-            Ok(request) => FileHandleState::Write(UploadState::InProgress {
+        let handle = if write_mode.incremental_upload {
+            let initial_etag = if is_truncate {
+                None
+            } else {
+                lookup.stat.etag.as_ref().map(|e| e.into())
+            };
+            let current_offset = if is_truncate { 0 } else { lookup.stat.size as u64 };
+            let request = fs.append_uploader.start_upload(
+                bucket.to_owned(),
+                key.to_owned(),
+                current_offset,
+                initial_etag.clone(),
+            );
+            FileHandleState::Write(UploadState::AppendInProgress {
                 request,
                 handle,
-                open_pid: pid,
-            }),
+                initial_etag,
+                written_bytes: 0,
+            })
+        } else {
+            match fs.uploader.put(bucket, key).await {
+                Err(e) => return Err(err!(libc::EIO, source:e, "put failed to start")),
+                Ok(request) => FileHandleState::Write(UploadState::MPUInProgress { request, handle }),
+            }
         };
         metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
         Ok(handle)
@@ -147,85 +162,182 @@ where
 
 #[derive(Debug)]
 pub enum UploadState<Client: ObjectClient> {
-    InProgress {
+    AppendInProgress {
+        request: AppendUploadRequest<Client>,
+        handle: WriteHandle,
+        initial_etag: Option<ETag>,
+        written_bytes: usize,
+    },
+    MPUInProgress {
         request: UploadRequest<Client>,
         handle: WriteHandle,
-        /// Process that created the upload
-        open_pid: u32,
     },
     Completed,
     // Remember the failure reason to respond to retries
     Failed(libc::c_int),
 }
 
-impl<Client: ObjectClient> UploadState<Client> {
+impl<Client> UploadState<Client>
+where
+    Client: ObjectClient + Send + Sync + Clone + 'static,
+{
     pub async fn write(&mut self, offset: i64, data: &[u8], key: &str) -> Result<u32, Error> {
-        let (upload, handle) = match self {
-            Self::InProgress { request, handle, .. } => (request, handle),
-            Self::Completed => return Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
-            Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
+        let result: Result<_, Error> = match self {
+            UploadState::AppendInProgress {
+                request,
+                handle,
+                written_bytes,
+                ..
+            } => match request.write(offset as u64, data).await {
+                Ok(len) => {
+                    *written_bytes += len;
+                    Ok((handle, len))
+                }
+                Err(e) => Err(e.into()),
+            },
+            UploadState::MPUInProgress { request, handle, .. } => match request.write(offset, data).await {
+                Ok(len) => Ok((handle, len)),
+                Err(e) => Err(e.into()),
+            },
+            UploadState::Completed => return Err(err!(libc::EIO, "upload already completed for key {:?}", key)),
+            UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
         };
 
-        match upload.write(offset, data).await {
-            Ok(len) => {
+        match result {
+            Ok((handle, len)) => {
                 handle.inc_file_size(len);
                 Ok(len as u32)
             }
             Err(e) => {
                 // Abort the request.
-                match std::mem::replace(self, Self::Failed(e.to_errno())) {
-                    UploadState::InProgress { handle, .. } => {
+                match std::mem::replace(self, UploadState::Failed(e.to_errno())) {
+                    UploadState::MPUInProgress { handle, .. } | UploadState::AppendInProgress { handle, .. } => {
                         if let Err(err) = handle.finish(None) {
                             // Log the issue but still return the write error.
                             error!(?err, ?key, "error updating the inode status");
                         }
                     }
-                    Self::Failed(_) | Self::Completed => unreachable!("checked above"),
+                    UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
                 };
-                Err(e.into())
+                Err(e)
             }
         }
     }
 
-    pub async fn complete(&mut self, key: &str, ignore_if_empty: bool, pid: Option<u32>) -> Result<(), Error> {
-        let (request_size, open_pid) = match self {
-            Self::InProgress { request, open_pid, .. } => (request.size(), *open_pid),
-            Self::Completed => return Ok(()),
-            Self::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
+    pub async fn commit<Prefetcher: Prefetch>(
+        &mut self,
+        key: &str,
+        fs: &S3Filesystem<Client, Prefetcher>,
+    ) -> Result<(), Error> {
+        match &self {
+            UploadState::Completed => return Ok(()),
+            UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
+            _ => {}
         };
 
-        if ignore_if_empty && request_size == 0 {
-            trace!(key, "not completing upload because file is empty");
-            return Ok(());
-        }
-        if let Some(pid) = pid {
-            if !are_from_same_process(open_pid, pid) {
-                trace!(
-                    key,
-                    pid,
-                    open_pid,
-                    "not completing upload because current pid differs from pid at open"
-                );
-                return Ok(());
+        match std::mem::replace(self, UploadState::Completed) {
+            UploadState::AppendInProgress {
+                request,
+                handle,
+                initial_etag,
+                written_bytes,
+            } => {
+                let current_offset = request.current_offset();
+                match Self::commit_append(request, key).await {
+                    Ok(etag) => {
+                        // Restart append request.
+                        let initial_etag = etag.or(initial_etag);
+                        let request = fs.append_uploader.start_upload(
+                            fs.bucket.clone(),
+                            key.to_owned(),
+                            current_offset,
+                            initial_etag.clone(),
+                        );
+                        *self = UploadState::AppendInProgress {
+                            request,
+                            handle,
+                            initial_etag,
+                            written_bytes,
+                        };
+                        Ok(())
+                    }
+                    Err(e) => {
+                        *self = UploadState::Failed(e.to_errno());
+                        Err(e)
+                    }
+                }
             }
+            UploadState::MPUInProgress { request, handle, .. } => {
+                let result = Self::complete_upload(request, key, handle).await;
+                if let Err(e) = &result {
+                    *self = UploadState::Failed(e.to_errno());
+                }
+                result
+            }
+            UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         }
+    }
 
-        let (upload, handle) = match std::mem::replace(self, Self::Completed) {
-            Self::InProgress { request, handle, .. } => (request, handle),
-            Self::Failed(_) | Self::Completed => unreachable!("checked above"),
+    pub async fn complete<Prefetcher: Prefetch>(
+        &mut self,
+        key: &str,
+        pid: u32,
+        open_pid: u32,
+        fs: &S3Filesystem<Client, Prefetcher>,
+    ) -> Result<(), Error> {
+        match self {
+            UploadState::AppendInProgress { written_bytes, .. } => {
+                if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
+                    // Commit current changes, but do not close the write handle.
+                    return self.commit(key, fs).await;
+                }
+            }
+            UploadState::MPUInProgress { request, .. } => {
+                if request.size() == 0 {
+                    trace!(key, "not completing upload because nothing was written");
+                    return Ok(());
+                }
+                if !are_from_same_process(open_pid, pid) {
+                    trace!(
+                        key,
+                        pid,
+                        open_pid,
+                        "not completing upload because current pid differs from pid at open"
+                    );
+                    return Ok(());
+                }
+            }
+            UploadState::Completed => return Ok(()),
+            UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
         };
 
-        let result = Self::complete_upload(upload, key, handle).await;
+        let result = match std::mem::replace(self, UploadState::Completed) {
+            UploadState::AppendInProgress {
+                request,
+                handle,
+                initial_etag,
+                ..
+            } => Self::complete_append(request, key, handle, initial_etag).await,
+            UploadState::MPUInProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
+            UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
+        };
+
         if let Err(e) = &result {
-            *self = Self::Failed(e.to_errno());
+            *self = UploadState::Failed(e.to_errno());
         }
         result
     }
 
     pub async fn complete_if_in_progress(self, key: &str) -> Result<(), Error> {
         match self {
-            Self::InProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
-            Self::Failed(_) | Self::Completed => Ok(()),
+            UploadState::AppendInProgress {
+                request,
+                handle,
+                initial_etag,
+                ..
+            } => Self::complete_append(request, key, handle, initial_etag).await,
+            UploadState::MPUInProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
+            UploadState::Failed(_) | UploadState::Completed => Ok(()),
         }
     }
 
@@ -243,6 +355,45 @@ impl<Client: ObjectClient> UploadState<Client> {
             error!(?err, ?key, "error updating the inode status");
         }
         put_result
+    }
+
+    async fn complete_append(
+        upload: AppendUploadRequest<Client>,
+        key: &str,
+        handle: WriteHandle,
+        initial_etag: Option<ETag>,
+    ) -> Result<(), Error> {
+        match Self::commit_append(upload, key).await {
+            Ok(etag) => {
+                Self::finish(handle, etag.or(initial_etag));
+                Ok(())
+            }
+            Err(err) => {
+                Self::finish(handle, None);
+                Err(err)
+            }
+        }
+    }
+
+    async fn commit_append(upload: AppendUploadRequest<Client>, key: &str) -> Result<Option<ETag>, Error> {
+        match upload.complete().await {
+            Ok(Some(result)) => {
+                debug!(key, "put succeeded");
+                Ok(Some(result.etag))
+            }
+            Ok(None) => {
+                debug!(key, "no put required");
+                Ok(None)
+            }
+            Err(e) => Err(err!(libc::EIO, source:e, "put failed")),
+        }
+    }
+
+    fn finish(handle: WriteHandle, etag: Option<ETag>) {
+        if let Err(err) = handle.finish(etag) {
+            // Log the issue but still return put_result.
+            error!(?err, "error updating the inode status");
+        }
     }
 }
 

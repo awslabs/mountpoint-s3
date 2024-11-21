@@ -59,8 +59,8 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-    let prefetcher = default_prefetch(runtime, Default::default());
-    S3Filesystem::new(client, prefetcher, bucket, prefix, config)
+    let prefetcher = default_prefetch(runtime.clone(), Default::default());
+    S3Filesystem::new(client, prefetcher, runtime, bucket, prefix, config)
 }
 
 #[track_caller]
