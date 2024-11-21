@@ -73,7 +73,11 @@ Directory listings will never be stale and always reflect the current metadata.
 These cases do not apply to newly created objects, which are always immediately visible through Mountpoint.
 Stale metadata can be refreshed by either opening the file or listing its parent directory.
 
-Mountpoint allows multiple readers to access the same object at the same time. However, a new file can only be written to sequentially and by one writer at a time. New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3. If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object. We recommend that your application does not write to the same object from multiple instances at the same time.
+Mountpoint allows multiple readers to access the same object at the same time.
+However, a new file can only be written to sequentially and by one writer at a time.
+New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3.
+If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object.
+Your application should not write to the same object from multiple instances at the same time.
 
 ### Optional metadata and object content caching
 
@@ -83,7 +87,7 @@ When opting into caching, the strong read-after-write consistency model is relax
 and you may see stale metadata or object data for up to the cache's metadata time-to-live (TTL),
 which defaults to 1 minute but can be configured using the `--metadata-ttl` flag.
 
-For example, with caching enabled, you can successfully open and read a file that has been deleted from S3 if it is already cached.
+For example, with local and/or shared caching enabled, you can successfully open and read a file that has been deleted from the mounted S3 bucket if it is already cached.
 Reads to that file will either return the cached data or an error for data that is not cached,
 but will never return corrupt data or combine data from two versions of the file.
 
@@ -92,8 +96,8 @@ When this option is provided, Mountpoint will check S3 to ensure the object exis
 Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
 When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to
-access a file that does not exist on S3, subsequent attempts (within the configured TTL) may still
-fail, even if it was later added to S3.
+access a file that does not exist in your mounted S3 bucket, subsequent attempts (within the configured TTL) may still
+fail, even if it was later added to the mounted S3 bucket, until the TTL expires.
 
 Caching does not affect the behavior of writing to files. Files that are being written to remain
 unavailable for reading until the file is closed, consistent with behavior without caching.

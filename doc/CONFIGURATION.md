@@ -181,11 +181,20 @@ Mountpoint does not support client-side encryption using the Amazon S3 Encryptio
 
 ### Other S3 bucket configuration
 
-If the bucket you are mounting is a [Requester Pays bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html), you must acknowledge that you will be charged for the request and the data transferred, rather than the bucket owner. You provide this acknowledgement by using the `--requester-pays` command-line flag. If you try to mount a Requester Pays bucket without using this flag, mounting will fail with an Access Denied error.
+If the bucket you are mounting is a [Requester Pays bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html), you must acknowledge that you will be charged for the request and the data transferred, rather than the bucket owner.
+You provide this acknowledgement by using the `--requester-pays` command-line flag.
+If you try to mount a Requester Pays bucket without using this flag, mounting will fail with an Access Denied error.
 
-If you want to verify that the S3 bucket you are mounting is [owned by the expected AWS account](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-owner-condition.html), use the `--expected-bucket-owner` command-line argument. For example, if you expect the bucket to be owned by the AWS account `111122223333`, specify the argument `--expected-bucket-owner 111122223333`. If the argument doesn't match the bucket owner's account ID, mounting will fail with an Access Denied error.
+If you want to verify that the S3 bucket you are mounting, or an S3 directory bucket used for a shared cache is [owned by the expected AWS account](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-owner-condition.html), use the `--expected-bucket-owner` command-line argument.
+For example, if you expect the bucket to be owned by the AWS account `111122223333`, specify the argument `--expected-bucket-owner 111122223333`.
+If the argument doesn't match the bucket owner's account ID, mounting will fail with an Access Denied error.
+The same expected bucket owner is used for both the mounted S3 bucket and the shared cache bucket if configured.
 
-There are certain situations where Mountpoint receives a response from Amazon S3 indicating that a retry is necessary. For example, if an application generates high request rates (typically sustained rates of over 5,000 requests per second to a small number of objects), Mountpoint might receive HTTP 503 slowdown responses from S3. Mountpoint automatically retries these requests up to a total of 10 attempts, using jittered exponential backoff between attempts. If these attempts are exhausted, Mountpoint will return an error to your application (usually `EIO`). If you need to modify the maximum number of attempts, set the `AWS_MAX_ATTEMPTS` environment variable.
+There are certain situations where Mountpoint receives a response from Amazon S3 indicating that a retry is necessary.
+For example, if an application generates high request rates (typically sustained rates of over 5,000 requests per second to a small number of objects), Mountpoint might receive HTTP 503 slowdown responses from S3.
+Mountpoint automatically retries these requests up to a total of 10 attempts, using jittered exponential backoff between attempts.
+If these attempts are exhausted, Mountpoint will return an error to your application (usually `EIO`).
+If you need to modify the maximum number of attempts, set the `AWS_MAX_ATTEMPTS` environment variable.
 
 ## File system configuration
 
@@ -272,43 +281,74 @@ WantedBy=remote-fs.target
 ## Caching configuration
 
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
-Mountpoint can serve all file system requests from the cache, excluding listing of directory contents.
-
-The main command-line flag to enable caching is `--cache <CACHE_DIR>`, which specifies the directory in which to store cached object content. Mountpoint will create a new subdirectory within the path that you specify, and will remove any existing files or directories within that subdirectory at mount time and at exit. This flag will also enable caching of metadata using a default time-to-live (TTL) of 1 minute (60 seconds), which can be configured with the `--metadata-ttl` argument.
+Mountpoint can serve [supported file system requests](./SEMANTICS.md) from the cache, excluding listing of directory contents.
 
 ### Metadata Cache
 
-The command-line flag `--metadata-ttl <SECONDS|indefinite|minimal>` controls the time-to-live (TTL) for cached metadata entries. It can be set to a positive numerical value in seconds, or to one of the pre-configured values of `minimal` (default configuration when not using `--cache`) or `indefinite` (metadata entries never expire).
+The command-line flag `--metadata-ttl <SECONDS|indefinite|minimal>` controls the time-to-live (TTL) for cached metadata entries.
+It can be set to a positive numerical value in seconds, or to one of the pre-configured values of `minimal` (default configuration when not using `--cache` or `--cache-xz`) or `indefinite` (metadata entries never expire).
 
 > [!WARNING]
 > Caching of metadata entries relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
-When configured with metadata caching, on its own or in conjunction with `--cache`, Mountpoint will typically perform fewer requests to S3, but will not guarantee that the information it reports is up to date with the content of the bucket. You can use the `--metadata-ttl` flag to choose the appropriate trade off between consistency (`--metadata-ttl minimal`) and performance/cost optimization (`--metadata-ttl indefinite`), depending on the requirements of your workload. In scenarios where the content of the S3 bucket is modified by another client and you require Mountpoint to always return up-to-date information, setting `--metadata-ttl minimal` is most appropriate. A setting of `--metadata-ttl 300` would instead allow Mountpoint to perform fewer requests to S3 by delaying updates for up to 5 min. If your workload does not require consistency, for example because the content of the S3 bucket does not change, we recommend using `--metadata-ttl indefinite`.
+When configured with metadata caching, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports is up to date with the content of the mounted S3 bucket.
+You can use the `--metadata-ttl` flag to choose the appropriate trade off between consistency (`--metadata-ttl minimal`) and performance/cost optimization (`--metadata-ttl indefinite`), depending on the requirements of your workload.
+In scenarios where the content of the mounted S3 bucket is modified by another client, and you require Mountpoint to return recently up-to-date information, setting `--metadata-ttl minimal` is most appropriate.
+A setting of `--metadata-ttl 300` would instead allow Mountpoint to perform fewer requests to the mounted S3 bucket by delaying updates for up to 300 seconds.
+If your workload does not require consistency, for example because the content of the mounted S3 bucket does not change, you should use `--metadata-ttl indefinite`.
 
-### Disk Cache Size
+### Data Cache
 
-By default, Mountpoint will limit the maximum size of the cache such that the free space on the file system does not fall below 5%, and will automatically evict the least recently used content from the cache when caching new content. You can instead manually configure the maximum size of the cache with the `--max-cache-size <MiB>` command-line argument.
+Mountpoint for Amazon S3 supports different types of data caching that you can opt in to accelerate repeated read requests.
+
+First, you can use local data caching on your Amazon EC2 instance storage or an Amazon EBS volume.
+You should use a local cache if you repeatedly read the same data from the same compute instance and if you have unused space in your local instance storage for the repeatedly read dataset.
+
+Second, you can cache object content on S3 Express One Zone, shared across many instances.
+You should use a shared cache if you repeatedly read small objects from multiple compute instances or if you do not know the size of your dataset that you repeatedly read and want to benefit from elasticity of cache size.
+Once you opt in, Mountpoint retains objects with sizes up to one mebibyte (MiB) in an S3 directory bucket that uses S3 Express One Zone.
+
+Finally, you can use a local cache and shared cache together if you have unused space in your local cache, but also want a shared cache across multiple instances.
+
+Configuring a local or shared cache will also enable caching of metadata in memory using a default time-to-live (TTL) of 1 minute (60 seconds), which can be configured with the `--metadata-ttl` argument.
+
+### Local Cache
+
+You can opt in to a local cache in your Amazon EC2 instance storage, instance memory, or an Amazon EBS volume.
+The main command-line flag to enable local caching is `--cache <CACHE_DIR>`, which specifies the directory in which to store cached object content.
+Mountpoint will create a new subdirectory within the path that you specify, and will remove any existing files or directories within that subdirectory at mount time and at exit.
+You should use the local cache if you repeatedly read the same data from the same compute instance, and if you have enough space in local storage to cache your dataset.
+This avoids redundant requests to your mounted S3 bucket when you read the same data repeatedly from the same instance.
+
+> [!WARNING]
+> If you enable local caching, Mountpoint will persist unencrypted object content from your mounted S3 bucket at the local cache location provided at mount.
+> In order to protect your data, you should restrict access to the data cache location by using file system access control mechanisms.
+
+#### Disk Cache Size
+
+By default, Mountpoint will limit the maximum size of the local cache such that the free space on the file system does not fall below 5%, and will automatically evict the least recently used content from the local cache when caching new content.
+You can instead manually configure the maximum size of the local cache with the `--max-cache-size <MiB>` command-line argument.
 
 > [!WARNING]
 > If you enable caching, Mountpoint will persist unencrypted object content from your S3 bucket at the location provided at mount.
 > In order to protect your data, we recommend you restrict access to the data cache location.
 
-### Caching object content to local storage
+#### Caching object content to local storage
 
-We recommend using local storage, such as Amazon EC2 instance storage or an Amazon EBS volume, as the target of the Mountpoint cache.
+You should use local storage, such as Amazon EC2 instance storage or an Amazon EBS volume, as the target of the Mountpoint local cache.
 When caching to EBS, you can use your instance's root EBS volume, or create and attach a new volume just for caching.
-There are several factors that can affect the performance of EBS volumes. See the [EBS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) for more details about EBS volume types and their performance characteristics.
+There are several factors that can affect the performance of EBS volumes.
+See the [EBS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ebs-volume-types.html) for more details about EBS volume types and their performance characteristics.
 If you create a new EBS volume or use EC2 instance storage, you will first need to [create a file system](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/add-instance-store-volumes.html#making-instance-stores-available-on-your-instances) on that storage and mount it at a path such as `/mnt/mp-cache`.
-The user running Mountpoint needs write access to the mounted file system,
-and we recommend setting the permissions on the file system to not allow reads by any other users (e.g., `chmod 0700 /mnt/mp-cache`).
+The user running Mountpoint needs write access to the mounted file system, and you should set the permissions on the file system to not allow reads by any other users (e.g., `chmod 0700 /mnt/mp-cache`).
 You can then start Mountpoint using the cache directory you mounted:
 
 ```
 mount-s3 amzn-s3-demo-bucket /path/to/mount --cache /mnt/mp-cache
 ```
 
-### Caching object content to memory
+#### Caching object content to memory
 
 Rather than caching to local storage, you can configure Mountpoint to cache to instance memory by using a RAM disk.
 To create a RAM disk on Linux, you can use [tmpfs](https://www.kernel.org/doc/html/latest/filesystems/tmpfs.html)
@@ -327,6 +367,58 @@ You can then start Mountpoint using the directory where the RAM disk was mounted
 
 ```
 mount-s3 amzn-s3-demo-bucket /path/to/mount --cache /mnt/mp-cache-tmpfs
+```
+
+### Shared Cache
+
+When mounting an S3 bucket, you can opt in to a shared cache in [Amazon S3 Express One Zone](https://aws.amazon.com/s3/storage-classes/express-one-zone/).
+You should use the shared cache if you repeatedly read small objects (up to 1 MB) from multiple compute instances, or the size of the dataset that you repeatedly read often exceeds the size of your local cache.
+This improves latency when reading the same data repeatedly from multiple instances by avoiding redundant requests to your mounted S3 bucket.
+
+> [!WARNING]
+> If you enable shared caching, Mountpoint will copy object content from your mounted S3 bucket in to the S3 directory bucket that you provide as your shared cache location, making it accessible to any caller with access to the S3 directory bucket.
+> To protect your cached data, you should follow the [security best practices for Amazon S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html), and ensure that your Amazon S3 buckets use the correct policies and are not publicly accessible.
+> You should use a directory bucket dedicated to Mountpoint shared caching and grant access ONLY to Mountpoint clients.
+
+
+#### Getting started with caching object content to directory buckets that support S3 Express One Zone storage class
+
+To start using shared caching with S3 Express One Zone, use the `--cache-xz <BUCKET>` flag specifying an S3 directory bucket as your cache location when mounting.
+
+```
+mount-s3 amzn-s3-demo-bucket /path/to/mount --cache-xz amzn-s3-demo-bucket--usw2-az1--x-s3
+```
+
+Please note the following key considerations while opting in to the shared cache:
+
+* To manage your storage cost, you should set up Lifecycle configuration on your S3 directory bucket so that Amazon S3 expires the cached data in S3 Express One Zone after a period of time you specify. 
+  Once you opt in to the shared cache in S3 Express One Zone, you pay for the data cached in your directory bucket in S3 Express One Zone.
+  You also pay for requests made against your data in the directory bucket in S3 Express One Zone.
+  Visit the [Amazon S3 pricing](https://aws.amazon.com/s3/pricing/) page to learn more. Mountpoint for Amazon S3 never deletes cached objects from S3 directory buckets.
+* Mountpoint requires sufficient read and write permissions in the S3 directory bucket, including `s3express:CreateSession`.
+  See the [Mountpoint IAM configuration](./CONFIGURATION.md#iam-permissions) section for details.
+  Note that the S3 directory bucket may not have the same permissions as your mounted S3 bucket.
+  This means that users who have permissions on your S3 directory bucket can read data stored in the shared cache, even if they do not have permissions on the mounted S3 bucket.
+  Write access to the shared cache could lead to cache poisoning.
+  You should use a directory bucket dedicated to Mountpoint shared caching and grant access ONLY to Mountpoint clients.
+  Mountpoint does not manage the permissions you set on your S3 buckets.
+  You should also ensure that the mounted S3 bucket and the S3 directory bucket used as the shared cache belong to the same AWS account.
+* Mountpoint stores data in the shared cache using the encryption configuration set on the S3 directory bucket.
+  SSE-S3 is the default encryption configuration for every S3 directory bucket.
+  You can also specify [SSE-KMS as the S3 directory bucket's default encryption configuration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-specifying-kms-encryption.html) with a KMS key (specifically, a [customer managed key](https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#customer-cmk)).
+  Note that when you choose the [SSE-KMS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html) option, Mountpoint will require `kms:Decrypt` and `kms:GenerateDataKey` permissions for the specified AWS KMS key to utilize the cache.
+* For optimal performance, you should consider keeping your compute instances in the same availability zone as the S3 directory bucket that you use for shared caching.
+* The S3 directory bucket that you use for shared caching and the mounted bucket must reside in the same region.
+  You may need to specify `--region` flag in some cases, for more information see the [region detection](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#region-detection) section.
+
+### Combined Local and Shared Cache
+
+You can opt in to a local cache and shared cache together if you have unused space on your instance, but also want to share the cache across multiple instances.
+This avoids redundant read requests from the same instance to the shared cache in S3 directory bucket when the required data is cached in local storage, reducing request cost as well as improving performance.
+To opt in to local and shared cache together, you can specify both the cache locations by using `--cache` and `--cache-xz` flags when mounting an S3 bucket, as shown below:
+
+```
+mount-s3 amzn-s3-demo-bucket /path/to/mount --cache /path/to/mountpoint/cache --cache-xz amzn-s3-demo-bucket--usw2-az1--x-s3
 ```
 
 ### Using multiple Mountpoint processes on a host
