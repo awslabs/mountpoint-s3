@@ -1,8 +1,8 @@
 use crate::common::fuse::{self, TestSessionCreator};
 use test_case::test_case;
 
-/// Tests that values we set are reported correctly.
-fn statfs_test_fuser_values(creator_fn: impl TestSessionCreator, prefix: &str) {
+/// Tests that static values we set are reported correctly.
+fn statfs_test_static_values(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
     let mount_dir = test_session.mount_path();
     let stats = nix::sys::statvfs::statvfs(mount_dir).unwrap();
@@ -32,16 +32,16 @@ fn statfs_test_block_arithmetic(creator_fn: impl TestSessionCreator, prefix: &st
 }
 
 #[test_case(""; "no prefix")]
-#[test_case("statfs_report_fuser_values_test"; "prefix")]
-fn statfs_report_fuser_values_mock(prefix: &str) {
-    statfs_test_fuser_values(fuse::mock_session::new, prefix);
+#[test_case("statfs_static_values_test"; "prefix")]
+fn statfs_report_static_values_mock(prefix: &str) {
+    statfs_test_static_values(fuse::mock_session::new, prefix);
 }
 
 #[cfg(feature = "s3_tests")]
 #[test_case(""; "no prefix")]
-#[test_case("statfs_report_fuser_values_test"; "prefix")]
-fn statfs_report_fuser_values_s3(prefix: &str) {
-    statfs_test_fuser_values(fuse::s3_session::new, prefix);
+#[test_case("statfs_static_values_test"; "prefix")]
+fn statfs_report_static_values_s3(prefix: &str) {
+    statfs_test_static_values(fuse::s3_session::new, prefix);
 }
 
 #[test_case(""; "no prefix")]
