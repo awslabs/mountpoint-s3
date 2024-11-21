@@ -840,7 +840,6 @@ where
 
         let write_state = match file_handle.state.into_inner() {
             FileHandleState::Read { handle, .. } => {
-                // TODO make sure we cancel the inflight PrefetchingGetRequest. is just dropping enough?
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
                 handle.finish()?;
                 return Ok(());
