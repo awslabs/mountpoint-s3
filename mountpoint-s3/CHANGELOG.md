@@ -4,7 +4,7 @@
 
 ### New features
 
-* Mountpoint now offers a new command-line argument `--cache-xz <BUCKET>` which enables caching of object content to the specified bucket on S3 Express One Zone. ([#1145](https://github.com/awslabs/mountpoint-s3/pull/1145))
+* Mountpoint now offers a new command-line argument `--cache-xz <BUCKET>` which enables caching of object content to the specified bucket on S3 Express One Zone. To get started, see the [shared cache section of the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#shared-cache). ([#1145](https://github.com/awslabs/mountpoint-s3/pull/1145))
 
 ### Other changes
 
