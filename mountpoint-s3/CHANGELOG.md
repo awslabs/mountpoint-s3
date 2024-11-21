@@ -6,8 +6,6 @@
 
 * Mountpoint now offers a new command-line argument `--cache-xz <BUCKET>` which enables caching of object content to the specified bucket on S3 Express One Zone. ([#1145](https://github.com/awslabs/mountpoint-s3/pull/1145))
 
-### Breaking changes
-
 ### Other changes
 
 * Fix an issue where `fstat` would fail and return `ESTALE` when invoked on a file descriptor after a successful `fsync`. ([#1085](https://github.com/awslabs/mountpoint-s3/pull/1085))
