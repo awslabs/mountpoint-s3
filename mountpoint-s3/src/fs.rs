@@ -107,6 +107,43 @@ pub struct DirectoryEntry {
     lookup: LookedUp,
 }
 
+/// Reply to a 'statfs' call
+#[derive(Debug)]
+pub struct StatFs {
+    /// Total number of blocks
+    pub total_blocks: u64,
+    /// Number of free blocks
+    pub free_blocks: u64,
+    /// Number of free blocks available to unprivileged user
+    pub available_blocks: u64,
+    /// Number of inodes in file system
+    pub total_inodes: u64,
+    /// Available inodes
+    pub free_inodes: u64,
+    /// Optimal transfer block size
+    pub block_size: u32,
+    /// Maximum name length
+    pub maximum_name_length: u32,
+    /// Fragement size
+    pub fragment_size: u32,
+}
+
+impl Default for StatFs {
+    fn default() -> Self {
+        // Default values copied from Fuser (https://github.com/cberner/fuser/blob/e18bd9bf9071ecd8be62993726e06ff11d6ec709/src/lib.rs#L695-L698)
+        Self {
+            total_blocks: 0,
+            free_blocks: 0,
+            available_blocks: 0,
+            total_inodes: 0,
+            free_inodes: 0,
+            block_size: 512,
+            maximum_name_length: 255,
+            fragment_size: 0,
+        }
+    }
+}
+
 impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -839,6 +876,21 @@ where
             ));
         }
         Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
+    }
+
+    pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
+        const FREE_BLOCKS: u64 = u64::MAX / 1024;
+        const FREE_INODES: u64 = u64::MAX / 1024;
+
+        let reply = StatFs {
+            free_blocks: FREE_BLOCKS,
+            available_blocks: FREE_BLOCKS,
+            free_inodes: FREE_INODES,
+            total_blocks: FREE_BLOCKS,
+            total_inodes: FREE_INODES,
+            ..Default::default()
+        };
+        Ok(reply)
     }
 }
 

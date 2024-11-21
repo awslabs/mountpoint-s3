@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+
+* Implement statfs to report non-zero synthetic values. This may unblock applications which rely on verifying there is available space before creating new files.([#1118](https://github.com/awslabs/mountpoint-s3/pull/1118)).
+
 ## v1.11.0 (November 21, 2024)
 
 ### New features
