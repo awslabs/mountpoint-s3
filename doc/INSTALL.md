@@ -59,11 +59,16 @@ To download and install Mountpoint for Amazon S3 on DEB-based distributions, fol
     * ARM64 (Graviton) architecture: `https://s3.amazonaws.com/mountpoint-s3-release/latest/arm64/mount-s3.deb.asc`
 
    Then see [Verifying the signature of the Mountpoint for Amazon S3 package](#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) below.
-3. Install the package by entering the following command:
+
+3. Ensure that package index files are up to date by running the following command:
+   ```
+   sudo apt-get update
+   ```
+4. Install the package by entering the following command:
    ```
    sudo apt-get install ./mount-s3.deb
    ```
-4. Verify that Mountpoint for Amazon S3 is successfully installed by entering the following command:
+5. Verify that Mountpoint for Amazon S3 is successfully installed by entering the following command:
    ```
    mount-s3 --version
    ```
