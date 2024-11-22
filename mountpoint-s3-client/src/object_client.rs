@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use crate::checksums;
+use crate::checksums::{self, crc32_to_base64, crc32c_to_base64, sha1_to_base64, sha256_to_base64};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 
 mod etag;
@@ -806,6 +806,20 @@ impl Checksum {
         }
 
         algorithms
+    }
+}
+
+impl From<Option<UploadChecksum>> for Checksum {
+    fn from(value: Option<UploadChecksum>) -> Self {
+        let mut checksum = Checksum::empty();
+        match value.as_ref() {
+            Some(UploadChecksum::Crc32c(crc32c)) => checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c)),
+            Some(UploadChecksum::Crc32(crc32)) => checksum.checksum_crc32 = Some(crc32_to_base64(crc32)),
+            Some(UploadChecksum::Sha1(sha1)) => checksum.checksum_sha1 = Some(sha1_to_base64(sha1)),
+            Some(UploadChecksum::Sha256(sha256)) => checksum.checksum_sha256 = Some(sha256_to_base64(sha256)),
+            None => {}
+        };
+        checksum
     }
 }
 

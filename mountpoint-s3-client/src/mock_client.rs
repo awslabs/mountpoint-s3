@@ -560,18 +560,6 @@ fn compute_checksum(content: &[u8], algorithms: &[ChecksumAlgorithm]) -> Checksu
     checksum
 }
 
-fn convert_checksum(upload_checksum: Option<&UploadChecksum>) -> Checksum {
-    let mut checksum = Checksum::empty();
-    match upload_checksum {
-        Some(UploadChecksum::Crc32c(crc32c)) => checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c)),
-        Some(UploadChecksum::Crc32(crc32)) => checksum.checksum_crc32 = Some(crc32_to_base64(crc32)),
-        Some(UploadChecksum::Sha1(sha1)) => checksum.checksum_sha1 = Some(sha1_to_base64(sha1)),
-        Some(UploadChecksum::Sha256(sha256)) => checksum.checksum_sha256 = Some(sha256_to_base64(sha256)),
-        None => {}
-    };
-    checksum
-}
-
 /// Validate data against the [UploadChecksum] and return the [Checksum] to be stored.
 fn validate_checksum(
     contents: &[u8],
@@ -579,7 +567,7 @@ fn validate_checksum(
 ) -> ObjectClientResult<Checksum, PutObjectError, MockClientError> {
     let algorithm = upload_checksum.map(|c| c.checksum_algorithm());
     let content_checksum = compute_checksum(contents, algorithm.as_slice());
-    let provided_checksum = convert_checksum(upload_checksum);
+    let provided_checksum = upload_checksum.cloned().into();
     if provided_checksum != content_checksum {
         return Err(ObjectClientError::ServiceError(PutObjectError::BadChecksum));
     }
