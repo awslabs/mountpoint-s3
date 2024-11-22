@@ -180,7 +180,7 @@ impl MockClient {
     }
 
     /// Mock implementation of PutObject.
-    pub fn mock_put_object<'a>(
+    fn mock_put_object<'a>(
         &self,
         key: &str,
         params: &PutObjectSingleParams,

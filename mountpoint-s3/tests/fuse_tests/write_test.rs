@@ -6,6 +6,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use mountpoint_s3_client::types::Checksum;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use test_case::test_case;
@@ -1214,13 +1215,13 @@ fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksum
         // Express One Zone the list of parts is always present. The important thing is just that
         // the *checksums* aren't present, because we disabled those.
         assert!(
-            object_checksum.is_none_or(|c| c.checksum_crc32c.is_none()),
-            "crc32c should not be present when upload checksums are disabled"
+            object_checksum.is_none_or(|c| c == Checksum::empty()),
+            "checksums should not be present when upload checksums are disabled"
         );
         for part_checksum in part_checksums {
             assert!(
-                part_checksum.is_none_or(|c| c.checksum_crc32c.is_none()),
-                "crc32c should not be present when upload checksums are disabled"
+                part_checksum.is_none_or(|c| c == Checksum::empty()),
+                "checksums should not be present when upload checksums are disabled"
             );
         }
     }

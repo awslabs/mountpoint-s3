@@ -12,6 +12,7 @@ use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_crt::checksums::{crc32, sha1, sha256};
 use rand::Rng;
 use test_case::test_case;
 
@@ -77,7 +78,10 @@ async fn test_put_object_single_empty(
 object_client_test!(test_put_object_single_empty);
 
 #[test_case(None; "no checksum")]
-#[test_case(Some(ChecksumAlgorithm::Crc32c); "crc32c")]
+#[test_case(Some(ChecksumAlgorithm::Crc32c))]
+#[test_case(Some(ChecksumAlgorithm::Crc32))]
+#[test_case(Some(ChecksumAlgorithm::Sha1))]
+#[test_case(Some(ChecksumAlgorithm::Sha256))]
 #[tokio::test]
 async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
     const PART_SIZE: usize = 5 * 1024 * 1024;
@@ -94,6 +98,13 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
 
     let checksum = match checksum_algorithm {
         Some(ChecksumAlgorithm::Crc32c) => Some(UploadChecksum::Crc32c(crc32c::checksum(&contents))),
+        Some(ChecksumAlgorithm::Crc32) => Some(UploadChecksum::Crc32(crc32::checksum(&contents))),
+        Some(ChecksumAlgorithm::Sha1) => Some(UploadChecksum::Sha1(
+            sha1::checksum(&contents).expect("sha1 checksum should succeed"),
+        )),
+        Some(ChecksumAlgorithm::Sha256) => Some(UploadChecksum::Sha256(
+            sha256::checksum(&contents).expect("sha256 checksum should succeed"),
+        )),
         Some(_) => unimplemented!("checksum algorithm not supported"),
         None => None,
     };
