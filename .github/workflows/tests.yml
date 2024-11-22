@@ -65,8 +65,15 @@ jobs:
       with:
         submodules: true
     - name: Install dependencies
-      run: |
-        brew update > /dev/null && brew install pkg-config
+      # Temporarily uninstall pkg-config@0.29.2 in order to work around a homebrew issue with pkg-config
+      # on github runners: https://github.com/actions/runner-images/issues/10984.
+      # Once the runners' image is updated (tracking https://github.com/actions/runner-images/pull/11011),
+      # we could revert to just:
+      #   brew update > /dev/null && brew install pkgconfig
+      run: |           
+          brew update
+          brew uninstall --ignore-dependencies --force pkg-config@0.29.2
+          brew install pkgconf
     - name: Install fuse
       run: |
         brew install --cask macfuse
