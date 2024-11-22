@@ -7,6 +7,11 @@ use tracing::{debug, trace};
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
+/// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
+pub enum BufferArea {
+    Prefetch,
+}
+
 /// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
 /// Currently, there are two metrics we take into account:
 /// 1) the memory reserved by prefetcher instances for the data requested or fetched from CRT client.
@@ -38,9 +43,9 @@ pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 #[derive(Debug)]
 pub struct MemoryLimiter<Client: ObjectClient> {
     mem_limit: u64,
-    /// Reserved memory for data we had requested via the request task but may not
-    /// arrived yet.
-    prefetcher_mem_reserved: AtomicU64,
+    /// Reserved memory for allocations we are tracking, such as buffers we allocate for prefetching.
+    /// The memory may not be used yet but has been reserved.
+    mem_reserved: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     // We will also take client's reserved memory into account because even if the
@@ -63,62 +68,74 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
         Self {
             client,
             mem_limit,
-            prefetcher_mem_reserved: AtomicU64::new(0),
+            mem_reserved: AtomicU64::new(0),
             additional_mem_reserved: reserved_mem,
         }
     }
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
-    pub fn reserve(&self, size: u64) {
-        self.prefetcher_mem_reserved.fetch_add(size, Ordering::SeqCst);
-        metrics::gauge!("prefetch.bytes_reserved").increment(size as f64);
+    pub fn reserve(&self, area: BufferArea, size: u64) {
+        self.mem_reserved.fetch_add(size, Ordering::SeqCst);
+        match area {
+            BufferArea::Prefetch => metrics::gauge!("prefetch.bytes_reserved").increment(size as f64),
+        }
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub fn try_reserve(&self, size: u64) -> bool {
+    pub fn try_reserve(&self, area: BufferArea, size: u64) -> bool {
         let start = Instant::now();
-        let mut prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
+        let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
-            let new_prefetcher_mem_reserved = prefetcher_mem_reserved.saturating_add(size);
+            let new_mem_reserved = mem_reserved.saturating_add(size);
             let client_mem_allocated = self.client_mem_allocated();
-            let new_total_mem_usage = new_prefetcher_mem_reserved
+            let new_total_mem_usage = new_mem_reserved
                 .saturating_add(client_mem_allocated)
                 .saturating_add(self.additional_mem_reserved);
             if new_total_mem_usage > self.mem_limit {
                 trace!(new_total_mem_usage, "not enough memory to reserve");
-                metrics::histogram!("prefetch.mem_reserve_latency_us").record(start.elapsed().as_micros() as f64);
+                match area {
+                    BufferArea::Prefetch => metrics::histogram!("prefetch.mem_reserve_latency_us")
+                        .record(start.elapsed().as_micros() as f64),
+                }
                 return false;
             }
             // Check that the value we have read is still the same before updating it
-            match self.prefetcher_mem_reserved.compare_exchange_weak(
-                prefetcher_mem_reserved,
-                new_prefetcher_mem_reserved,
+            match self.mem_reserved.compare_exchange_weak(
+                mem_reserved,
+                new_mem_reserved,
                 Ordering::SeqCst,
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
-                    metrics::gauge!("prefetch.bytes_reserved").increment(size as f64);
-                    metrics::histogram!("prefetch.mem_reserve_latency_us").record(start.elapsed().as_micros() as f64);
+                    match area {
+                        BufferArea::Prefetch => {
+                            metrics::gauge!("prefetch.bytes_reserved").increment(size as f64);
+                            metrics::histogram!("prefetch.mem_reserve_latency_us")
+                                .record(start.elapsed().as_micros() as f64);
+                        }
+                    }
                     return true;
                 }
-                Err(current) => prefetcher_mem_reserved = current, // another thread updated the atomic before us, trying again
+                Err(current) => mem_reserved = current, // another thread updated the atomic before us, trying again
             }
         }
     }
 
     /// Release the reserved memory.
-    pub fn release(&self, size: u64) {
-        self.prefetcher_mem_reserved.fetch_sub(size, Ordering::SeqCst);
-        metrics::gauge!("prefetch.bytes_reserved").decrement(size as f64);
+    pub fn release(&self, area: BufferArea, size: u64) {
+        self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
+        match area {
+            BufferArea::Prefetch => metrics::gauge!("prefetch.bytes_reserved").decrement(size as f64),
+        }
     }
 
     /// Query available memory tracked by the memory limiter.
     pub fn available_mem(&self) -> u64 {
-        let prefetcher_mem_reserved = self.prefetcher_mem_reserved.load(Ordering::SeqCst);
+        let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         let client_mem_allocated = self.client_mem_allocated();
         self.mem_limit
-            .saturating_sub(prefetcher_mem_reserved)
+            .saturating_sub(mem_reserved)
             .saturating_sub(client_mem_allocated)
             .saturating_sub(self.additional_mem_reserved)
     }
