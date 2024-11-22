@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use crate::checksums;
+use crate::checksums::{self, crc32_to_base64, crc32c_to_base64, sha1_to_base64, sha256_to_base64};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 
 mod etag;
@@ -548,6 +548,9 @@ impl PutObjectSingleParams {
 #[non_exhaustive]
 pub enum UploadChecksum {
     Crc32c(checksums::Crc32c),
+    Crc32(checksums::Crc32),
+    Sha1(checksums::Sha1),
+    Sha256(checksums::Sha256),
 }
 
 impl UploadChecksum {
@@ -555,6 +558,9 @@ impl UploadChecksum {
     pub fn checksum_algorithm(&self) -> ChecksumAlgorithm {
         match self {
             UploadChecksum::Crc32c(_) => ChecksumAlgorithm::Crc32c,
+            UploadChecksum::Crc32(_) => ChecksumAlgorithm::Crc32,
+            UploadChecksum::Sha1(_) => ChecksumAlgorithm::Sha1,
+            UploadChecksum::Sha256(_) => ChecksumAlgorithm::Sha256,
         }
     }
 }
@@ -648,6 +654,12 @@ pub struct PutObjectResult {
 pub enum PutObjectError {
     #[error("The bucket does not exist")]
     NoSuchBucket,
+
+    #[error("The provided checksum does not match the data")]
+    BadChecksum,
+
+    #[error("The server does not support the functionality required to fulfill the request")]
+    NotImplemented,
 }
 
 /// Restoration status for S3 objects in flexible retrieval storage classes.
@@ -794,6 +806,20 @@ impl Checksum {
         }
 
         algorithms
+    }
+}
+
+impl From<Option<UploadChecksum>> for Checksum {
+    fn from(value: Option<UploadChecksum>) -> Self {
+        let mut checksum = Checksum::empty();
+        match value.as_ref() {
+            Some(UploadChecksum::Crc32c(crc32c)) => checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c)),
+            Some(UploadChecksum::Crc32(crc32)) => checksum.checksum_crc32 = Some(crc32_to_base64(crc32)),
+            Some(UploadChecksum::Sha1(sha1)) => checksum.checksum_sha1 = Some(sha1_to_base64(sha1)),
+            Some(UploadChecksum::Sha256(sha256)) => checksum.checksum_sha256 = Some(sha256_to_base64(sha256)),
+            None => {}
+        };
+        checksum
     }
 }
 

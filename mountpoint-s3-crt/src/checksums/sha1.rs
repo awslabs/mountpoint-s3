@@ -39,10 +39,13 @@ pub fn checksum(buf: &[u8]) -> Result<Sha1, Error> {
 }
 
 /// SHA1 Hasher
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Sha1Hasher {
     inner: NonNull<aws_hash>,
 }
+
+/// Safety: [Sha1Hasher] is not [Clone] and owns the inner [aws_hash].
+unsafe impl Send for Sha1Hasher {}
 
 impl Sha1Hasher {
     /// Create a new [Sha1Hasher].

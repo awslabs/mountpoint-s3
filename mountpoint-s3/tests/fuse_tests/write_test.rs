@@ -6,6 +6,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use mountpoint_s3_client::types::Checksum;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use test_case::test_case;
@@ -1163,7 +1164,6 @@ fn concurrent_open_for_write_test(max_files: usize) {
 
 fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksums: bool) {
     const OBJECT_SIZE: usize = 20 * 1024 * 1024;
-    const PART_SIZE: usize = 8 * 1024 * 1024;
     const KEY: &str = "dir/new.txt";
 
     let config = TestSessionConfig {
@@ -1199,28 +1199,30 @@ fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksum
     drop(f);
 
     // Now it's fsync'ed and closed, it should be present in S3
-    let parts = test_session.client().get_object_parts(KEY).unwrap();
+    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).unwrap();
     if use_upload_checksums {
-        let parts = parts.expect("parts should be non-empty");
-        assert_eq!(parts.len(), (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE);
-        for part in parts {
-            let checksum = part.checksum.expect("checksum should be present");
-            let _crc32c = checksum.checksum_crc32c.expect("crc32c is used for trailing checksums");
-        }
+        // We should get the correct checksum on the whole object or on the parts.
+        let object_crc32c = object_checksum.is_some_and(|checksum| checksum.checksum_crc32c.is_some());
+        let parts_crc32c = !part_checksums.is_empty()
+            && part_checksums.iter().all(|checksum| {
+                checksum
+                    .as_ref()
+                    .is_some_and(|checksum| checksum.checksum_crc32c.is_some())
+            });
+        assert!(object_crc32c || parts_crc32c, "crc32c is used for trailing checksums");
     } else {
         // For S3 Standard, the list of parts is only present if checksums were used, but for S3
         // Express One Zone the list of parts is always present. The important thing is just that
         // the *checksums* aren't present, because we disabled those.
-        if let Some(parts) = parts {
-            assert_eq!(parts.len(), (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE);
-            for part in parts {
-                if let Some(checksum) = part.checksum {
-                    assert!(
-                        checksum.checksum_crc32c.is_none(),
-                        "crc32c should not be present when upload checksums are disabled"
-                    );
-                }
-            }
+        assert!(
+            object_checksum.is_none_or(|c| c == Checksum::empty()),
+            "checksums should not be present when upload checksums are disabled"
+        );
+        for part_checksum in part_checksums {
+            assert!(
+                part_checksum.is_none_or(|c| c == Checksum::empty()),
+                "checksums should not be present when upload checksums are disabled"
+            );
         }
     }
 }

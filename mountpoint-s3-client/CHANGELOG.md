@@ -16,6 +16,8 @@
 * `ChecksumAlgorithm` has a new variant `Unknown(String)`,
   to accomodate algorithms not recognized by the client should they be added in future.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
+* Allow to specify any of the supported checksum algorithms when uploading objects with `put_object_single`.
+  ([#1157](https://github.com/awslabs/mountpoint-s3/pull/1157))
 
 ### Breaking changes
 

@@ -1,3 +1,5 @@
+use std::ops::Deref as _;
+use std::os::unix::ffi::OsStrExt as _;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -8,7 +10,7 @@ use async_trait::async_trait;
 use futures::channel::oneshot::{self, Receiver};
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, RequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
 use tracing::error;
 
 use super::{
@@ -136,7 +138,7 @@ impl S3CrtClient {
             for (name, value) in &params.object_metadata {
                 message
                     .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
-                    .map_err(S3RequestError::construction_failure)?
+                    .map_err(S3RequestError::construction_failure)?;
             }
             for (name, value) in &params.custom_headers {
                 message
@@ -150,8 +152,13 @@ impl S3CrtClient {
             message.set_body_stream(Some(body_input_stream));
 
             let options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObjectSingle);
-            self.inner
-                .make_simple_http_request_from_options(options, span, |_| {}, |_| None, on_headers)?
+            self.inner.make_simple_http_request_from_options(
+                options,
+                span,
+                |_| {},
+                parse_put_object_single_error,
+                on_headers,
+            )?
         };
 
         body.await?;
@@ -267,6 +274,23 @@ enum S3PutObjectRequestState {
 
 fn get_etag(response_headers: &Headers) -> Result<ETag, HeadersError> {
     Ok(response_headers.get_as_string(ETAG_HEADER_NAME)?.into())
+}
+
+fn parse_put_object_single_error(result: &MetaRequestResult) -> Option<PutObjectError> {
+    match result.response_status {
+        400 => {
+            let body = result.error_response_body.as_ref()?;
+            let root = xmltree::Element::parse(body.as_bytes()).ok()?;
+            let error_code = root.get_child("Code")?;
+            let error_str = error_code.get_text()?;
+            match error_str.deref() {
+                "BadDigest" => Some(PutObjectError::BadChecksum),
+                _ => None,
+            }
+        }
+        501 => Some(PutObjectError::NotImplemented),
+        _ => None,
+    }
 }
 
 fn extract_result(response_headers: Headers) -> Result<PutObjectResult, S3RequestError> {
