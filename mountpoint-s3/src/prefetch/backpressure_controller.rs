@@ -6,7 +6,7 @@ use humansize::make_format;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
-use crate::mem_limiter::MemoryLimiter;
+use crate::mem_limiter::{BufferArea, MemoryLimiter};
 
 use super::PrefetchReadError;
 
@@ -81,7 +81,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
     let (read_window_updater, read_window_incrementing_queue) = unbounded();
-    mem_limiter.reserve(config.initial_read_window_size as u64);
+    mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
     let controller = BackpressureController {
         read_window_updater,
         preferred_read_window_size: config.initial_read_window_size,
@@ -113,7 +113,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             // Note, that this may come from a backwards seek, so offsets observed by this method are not necessarily ascending
             BackpressureFeedbackEvent::DataRead { offset, length } => {
                 self.next_read_offset = offset + length as u64;
-                self.mem_limiter.release(length as u64);
+                self.mem_limiter.release(BufferArea::Prefetch, length as u64);
                 let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
 
                 // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
@@ -136,14 +136,14 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                     // Force incrementing read window regardless of available memory when we are already at minimum
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
-                        self.mem_limiter.reserve(to_increase as u64);
+                        self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
                     }
 
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
-                    if self.mem_limiter.try_reserve(to_increase as u64) {
+                    if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
                         self.increment_read_window(to_increase).await;
                         break;
                     } else {
@@ -226,7 +226,7 @@ impl<Client: ObjectClient> Drop for BackpressureController<Client> {
         // Free up memory we have reserved for the read window.
         debug_assert!(self.request_end_offset >= self.next_read_offset);
         let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset);
-        self.mem_limiter.release(remaining_window);
+        self.mem_limiter.release(BufferArea::Prefetch, remaining_window);
     }
 }
 

@@ -3,7 +3,7 @@ use std::time::Instant;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
-use crate::mem_limiter::MemoryLimiter;
+use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::prefetch::part::Part;
 use crate::prefetch::PrefetchReadError;
 use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
@@ -104,7 +104,7 @@ impl<Client: ObjectClient> PartQueue<Client> {
         metrics::gauge!("prefetch.bytes_in_queue").increment(part.len() as f64);
         // The backpressure controller is not aware of the parts from backwards seek,
         // so we have to reserve memory for them here.
-        self.mem_limiter.reserve(part.len() as u64);
+        self.mem_limiter.reserve(BufferArea::Prefetch, part.len() as u64);
         self.front_queue.push(part);
         Ok(())
     }
