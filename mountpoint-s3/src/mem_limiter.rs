@@ -9,7 +9,17 @@ pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
 pub enum BufferArea {
+    Upload,
     Prefetch,
+}
+
+impl BufferArea {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BufferArea::Upload => "upload",
+            BufferArea::Prefetch => "prefetch",
+        }
+    }
 }
 
 /// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
@@ -77,9 +87,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
     /// the configured memory limit.
     pub fn reserve(&self, area: BufferArea, size: u64) {
         self.mem_reserved.fetch_add(size, Ordering::SeqCst);
-        match area {
-            BufferArea::Prefetch => metrics::gauge!("prefetch.bytes_reserved").increment(size as f64),
-        }
+        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
@@ -94,10 +102,8 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
                 .saturating_add(self.additional_mem_reserved);
             if new_total_mem_usage > self.mem_limit {
                 trace!(new_total_mem_usage, "not enough memory to reserve");
-                match area {
-                    BufferArea::Prefetch => metrics::histogram!("prefetch.mem_reserve_latency_us")
-                        .record(start.elapsed().as_micros() as f64),
-                }
+                metrics::histogram!("mem.reserve_latency_us", "area" => area.as_str())
+                    .record(start.elapsed().as_micros() as f64);
                 return false;
             }
             // Check that the value we have read is still the same before updating it
@@ -108,13 +114,9 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
-                    match area {
-                        BufferArea::Prefetch => {
-                            metrics::gauge!("prefetch.bytes_reserved").increment(size as f64);
-                            metrics::histogram!("prefetch.mem_reserve_latency_us")
-                                .record(start.elapsed().as_micros() as f64);
-                        }
-                    }
+                    metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
+                    metrics::histogram!("mem.reserve_latency_us", "area" => area.as_str())
+                        .record(start.elapsed().as_micros() as f64);
                     return true;
                 }
                 Err(current) => mem_reserved = current, // another thread updated the atomic before us, trying again
@@ -125,9 +127,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
     /// Release the reserved memory.
     pub fn release(&self, area: BufferArea, size: u64) {
         self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
-        match area {
-            BufferArea::Prefetch => metrics::gauge!("prefetch.bytes_reserved").decrement(size as f64),
-        }
+        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(size as f64);
     }
 
     /// Query available memory tracked by the memory limiter.
