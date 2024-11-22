@@ -11,8 +11,8 @@ fn statfs_test_static_values(creator_fn: impl TestSessionCreator, prefix: &str) 
     assert_ne!(stats.blocks_free(), 0);
     assert_ne!(stats.blocks_available(), 0);
     // These two are values set by us
-    assert_eq!(stats.files(), u64::MAX / 1024);
-    assert_eq!(stats.files_available(), u64::MAX / 1024);
+    assert_eq!(stats.files() as u64, u64::MAX / 1024);
+    assert_eq!(stats.files_available() as u64, u64::MAX / 1024);
     // These are default values from the Default implementation
     assert_eq!(stats.block_size(), 512);
     assert_eq!(stats.name_max(), 255);
