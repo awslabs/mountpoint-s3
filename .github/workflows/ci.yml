@@ -35,7 +35,7 @@ jobs:
           sudo apt install -y ${{ matrix.libfuse }} build-essential
 
       - name: Install Rust
-        #if: steps.rust-cache.outputs.cache-hit != 'true'
+        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           rustup target add x86_64-unknown-linux-musl
 
@@ -69,14 +69,14 @@ jobs:
           sudo apt install -y libfuse-dev libfuse3-dev build-essential
 
       - name: Install Rust
-        #if: steps.rust-cache.outputs.cache-hit != 'true'
+        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           rustup toolchain install 1.81
           rustup component add rustfmt
           rustup component add clippy
 
       - name: Install cargo-deny
-        #if: steps.rust-cache.outputs.cache-hit != 'true'
+        if: steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo +1.81 install --force --version 0.16.2 cargo-deny --locked
 
       - name: Run tests
