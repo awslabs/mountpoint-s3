@@ -4,140 +4,6 @@ window.BENCHMARK_DATA = {
       {
         "commit": {
           "author": {
-            "email": "adpeace@amazon.com",
-            "name": "Andy Peace",
-            "username": "adpeace"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "7198bc8097aac0496ddcaf926622db0da447c972",
-          "message": "Set max_background FUSE config to 64 by default. (#1137)\n\nThis improves sequential read performance on instances with multiple\n100Gbps network interfaces. It controls the number of requests that are\nallowed in the pending queue that are classified as background, which\nincludes at least some read requests. It also indirectly controls the\n\"congestion threshold\", which is set by default to 75% of the max\nbackground value. When the congestion threshold is reached, FUSE will\nstop sending the asynchronous part of readaheads from paged IO to the\nfilesystem.\n\nTesting on 2 NIC instances shows up to approximately 29% speed-up on a\nsequential read workload with 32 open files, from 76.74 to 99Gbps, for\npaged IO. Although we don't have enough instrumentation to fully\nunderstand the change in queueing behaviour in FUSE, we think it is\nlikely because we're able to serve sufficient readahead requests for the\nobject before hitting the congestion threshold when the limit is higher,\nthus allowing mountpoint to start prefetching later parts of the object\nsooner.\n\nThe value of 64 was picked by experimentation with values between 16\n(the default) and 256, as well as specifically setting the congestion\nthreshold. Increasing the value generally led to better performance up\nto 64, after which performance doesn't improve further (at least not\nsignificantly). We wanted to choose the lowest value that seemed\nreasonable for the desired performance improvement, to reduce the chance\nof affecting a workload that wasn't being tested.\n\nAs well as the standard regression tests, the change was tested on trn1\ninstances with a 256KB sequential read workload reading 32 files in\nparallel over 1, 2, and 4 network interfaces. It does not regress our\nstandard benchmarks nor performance on this test with 1 NIC in use.\n\nThis change also temporarily introduces two environment variables to\ntune the behaviour, so we can isolate this change if a particular\nworkload is found to regress.\n\n## Does this change impact existing behavior?\n\nThis improves performance on large instance types. There's a risk of\nregression for workloads we don't test.\n\n## Does this change need a changelog entry in any of the crates?\n\nYes, will submit a separate PR.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Andrew Peace <adpeace@amazon.com>\nSigned-off-by: Andy Peace <andrew.peace@gmail.com>\nCo-authored-by: Daniel Carl Jones <danny@danielcarl.info>",
-          "timestamp": "2024-11-18T12:15:43Z",
-          "tree_id": "a0af1991c8a30d4b830d6a692a4e716d87376306",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7198bc8097aac0496ddcaf926622db0da447c972"
-        },
-        "date": 1731940195364,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 4867.0416015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 4335.08203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 5453.176171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 4.98818359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 45.42119140625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 4.9994140625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 45.2505859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 1.01474609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 11.56337890625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 1.2326171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 9.2203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 5628.3265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 247.28515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 4649.23330078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 248.827734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1705.63134765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 61.38017578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1360.4353515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1085.3814453125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 60.65634765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1429.77958984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 1010.70361328125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
-      {
-        "commit": {
-          "author": {
             "email": "vladvolodkin@gmail.com",
             "name": "Volodkin Vladislav",
             "username": "vladem"
@@ -2680,9 +2546,143 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61dc41779154633ea8c6e15e07ed9e75348870bb",
+          "message": "Introduce incremental upload mode and support for append (#1165)\n\nIntroduce a new option for Mountpoint to upload files incrementally and\nsupport appending to existing files. The new option can be enabled by\nsetting the `--incremental-upload` flag at mount time and is available\nwhen mounting directory buckets in S3 Express One Zone.\n\nAddresses https://github.com/awslabs/mountpoint-s3/issues/1160.\n\n### Does this change impact existing behavior?\n\nNo changes under default settings.\n\n### Does this change need a changelog entry?\n\nYes, added entry to the `mountpoint-s3` changelog, under \"New Features\".\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-11-25T12:39:32Z",
+          "tree_id": "b1a5ead0ea75de63b7dd8fe5209eea4e57412a09",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/61dc41779154633ea8c6e15e07ed9e75348870bb"
+        },
+        "date": 1732546587475,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 4761.34755859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 4414.50625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5530.56025390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 9.87783203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 47.708984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 9.44873046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 46.13671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 2.4658203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 12.31015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 2.3357421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 11.83759765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 5703.50546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 256.90263671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 4867.58671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 253.71650390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1825.6806640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 62.71181640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1524.080859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1242.3470703125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 62.56142578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1707.6642578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 977.96435546875,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1732292817152,
+  "lastUpdate": 1732546588091,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
