@@ -9,6 +9,8 @@ use time::OffsetDateTime;
 use tracing::{debug, trace, Level};
 
 use fuser::consts::FOPEN_DIRECT_IO;
+//use fuser::consts::FOPEN_NOFLUSH;
+const FUSE_FOPEN_NOFLUSH: u32 = 1 << 5; // c.f. https://github.com/torvalds/linux/blob/master/include/uapi/linux/fuse.h#L372
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::ObjectClient;
 
@@ -420,6 +422,7 @@ where
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
+        let is_read_filehandle = matches!(state, FileHandleState::Read { .. });
         let fh = self.next_handle();
         let handle = FileHandle {
             inode,
@@ -428,9 +431,9 @@ where
         };
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
-
-        let reply_flags = if direct_io { FOPEN_DIRECT_IO } else { 0 };
-
+        // TODO: Maybe perform some check against ABI version here (?)
+        let mut reply_flags = if direct_io { FOPEN_DIRECT_IO } else { 0 };
+        reply_flags |= if is_read_filehandle { FUSE_FOPEN_NOFLUSH } else { 0 };
         Ok(Opened { fh, flags: reply_flags })
     }
 
