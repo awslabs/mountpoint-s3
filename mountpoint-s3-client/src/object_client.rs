@@ -494,6 +494,10 @@ pub struct PutObjectSingleParams {
     /// If `server_side_encryption` has a valid value of aws:kms or aws:kms:dsse, this value may be used to specify AWS KMS key ID to be used
     /// when creating new S3 object
     pub ssekms_key_id: Option<String>,
+    /// Requires pre-existing object to match the given etag in order to perform the request
+    pub if_match: Option<ETag>,
+    /// Offset on the pre-existing object where to append the data in the request
+    pub write_offset_bytes: Option<u64>,
     /// Custom headers to add to the request
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
@@ -504,6 +508,11 @@ impl PutObjectSingleParams {
     /// Create a default [PutObjectSingleParams].
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a [PutObjectSingleParams] for an append request at the given offset.
+    pub fn new_for_append(offset: u64) -> Self {
+        Self::default().write_offset_bytes(offset)
     }
 
     /// Set checksum.
@@ -527,6 +536,18 @@ impl PutObjectSingleParams {
     /// Set KMS key ID to be used for server-side encryption.
     pub fn ssekms_key_id(mut self, value: Option<String>) -> Self {
         self.ssekms_key_id = value;
+        self
+    }
+
+    /// Set the required etag on the pre-existing object.
+    pub fn if_match(mut self, value: Option<ETag>) -> Self {
+        self.if_match = value;
+        self
+    }
+
+    /// Set the offset on the pre-existing object where to append the data in the request.
+    pub fn write_offset_bytes(mut self, value: u64) -> Self {
+        self.write_offset_bytes = Some(value);
         self
     }
 
@@ -655,8 +676,23 @@ pub enum PutObjectError {
     #[error("The bucket does not exist")]
     NoSuchBucket,
 
+    #[error("The key does not exist")]
+    NoSuchKey,
+
+    #[error("Request body cannot be empty when write offset is specified")]
+    EmptyBody,
+
+    #[error("The offset does not match the current object size")]
+    InvalidWriteOffset,
+
     #[error("The provided checksum does not match the data")]
     BadChecksum,
+
+    #[error("The provided checksum is not valid or does not match the existing checksum algorithm")]
+    InvalidChecksumType,
+
+    #[error("At least one of the pre-conditions you specified did not hold")]
+    PreconditionFailed,
 
     #[error("The server does not support the functionality required to fulfill the request")]
     NotImplemented,

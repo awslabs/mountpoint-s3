@@ -6,7 +6,7 @@ use tracing::Level;
 use crate::fs::error_metadata::ErrorMetadata;
 use crate::prefetch::PrefetchReadError;
 use crate::superblock::InodeError;
-use crate::upload::UploadWriteError;
+use crate::upload::{AppendUploadError, UploadWriteError};
 
 /// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.
 ///
@@ -122,6 +122,20 @@ impl<E: std::error::Error + Send + Sync + 'static> From<UploadWriteError<E>> for
     }
 }
 
+impl<E: std::error::Error + Send + Sync + 'static> From<AppendUploadError<E>> for Error {
+    fn from(err: AppendUploadError<E>) -> Self {
+        let errno = err.to_errno();
+        Error {
+            errno,
+            message: String::from("upload error"),
+            source: Some(anyhow::anyhow!(err)),
+            // We are having WARN as the default level of logging for fuse errors
+            level: Level::WARN,
+            metadata: Default::default(), // TODO (vlaad): must be cloned from AppendUploadError
+        }
+    }
+}
+
 impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> for Error {
     fn from(err: PrefetchReadError<E>) -> Self {
         match err {
@@ -185,6 +199,19 @@ impl<E: std::error::Error> ToErrno for UploadWriteError<E> {
             UploadWriteError::PutRequestFailed(_) => libc::EIO,
             UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
             UploadWriteError::ObjectTooBig { .. } => libc::EFBIG,
+        }
+    }
+}
+
+impl<E: std::error::Error> ToErrno for AppendUploadError<E> {
+    fn to_errno(&self) -> libc::c_int {
+        match self {
+            AppendUploadError::PutRequestFailed(_) => libc::EIO,
+            AppendUploadError::UploadAlreadyTerminated => libc::EIO,
+            AppendUploadError::SseCorruptedError(_) => libc::EIO,
+            AppendUploadError::ChecksumComputationFailed(_) => libc::EIO,
+            AppendUploadError::HeadObjectFailed(_) => libc::EIO,
+            AppendUploadError::OutOfOrderWrite { .. } => libc::EINVAL,
         }
     }
 }

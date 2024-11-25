@@ -137,6 +137,13 @@ pub struct CliArgs {
     )]
     pub allow_overwrite: bool,
 
+    #[clap(
+        long,
+        help = "Enable incremental uploads and support for appending to existing objects",
+        help_heading = MOUNT_OPTIONS_HEADER,
+    )]
+    pub incremental_upload: bool,
+
     #[clap(long, help = "Automatically unmount on exit", help_heading = MOUNT_OPTIONS_HEADER)]
     pub auto_unmount: bool,
 
@@ -850,6 +857,7 @@ where
     filesystem_config.storage_class = args.storage_class.clone();
     filesystem_config.allow_delete = args.allow_delete;
     filesystem_config.allow_overwrite = args.allow_overwrite;
+    filesystem_config.incremental_upload = args.incremental_upload;
     filesystem_config.s3_personality = s3_personality;
     filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
 
@@ -906,38 +914,34 @@ where
             block_on(express_cache.verify_cache_valid())
                 .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
 
-            let prefetcher = caching_prefetch(express_cache, runtime, prefetcher_config);
-            let fuse_session = create_filesystem(
+            let prefetcher = caching_prefetch(express_cache, runtime.clone(), prefetcher_config);
+            let fs = create_filesystem(
                 client,
                 prefetcher,
+                runtime,
                 &args.bucket_name,
                 &args.prefix.unwrap_or_default(),
                 filesystem_config,
-                fuse_config,
-                &bucket_description,
-            )?;
-
-            Ok(fuse_session)
+            );
+            create_fuse_session(fs, fuse_config, &bucket_description)
         }
         (Some((disk_data_cache_config, cache_dir_path)), None) => {
             tracing::trace!("using local disk as a cache for object content");
             let (managed_cache_dir, disk_cache) = create_disk_cache(cache_dir_path, disk_data_cache_config)?;
 
-            let prefetcher = caching_prefetch(disk_cache, runtime, prefetcher_config);
-            let mut fuse_session = create_filesystem(
+            let prefetcher = caching_prefetch(disk_cache, runtime.clone(), prefetcher_config);
+            let fs = create_filesystem(
                 client,
                 prefetcher,
+                runtime,
                 &args.bucket_name,
                 &args.prefix.unwrap_or_default(),
                 filesystem_config,
-                fuse_config,
-                &bucket_description,
-            )?;
-
+            );
+            let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
             fuse_session.run_on_close(Box::new(move || {
                 drop(managed_cache_dir);
             }));
-
             Ok(fuse_session)
         }
         (Some((disk_data_cache_config, cache_dir_path)), Some((config, bucket_name, cache_bucket_name))) => {
@@ -948,45 +952,56 @@ where
                 .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
             let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
 
-            let prefetcher = caching_prefetch(cache, runtime, prefetcher_config);
-            let mut fuse_session = create_filesystem(
+            let prefetcher = caching_prefetch(cache, runtime.clone(), prefetcher_config);
+            let fs = create_filesystem(
                 client,
                 prefetcher,
+                runtime,
                 &args.bucket_name,
                 &args.prefix.unwrap_or_default(),
                 filesystem_config,
-                fuse_config,
-                &bucket_description,
-            )?;
-
+            );
+            let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
             fuse_session.run_on_close(Box::new(move || {
                 drop(managed_cache_dir);
             }));
-
             Ok(fuse_session)
         }
         _ => {
             tracing::trace!("using no cache");
-            let prefetcher = default_prefetch(runtime, prefetcher_config);
-            create_filesystem(
+            let prefetcher = default_prefetch(runtime.clone(), prefetcher_config);
+            let fs = create_filesystem(
                 client,
                 prefetcher,
+                runtime,
                 &args.bucket_name,
                 &args.prefix.unwrap_or_default(),
                 filesystem_config,
-                fuse_config,
-                &bucket_description,
-            )
+            );
+            create_fuse_session(fs, fuse_config, &bucket_description)
         }
     }
 }
 
-fn create_filesystem<Client, Prefetcher>(
+fn create_filesystem<Client, Prefetcher, Runtime>(
     client: Client,
     prefetcher: Prefetcher,
+    runtime: Runtime,
     bucket_name: &str,
     prefix: &Prefix,
     filesystem_config: S3FilesystemConfig,
+) -> S3Filesystem<Client, Prefetcher>
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+    Prefetcher: Prefetch + Send + Sync + 'static,
+    Runtime: Spawn + Send + Sync + 'static,
+{
+    tracing::trace!(?filesystem_config, "creating file system");
+    S3Filesystem::new(client, prefetcher, runtime, bucket_name, prefix, filesystem_config)
+}
+
+fn create_fuse_session<Client, Prefetcher>(
+    fs: S3Filesystem<Client, Prefetcher>,
     fuse_session_config: FuseSessionConfig,
     bucket_description: &str,
 ) -> anyhow::Result<FuseSession>
@@ -994,8 +1009,6 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
 {
-    tracing::trace!(?filesystem_config, "creating file system");
-    let fs = S3Filesystem::new(client, prefetcher, bucket_name, prefix, filesystem_config);
     let fuse_fs = S3FuseFilesystem::new(fs);
     tracing::debug!(?fuse_session_config, "creating fuse session");
     let session = Session::new(fuse_fs, &fuse_session_config.mount_point, &fuse_session_config.options)

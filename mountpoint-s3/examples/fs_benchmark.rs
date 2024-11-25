@@ -168,8 +168,15 @@ fn mount_file_system(
         bucket_name,
         mountpoint.to_str().unwrap()
     );
-    let prefetcher = default_prefetch(runtime, Default::default());
-    let fs = S3Filesystem::new(client, prefetcher, bucket_name, &Default::default(), filesystem_config);
+    let prefetcher = default_prefetch(runtime.clone(), Default::default());
+    let fs = S3Filesystem::new(
+        client,
+        prefetcher,
+        runtime,
+        bucket_name,
+        &Default::default(),
+        filesystem_config,
+    );
     let session = Session::new(S3FuseFilesystem::new(fs), mountpoint, &options)
         .expect("Should have created FUSE session successfully");
 

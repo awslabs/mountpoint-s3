@@ -4,6 +4,7 @@ use nix::unistd::{getgid, getuid};
 
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::s3::S3Personality;
+use crate::superblock::WriteMode;
 
 use super::{ServerSideEncryption, TimeToLive};
 
@@ -25,6 +26,8 @@ pub struct S3FilesystemConfig {
     pub allow_delete: bool,
     /// Allow overwrite
     pub allow_overwrite: bool,
+    /// Enable incremental uploads
+    pub incremental_upload: bool,
     /// Storage class to be used for new object uploads
     pub storage_class: Option<String>,
     /// S3 personality (for different S3 semantics)
@@ -51,11 +54,21 @@ impl Default for S3FilesystemConfig {
             file_mode: 0o644,
             allow_delete: false,
             allow_overwrite: false,
+            incremental_upload: false,
             storage_class: None,
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
+        }
+    }
+}
+
+impl S3FilesystemConfig {
+    pub fn write_mode(&self) -> WriteMode {
+        WriteMode {
+            allow_overwrite: self.allow_overwrite,
+            incremental_upload: self.incremental_upload,
         }
     }
 }

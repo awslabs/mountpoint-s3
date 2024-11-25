@@ -1,4 +1,5 @@
-use std::fs::{metadata, read, read_dir, File};
+use std::fmt::Debug;
+use std::fs::{metadata, read, read_dir, File, OpenOptions};
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::*;
 use std::path::Path;
@@ -6,10 +7,10 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-use mountpoint_s3_client::types::Checksum;
+use mountpoint_s3_client::types::{Checksum, ChecksumAlgorithm, PutObjectSingleParams, UploadChecksum};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use test_case::test_case;
+use test_case::{test_case, test_matrix};
 
 use mountpoint_s3::fs::CacheConfig;
 use mountpoint_s3::S3FilesystemConfig;
@@ -20,25 +21,105 @@ use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, Test
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use crate::common::{creds::get_scoped_down_credentials, s3::get_test_kms_key_id};
 
-fn open_for_write(path: impl AsRef<Path>, append: bool, write_only: bool) -> std::io::Result<File> {
-    let mut options = File::options();
-    if !write_only {
-        options.read(true);
-    }
+/// Extend [OptionOptions] to allow configuration using test enums.
+///
+/// This supports us in providing a matrix of test cases and automatically configuring the opened file handle.
+trait OpenOptionsTestExt {
+    fn append_mode(&mut self, append_mode: AppendMode) -> &mut Self;
 
-    if append {
-        options.append(true);
-    } else {
-        options.write(true);
-    }
-    options.create(true).open(path)
+    fn rw_mode(&mut self, rw_mode: ReadWriteMode) -> &mut Self;
 }
 
-fn sequential_write_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool, write_only: bool) {
+impl OpenOptionsTestExt for OpenOptions {
+    fn append_mode(&mut self, append_mode: AppendMode) -> &mut Self {
+        match append_mode {
+            AppendMode::On => self.append(true),
+            AppendMode::Off => self.write(true),
+        }
+    }
+
+    fn rw_mode(&mut self, rw_mode: ReadWriteMode) -> &mut Self {
+        match rw_mode {
+            ReadWriteMode::WriteOnly => self.write(true).read(false),
+            ReadWriteMode::ReadWrite => self.write(true).read(true),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReadWriteMode {
+    WriteOnly,
+    ReadWrite,
+}
+
+const WRITE_ONLY: ReadWriteMode = ReadWriteMode::WriteOnly;
+const READ_WRITE: ReadWriteMode = ReadWriteMode::ReadWrite;
+
+/// Sets whether to open files with `O_APPEND`.
+#[derive(Clone, Copy)]
+enum AppendMode {
+    On,
+    Off,
+}
+
+const APPEND: AppendMode = AppendMode::On;
+const NO_APPEND: AppendMode = AppendMode::Off;
+
+/// Sets whether to invoke `fsync` after a write.
+#[derive(Clone, Copy)]
+enum FSyncMode {
+    On,
+    Off,
+}
+impl FSyncMode {
+    fn on(&self) -> bool {
+        matches!(self, Self::On)
+    }
+}
+
+const FSYNC: FSyncMode = FSyncMode::On;
+const NO_FSYNC: FSyncMode = FSyncMode::Off;
+
+#[derive(Clone, Copy)]
+enum UploadMode {
+    Atomic,
+    Incremental,
+}
+
+impl UploadMode {
+    fn is_incremental(&self) -> bool {
+        matches!(self, Self::Incremental)
+    }
+}
+
+const ATOMIC_UPLOAD: UploadMode = UploadMode::Atomic;
+const INCREMENTAL_UPLOAD: UploadMode = UploadMode::Incremental;
+
+trait S3FilesystemConfigExt {
+    fn upload_mode(self, upload_mode: UploadMode) -> Self;
+}
+
+impl S3FilesystemConfigExt for S3FilesystemConfig {
+    fn upload_mode(mut self, upload_mode: UploadMode) -> Self {
+        self.incremental_upload = upload_mode.is_incremental();
+        self
+    }
+}
+
+fn sequential_write_test(
+    creator_fn: impl TestSessionCreator,
+    append_mode: AppendMode,
+    rw_mode: ReadWriteMode,
+    upload_mode: UploadMode,
+) {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
 
-    let test_session = creator_fn(prefix, Default::default());
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("sequential_write_test", config);
 
     // Make sure there's an existing directory
     test_session
@@ -49,7 +130,12 @@ fn sequential_write_test(creator_fn: impl TestSessionCreator, prefix: &str, appe
     let subdir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/new.txt");
 
-    let mut f = open_for_write(&path, append, write_only).unwrap();
+    let mut f = File::options()
+        .append_mode(append_mode)
+        .rw_mode(rw_mode)
+        .create(true)
+        .open(&path)
+        .unwrap();
 
     // The file is visible with size 0 as soon as we open it for write
     let m = metadata(&path).unwrap();
@@ -93,62 +179,80 @@ fn sequential_write_test(creator_fn: impl TestSessionCreator, prefix: &str, appe
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true, true; "append write only")]
-#[test_case(true, false; "append readwrite")]
-#[test_case(false, true; "no append write only")]
-#[test_case(false, false; "no append readwrite")]
-fn sequential_write_test_s3(append: bool, write_only: bool) {
-    sequential_write_test(fuse::s3_session::new, "sequential_write_test", append, write_only);
+#[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE])]
+fn sequential_write_test_s3(append_mode: AppendMode, rw_mode: ReadWriteMode) {
+    sequential_write_test(fuse::s3_session::new, append_mode, rw_mode, ATOMIC_UPLOAD);
 }
 
-#[test_case("", true, true; "no prefix append write only")]
-#[test_case("", true, false; "no prefix append readwrite")]
-#[test_case("", false, true; "no prefix no append write only")]
-#[test_case("", false, false; "no prefix no append readwrite")]
-#[test_case("sequential_write_test", true, true; "prefix append write only")]
-#[test_case("sequential_write_test", true, false; "prefix append readwrite")]
-#[test_case("sequential_write_test", false, true; "prefix no append write only")]
-#[test_case("sequential_write_test", false, false; "prefix no append readwrite")]
-fn sequential_write_test_mock(prefix: &str, append: bool, write_only: bool) {
-    sequential_write_test(fuse::mock_session::new, prefix, append, write_only);
+#[cfg(feature = "s3express_tests")]
+#[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE])]
+fn sequential_write_test_s3_incremental_upload(append_mode: AppendMode, rw_mode: ReadWriteMode) {
+    sequential_write_test(fuse::s3_session::new, append_mode, rw_mode, INCREMENTAL_UPLOAD);
 }
 
-fn write_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
-    let test_session = creator_fn(prefix, Default::default());
+#[test_matrix([APPEND, NO_APPEND], [WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn sequential_write_test_mock(append_mode: AppendMode, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+    sequential_write_test(fuse::mock_session::new, append_mode, rw_mode, upload_mode);
+}
+
+fn write_errors_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("write_errors_test", config);
 
     test_session
         .client()
         .put_object("dir/hello.txt", b"hello world")
         .unwrap();
 
-    let path = test_session.mount_path().join("dir/hello.txt");
+    let existing_file_path = test_session.mount_path().join("dir/hello.txt");
+    let new_file_path = test_session.mount_path().join("dir/new.txt");
 
-    // Existing files should not be writable even in O_APPEND
-    let err = open_for_write(&path, true, true).expect_err("can't append existing file");
+    // Existing files can't be opened with O_SYNC
+    let err = File::options()
+        .write(true)
+        .custom_flags(libc::O_SYNC)
+        .open(&existing_file_path)
+        .expect_err("O_SYNC should fail");
     assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    let err = open_for_write(&path, false, true).expect_err("can't open existing file for write");
-    assert_eq!(err.kind(), ErrorKind::PermissionDenied);
 
     // New files can't be opened with O_SYNC
     let err = File::options()
         .write(true)
-        .create(true)
+        .create_new(true)
         .custom_flags(libc::O_SYNC)
-        .open(&path)
+        .open(&new_file_path)
         .expect_err("O_SYNC should fail");
     assert_eq!(err.kind(), ErrorKind::InvalidInput);
 
-    // Existing files can't be opened with O_APPEND
-    let err = File::options()
-        .write(true)
-        .create(true)
-        .custom_flags(libc::O_APPEND)
-        .open(&path)
-        .expect_err("O_APPEND should fail");
-    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    // Existing files should not be writable by default
+    if !upload_mode.is_incremental() {
+        let err = File::options()
+            .write(true)
+            .open(&existing_file_path)
+            .expect_err("can't open existing file for write");
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+
+        // Existing files can't be opened in append mode
+        let err = File::options()
+            .append(true)
+            .open(&existing_file_path)
+            .expect_err("can't append existing file");
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+
+        // Also try explicitly setting O_APPEND
+        let err = File::options()
+            .write(true)
+            .custom_flags(libc::O_APPEND)
+            .open(&existing_file_path)
+            .expect_err("O_APPEND should fail");
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+    }
 
     // We can't write to a file opened in O_RDONLY
-    let mut file = File::options().read(true).open(&path).unwrap();
+    let mut file = File::options().read(true).open(&existing_file_path).unwrap();
     let err = file
         .write(b"hello world")
         .expect_err("writing to O_RDONLY file should fail");
@@ -158,9 +262,8 @@ fn write_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let mut file = File::options()
         .read(true)
         .write(true)
-        .create(true)
         .truncate(false)
-        .open(&path)
+        .open(&existing_file_path)
         .unwrap();
     assert!(file.read(&mut [0u8; 1]).is_ok());
     let err = file
@@ -173,7 +276,7 @@ fn write_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         .read(true)
         .write(true)
         .truncate(true)
-        .open(&path)
+        .open(&existing_file_path)
         .expect_err("existing file cannot be opened with O_TRUNC");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 }
@@ -181,13 +284,18 @@ fn write_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn write_errors_test_s3() {
-    write_errors_test(fuse::s3_session::new, "write_errors_test");
+    write_errors_test(fuse::s3_session::new, ATOMIC_UPLOAD);
 }
 
-#[test_case(""; "no prefix append")]
-#[test_case("sequential_write_test"; "prefix")]
-fn write_errors_test_mock(prefix: &str) {
-    write_errors_test(fuse::mock_session::new, prefix);
+#[cfg(feature = "s3express_tests")]
+#[test]
+fn write_errors_test_s3_incremental_update() {
+    write_errors_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
+}
+
+#[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn write_errors_test_mock(upload_mode: UploadMode) {
+    write_errors_test(fuse::mock_session::new, upload_mode);
 }
 
 fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_size: usize, write_chunk_size: usize) {
@@ -203,7 +311,7 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
 
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
     // The file is visible with size 0 as soon as we open it for write
     let m = metadata(&path).unwrap();
@@ -261,15 +369,18 @@ fn sequential_write_streaming_test_mock(object_size: usize, write_chunk_size: us
     sequential_write_streaming_test(fuse::mock_session::new, object_size, write_chunk_size);
 }
 
-fn fsync_test(creator_fn: impl TestSessionCreator, write_only: bool) {
+fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
-    let test_session = creator_fn("fsync_test", Default::default());
-
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("fsync_test", config);
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(&path, false, write_only).unwrap();
+    let mut f = File::options().rw_mode(rw_mode).create(true).open(&path).unwrap();
 
     // The file is visible with size 0 as soon as we open it for write
     let m = metadata(&path).unwrap();
@@ -281,16 +392,18 @@ fn fsync_test(creator_fn: impl TestSessionCreator, write_only: bool) {
 
     f.write_all(&body).unwrap();
 
-    assert!(test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).unwrap());
 
     f.sync_all().unwrap();
 
-    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), body.len() as u64);
 
-    f.write_all(&body).expect_err("write after sync should fail");
+    if !upload_mode.is_incremental() {
+        f.write_all(&body).expect_err("write after sync should fail");
+    }
 
     drop(f);
 
@@ -302,19 +415,23 @@ fn fsync_test(creator_fn: impl TestSessionCreator, write_only: bool) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "write only")]
-#[test_case(false; "readwrite")]
-fn fsync_test_s3(write_only: bool) {
-    fsync_test(fuse::s3_session::new, write_only);
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn fsync_test_s3(rw_mode: ReadWriteMode) {
+    fsync_test(fuse::s3_session::new, rw_mode, ATOMIC_UPLOAD);
 }
 
-#[test_case(true; "write only")]
-#[test_case(false; "readwrite")]
-fn fsync_test_mock(write_only: bool) {
-    fsync_test(fuse::mock_session::new, write_only);
+#[cfg(feature = "s3express_tests")]
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn fsync_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
+    fsync_test(fuse::s3_session::new, rw_mode, INCREMENTAL_UPLOAD);
 }
 
-fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
+#[test_matrix([WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn fsync_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+    fsync_test(fuse::mock_session::new, rw_mode, upload_mode);
+}
+
+fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
@@ -325,7 +442,8 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
             ..Default::default()
         },
         ..Default::default()
-    };
+    }
+    .upload_mode(upload_mode);
     let session_config = TestSessionConfig {
         filesystem_config,
         ..Default::default()
@@ -334,7 +452,7 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
 
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
     let stat = f.metadata().expect("fstat should succeed before writing");
     assert_eq!(stat.len(), 0);
@@ -347,7 +465,7 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
     let stat = f.metadata().expect("fstat should succeed after writing");
     assert_eq!(stat.len(), OBJECT_SIZE as u64);
 
-    if with_fsync {
+    if sync_mode.on() {
         f.sync_all().expect("fsync should succeed since it's the first fsync");
 
         // Wait at least this long in case there's anything bumping the validity that we didn't know of.
@@ -368,16 +486,20 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, with_fsync: bool) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "with fsync")]
-#[test_case(true; "without fsync")]
-fn fstat_after_writing_s3(with_fsync: bool) {
-    fstat_after_writing(fuse::s3_session::new, with_fsync);
+#[test_matrix([FSYNC, NO_FSYNC])]
+fn fstat_after_writing_s3(sync_mode: FSyncMode) {
+    fstat_after_writing(fuse::s3_session::new, sync_mode, ATOMIC_UPLOAD);
 }
 
-#[test_case(true; "with fsync")]
-#[test_case(true; "without fsync")]
-fn fstat_after_writing_mock(with_fsync: bool) {
-    fstat_after_writing(fuse::mock_session::new, with_fsync);
+#[cfg(feature = "s3express_tests")]
+#[test_matrix([FSYNC, NO_FSYNC])]
+fn fstat_after_writing_s3_incremental_upload(sync_mode: FSyncMode) {
+    fstat_after_writing(fuse::s3_session::new, sync_mode, INCREMENTAL_UPLOAD);
+}
+
+#[test_matrix([FSYNC, NO_FSYNC], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn fstat_after_writing_mock(sync_mode: FSyncMode, upload_mode: UploadMode) {
+    fstat_after_writing(fuse::mock_session::new, sync_mode, upload_mode);
 }
 
 fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
@@ -393,7 +515,7 @@ fn write_too_big_test(creator_fn: impl TestSessionCreator, write_size: usize) {
 
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
     let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
     let data = vec![0xaa; write_size];
@@ -427,15 +549,25 @@ fn write_too_big_test_mock(write_size: usize) {
     write_too_big_test(fuse::mock_session::new, write_size);
 }
 
-fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64) {
+fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 32;
     const KEY: &str = "new.txt";
 
-    let test_session = creator_fn("out_of_order_write_test", Default::default());
+    let filesystem_config = S3FilesystemConfig::default().upload_mode(upload_mode);
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let test_session = creator_fn("out_of_order_write_test", test_config);
 
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
 
     // The file is visible with size 0 as soon as we open it for write
     let m = metadata(&path).unwrap();
@@ -467,13 +599,22 @@ fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64) {
 #[test_case(-1; "earlier offset")]
 #[test_case(1; "later offset")]
 fn out_of_order_write_test_s3(offset: i64) {
-    out_of_order_write_test(fuse::s3_session::new, offset);
+    out_of_order_write_test(fuse::s3_session::new, offset, ATOMIC_UPLOAD);
 }
 
+#[cfg(feature = "s3express_tests")]
 #[test_case(-1; "earlier offset")]
 #[test_case(1; "later offset")]
-fn out_of_order_write_test_mock(offset: i64) {
-    out_of_order_write_test(fuse::mock_session::new, offset);
+fn out_of_order_write_test_s3_incremental_upload(offset: i64) {
+    out_of_order_write_test(fuse::s3_session::new, offset, INCREMENTAL_UPLOAD);
+}
+
+#[test_case(-1, ATOMIC_UPLOAD; "earlier offset")]
+#[test_case(1, ATOMIC_UPLOAD; "later offset")]
+#[test_case(-1, INCREMENTAL_UPLOAD; "earlier offset, incremental upload")]
+#[test_case(1, INCREMENTAL_UPLOAD; "later offset, incremental upload")]
+fn out_of_order_write_test_mock(offset: i64, upload_mode: UploadMode) {
+    out_of_order_write_test(fuse::mock_session::new, offset, upload_mode);
 }
 
 #[cfg(not(feature = "s3express_tests"))]
@@ -534,7 +675,7 @@ fn write_with_invalid_storage_class_test(creator_fn: impl TestSessionCreator, st
 }
 
 fn write_file(path: impl AsRef<Path>) -> std::io::Result<()> {
-    let mut f = open_for_write(&path, false, true)?;
+    let mut f = File::options().append(true).create(true).open(&path)?;
     let data = [0xaa; 16];
     f.write_all(&data)?;
     f.sync_all()?;
@@ -547,16 +688,24 @@ fn write_with_invalid_storage_class_test_s3(storage_class: &str) {
     write_with_invalid_storage_class_test(fuse::s3_session::new, storage_class);
 }
 
-fn flush_test(creator_fn: impl TestSessionCreator, append: bool) {
+fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, upload_mode: UploadMode) {
     const OBJECT_SIZE: usize = 50 * 1024;
     const WRITE_SIZE: usize = 1024;
     const KEY: &str = "new.txt";
 
-    let test_session = creator_fn("flush_test", Default::default());
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("flush_test", config);
 
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(&path, append, true).unwrap();
+    let mut f = File::options()
+        .append_mode(append_mode)
+        .create(true)
+        .open(&path)
+        .unwrap();
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
@@ -566,12 +715,12 @@ fn flush_test(creator_fn: impl TestSessionCreator, append: bool) {
         f.write_all(part).unwrap();
     }
 
-    assert!(test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).unwrap());
 
     // Close the file. Will trigger a call to flush.
     drop(f);
 
-    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).unwrap());
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -582,22 +731,30 @@ fn flush_test(creator_fn: impl TestSessionCreator, append: bool) {
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "append")]
-#[test_case(false; "no append")]
-fn flush_test_s3(append: bool) {
-    flush_test(fuse::s3_session::new, append);
+#[test_matrix([APPEND, NO_APPEND])]
+fn flush_test_s3(append_mode: AppendMode) {
+    flush_test(fuse::s3_session::new, append_mode, ATOMIC_UPLOAD);
 }
 
-#[test_case(true; "append")]
-#[test_case(false; "no append")]
-fn flush_test_mock(append: bool) {
-    flush_test(fuse::mock_session::new, append);
+#[cfg(feature = "s3express_tests")]
+#[test_matrix([APPEND, NO_APPEND])]
+fn flush_test_s3_incremental_upload(append_mode: AppendMode) {
+    flush_test(fuse::s3_session::new, append_mode, INCREMENTAL_UPLOAD);
 }
 
-fn touch_test(creator_fn: impl TestSessionCreator) {
+#[test_matrix([APPEND, NO_APPEND], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn flush_test_mock(append_mode: AppendMode, upload_mode: UploadMode) {
+    flush_test(fuse::mock_session::new, append_mode, upload_mode);
+}
+
+fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
 
-    let test_session = creator_fn("touch_test", Default::default());
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("touch_test", config);
 
     let path = test_session.mount_path().join(KEY);
 
@@ -629,19 +786,29 @@ fn touch_test(creator_fn: impl TestSessionCreator) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn touch_test_s3() {
-    touch_test(fuse::s3_session::new);
+    touch_test(fuse::s3_session::new, ATOMIC_UPLOAD);
 }
 
+#[cfg(feature = "s3express_tests")]
 #[test]
-fn touch_test_mock() {
-    touch_test(fuse::mock_session::new);
+fn touch_test_s3_incremental_upload() {
+    touch_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
 }
 
-fn dd_test(creator_fn: impl TestSessionCreator) {
+#[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn touch_test_mock(upload_mode: UploadMode) {
+    touch_test(fuse::mock_session::new, upload_mode);
+}
+
+fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
     const SIZE: u64 = 128;
 
-    let test_session = creator_fn("dd_test", Default::default());
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("dd_test", config);
 
     let path = test_session.mount_path().join(KEY);
 
@@ -664,21 +831,31 @@ fn dd_test(creator_fn: impl TestSessionCreator) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn dd_test_s3() {
-    dd_test(fuse::s3_session::new);
+    dd_test(fuse::s3_session::new, ATOMIC_UPLOAD);
 }
 
+#[cfg(feature = "s3express_tests")]
 #[test]
-fn dd_test_mock() {
-    dd_test(fuse::mock_session::new);
+fn dd_test_s3_incremental_upload() {
+    dd_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
 }
 
-#[test]
-fn spawn_test() {
+#[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn dd_test_mock(upload_mode: UploadMode) {
+    dd_test(fuse::mock_session::new, upload_mode);
+}
+
+#[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn spawn_test(upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
-    let test_session = fuse::mock_session::new("spawn_test", Default::default());
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = fuse::mock_session::new("spawn_test", config);
 
     let path = test_session.mount_path().join(KEY);
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
     let data = vec![0xaa; 32];
     f.write_all(&data).unwrap();
@@ -694,13 +871,17 @@ fn spawn_test() {
     assert_eq!(m.len(), (data.len() * 2) as u64);
 }
 
-#[test]
-fn multi_thread_test() {
+#[test_matrix([ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn multi_thread_test(upload_mode: UploadMode) {
     const KEY: &str = "new.txt";
-    let test_session = fuse::mock_session::new("spawn_test", Default::default());
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig::default().upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = fuse::mock_session::new("multi_thread_test", config);
 
     let path = test_session.mount_path().join(KEY);
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options().append(true).create(true).open(&path).unwrap();
 
     let data = vec![0xaa; 32 * 1024 * 1024];
     f.write_all(&data).unwrap();
@@ -719,11 +900,12 @@ fn multi_thread_test() {
     .unwrap();
 }
 
-fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only: bool) {
+fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: ReadWriteMode, upload_mode: UploadMode) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
-    };
+    }
+    .upload_mode(upload_mode);
     let test_config = TestSessionConfig {
         filesystem_config,
         ..Default::default()
@@ -740,11 +922,7 @@ fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only:
     let path = test_session.mount_path().join("dir/hello.txt");
 
     // Open with O_TRUNC and write something to the file
-    let mut options = File::options();
-    if !write_only {
-        options.read(true);
-    }
-    let mut write_fh = options.write(true).truncate(true).open(&path).unwrap();
+    let mut write_fh = File::options().rw_mode(rw_mode).truncate(true).open(&path).unwrap();
     write_fh.write_all(b"overwrite").expect("write should succeed");
     write_fh.sync_all().unwrap();
     drop(write_fh);
@@ -759,16 +937,20 @@ fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only:
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_test_s3(write_only: bool) {
-    overwrite_test(fuse::s3_session::new, "overwrite_test", write_only);
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn overwrite_test_s3(rw_mode: ReadWriteMode) {
+    overwrite_test(fuse::s3_session::new, "overwrite_test", rw_mode, ATOMIC_UPLOAD);
 }
 
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_test_mock(write_only: bool) {
-    overwrite_test(fuse::mock_session::new, "overwrite_test", write_only);
+#[cfg(feature = "s3express_tests")]
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn overwrite_test_s3_incremental_upload(rw_mode: ReadWriteMode) {
+    overwrite_test(fuse::s3_session::new, "overwrite_test", rw_mode, INCREMENTAL_UPLOAD);
+}
+
+#[test_matrix([WRITE_ONLY, READ_WRITE], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn overwrite_test_mock(rw_mode: ReadWriteMode, upload_mode: UploadMode) {
+    overwrite_test(fuse::mock_session::new, "overwrite_test", rw_mode, upload_mode);
 }
 
 fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -829,7 +1011,11 @@ fn overwrite_disallowed_on_concurrent_read_test_mock() {
     );
 }
 
-fn overwrite_fail_on_write_without_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only: bool) {
+fn overwrite_fail_on_write_without_truncate_test(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    rw_mode: ReadWriteMode,
+) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -851,47 +1037,48 @@ fn overwrite_fail_on_write_without_truncate_test(creator_fn: impl TestSessionCre
 
     // Open should fail without truncate flag
     let mut options = File::options();
-    if !write_only {
-        let mut read_fh = options
-            .read(true)
-            .write(true)
-            .open(path)
-            .expect("using RW should open for read");
-        let err = read_fh
-            .write(b"hello world")
-            .expect_err("writing to a file opened for read should fail");
-        assert_eq!(err.raw_os_error(), Some(libc::EBADF));
-    } else {
-        let err = options
-            .write(true)
-            .open(path)
-            .expect_err("overwriting a file opened without truncate flag should fail");
-        assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+    match rw_mode {
+        ReadWriteMode::WriteOnly => {
+            let err = options
+                .write(true)
+                .open(path)
+                .expect_err("overwriting a file opened without truncate flag should fail");
+            assert_eq!(err.raw_os_error(), Some(libc::EPERM));
+        }
+        ReadWriteMode::ReadWrite => {
+            let mut read_fh = options
+                .read(true)
+                .write(true)
+                .open(path)
+                .expect("using RW should open for read");
+            let err = read_fh
+                .write(b"hello world")
+                .expect_err("writing to a file opened for read should fail");
+            assert_eq!(err.raw_os_error(), Some(libc::EBADF));
+        }
     }
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_fail_on_write_without_truncate_test_s3(write_only: bool) {
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn overwrite_fail_on_write_without_truncate_test_s3(rw_mode: ReadWriteMode) {
     overwrite_fail_on_write_without_truncate_test(
         fuse::s3_session::new,
         "overwrite_fail_on_write_without_truncate_test",
-        write_only,
+        rw_mode,
     );
 }
 
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_fail_on_write_without_truncate_test_mock(write_only: bool) {
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn overwrite_fail_on_write_without_truncate_test_mock(rw_mode: ReadWriteMode) {
     overwrite_fail_on_write_without_truncate_test(
         fuse::mock_session::new,
         "overwrite_fail_on_write_without_truncate_test",
-        write_only,
+        rw_mode,
     );
 }
 
-fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, write_only: bool) {
+fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: ReadWriteMode) {
     let filesystem_config = S3FilesystemConfig {
         allow_overwrite: true,
         ..Default::default()
@@ -912,12 +1099,8 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, wr
     let path = test_session.mount_path().join("dir/hello.txt");
 
     // File should be empty when opened with O_TRUNC even without any write
-    let mut options = File::options();
-    if !write_only {
-        options.read(true);
-    }
-    let write_fh = options
-        .write(true)
+    let write_fh = File::options()
+        .rw_mode(rw_mode)
         .truncate(true)
         .open(&path)
         .expect("open should succeed");
@@ -931,16 +1114,14 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, wr
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_truncate_test_s3(write_only: bool) {
-    overwrite_truncate_test(fuse::s3_session::new, "overwrite_truncate_test", write_only);
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
+    overwrite_truncate_test(fuse::s3_session::new, "overwrite_truncate_test", rw_mode);
 }
 
-#[test_case(true; "write_only")]
-#[test_case(false; "read_write")]
-fn overwrite_truncate_test_mock(write_only: bool) {
-    overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", write_only);
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
+    overwrite_truncate_test(fuse::mock_session::new, "overwrite_truncate_test", rw_mode);
 }
 
 fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) {
@@ -1103,7 +1284,7 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
     let test_session = fuse::s3_session::new("sse_with_policy_test", test_config);
     let file_name = "hello";
     let path = test_session.mount_path().join(file_name);
-    let mut f = open_for_write(&path, false, true).unwrap();
+    let mut f = File::options().write(true).create(true).open(&path).unwrap();
     let data = vec![0xaa; 32];
     let write_result = f.write_all(&data);
 
@@ -1139,7 +1320,11 @@ fn concurrent_open_for_write_test(max_files: usize) {
     let mut open_files = Vec::new();
     for file_name in &file_names {
         let path = test_session.mount_path().join(file_name);
-        let f = open_for_write(&path, false, true).expect("open should succeed");
+        let f = File::options()
+            .append(true)
+            .create(true)
+            .open(&path)
+            .expect("open should succeed");
         open_files.push(f);
     }
 
@@ -1162,15 +1347,29 @@ fn concurrent_open_for_write_test(max_files: usize) {
     }
 }
 
-fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksums: bool) {
+#[derive(Clone, Copy)]
+enum UploadChecksumsMode {
+    Enabled,
+    Disabled,
+}
+
+const CHECKSUMS_ENABLED: UploadChecksumsMode = UploadChecksumsMode::Enabled;
+const CHECKSUMS_DISABLED: UploadChecksumsMode = UploadChecksumsMode::Disabled;
+
+fn write_checksums_test(
+    creator_fn: impl TestSessionCreator,
+    checksums_mode: UploadChecksumsMode,
+    upload_mode: UploadMode,
+) {
     const OBJECT_SIZE: usize = 20 * 1024 * 1024;
     const KEY: &str = "dir/new.txt";
 
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
-            use_upload_checksums,
+            use_upload_checksums: matches!(checksums_mode, UploadChecksumsMode::Enabled),
             ..Default::default()
-        },
+        }
+        .upload_mode(upload_mode),
         ..Default::default()
     };
     let test_session = creator_fn("write_checksums_test", config);
@@ -1183,7 +1382,7 @@ fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksum
 
     let path = test_session.mount_path().join(KEY);
 
-    let mut f = open_for_write(path, false, true).unwrap();
+    let mut f = File::options().append(true).create(true).open(&path).unwrap();
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
@@ -1200,42 +1399,256 @@ fn write_checksums_test(creator_fn: impl TestSessionCreator, use_upload_checksum
 
     // Now it's fsync'ed and closed, it should be present in S3
     let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).unwrap();
-    if use_upload_checksums {
-        // We should get the correct checksum on the whole object or on the parts.
-        let object_crc32c = object_checksum.is_some_and(|checksum| checksum.checksum_crc32c.is_some());
-        let parts_crc32c = !part_checksums.is_empty()
-            && part_checksums.iter().all(|checksum| {
-                checksum
-                    .as_ref()
-                    .is_some_and(|checksum| checksum.checksum_crc32c.is_some())
-            });
-        assert!(object_crc32c || parts_crc32c, "crc32c is used for trailing checksums");
-    } else {
-        // For S3 Standard, the list of parts is only present if checksums were used, but for S3
-        // Express One Zone the list of parts is always present. The important thing is just that
-        // the *checksums* aren't present, because we disabled those.
-        assert!(
-            object_checksum.is_none_or(|c| c == Checksum::empty()),
-            "checksums should not be present when upload checksums are disabled"
-        );
-        for part_checksum in part_checksums {
+    match checksums_mode {
+        UploadChecksumsMode::Enabled => {
+            // We should get the correct checksum on the whole object or on the parts.
+            let object_crc32c = object_checksum.is_some_and(|checksum| checksum.checksum_crc32c.is_some());
+            let parts_crc32c = !part_checksums.is_empty()
+                && part_checksums.iter().all(|checksum| {
+                    checksum
+                        .as_ref()
+                        .is_some_and(|checksum| checksum.checksum_crc32c.is_some())
+                });
+            assert!(object_crc32c || parts_crc32c, "crc32c is used for trailing checksums");
+        }
+        UploadChecksumsMode::Disabled => {
+            // For S3 Standard, the list of parts is only present if checksums were used, but for S3
+            // Express One Zone the list of parts is always present. The important thing is just that
+            // the *checksums* aren't present, because we disabled those.
             assert!(
-                part_checksum.is_none_or(|c| c == Checksum::empty()),
+                object_checksum.is_none_or(|c| c == Checksum::empty()),
                 "checksums should not be present when upload checksums are disabled"
             );
+            for part_checksum in part_checksums {
+                assert!(
+                    part_checksum.is_none_or(|c| c == Checksum::empty()),
+                    "checksums should not be present when upload checksums are disabled"
+                );
+            }
         }
     }
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true; "enabled")]
-#[test_case(false; "disabled")]
-fn write_checksums_test_s3(use_upload_checksums: bool) {
-    write_checksums_test(fuse::s3_session::new, use_upload_checksums);
+#[test_matrix([CHECKSUMS_ENABLED, CHECKSUMS_DISABLED])]
+fn write_checksums_test_s3(checksums_mode: UploadChecksumsMode) {
+    write_checksums_test(fuse::s3_session::new, checksums_mode, ATOMIC_UPLOAD);
 }
 
-#[test_case(true; "enabled")]
-#[test_case(false; "disabled")]
-fn write_checksums_test_mock(use_upload_checksums: bool) {
-    write_checksums_test(fuse::mock_session::new, use_upload_checksums);
+#[cfg(feature = "s3express_tests")]
+#[test_matrix([CHECKSUMS_ENABLED, CHECKSUMS_DISABLED])]
+fn write_checksums_test_s3_incremental_upload(checksums_mode: UploadChecksumsMode) {
+    write_checksums_test(fuse::s3_session::new, checksums_mode, INCREMENTAL_UPLOAD);
+}
+
+#[test_matrix([CHECKSUMS_ENABLED, CHECKSUMS_DISABLED], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn write_checksums_test_mock(checksums_mode: UploadChecksumsMode, upload_mode: UploadMode) {
+    write_checksums_test(fuse::mock_session::new, checksums_mode, upload_mode);
+}
+
+#[derive(Debug)]
+struct AppendTestConfig {
+    initial_content: Option<&'static str>,
+    writes: Vec<&'static str>,
+    fsync_after_write: bool,
+}
+
+fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestConfig) {
+    const KEY: &str = "append.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            incremental_upload: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let test_session = creator_fn("append_test", config);
+
+    let path = test_session.mount_path().join(KEY);
+
+    let mut expected = Vec::new();
+    if let Some(initial_content) = append_config.initial_content {
+        expected.extend_from_slice(initial_content.as_bytes());
+
+        // Create the file with the initial content
+        test_session.client().put_object(KEY, &expected).unwrap();
+
+        // Check the file already exists and has the expected size
+        let m = metadata(&path).unwrap();
+        assert_eq!(m.len(), expected.len() as u64);
+    }
+
+    let mut f = File::options()
+        .read(false)
+        .append(true)
+        .create(true)
+        .open(&path)
+        .unwrap();
+
+    // The file is visible with the initial size after as we open it for write
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), expected.len() as u64);
+
+    for write_content in append_config.writes {
+        expected.extend_from_slice(write_content.as_bytes());
+
+        f.write_all(write_content.as_bytes()).unwrap();
+
+        if append_config.fsync_after_write {
+            f.sync_all().unwrap();
+
+            let m = metadata(&path).unwrap();
+            assert_eq!(m.len(), expected.len() as u64);
+
+            let new_size = test_session.client().get_object_size(KEY).unwrap();
+            assert_eq!(new_size, expected.len());
+        }
+    }
+
+    drop(f);
+
+    let m = metadata(&path).unwrap();
+    assert_eq!(m.len(), expected.len() as u64);
+
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &expected[..]);
+}
+
+#[cfg(feature = "s3express_tests")]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one."], fsync_after_write: false })]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one.", "two."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one.", "two."], fsync_after_write: false })]
+#[test_case(AppendTestConfig { initial_content: None, writes: vec!["one."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: None, writes: vec!["one."], fsync_after_write: false })]
+#[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: false })]
+fn append_test_s3(config: AppendTestConfig) {
+    append_test(fuse::s3_session::new, config);
+}
+
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one."], fsync_after_write: false })]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one.", "two."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: Some("initial."), writes: vec!["one.", "two."], fsync_after_write: false })]
+#[test_case(AppendTestConfig { initial_content: None, writes: vec!["one."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: None, writes: vec!["one."], fsync_after_write: false })]
+#[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: true })]
+#[test_case(AppendTestConfig { initial_content: Some(""), writes: vec!["one."], fsync_after_write: false })]
+fn append_test_mock(config: AppendTestConfig) {
+    append_test(fuse::mock_session::new, config);
+}
+
+fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm: Option<ChecksumAlgorithm>) {
+    const KEY: &str = "append.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            incremental_upload: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let test_session = creator_fn("append_with_checksums", config);
+
+    let path = test_session.mount_path().join(KEY);
+
+    // Create the file with the initial content
+    const INITIAL_CONTENT: &[u8] = b"initial";
+    let checksum = match checksum_algorithm {
+        None => None,
+        Some(ChecksumAlgorithm::Crc32c) => Some(UploadChecksum::Crc32c(
+            mountpoint_s3_client::checksums::crc32c::checksum(INITIAL_CONTENT),
+        )),
+        Some(ChecksumAlgorithm::Crc32) => Some(UploadChecksum::Crc32(
+            mountpoint_s3_client::checksums::crc32::checksum(INITIAL_CONTENT),
+        )),
+        Some(ChecksumAlgorithm::Sha1) => Some(UploadChecksum::Sha1(
+            mountpoint_s3_client::checksums::sha1::checksum(INITIAL_CONTENT).unwrap(),
+        )),
+        Some(ChecksumAlgorithm::Sha256) => Some(UploadChecksum::Sha256(
+            mountpoint_s3_client::checksums::sha256::checksum(INITIAL_CONTENT).unwrap(),
+        )),
+        Some(other) => unimplemented!("checksum algorithm {}", other),
+    };
+    let params = PutObjectSingleParams::new().checksum(checksum);
+    test_session
+        .client()
+        .put_object_single(KEY, INITIAL_CONTENT, params)
+        .unwrap();
+
+    let mut f = File::options().read(false).append(true).open(&path).unwrap();
+
+    const APPEND_CONTENT: &[u8] = b"append";
+    f.write_all(APPEND_CONTENT).unwrap();
+    f.sync_all().unwrap();
+    drop(f);
+
+    let expected = [INITIAL_CONTENT, APPEND_CONTENT].concat();
+    let buf = read(&path).unwrap();
+    assert_eq!(&buf[..], &expected[..]);
+}
+
+#[cfg(feature = "s3express_tests")]
+#[test_case(None)]
+#[test_case(Some(ChecksumAlgorithm::Crc32c))]
+#[test_case(Some(ChecksumAlgorithm::Crc32))]
+#[test_case(Some(ChecksumAlgorithm::Sha1))]
+#[test_case(Some(ChecksumAlgorithm::Sha256))]
+fn append_with_checksums_s3(checksum_algorithm: Option<ChecksumAlgorithm>) {
+    append_with_checksums(fuse::s3_session::new, checksum_algorithm);
+}
+
+#[test_case(None)]
+#[test_case(Some(ChecksumAlgorithm::Crc32c))]
+#[test_case(Some(ChecksumAlgorithm::Crc32))]
+#[test_case(Some(ChecksumAlgorithm::Sha1))]
+#[test_case(Some(ChecksumAlgorithm::Sha256))]
+fn append_with_checksums_mock(checksum_algorithm: Option<ChecksumAlgorithm>) {
+    append_with_checksums(fuse::mock_session::new, checksum_algorithm);
+}
+
+fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator) {
+    const KEY: &str = "append.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            incremental_upload: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let test_session = creator_fn("append_fails_on_object_replaced", config);
+
+    let path = test_session.mount_path().join(KEY);
+
+    // Create the file with the initial content
+    const INITIAL_CONTENT: &[u8] = b"original";
+    test_session.client().put_object(KEY, INITIAL_CONTENT).unwrap();
+
+    let f = File::options().read(false).append(true).open(&path).unwrap();
+
+    // Replace the original file
+    const REPLACED_CONTENT: &[u8] = b"replaced";
+    test_session.client().put_object(KEY, REPLACED_CONTENT).unwrap();
+
+    fn append_to_file(mut f: File) -> std::io::Result<()> {
+        f.write_all(b"append")?;
+        f.sync_all()?;
+        Ok(())
+    }
+
+    append_to_file(f).expect_err("appending to a replaced file should fail");
+}
+
+#[cfg(feature = "s3express_tests")]
+#[test]
+fn append_fails_on_object_replaced_s3() {
+    append_fails_on_object_replaced(fuse::s3_session::new);
+}
+
+#[test]
+fn append_fails_on_object_replaced_mock() {
+    append_fails_on_object_replaced(fuse::mock_session::new);
 }

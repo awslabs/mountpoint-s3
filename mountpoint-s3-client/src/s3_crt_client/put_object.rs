@@ -12,6 +12,7 @@ use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
 use tracing::error;
+use xmltree::Element;
 
 use super::{
     emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
@@ -133,6 +134,16 @@ impl S3CrtClient {
             if let Some(checksum) = &params.checksum {
                 message
                     .set_checksum_header(checksum)
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+            if let Some(offset) = params.write_offset_bytes {
+                message
+                    .set_header(&Header::new("x-amz-write-offset-bytes", offset.to_string()))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+            if let Some(etag) = &params.if_match {
+                message
+                    .set_header(&Header::new("If-Match", etag.as_str()))
                     .map_err(S3RequestError::construction_failure)?;
             }
             for (name, value) in &params.object_metadata {
@@ -284,13 +295,43 @@ fn parse_put_object_single_error(result: &MetaRequestResult) -> Option<PutObject
             let error_code = root.get_child("Code")?;
             let error_str = error_code.get_text()?;
             match error_str.deref() {
+                "InvalidWriteOffset" => Some(PutObjectError::InvalidWriteOffset),
                 "BadDigest" => Some(PutObjectError::BadChecksum),
+                "InvalidArgument" => {
+                    parse_if_error_message_starts_with("Request body cannot be empty", &root, PutObjectError::EmptyBody)
+                }
+                "InvalidRequest" => parse_if_error_message_starts_with(
+                    "Checksum Type mismatch",
+                    &root,
+                    PutObjectError::InvalidChecksumType,
+                ),
                 _ => None,
             }
         }
+        404 => {
+            let body = result.error_response_body.as_ref()?;
+            let root = xmltree::Element::parse(body.as_bytes()).ok()?;
+            let error_code = root.get_child("Code")?;
+            let error_str = error_code.get_text()?;
+            match error_str.deref() {
+                "NoSuchKey" => Some(PutObjectError::NoSuchKey),
+                _ => None,
+            }
+        }
+        412 => Some(PutObjectError::PreconditionFailed),
         501 => Some(PutObjectError::NotImplemented),
         _ => None,
     }
+}
+
+fn parse_if_error_message_starts_with<E: std::error::Error>(prefix: &str, element: &Element, error: E) -> Option<E> {
+    let error_message = element.get_child("Message")?.get_text();
+    if let Some(error_message) = error_message {
+        if error_message.starts_with(prefix) {
+            return Some(error);
+        }
+    }
+    None
 }
 
 fn extract_result(response_headers: Headers) -> Result<PutObjectResult, S3RequestError> {
