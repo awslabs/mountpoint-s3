@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v1.12.0 (November 25, 2024)
+
 ### New features
 
 * Mountpoint now offers a new command-line flag `--incremental-upload`, available when mounting directory buckets in S3 Express One Zone. When set, Mountpoint will perform all uploads incrementally and support appending to existing objects. ([#1165](https://github.com/awslabs/mountpoint-s3/pull/1165))
