@@ -1,14 +1,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use once_cell::sync::Lazy;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::field::VisitOutput;
 use tracing_subscriber::fmt::format::{DefaultVisitor, Writer};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
 
-static TRACING_TEST_LAYER: Lazy<TracingTestLayer> = Lazy::new(TracingTestLayer::new);
+static TRACING_TEST_LAYER: LazyLock<TracingTestLayer> = LazyLock::new(TracingTestLayer::new);
 
 /// This is a singleton [tracing::Layer] that can be used to write tests for log events.
 ///

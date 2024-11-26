@@ -7,13 +7,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
-use lazy_static::lazy_static;
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -54,11 +53,9 @@ pub fn ramp_bytes(seed: usize, size: usize) -> Vec<u8> {
     bytes
 }
 
-lazy_static! {
-    // Generate bytes for ramping pattern (currently, just a simple linear ramp).
-    // Request RAMP_MODULUS extra bytes so we can read from any offset (modulo RAMP_MODULUS)
-    static ref RAMP_BYTES: Vec<u8> = ramp_bytes(0, RAMP_BUFFER_SIZE + RAMP_MODULUS);
-}
+/// Generate bytes for ramping pattern (currently, just a simple linear ramp).
+/// Request RAMP_MODULUS extra bytes so we can read from any offset (modulo RAMP_MODULUS)
+static RAMP_BYTES: LazyLock<Vec<u8>> = LazyLock::new(|| ramp_bytes(0, RAMP_BUFFER_SIZE + RAMP_MODULUS));
 
 #[derive(Debug, Default, Clone)]
 pub struct MockClientConfig {
