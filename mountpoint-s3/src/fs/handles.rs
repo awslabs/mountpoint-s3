@@ -107,12 +107,9 @@ where
                 lookup.stat.etag.as_ref().map(|e| e.into())
             };
             let current_offset = if is_truncate { 0 } else { lookup.stat.size as u64 };
-            let request = fs.append_uploader.start_upload(
-                bucket.to_owned(),
-                key.to_owned(),
-                current_offset,
-                initial_etag.clone(),
-            );
+            let request =
+                fs.uploader
+                    .start_upload(bucket.to_owned(), key.to_owned(), current_offset, initial_etag.clone());
             FileHandleState::Write(UploadState::AppendInProgress {
                 request,
                 handle,
@@ -247,7 +244,7 @@ where
                     Ok(etag) => {
                         // Restart append request.
                         let initial_etag = etag.or(initial_etag);
-                        let request = fs.append_uploader.start_upload(
+                        let request = fs.uploader.start_upload(
                             fs.bucket.clone(),
                             key.to_owned(),
                             current_offset,

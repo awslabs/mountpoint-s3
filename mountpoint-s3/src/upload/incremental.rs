@@ -479,7 +479,7 @@ mod tests {
 
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 
-    use super::super::AppendUploader;
+    use super::super::Uploader;
     use super::*;
 
     use futures::executor::ThreadPool;
@@ -493,20 +493,21 @@ mod tests {
         client: Client,
         buffer_size: usize,
         server_side_encryption: Option<ServerSideEncryption>,
-        checksum_algorithm: Option<ChecksumAlgorithm>,
-    ) -> AppendUploader<Client>
+        default_checksum_algorithm: Option<ChecksumAlgorithm>,
+    ) -> Uploader<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
         let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
-        AppendUploader::new(
+        Uploader::new(
             client,
             runtime,
             mem_limiter.into(),
-            buffer_size,
+            None,
             server_side_encryption.unwrap_or_default(),
-            checksum_algorithm,
+            buffer_size,
+            default_checksum_algorithm,
         )
     }
 
@@ -1191,12 +1192,13 @@ mod tests {
 
         // Use a memory limiter with 0 limit
         let mem_limiter = MemoryLimiter::new(client.clone(), 0);
-        let uploader = AppendUploader::new(
+        let uploader = Uploader::new(
             client.clone(),
             ThreadPool::builder().pool_size(1).create().unwrap(),
             mem_limiter.into(),
-            part_size,
+            None,
             Default::default(),
+            part_size,
             None,
         );
 

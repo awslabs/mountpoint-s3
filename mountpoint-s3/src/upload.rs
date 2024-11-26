@@ -27,11 +27,18 @@ pub use incremental::AppendUploadRequest;
 
 /// An [Uploader] creates and manages streaming PutObject requests.
 #[derive(Debug)]
-pub struct Uploader<Client> {
+pub struct Uploader<Client: ObjectClient> {
     client: Client,
+    runtime: BoxRuntime,
+    mem_limiter: Arc<MemoryLimiter<Client>>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
-    use_additional_checksums: bool,
+    buffer_size: usize,
+    /// Default checksum algorithm, if any, to be used for new S3 objects.
+    ///
+    /// Only [ChecksumAlgorithm::Crc32c] is supported for multi-part uploads.
+    /// For existing objects, Mountpoint will instead append using the existing checksum algorithm on the object.
+    default_checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 #[derive(Debug, Error)]
@@ -54,19 +61,28 @@ pub enum UploadWriteError<E: std::error::Error> {
     ObjectTooBig { maximum_size: usize },
 }
 
-impl<Client: ObjectClient> Uploader<Client> {
+impl<Client> Uploader<Client>
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+{
     /// Create a new [Uploader] that will make requests to the given client.
     pub fn new(
         client: Client,
+        runtime: impl Spawn + Sync + Send + 'static,
+        mem_limiter: Arc<MemoryLimiter<Client>>,
         storage_class: Option<String>,
         server_side_encryption: ServerSideEncryption,
-        use_additional_checksums: bool,
+        buffer_size: usize,
+        default_checksum_algorithm: Option<ChecksumAlgorithm>,
     ) -> Self {
         Self {
             client,
+            runtime: runtime.into(),
+            mem_limiter,
             storage_class,
             server_side_encryption,
-            use_additional_checksums,
+            buffer_size,
+            default_checksum_algorithm,
         }
     }
 
@@ -77,76 +93,6 @@ impl<Client: ObjectClient> Uploader<Client> {
         key: &str,
     ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
         UploadRequest::new(self, bucket, key).await
-    }
-
-    #[cfg(test)]
-    pub fn corrupt_sse(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
-        self.server_side_encryption.corrupt_data(sse_type, sse_kms_key_id)
-    }
-}
-
-/// Maximum number of bytes an `AppendUploadQueue` can take.
-///
-/// We use this limit to prevent a single pipeline from consuming all memory.
-/// The limit may slow down writes eventually, but the overall upload throughput
-/// is already capped by a single PutObject request.
-const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
-
-/// An [AppendUploader] creates and manages streaming PutObject requests using the Append API.
-#[derive(Debug)]
-pub struct AppendUploader<Client: ObjectClient> {
-    client: Client,
-    runtime: BoxRuntime,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
-    buffer_size: usize,
-    server_side_encryption: ServerSideEncryption,
-    /// Default checksum algorithm, if any, to be used for new S3 objects created by an [AppendUploader].
-    ///
-    /// For existing objects, Mountpoint will instead append using the existing checksum algorithm on the object.
-    default_checksum_algorithm: Option<ChecksumAlgorithm>,
-}
-
-#[derive(Debug, Error)]
-pub enum AppendUploadError<E> {
-    #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
-    OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
-
-    #[error("put request failed")]
-    PutRequestFailed(#[source] ObjectClientError<PutObjectError, E>),
-
-    #[error("upload was already terminated because of previous failures")]
-    UploadAlreadyTerminated,
-
-    #[error("SSE settings corrupted")]
-    SseCorruptedError(#[from] SseCorruptedError),
-
-    #[error("error computing checksums")]
-    ChecksumComputationFailed(#[from] ChecksumHasherError),
-
-    #[error("head object request failed")]
-    HeadObjectFailed(#[from] ObjectClientError<HeadObjectError, E>),
-}
-
-impl<Client> AppendUploader<Client>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    pub fn new(
-        client: Client,
-        runtime: impl Spawn + Sync + Send + 'static,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
-        buffer_size: usize,
-        server_side_encryption: ServerSideEncryption,
-        default_checksum_algorithm: Option<ChecksumAlgorithm>,
-    ) -> Self {
-        Self {
-            client,
-            runtime: runtime.into(),
-            mem_limiter,
-            buffer_size,
-            server_side_encryption,
-            default_checksum_algorithm,
-        }
     }
 
     /// Start a new appendable upload to the specified object.
@@ -174,6 +120,39 @@ where
             params,
         )
     }
+
+    #[cfg(test)]
+    pub fn corrupt_sse(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
+        self.server_side_encryption.corrupt_data(sse_type, sse_kms_key_id)
+    }
+}
+
+/// Maximum number of bytes an `AppendUploadQueue` can take.
+///
+/// We use this limit to prevent a single pipeline from consuming all memory.
+/// The limit may slow down writes eventually, but the overall upload throughput
+/// is already capped by a single PutObject request.
+const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
+
+#[derive(Debug, Error)]
+pub enum AppendUploadError<E> {
+    #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
+    OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
+
+    #[error("put request failed")]
+    PutRequestFailed(#[source] ObjectClientError<PutObjectError, E>),
+
+    #[error("upload was already terminated because of previous failures")]
+    UploadAlreadyTerminated,
+
+    #[error("SSE settings corrupted")]
+    SseCorruptedError(#[from] SseCorruptedError),
+
+    #[error("error computing checksums")]
+    ChecksumComputationFailed(#[from] ChecksumHasherError),
+
+    #[error("head object request failed")]
+    HeadObjectFailed(#[from] ObjectClientError<HeadObjectError, E>),
 }
 
 struct BoxRuntime(Box<dyn Spawn + Send + Sync>);

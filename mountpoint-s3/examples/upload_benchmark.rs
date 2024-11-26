@@ -2,9 +2,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use clap::Parser;
-use futures::task::Spawn;
 use mountpoint_s3::mem_limiter::MemoryLimiter;
-use mountpoint_s3::upload::{AppendUploader, Uploader};
+use mountpoint_s3::upload::Uploader;
 use mountpoint_s3::ServerSideEncryption;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
@@ -107,11 +106,41 @@ fn main() {
     let runtime = client.event_loop_group();
 
     for i in 0..args.iterations {
+        let max_memory_target = if let Some(target) = args.max_memory_target {
+            target * 1024 * 1024
+        } else {
+            // Default to 95% of total system memory
+            let sys = System::new_with_specifics(RefreshKind::everything());
+            (sys.total_memory() as f64 * 0.95) as u64
+        };
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
+
+        let buffer_size = args.write_part_size;
+        let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
+
+        let checksum_algorithm = match args.checksum_algorithm.as_str() {
+            "off" => None,
+            "crc32c" => Some(ChecksumAlgorithm::Crc32c),
+            "crc32" => Some(ChecksumAlgorithm::Crc32),
+            "sha1" => Some(ChecksumAlgorithm::Sha1),
+            "sha256" => Some(ChecksumAlgorithm::Sha256),
+            other => Some(ChecksumAlgorithm::Unknown(other.to_string())),
+        };
+        let uploader = Uploader::new(
+            client.clone(),
+            runtime.clone(),
+            mem_limiter,
+            None,
+            server_side_encryption,
+            buffer_size,
+            checksum_algorithm,
+        );
+
         let start = Instant::now();
         if args.incremental_upload {
-            futures::executor::block_on(run_append_uploader(client.clone(), runtime.clone(), &args, i));
+            futures::executor::block_on(run_append_uploader(&uploader, &args, i));
         } else {
-            futures::executor::block_on(run_mpu_uploader(client.clone(), &args, i));
+            futures::executor::block_on(run_mpu_uploader(&uploader, &args, i));
         }
         let elapsed = start.elapsed();
         let uploaded_size_mib = (args.object_size as f64) / (1024 * 1024) as f64;
@@ -128,16 +157,11 @@ fn main() {
     }
 }
 
-async fn run_mpu_uploader<Client: ObjectClient>(client: Arc<Client>, args: &UploadBenchmarkArgs, iteration: usize) {
+async fn run_mpu_uploader<Client>(uploader: &Uploader<Client>, args: &UploadBenchmarkArgs, iteration: usize)
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+{
     let start = Instant::now();
-    let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
-
-    let use_additional_checksum = match args.checksum_algorithm.as_str() {
-        "off" => false,
-        "crc32c" => true,
-        other => todo!("MPU uploader does not support {other} checksum algorithm"),
-    };
-    let uploader = Uploader::new(client.clone(), None, server_side_encryption, use_additional_checksum);
 
     let bucket = args.bucket.clone();
     let key = args.key.clone();
@@ -166,44 +190,11 @@ async fn run_mpu_uploader<Client: ObjectClient>(client: Arc<Client>, args: &Uplo
     upload_request.complete().await.unwrap();
 }
 
-async fn run_append_uploader<Client, Runtime>(
-    client: Arc<Client>,
-    runtime: Runtime,
-    args: &UploadBenchmarkArgs,
-    iteration: usize,
-) where
-    Client: ObjectClient + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync + 'static,
+async fn run_append_uploader<Client>(uploader: &Uploader<Client>, args: &UploadBenchmarkArgs, iteration: usize)
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     let start = Instant::now();
-    let max_memory_target = if let Some(target) = args.max_memory_target {
-        target * 1024 * 1024
-    } else {
-        // Default to 95% of total system memory
-        let sys = System::new_with_specifics(RefreshKind::everything());
-        (sys.total_memory() as f64 * 0.95) as u64
-    };
-    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
-
-    let buffer_size = args.write_part_size;
-    let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
-
-    let checksum_algorithm = match args.checksum_algorithm.as_str() {
-        "off" => None,
-        "crc32c" => Some(ChecksumAlgorithm::Crc32c),
-        "crc32" => Some(ChecksumAlgorithm::Crc32),
-        "sha1" => Some(ChecksumAlgorithm::Sha1),
-        "sha256" => Some(ChecksumAlgorithm::Sha256),
-        other => Some(ChecksumAlgorithm::Unknown(other.to_string())),
-    };
-    let uploader = AppendUploader::new(
-        client.clone(),
-        runtime,
-        mem_limiter,
-        buffer_size,
-        server_side_encryption,
-        checksum_algorithm,
-    );
 
     let bucket = args.bucket.clone();
     let key = args.key.clone();

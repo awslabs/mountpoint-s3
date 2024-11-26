@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use mountpoint_s3_client::{
     checksums::{crc32c_from_base64, Crc32c},
     error::{ObjectClientError, PutObjectError},
-    types::{PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview},
+    types::{ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview},
     ObjectClient, PutObjectRequest,
 };
 use mountpoint_s3_crt::checksums::crc32c;
@@ -38,10 +38,16 @@ impl<Client: ObjectClient> UploadRequest<Client> {
     ) -> Result<Self, UploadPutError<PutObjectError, Client::ClientError>> {
         let mut params = PutObjectParams::new();
 
-        if uploader.use_additional_checksums {
-            params = params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
-        } else {
-            params = params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
+        match &uploader.default_checksum_algorithm {
+            Some(ChecksumAlgorithm::Crc32c) => {
+                params = params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
+            }
+            Some(unsupported) => {
+                unimplemented!("checksum algorithm not supported: {:?}", unsupported);
+            }
+            None => {
+                params = params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
+            }
         }
 
         if let Some(storage_class) = &uploader.storage_class {
@@ -180,13 +186,39 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::fs::SseCorruptedError;
+    use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
     use crate::sync::Arc;
 
+    use futures::executor::ThreadPool;
     use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
+    use mountpoint_s3_client::types::ChecksumAlgorithm;
     use test_case::test_case;
 
     use super::*;
+
+    fn new_uploader_for_test<Client>(
+        client: Client,
+        storage_class: Option<String>,
+        server_side_encryption: ServerSideEncryption,
+        use_additional_checksums: bool,
+    ) -> Uploader<Client>
+    where
+        Client: ObjectClient + Clone + Send + Sync + 'static,
+    {
+        let buffer_size = client.write_part_size().unwrap();
+        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
+        Uploader::new(
+            client,
+            runtime,
+            mem_limiter.into(),
+            storage_class,
+            server_side_encryption,
+            buffer_size,
+            use_additional_checksums.then_some(ChecksumAlgorithm::Crc32c),
+        )
+    }
 
     #[tokio::test]
     async fn complete_test() {
@@ -199,7 +231,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default(), true);
+        let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
         let request = uploader.put(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
@@ -223,7 +255,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(
+        let uploader = new_uploader_for_test(
             client.clone(),
             Some(storage_class.to_owned()),
             ServerSideEncryption::default(),
@@ -277,7 +309,7 @@ mod tests {
             },
         ));
 
-        let uploader = Uploader::new(failure_client.clone(), None, ServerSideEncryption::default(), true);
+        let uploader = new_uploader_for_test(failure_client.clone(), None, ServerSideEncryption::default(), true);
 
         // First request fails on first write.
         {
@@ -318,7 +350,7 @@ mod tests {
             part_size: PART_SIZE,
             ..Default::default()
         }));
-        let uploader = Uploader::new(client.clone(), None, ServerSideEncryption::default(), true);
+        let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
         let mut request = uploader.put(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
@@ -347,7 +379,7 @@ mod tests {
     #[tokio::test]
     async fn put_with_corrupted_sse_test(sse_type_corrupted: Option<&str>, key_id_corrupted: Option<&str>) {
         let client = Arc::new(MockClient::new(Default::default()));
-        let mut uploader = Uploader::new(
+        let mut uploader = new_uploader_for_test(
             client,
             None,
             ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key_alias".to_string())),
@@ -377,7 +409,7 @@ mod tests {
             part_size: 32,
             ..Default::default()
         }));
-        let uploader = Uploader::new(
+        let uploader = new_uploader_for_test(
             client,
             None,
             ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key".to_string())),
