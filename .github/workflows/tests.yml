@@ -70,7 +70,7 @@ jobs:
       # Once the runners' image is updated (tracking https://github.com/actions/runner-images/pull/11011),
       # we could revert to just:
       #   brew update > /dev/null && brew install pkgconfig
-      run: |           
+      run: |
           brew update
           brew uninstall --ignore-dependencies --force pkg-config@0.29.2
           brew install pkgconf
@@ -280,11 +280,5 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-          # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
-          rustflags: ""
       - name: Run cargo deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@v2
