@@ -225,7 +225,7 @@ mod tests {
             ..Default::default()
         }));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let request = uploader.put(bucket, key).await.unwrap();
+        let request = uploader.start_atomic_upload(bucket, key).await.unwrap();
 
         assert!(!client.contains_key(key));
         assert!(client.is_upload_in_progress(key));
@@ -255,7 +255,7 @@ mod tests {
             true,
         );
 
-        let mut request = uploader.put(bucket, key).await.unwrap();
+        let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
 
         let data = b"foo";
         let mut offset = 0;
@@ -306,7 +306,7 @@ mod tests {
 
         // First request fails on first write.
         {
-            let mut request = uploader.put(bucket, key).await.unwrap();
+            let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
 
             let data = b"foo";
             request.write(0, data).await.expect_err("first write should fail");
@@ -316,7 +316,7 @@ mod tests {
 
         // Second request fails on complete (after one write).
         {
-            let mut request = uploader.put(bucket, key).await.unwrap();
+            let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
 
             let data = b"foo";
             _ = request.write(0, data).await.unwrap();
@@ -344,7 +344,7 @@ mod tests {
             ..Default::default()
         }));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let mut request = uploader.put(bucket, key).await.unwrap();
+        let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
         let data = vec![0xaa; write_size];
@@ -382,7 +382,7 @@ mod tests {
             .server_side_encryption
             .corrupt_data(sse_type_corrupted.map(String::from), key_id_corrupted.map(String::from));
         let err = uploader
-            .put("bucket", "hello")
+            .start_atomic_upload("bucket", "hello")
             .await
             .expect_err("sse checksum must be checked");
         assert!(matches!(
@@ -408,6 +408,9 @@ mod tests {
             ServerSideEncryption::new(Some("aws:kms".to_string()), Some("some_key".to_string())),
             true,
         );
-        uploader.put(bucket, key).await.expect("put with sse should succeed");
+        uploader
+            .start_atomic_upload(bucket, key)
+            .await
+            .expect("put with sse should succeed");
     }
 }

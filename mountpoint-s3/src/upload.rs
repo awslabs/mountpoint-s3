@@ -90,8 +90,8 @@ where
         }
     }
 
-    /// Start a new put request to the specified object.
-    pub async fn put(
+    /// Start a new atomic upload.
+    pub async fn start_atomic_upload(
         &self,
         bucket: &str,
         key: &str,
@@ -99,8 +99,8 @@ where
         UploadRequest::new(self, bucket, key).await
     }
 
-    /// Start a new appendable upload to the specified object.
-    pub fn start_upload(
+    /// Start a new incremental upload.
+    pub fn start_incremental_upload(
         &self,
         bucket: String,
         key: String,

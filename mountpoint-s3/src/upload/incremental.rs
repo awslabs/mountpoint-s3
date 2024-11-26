@@ -543,7 +543,8 @@ mod tests {
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
         let mut offset = existing_object.as_ref().map_or(0, |object| object.len() as u64);
         let initial_etag = existing_object.map(|object| object.etag());
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
 
         // Write some data
         let append_data = [0xaa; 128];
@@ -615,7 +616,8 @@ mod tests {
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
         let mut offset = existing_object.as_ref().map_or(0, |object| object.len() as u64);
         let initial_etag = existing_object.map(|object| object.etag());
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
 
         // Write some data and verify that buffer length should not grow larger than configured capacity
         let append_data = [0xaa; 384];
@@ -694,7 +696,8 @@ mod tests {
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, default_checksum_algorithm.clone());
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
 
         // Write some data
         let append_data = [0xaa; 384];
@@ -754,7 +757,8 @@ mod tests {
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
         let initial_offset = existing_object.as_ref().map_or(0, |object| object.len() as u64);
         let initial_etag = existing_object.map(|object| object.etag());
-        let upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), initial_offset, initial_etag);
+        let upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, initial_etag);
         // Wait for the upload to complete
         upload_request
             .complete()
@@ -791,7 +795,7 @@ mod tests {
         let initial_offset = (existing_object.len() - 1) as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
 
         let append_data = [0xaa; 128];
         upload_request
@@ -837,7 +841,7 @@ mod tests {
         let initial_offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
 
         // Write data more than the buffer capacity as the first append should succeed
         let append_data = [0xab; 384];
@@ -880,7 +884,8 @@ mod tests {
         // Test append with a wrong offset
         let mut offset = (existing_object.len() - 1) as u64;
         let initial_etag = existing_object.etag();
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
@@ -945,7 +950,8 @@ mod tests {
         let uploader = new_uploader_for_test(failure_client, buffer_size, None, None);
         let mut offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
@@ -1010,7 +1016,8 @@ mod tests {
         // Start appending
         let mut offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
+        let mut upload_request =
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
 
         // Replace the existing object
         let replacing_object = MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
@@ -1066,7 +1073,7 @@ mod tests {
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), 0, None);
+        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), 0, None);
 
         // Write some data
         let append_data = [0xaa; 128];
@@ -1116,7 +1123,7 @@ mod tests {
         let initial_offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
 
         let append_data = [0xaa; 128];
         upload_request
@@ -1155,7 +1162,7 @@ mod tests {
         let initial_offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
 
         let append_data = [0xaa; 128];
         expected_content.extend_from_slice(&append_data);
@@ -1203,7 +1210,7 @@ mod tests {
         );
 
         let mut offset = 0;
-        let mut upload_request = uploader.start_upload(bucket.to_owned(), key.to_owned(), offset, None);
+        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, None);
         let mut expected_content = Vec::new();
 
         // Write enough data to fill multiple parts

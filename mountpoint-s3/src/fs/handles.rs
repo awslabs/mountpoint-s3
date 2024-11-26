@@ -107,9 +107,12 @@ where
                 lookup.stat.etag.as_ref().map(|e| e.into())
             };
             let current_offset = if is_truncate { 0 } else { lookup.stat.size as u64 };
-            let request =
-                fs.uploader
-                    .start_upload(bucket.to_owned(), key.to_owned(), current_offset, initial_etag.clone());
+            let request = fs.uploader.start_incremental_upload(
+                bucket.to_owned(),
+                key.to_owned(),
+                current_offset,
+                initial_etag.clone(),
+            );
             FileHandleState::Write(UploadState::AppendInProgress {
                 request,
                 handle,
@@ -117,7 +120,7 @@ where
                 written_bytes: 0,
             })
         } else {
-            match fs.uploader.put(bucket, key).await {
+            match fs.uploader.start_atomic_upload(bucket, key).await {
                 Err(e) => return Err(err!(libc::EIO, source:e, "put failed to start")),
                 Ok(request) => FileHandleState::Write(UploadState::MPUInProgress { request, handle }),
             }
@@ -244,7 +247,7 @@ where
                     Ok(etag) => {
                         // Restart append request.
                         let initial_etag = etag.or(initial_etag);
-                        let request = fs.uploader.start_upload(
+                        let request = fs.uploader.start_incremental_upload(
                             fs.bucket.clone(),
                             key.to_owned(),
                             current_offset,
