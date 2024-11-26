@@ -828,10 +828,11 @@ fn write_with_sse_kms_key_id_ok() {
     assert!(kms_key_arn.starts_with("arn:") && kms_key_arn.contains(":key"));
     let (bucket, prefix) = get_test_bucket_and_prefix("write_with_sse_kms_key_id_ok");
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
-    let _ = mount_with_sse(&bucket, mount_point.path(), &prefix, &kms_key_arn, None);
+    let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &kms_key_arn, None);
     let f_name = "f.txt";
     write_to_file(mount_point.path(), f_name).expect("should be able to write to the file");
     unmount(&mount_point);
+    wait_for_exit(child);
 
     let sdk_client = tokio_block_on(get_test_sdk_client(get_test_region().as_str()));
     let key = format!("{}{}", prefix, f_name);
