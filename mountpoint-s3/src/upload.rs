@@ -42,20 +42,24 @@ pub struct Uploader<Client: ObjectClient> {
 }
 
 #[derive(Debug, Error)]
-pub enum UploadPutError<S, C> {
-    #[error("put request creation failed")]
-    ClientError(#[from] ObjectClientError<S, C>),
-    #[error("SSE settings corrupted")]
-    SseCorruptedError(#[from] SseCorruptedError),
-}
-
-#[derive(Debug, Error, Clone)]
-pub enum UploadWriteError<E: std::error::Error> {
-    #[error("put request failed")]
-    PutRequestFailed(#[from] E),
-
+pub enum UploadError<E> {
     #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
     OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
+
+    #[error("put request failed")]
+    PutRequestFailed(#[from] ObjectClientError<PutObjectError, E>),
+
+    #[error("upload was already terminated because of previous failures")]
+    UploadAlreadyTerminated,
+
+    #[error("SSE settings corrupted")]
+    SseCorruptedError(#[from] SseCorruptedError),
+
+    #[error("error computing checksums")]
+    ChecksumComputationFailed(#[from] ChecksumHasherError),
+
+    #[error("head object request failed")]
+    HeadObjectFailed(#[from] ObjectClientError<HeadObjectError, E>),
 
     #[error("object exceeded maximum upload size of {maximum_size} bytes")]
     ObjectTooBig { maximum_size: usize },
@@ -91,7 +95,7 @@ where
         &self,
         bucket: &str,
         key: &str,
-    ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
+    ) -> Result<UploadRequest<Client>, UploadError<Client::ClientError>> {
         UploadRequest::new(self, bucket, key).await
     }
 
@@ -133,27 +137,6 @@ where
 /// The limit may slow down writes eventually, but the overall upload throughput
 /// is already capped by a single PutObject request.
 const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
-
-#[derive(Debug, Error)]
-pub enum AppendUploadError<E> {
-    #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
-    OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
-
-    #[error("put request failed")]
-    PutRequestFailed(#[source] ObjectClientError<PutObjectError, E>),
-
-    #[error("upload was already terminated because of previous failures")]
-    UploadAlreadyTerminated,
-
-    #[error("SSE settings corrupted")]
-    SseCorruptedError(#[from] SseCorruptedError),
-
-    #[error("error computing checksums")]
-    ChecksumComputationFailed(#[from] ChecksumHasherError),
-
-    #[error("head object request failed")]
-    HeadObjectFailed(#[from] ObjectClientError<HeadObjectError, E>),
-}
 
 struct BoxRuntime(Box<dyn Spawn + Send + Sync>);
 impl BoxRuntime {

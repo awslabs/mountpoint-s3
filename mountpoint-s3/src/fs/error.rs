@@ -6,7 +6,7 @@ use tracing::Level;
 use crate::fs::error_metadata::ErrorMetadata;
 use crate::prefetch::PrefetchReadError;
 use crate::superblock::InodeError;
-use crate::upload::{AppendUploadError, UploadWriteError};
+use crate::upload::UploadError;
 
 /// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.
 ///
@@ -108,8 +108,8 @@ impl From<InodeError> for Error {
     }
 }
 
-impl<E: std::error::Error + Send + Sync + 'static> From<UploadWriteError<E>> for Error {
-    fn from(err: UploadWriteError<E>) -> Self {
+impl<E: std::error::Error + Send + Sync + 'static> From<UploadError<E>> for Error {
+    fn from(err: UploadError<E>) -> Self {
         let errno = err.to_errno();
         Error {
             errno,
@@ -117,21 +117,7 @@ impl<E: std::error::Error + Send + Sync + 'static> From<UploadWriteError<E>> for
             source: Some(anyhow::anyhow!(err)),
             // We are having WARN as the default level of logging for fuse errors
             level: Level::WARN,
-            metadata: Default::default(), // TODO (vlaad): must be cloned from UploadWriteError
-        }
-    }
-}
-
-impl<E: std::error::Error + Send + Sync + 'static> From<AppendUploadError<E>> for Error {
-    fn from(err: AppendUploadError<E>) -> Self {
-        let errno = err.to_errno();
-        Error {
-            errno,
-            message: String::from("upload error"),
-            source: Some(anyhow::anyhow!(err)),
-            // We are having WARN as the default level of logging for fuse errors
-            level: Level::WARN,
-            metadata: Default::default(), // TODO (vlaad): must be cloned from AppendUploadError
+            metadata: Default::default(), // TODO (vlaad): must be cloned from UploadError
         }
     }
 }
@@ -193,25 +179,16 @@ impl ToErrno for InodeError {
     }
 }
 
-impl<E: std::error::Error> ToErrno for UploadWriteError<E> {
+impl<E: std::error::Error> ToErrno for UploadError<E> {
     fn to_errno(&self) -> libc::c_int {
         match self {
-            UploadWriteError::PutRequestFailed(_) => libc::EIO,
-            UploadWriteError::OutOfOrderWrite { .. } => libc::EINVAL,
-            UploadWriteError::ObjectTooBig { .. } => libc::EFBIG,
-        }
-    }
-}
-
-impl<E: std::error::Error> ToErrno for AppendUploadError<E> {
-    fn to_errno(&self) -> libc::c_int {
-        match self {
-            AppendUploadError::PutRequestFailed(_) => libc::EIO,
-            AppendUploadError::UploadAlreadyTerminated => libc::EIO,
-            AppendUploadError::SseCorruptedError(_) => libc::EIO,
-            AppendUploadError::ChecksumComputationFailed(_) => libc::EIO,
-            AppendUploadError::HeadObjectFailed(_) => libc::EIO,
-            AppendUploadError::OutOfOrderWrite { .. } => libc::EINVAL,
+            UploadError::PutRequestFailed(_) => libc::EIO,
+            UploadError::UploadAlreadyTerminated => libc::EIO,
+            UploadError::SseCorruptedError(_) => libc::EIO,
+            UploadError::ChecksumComputationFailed(_) => libc::EIO,
+            UploadError::HeadObjectFailed(_) => libc::EIO,
+            UploadError::OutOfOrderWrite { .. } => libc::EINVAL,
+            UploadError::ObjectTooBig { .. } => libc::EFBIG,
         }
     }
 }

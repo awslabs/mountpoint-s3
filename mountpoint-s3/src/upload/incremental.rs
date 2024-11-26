@@ -18,7 +18,7 @@ use crate::sync::Arc;
 use crate::ServerSideEncryption;
 
 use super::hasher::ChecksumHasher;
-use super::{AppendUploadError, BoxRuntime, ChecksumHasherError};
+use super::{BoxRuntime, ChecksumHasherError, UploadError};
 
 /// Handle for appending data to an S3 object.
 ///
@@ -61,12 +61,12 @@ where
     /// but will be queued to upload until the buffer is full and all previous buffers have
     /// been uploaded.
     /// On success, returns the number of bytes written.
-    pub async fn write(&mut self, offset: u64, data: &[u8]) -> Result<usize, AppendUploadError<Client::ClientError>> {
+    pub async fn write(&mut self, offset: u64, data: &[u8]) -> Result<usize, UploadError<Client::ClientError>> {
         // Bail out if a previous request failed
         self.upload_queue.verify().await?;
 
         if offset != self.offset {
-            return Err(AppendUploadError::OutOfOrderWrite {
+            return Err(UploadError::OutOfOrderWrite {
                 write_offset: offset,
                 expected_offset: self.offset,
             });
@@ -97,7 +97,7 @@ where
 
     /// Complete the upload and return the last `PutObjectResult` if any PUT requests are submitted.
     /// The pipeline cannot be used after this.
-    pub async fn complete(mut self) -> Result<Option<PutObjectResult>, AppendUploadError<Client::ClientError>> {
+    pub async fn complete(mut self) -> Result<Option<PutObjectResult>, UploadError<Client::ClientError>> {
         if let Some(buffer) = self.buffer.take() {
             trace!("push remaining buffer to append queue");
             self.upload_queue.push(buffer).await?;
@@ -138,7 +138,7 @@ struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for sending buffers to be appended to the object.
     request_sender: Sender<UploadBuffer<Client>>,
     /// Channel handle for receiving the result of S3 requests via [Output] messages.
-    output_receiver: Receiver<Result<Output, AppendUploadError<Client::ClientError>>>,
+    output_receiver: Receiver<Result<Output, UploadError<Client::ClientError>>>,
     mem_limiter: Arc<MemoryLimiter<Client>>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Initialized asynchronously in [get_buffer].
@@ -190,9 +190,9 @@ where
                     /// Returns `true` if output was sent successfully.
                     /// When the output cannot be sent, buffer receiver will be shut down.
                     async fn send_output<Client: ObjectClient>(
-                        sender: &Sender<Result<Output, AppendUploadError<Client::ClientError>>>,
+                        sender: &Sender<Result<Output, UploadError<Client::ClientError>>>,
                         receiver: &Receiver<UploadBuffer<Client>>,
-                        output: Result<Output, AppendUploadError<Client::ClientError>>,
+                        output: Result<Output, UploadError<Client::ClientError>>,
                     ) -> bool {
                         let error = output.is_err();
                         if error {
@@ -233,7 +233,7 @@ where
                                 trace!(?head_object, "received head_object response");
                                 if Some(head_object.etag) != etag {
                                     // Fail early if the etag has changed.
-                                    Err(AppendUploadError::PutRequestFailed(ObjectClientError::ServiceError(
+                                    Err(UploadError::PutRequestFailed(ObjectClientError::ServiceError(
                                         PutObjectError::PreconditionFailed,
                                     )))
                                 } else {
@@ -281,33 +281,33 @@ where
     }
 
     // Push given bytes with its checksum to the upload queue
-    pub async fn push(&mut self, buffer: UploadBuffer<Client>) -> Result<(), AppendUploadError<Client::ClientError>> {
+    pub async fn push(&mut self, buffer: UploadBuffer<Client>) -> Result<(), UploadError<Client::ClientError>> {
         if let Err(_send_error) = self.request_sender.send(buffer).await {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
             while self.consume_next_output().await? {}
-            return Err(AppendUploadError::UploadAlreadyTerminated);
+            return Err(UploadError::UploadAlreadyTerminated);
         }
         self.requests_in_queue += 1;
         Ok(())
     }
 
-    pub async fn verify(&mut self) -> Result<(), AppendUploadError<Client::ClientError>> {
+    pub async fn verify(&mut self) -> Result<(), UploadError<Client::ClientError>> {
         if self.request_sender.is_closed() {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
             while self.consume_next_output().await? {}
-            return Err(AppendUploadError::UploadAlreadyTerminated);
+            return Err(UploadError::UploadAlreadyTerminated);
         }
         Ok(())
     }
 
     // Close the upload queue, wait for all uploads in the queue to complete, and get the last `PutObjectResult`
-    pub async fn join(mut self) -> Result<Option<PutObjectResult>, AppendUploadError<Client::ClientError>> {
+    pub async fn join(mut self) -> Result<Option<PutObjectResult>, UploadError<Client::ClientError>> {
         let terminated = !self.request_sender.close();
         while self.consume_next_output().await? {}
         if terminated {
-            return Err(AppendUploadError::UploadAlreadyTerminated);
+            return Err(UploadError::UploadAlreadyTerminated);
         }
         Ok(self.last_known_result.take())
     }
@@ -315,14 +315,14 @@ where
     pub async fn get_buffer(
         &mut self,
         capacity: usize,
-    ) -> Result<UploadBuffer<Client>, AppendUploadError<Client::ClientError>> {
+    ) -> Result<UploadBuffer<Client>, UploadError<Client::ClientError>> {
         let Some(checksum_algorithm) = self.checksum_algorithm.clone() else {
             trace!("wait for initial output");
             match self
                 .output_receiver
                 .recv()
                 .await
-                .unwrap_or(Err(AppendUploadError::UploadAlreadyTerminated))?
+                .unwrap_or(Err(UploadError::UploadAlreadyTerminated))?
             {
                 Output::ChecksumAlgorithm(algorithm) => {
                     trace!(?algorithm, "selected checksum algorithm");
@@ -340,7 +340,7 @@ where
                     // wait for requests in the queue to complete before trying to reserve memory again
                     trace!("wait for the next request to be processed");
                     if !self.consume_next_output().await? {
-                        return Err(AppendUploadError::UploadAlreadyTerminated);
+                        return Err(UploadError::UploadAlreadyTerminated);
                     }
                 }
             }
@@ -356,7 +356,7 @@ where
     /// Wait on output, updating the state of the [AppendUploadQueue] when next output arrives.
     ///
     /// Returns `true` when next output is successfully consumed, or `false` when no more output is available.
-    async fn consume_next_output(&mut self) -> Result<bool, AppendUploadError<Client::ClientError>> {
+    async fn consume_next_output(&mut self) -> Result<bool, UploadError<Client::ClientError>> {
         let Ok(output) = self.output_receiver.recv().await else {
             return Ok(false);
         };
@@ -453,7 +453,7 @@ async fn append<Client: ObjectClient>(
     offset: u64,
     etag: Option<ETag>,
     server_side_encryption: ServerSideEncryption,
-) -> Result<PutObjectResult, AppendUploadError<Client::ClientError>> {
+) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
     trace!(key, offset, len = buffer.len(), "preparing PutObject request");
     let (data, checksum) = buffer.freeze()?;
     let mut request_params = if offset == 0 {
@@ -463,14 +463,14 @@ async fn append<Client: ObjectClient>(
     };
     let (sse_type, key_id) = server_side_encryption
         .into_inner()
-        .map_err(AppendUploadError::SseCorruptedError)?;
+        .map_err(UploadError::SseCorruptedError)?;
     request_params.checksum = checksum;
     request_params.server_side_encryption = sse_type;
     request_params.ssekms_key_id = key_id;
     client
         .put_object_single(bucket, key, &request_params, data)
         .await
-        .map_err(AppendUploadError::PutRequestFailed)
+        .map_err(UploadError::PutRequestFailed)
 }
 
 #[cfg(test)]
@@ -801,7 +801,7 @@ mod tests {
         // Verify that the request fails at completion
         assert!(matches!(
             upload_request.complete().await,
-            Err(AppendUploadError::PutRequestFailed(_))
+            Err(UploadError::PutRequestFailed(_))
         ));
     }
 
@@ -849,7 +849,7 @@ mod tests {
 
         // Verify that the request fails and the error is surfaced
         let result = upload_request.complete().await;
-        assert!(matches!(result, Err(AppendUploadError::PutRequestFailed(_))));
+        assert!(matches!(result, Err(UploadError::PutRequestFailed(_))));
 
         // Verify that object is partially appended from the first request
         let get_request = client
@@ -893,7 +893,7 @@ mod tests {
                     write_success_count += 1;
                 }
                 Err(e) => {
-                    assert!(matches!(e, AppendUploadError::PutRequestFailed(_)));
+                    assert!(matches!(e, UploadError::PutRequestFailed(_)));
                     break;
                 }
             }
@@ -906,11 +906,11 @@ mod tests {
         // Verify that the pipeline cannot be used after failure
         assert!(matches!(
             upload_request.write(offset, b"some data").await,
-            Err(AppendUploadError::UploadAlreadyTerminated)
+            Err(UploadError::UploadAlreadyTerminated)
         ));
         assert!(matches!(
             upload_request.complete().await,
-            Err(AppendUploadError::UploadAlreadyTerminated)
+            Err(UploadError::UploadAlreadyTerminated)
         ));
     }
 
@@ -961,7 +961,7 @@ mod tests {
                     write_success_count += 1;
                 }
                 Err(e) => {
-                    assert!(matches!(e, AppendUploadError::PutRequestFailed(_)));
+                    assert!(matches!(e, UploadError::PutRequestFailed(_)));
                     break;
                 }
             }
@@ -974,11 +974,11 @@ mod tests {
         // Verify that the pipeline cannot be used after failure
         assert!(matches!(
             upload_request.write(offset, b"some data").await,
-            Err(AppendUploadError::UploadAlreadyTerminated)
+            Err(UploadError::UploadAlreadyTerminated)
         ));
         assert!(matches!(
             upload_request.complete().await,
-            Err(AppendUploadError::UploadAlreadyTerminated)
+            Err(UploadError::UploadAlreadyTerminated)
         ));
 
         // Verify that object is partially appended from the first request
@@ -1029,7 +1029,7 @@ mod tests {
                 Err(e) => {
                     assert!(matches!(
                         e,
-                        AppendUploadError::PutRequestFailed(ObjectClientError::ServiceError(
+                        UploadError::PutRequestFailed(ObjectClientError::ServiceError(
                             PutObjectError::PreconditionFailed
                         ))
                     ));
@@ -1045,11 +1045,11 @@ mod tests {
         // Verify that the pipeline cannot be used after failure
         assert!(matches!(
             upload_request.write(offset, b"some data").await,
-            Err(AppendUploadError::UploadAlreadyTerminated)
+            Err(UploadError::UploadAlreadyTerminated)
         ));
         assert!(matches!(
             upload_request.complete().await,
-            Err(AppendUploadError::UploadAlreadyTerminated)
+            Err(UploadError::UploadAlreadyTerminated)
         ));
     }
 
@@ -1082,7 +1082,7 @@ mod tests {
             .await
             .expect_err("out-of-order write should fail");
 
-        assert!(matches!(error, AppendUploadError::OutOfOrderWrite { .. }));
+        assert!(matches!(error, UploadError::OutOfOrderWrite { .. }));
     }
 
     #[test_case(Some("aws:kmr"), Some("some_key_alias"))]
@@ -1127,7 +1127,7 @@ mod tests {
         // Verify that the request fails at completion
         assert!(matches!(
             upload_request.complete().await,
-            Err(AppendUploadError::SseCorruptedError(_))
+            Err(UploadError::SseCorruptedError(_))
         ));
     }
 

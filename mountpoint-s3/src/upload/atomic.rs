@@ -2,7 +2,6 @@ use std::fmt::Debug;
 
 use mountpoint_s3_client::{
     checksums::{crc32c_from_base64, Crc32c},
-    error::{ObjectClientError, PutObjectError},
     types::{ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview},
     ObjectClient, PutObjectRequest,
 };
@@ -11,9 +10,7 @@ use tracing::error;
 
 use crate::{checksums::combine_checksums, ServerSideEncryption};
 
-use super::{UploadPutError, UploadWriteError, Uploader};
-
-type PutRequestError<Client> = ObjectClientError<PutObjectError, <Client as ObjectClient>::ClientError>;
+use super::{UploadError, Uploader};
 
 const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
@@ -35,7 +32,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         uploader: &Uploader<Client>,
         bucket: &str,
         key: &str,
-    ) -> Result<Self, UploadPutError<PutObjectError, Client::ClientError>> {
+    ) -> Result<Self, UploadError<Client::ClientError>> {
         let mut params = PutObjectParams::new();
 
         match &uploader.default_checksum_algorithm {
@@ -82,21 +79,17 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         self.next_request_offset
     }
 
-    pub async fn write(
-        &mut self,
-        offset: i64,
-        data: &[u8],
-    ) -> Result<usize, UploadWriteError<PutRequestError<Client>>> {
+    pub async fn write(&mut self, offset: i64, data: &[u8]) -> Result<usize, UploadError<Client::ClientError>> {
         let next_offset = self.next_request_offset;
         if offset != next_offset as i64 {
-            return Err(UploadWriteError::OutOfOrderWrite {
+            return Err(UploadError::OutOfOrderWrite {
                 write_offset: offset as u64,
                 expected_offset: next_offset,
             });
         }
         if let Some(maximum_size) = self.maximum_upload_size {
             if next_offset + data.len() as u64 > maximum_size as u64 {
-                return Err(UploadWriteError::ObjectTooBig { maximum_size });
+                return Err(UploadError::ObjectTooBig { maximum_size });
             }
         }
 
@@ -106,7 +99,7 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         Ok(data.len())
     }
 
-    pub async fn complete(self) -> Result<PutObjectResult, PutRequestError<Client>> {
+    pub async fn complete(self) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
         let result = self
@@ -394,7 +387,7 @@ mod tests {
             .expect_err("sse checksum must be checked");
         assert!(matches!(
             err,
-            UploadPutError::SseCorruptedError(SseCorruptedError::ChecksumMismatch(_, _))
+            UploadError::SseCorruptedError(SseCorruptedError::ChecksumMismatch(_, _))
         ));
     }
 
