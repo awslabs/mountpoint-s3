@@ -100,7 +100,10 @@ pub struct AppendUploader<Client: ObjectClient> {
     mem_limiter: Arc<MemoryLimiter<Client>>,
     buffer_size: usize,
     server_side_encryption: ServerSideEncryption,
-    checksum_algorithm: Option<ChecksumAlgorithm>,
+    /// Default checksum algorithm, if any, to be used for new S3 objects created by an [AppendUploader].
+    ///
+    /// For existing objects, Mountpoint will instead append using the existing checksum algorithm on the object.
+    default_checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 #[derive(Debug, Error)]
@@ -134,7 +137,7 @@ where
         mem_limiter: Arc<MemoryLimiter<Client>>,
         buffer_size: usize,
         server_side_encryption: ServerSideEncryption,
-        checksum_algorithm: Option<ChecksumAlgorithm>,
+        default_checksum_algorithm: Option<ChecksumAlgorithm>,
     ) -> Self {
         Self {
             client,
@@ -142,7 +145,7 @@ where
             mem_limiter,
             buffer_size,
             server_side_encryption,
-            checksum_algorithm,
+            default_checksum_algorithm,
         }
     }
 
@@ -160,7 +163,7 @@ where
             initial_offset,
             initial_etag,
             server_side_encryption: self.server_side_encryption.clone(),
-            checksum_algorithm: self.checksum_algorithm.clone(),
+            default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             capacity: MAX_BYTES_IN_QUEUE / self.buffer_size,
         };
         AppendUploadRequest::new(
