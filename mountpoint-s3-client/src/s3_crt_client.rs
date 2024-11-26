@@ -62,7 +62,7 @@ pub(crate) mod copy_object;
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
 
-pub(crate) use get_object::S3GetObjectRequest;
+pub(crate) use get_object::S3GetObjectResponse;
 pub(crate) mod get_object_attributes;
 
 pub(crate) mod head_object;
@@ -1252,7 +1252,7 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
 
 #[cfg_attr(not(docsrs), async_trait)]
 impl ObjectClient for S3CrtClient {
-    type GetObjectRequest = S3GetObjectRequest;
+    type GetObjectResponse = S3GetObjectResponse;
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
@@ -1308,7 +1308,7 @@ impl ObjectClient for S3CrtClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         self.get_object(bucket, key, params).await
     }
 

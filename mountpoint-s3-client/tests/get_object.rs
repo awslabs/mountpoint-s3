@@ -14,7 +14,7 @@ use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{Checksum, ChecksumMode, ETag, GetObjectParams, GetObjectRequest};
+use mountpoint_s3_client::types::{Checksum, ChecksumMode, ETag, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 use test_case::test_case;

@@ -16,7 +16,7 @@ use crate::object_client::{
     Checksum, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError, ObjectClientResult, ObjectMetadata,
 };
 use crate::s3_crt_client::{
-    parse_checksum, GetObjectRequest, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+    parse_checksum, GetObjectResponse, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
 };
 use crate::types::ChecksumMode;
 
@@ -30,7 +30,7 @@ impl S3CrtClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> Result<S3GetObjectRequest, ObjectClientError<GetObjectError, S3RequestError>> {
+    ) -> Result<S3GetObjectResponse, ObjectClientError<GetObjectError, S3RequestError>> {
         let requested_checksums = params.checksum_mode.as_ref() == Some(&ChecksumMode::Enabled);
         let next_offset = params.range.as_ref().map(|r| r.start).unwrap_or(0);
         let read_window_end_offset = next_offset + self.inner.initial_read_window_size as u64;
@@ -123,7 +123,7 @@ impl S3CrtClient {
             }
         };
 
-        Ok(S3GetObjectRequest {
+        Ok(S3GetObjectResponse {
             request,
             part_receiver,
             finished: false,
@@ -150,7 +150,7 @@ enum ObjectHeadersError {
 /// object.
 #[derive(Debug)]
 #[pin_project]
-pub struct S3GetObjectRequest {
+pub struct S3GetObjectResponse {
     #[pin]
     request: S3HttpRequest<(), GetObjectError>,
     #[pin]
@@ -167,7 +167,7 @@ pub struct S3GetObjectRequest {
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl GetObjectRequest for S3GetObjectRequest {
+impl GetObjectResponse for S3GetObjectResponse {
     type ClientError = S3RequestError;
 
     fn get_object_metadata(&self) -> ObjectMetadata {
@@ -199,7 +199,7 @@ impl GetObjectRequest for S3GetObjectRequest {
     }
 }
 
-impl Stream for S3GetObjectRequest {
+impl Stream for S3GetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, S3RequestError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {

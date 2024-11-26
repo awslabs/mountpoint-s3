@@ -10,11 +10,11 @@ use pin_project::pin_project;
 
 use crate::mock_client::leaky_bucket::LeakyBucket;
 use crate::mock_client::{
-    MockClient, MockClientConfig, MockClientError, MockGetObjectRequest, MockObject, MockPutObjectRequest,
+    MockClient, MockClientConfig, MockClientError, MockGetObjectResponse, MockObject, MockPutObjectRequest,
 };
 use crate::object_client::{
     Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
-    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
     PutObjectResult, PutObjectSingleParams,
@@ -62,12 +62,12 @@ impl ThroughputMockClient {
 #[pin_project]
 pub struct ThroughputGetObjectRequest {
     #[pin]
-    request: MockGetObjectRequest,
+    request: MockGetObjectResponse,
     rate_limiter: LeakyBucket,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl GetObjectRequest for ThroughputGetObjectRequest {
+impl GetObjectResponse for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 
     fn get_object_metadata(&self) -> ObjectMetadata {
@@ -107,7 +107,7 @@ impl Stream for ThroughputGetObjectRequest {
 
 #[async_trait]
 impl ObjectClient for ThroughputMockClient {
-    type GetObjectRequest = ThroughputGetObjectRequest;
+    type GetObjectResponse = ThroughputGetObjectRequest;
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
@@ -153,7 +153,7 @@ impl ObjectClient for ThroughputMockClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         let request = self.inner.get_object(bucket, key, params).await?;
         let rate_limiter = self.rate_limiter.clone();
         Ok(ThroughputGetObjectRequest { request, rate_limiter })

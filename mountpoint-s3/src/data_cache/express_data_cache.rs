@@ -9,7 +9,7 @@ use bytes::BytesMut;
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
-    ChecksumMode, GetObjectParams, GetObjectRequest, ObjectClientResult, PutObjectSingleParams, UploadChecksum,
+    ChecksumMode, GetObjectParams, GetObjectResponse, ObjectClientResult, PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};

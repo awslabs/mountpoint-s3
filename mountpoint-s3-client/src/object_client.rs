@@ -27,7 +27,7 @@ pub use etag::ETag;
 #[cfg_attr(not(docsrs), async_trait)]
 #[auto_impl(Arc)]
 pub trait ObjectClient {
-    type GetObjectRequest: GetObjectRequest<ClientError = Self::ClientError>;
+    type GetObjectResponse: GetObjectResponse<ClientError = Self::ClientError>;
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
@@ -79,7 +79,7 @@ pub trait ObjectClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError>;
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
     async fn list_objects(
@@ -592,7 +592,7 @@ impl UploadChecksum {
 /// Each item of the stream is a part of the object body together with the part's offset within the
 /// object.
 #[cfg_attr(not(docsrs), async_trait)]
-pub trait GetObjectRequest:
+pub trait GetObjectResponse:
     Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {
     type ClientError: std::error::Error + Send + Sync + 'static;

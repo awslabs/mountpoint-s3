@@ -486,7 +486,7 @@ mod tests {
     use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
     use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
-    use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectRequest};
+    use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectResponse};
     use test_case::test_case;
 
     fn new_uploader_for_test<Client>(
