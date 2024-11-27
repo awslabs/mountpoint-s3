@@ -2,6 +2,9 @@
 
 ### Breaking changes
 
+* `get_object` method now waits for the response headers before returning and may report errors earlier.
+  Moreover, its return type on success has been renamed to `GetObjectResponse` (was `GetObjectRequest`).
+  ([#1171](https://github.com/awslabs/mountpoint-s3/pull/1171))
 * `get_object` method now requires a `GetObjectParams` parameter.
   Two of the existing parameters, `range` and `if_match` have been moved to `GetObjectParams`.
   ([#1121](https://github.com/awslabs/mountpoint-s3/pull/1121))
