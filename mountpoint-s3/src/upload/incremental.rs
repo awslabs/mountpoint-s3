@@ -88,6 +88,7 @@ where
 
             // Flush buffer to the queue if it is full
             if buffer.is_full() {
+                trace!("push full buffer to append queue");
                 self.upload_queue.push(self.buffer.take().unwrap()).await?;
             }
         }
@@ -98,10 +99,12 @@ where
     /// The pipeline cannot be used after this.
     pub async fn complete(mut self) -> Result<Option<PutObjectResult>, AppendUploadError<Client::ClientError>> {
         if let Some(buffer) = self.buffer.take() {
+            trace!("push remaining buffer to append queue");
             self.upload_queue.push(buffer).await?;
         } else if self.offset == 0 {
             // If we are not appending, but uploading a new object or entirely replacing an existing one,
             // we need to push an empty buffer to ensure a PutObject request is issued.
+            trace!("push empty buffer to append queue");
             let empty_buffer = self.upload_queue.get_buffer(0).await?;
             self.upload_queue.push(empty_buffer).await?;
         }
@@ -451,6 +454,7 @@ async fn append<Client: ObjectClient>(
     etag: Option<ETag>,
     server_side_encryption: ServerSideEncryption,
 ) -> Result<PutObjectResult, AppendUploadError<Client::ClientError>> {
+    trace!(key, offset, len = buffer.len(), "preparing PutObject request");
     let (data, checksum) = buffer.freeze()?;
     let mut request_params = if offset == 0 {
         PutObjectSingleParams::new()

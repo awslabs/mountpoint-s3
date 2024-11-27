@@ -591,28 +591,32 @@ fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upl
 
     drop(f);
 
-    let err = metadata(&path).expect_err("upload shouldn't have succeeded");
-    assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
+    // When using incremental upload, data from previous successful writes is uploaded if
+    // fsync or flush are called. In this test, flush is occasionally invoked before the
+    // out-of-order write when the test runner process is forked.
+    if !upload_mode.is_incremental() {
+        // In atomic mode, the multi-part upload is always aborted on error.
+        let err = metadata(&path).expect_err("upload shouldn't have succeeded atomic mode");
+        assert_eq!(err.raw_os_error(), Some(libc::ENOENT));
+    }
 }
 
+const EARLIER_OFFSET: i64 = -1;
+const LATER_OFFSET: i64 = 1;
+
 #[cfg(feature = "s3_tests")]
-#[test_case(-1; "earlier offset")]
-#[test_case(1; "later offset")]
+#[test_matrix([EARLIER_OFFSET, LATER_OFFSET])]
 fn out_of_order_write_test_s3(offset: i64) {
     out_of_order_write_test(fuse::s3_session::new, offset, ATOMIC_UPLOAD);
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test_case(-1; "earlier offset")]
-#[test_case(1; "later offset")]
+#[test_matrix([EARLIER_OFFSET, LATER_OFFSET])]
 fn out_of_order_write_test_s3_incremental_upload(offset: i64) {
     out_of_order_write_test(fuse::s3_session::new, offset, INCREMENTAL_UPLOAD);
 }
 
-#[test_case(-1, ATOMIC_UPLOAD; "earlier offset")]
-#[test_case(1, ATOMIC_UPLOAD; "later offset")]
-#[test_case(-1, INCREMENTAL_UPLOAD; "earlier offset, incremental upload")]
-#[test_case(1, INCREMENTAL_UPLOAD; "later offset, incremental upload")]
+#[test_matrix([EARLIER_OFFSET, LATER_OFFSET], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
 fn out_of_order_write_test_mock(offset: i64, upload_mode: UploadMode) {
     out_of_order_write_test(fuse::mock_session::new, offset, upload_mode);
 }
