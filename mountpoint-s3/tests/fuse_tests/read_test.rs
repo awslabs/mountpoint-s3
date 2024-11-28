@@ -11,9 +11,29 @@ use mountpoint_s3::S3FilesystemConfig;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
-use test_case::test_case;
+use test_case::test_matrix;
 
 use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+
+const READ_ONLY: bool = true;
+const READ_WRITE: bool = false;
+
+const FUSE_PASS_FD: bool = true;
+const FUSE_SELF_MOUNT: bool = false;
+
+enum BucketPrefix {
+    None,
+    Some(&'static str),
+}
+
+impl std::fmt::Display for BucketPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BucketPrefix::Some(prefix) => write!(f, "{}", prefix),
+            BucketPrefix::None => write!(f, ""),
+        }
+    }
+}
 
 fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<File> {
     let mut options = File::options();
@@ -76,19 +96,19 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true, false; "read only")]
-#[test_case(false, false; "readwrite")]
-#[test_case(true, true; "read only (pass FUSE fd)")]
-#[test_case(false, true; "readwrite (pass FUSE fd)")]
+#[test_matrix(
+    [READ_ONLY, READ_WRITE],
+    [FUSE_PASS_FD, FUSE_SELF_MOUNT]
+)]
 fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(fuse::s3_session::new, "basic_read_test", read_only, pass_fuse_fd);
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(true, false; "read only")]
-#[test_case(false, false; "readwrite")]
-#[test_case(true, true; "read only (pass FUSE fd)")]
-#[test_case(false, true; "readwrite (pass FUSE fd)")]
+#[test_matrix(
+    [READ_ONLY, READ_WRITE],
+    [FUSE_PASS_FD, FUSE_SELF_MOUNT]
+)]
 fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
         fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
@@ -98,26 +118,24 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     );
 }
 
-#[test_case("", true, false; "no prefix read only")]
-#[test_case("", false, false; "no prefix readwrite")]
-#[test_case("", false, true; "no prefix readwrite (pass FUSE fd)")]
-#[test_case("basic_read_test", true, false; "prefix read only")]
-#[test_case("basic_read_test", true, true; "prefix read only (pass FUSE fd)")]
-#[test_case("basic_read_test", false, false; "prefix readwrite")]
-fn basic_read_test_mock(prefix: &str, read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::mock_session::new, prefix, read_only, pass_fuse_fd);
+#[test_matrix(
+    [BucketPrefix::None, BucketPrefix::Some("basic_read_test")],
+    [READ_ONLY, READ_WRITE],
+    [FUSE_PASS_FD, FUSE_SELF_MOUNT]
+)]
+fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
+    basic_read_test(fuse::mock_session::new, &prefix.to_string(), read_only, pass_fuse_fd);
 }
 
-#[test_case("", true, false; "no prefix read only")]
-#[test_case("", true, true; "no prefix read only (pass FUSE fd)")]
-#[test_case("", false, false; "no prefix readwrite")]
-#[test_case("basic_read_test_with_cache", true, false; "prefix read only")]
-#[test_case("basic_read_test_with_cache", false, false; "prefix readwrite")]
-#[test_case("basic_read_test_with_cache", false, true; "prefix readwrite (pass FUSE fd)")]
-fn basic_read_test_mock_with_cache(prefix: &str, read_only: bool, pass_fuse_fd: bool) {
+#[test_matrix(
+    [BucketPrefix::None, BucketPrefix::Some("basic_read_test_with_cache")],
+    [READ_ONLY, READ_WRITE],
+    [FUSE_PASS_FD, FUSE_SELF_MOUNT]
+)]
+fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
         fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
-        prefix,
+        &prefix.to_string(),
         read_only,
         pass_fuse_fd,
     );
@@ -217,21 +235,28 @@ fn read_flexible_retrieval_test_s3() {
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-#[test_case(""; "no prefix")]
-#[test_case("read_flexible_retrieval_test"; "prefix")]
-fn read_flexible_retrieval_test_mock(prefix: &str) {
+#[test_matrix(
+    [BucketPrefix::None, BucketPrefix::Some("read_flexible_retrieval_test")]
+)]
+fn read_flexible_retrieval_test_mock(prefix: BucketPrefix) {
     const FILES: &[&str] = &["STANDARD", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"];
-    read_flexible_retrieval_test(fuse::mock_session::new, prefix, FILES, RestorationOptions::None);
+    read_flexible_retrieval_test(
+        fuse::mock_session::new,
+        &prefix.to_string(),
+        FILES,
+        RestorationOptions::None,
+    );
 }
 
 #[cfg(not(feature = "s3express_tests"))]
-#[test_case(""; "no prefix")]
-#[test_case("read_flexible_retrieval_test"; "prefix")]
-fn read_flexible_retrieval_restored_test_mock(prefix: &str) {
+#[test_matrix(
+    [BucketPrefix::None, BucketPrefix::Some("read_flexible_retrieval_test")]
+)]
+fn read_flexible_retrieval_restored_test_mock(prefix: BucketPrefix) {
     const FILES: &[&str] = &["GLACIER", "DEEP_ARCHIVE"];
     read_flexible_retrieval_test(
         fuse::mock_session::new,
-        prefix,
+        &prefix.to_string(),
         FILES,
         RestorationOptions::RestoreAndWait,
     );
@@ -318,10 +343,11 @@ fn read_errors_test_s3() {
     read_errors_test(fuse::s3_session::new, "read_errors_test");
 }
 
-#[test_case(""; "no prefix")]
-#[test_case("read_errors_test"; "prefix")]
-fn read_errors_test_mock(prefix: &str) {
-    read_errors_test(fuse::mock_session::new, prefix);
+#[test_matrix(
+    [BucketPrefix::None, BucketPrefix::Some("read_errors_test")]
+)]
+fn read_errors_test_mock(prefix: BucketPrefix) {
+    read_errors_test(fuse::mock_session::new, &prefix.to_string());
 }
 
 fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
