@@ -209,9 +209,8 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
 
     wait_for_mount("mountpoint-s3-fd", mount_point.path().to_str().unwrap());
 
-    // verify that process is still alive
-    let child_status = child.try_wait().unwrap();
-    assert_eq!(None, child_status);
+    let child_exit_status = child.try_wait().unwrap();
+    assert_eq!(None, child_exit_status, "child exit status should be None as it should still be running");
 
     assert!(mount_exists("mountpoint-s3-fd", mount_point.path().to_str().unwrap()));
 
