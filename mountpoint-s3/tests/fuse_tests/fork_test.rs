@@ -5,6 +5,7 @@ use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
 use fuser::MountOption;
+use predicates::prelude::*;
 use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
@@ -210,7 +211,10 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
     wait_for_mount("mountpoint-s3-fd", mount_point.path().to_str().unwrap());
 
     let child_exit_status = child.try_wait().unwrap();
-    assert_eq!(None, child_exit_status, "child exit status should be None as it should still be running");
+    assert_eq!(
+        None, child_exit_status,
+        "child exit status should be None as it should still be running"
+    );
 
     assert!(mount_exists("mountpoint-s3-fd", mount_point.path().to_str().unwrap()));
 
@@ -346,10 +350,12 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_existent_fd");
     let region = get_test_region();
 
+    let mount_point = "/dev/fd/42";
+
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let child = cmd
         .arg(&bucket)
-        .arg("/dev/fd/42")
+        .arg(mount_point)
         .arg(format!("--prefix={prefix}"))
         .arg(format!("--region={region}"))
         .spawn()
@@ -359,6 +365,10 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
 
     // verify mount status
     assert!(!exit_status.success());
+
+    // verify error message
+    let error_message = format!("mount point {} is not a valid file descriptor", mount_point);
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
 }
@@ -368,10 +378,13 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_fuse_fd");
     let region = get_test_region();
 
+    // 1 is fd for stdout
+    let mount_point = "/dev/fd/1";
+
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let child = cmd
         .arg(&bucket)
-        .arg("/dev/fd/1") // fd for stdout
+        .arg(mount_point)
         .arg(format!("--prefix={prefix}"))
         .arg(format!("--region={region}"))
         .spawn()
@@ -381,6 +394,13 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
 
     // verify mount status
     assert!(!exit_status.success());
+
+    // verify error message
+    let error_message = format!(
+        "expected mount point {} to be a /dev/fuse device file descriptor but got Pipe",
+        mount_point
+    );
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
 }
