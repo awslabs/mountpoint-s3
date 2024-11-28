@@ -31,7 +31,8 @@ func main() {
 	}
 
 	// 1. Open FUSE device
-	fd, err := syscall.Open("/dev/fuse", os.O_RDWR, 0)
+	const USE_DEFAULT_PERM = 0
+	fd, err := syscall.Open("/dev/fuse", os.O_RDWR, USE_DEFAULT_PERM)
 	if err != nil {
 		log.Panicf("Failed to open /dev/fuse: %v\n", err)
 	}
@@ -55,7 +56,7 @@ func main() {
 		log.Panicf("Failed to call mount syscall: %v\n", err)
 	}
 
-	// 5. Perform `unmount` syscall once Mountpoint terminates
+	// 3. Define and defer call to `unmount` syscall, to be invoked once script terminates
 	defer func() {
 		err := syscall.Unmount(*mountPoint, 0)
 		if err != nil {
@@ -65,10 +66,13 @@ func main() {
 	}()
 
 	// 3. Spawn Mountpoint with the fd
+    mountpointOptions := []string{
+        "--prefix=some_s3_prefix/",
+    }
 	mountpointCmd := exec.Command("./target/release/mount-s3",
 		*bucket,
 		fmt.Sprintf("/dev/fd/%d", fd),
-		"--allow-delete")
+		strings.Join(options, " "))
 	mountpointCmd.Stdout = os.Stdout
 	mountpointCmd.Stderr = os.Stderr
 	err = mountpointCmd.Run()
