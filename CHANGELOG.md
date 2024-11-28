@@ -1,5 +1,8 @@
 # FUSE for Rust - Changelog
 
+## 0.15.1 - 2024-11-27
+* Fix crtime related panic that could occur on MacOS. See PR #322 for details.
+
 ## 0.15.0 - 2024-10-25
 * Add file handle argument to `getattr()`
 * Change `poll()` to take a `PollHandle` instead of a `u64`
