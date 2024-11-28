@@ -78,7 +78,7 @@ impl Default for TestSessionConfig {
             filesystem_config: Default::default(),
             prefetcher_config: Default::default(),
             auth_config: Default::default(),
-            pass_fuse_fd: Default::default(),
+            pass_fuse_fd: false,
         }
     }
 }
