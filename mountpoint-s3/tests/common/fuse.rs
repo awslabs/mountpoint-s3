@@ -167,6 +167,8 @@ where
         MountOption::NoAtime,
         MountOption::AllowOther,
     ];
+    // `MountOption::AllowOther` corresponds to `SessionACL::All`;
+    let session_acl = fuser::SessionACL::All;
 
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let fs = S3FuseFilesystem::new(S3Filesystem::new(
@@ -180,7 +182,7 @@ where
     let (session, mount) = if pass_fuse_fd {
         let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
-        (Session::from_fd(fs, owned_fd, fuser::SessionACL::All), Some(mount))
+        (Session::from_fd(fs, owned_fd, session_acl), Some(mount))
     } else {
         (Session::new(fs, mount_dir, &options).unwrap(), None)
     };
