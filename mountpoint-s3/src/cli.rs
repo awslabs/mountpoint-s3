@@ -1085,18 +1085,18 @@ enum MountPoint {
 impl MountPoint {
     fn new(mount_point: impl AsRef<Path>) -> anyhow::Result<Self> {
         match parse_fd_from_mount_point(&mount_point) {
-            Some(fd) => MountPoint::new_fd(fd),
-            None => MountPoint::new_directory(mount_point),
+            Some(fd) => MountPoint::from_fd(fd),
+            None => MountPoint::from_directory(mount_point),
         }
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn new_fd(_: RawFd) -> anyhow::Result<Self> {
+    fn from_fd(_: RawFd) -> anyhow::Result<Self> {
         Err(anyhow!("Passing a FUSE file descriptor only supported on Linux"))
     }
 
     #[cfg(target_os = "linux")]
-    fn new_fd(fd: RawFd) -> anyhow::Result<Self> {
+    fn from_fd(fd: RawFd) -> anyhow::Result<Self> {
         const FUSE_DEV: &str = "/dev/fuse";
 
         use procfs::process::{FDPermissions, FDTarget, Process};
@@ -1133,7 +1133,7 @@ impl MountPoint {
         Ok(MountPoint::FileDescriptor(owned_fd))
     }
 
-    fn new_directory(mount_point: impl AsRef<Path>) -> anyhow::Result<Self> {
+    fn from_directory(mount_point: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = mount_point.as_ref();
 
         if !path.exists() {
