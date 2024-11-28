@@ -66,21 +66,14 @@ pub struct CliArgs {
     pub bucket_name: String,
 
     #[clap(
-        help = "Directory to mount the bucket at",
+        help = "Directory or FUSE file descriptor to mount the bucket at",
         long_help = "\
 Directory or FUSE file descriptor to mount the bucket at.
 
 For directory mount points, the passed path must be an existing directory.
 
-You can specify an open FUSE file descriptor as a mount point on Linux using '/dev/fd/N' syntax.
-This is useful in container environments to achieve unprivileged mounts.
-In this case, it's callers responsibility to:
-    1) Opening FUSE device (/dev/fuse) in read-write mode to obtain a file descriptor
-    2) Performing 'mount' syscall with desired mount point and the file descriptor
-    3) Spawning Mountpoint with the file descriptor using '/dev/fd/N' syntax as mount point
-    4) Closing the file descriptor in the parent process
-    5) Performing 'unmount' syscall on the mount point once its desired and/or Mountpoint process terminates
-See examples/fuse-fd-mount-point/mounthelper.go as an example.
+For FUSE file descriptors (Linux-only), it should be of the format `/dev/fd/N`.
+Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         ",
         value_name = "DIRECTORY"
     )]
