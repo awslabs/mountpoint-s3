@@ -1078,10 +1078,13 @@ struct FuseSessionConfig {
     pub max_threads: usize,
 }
 
-/// A Mount point to mount, can be a directory or a FUSE file descriptor (only on Linux).
+/// OS mount point where S3 file system should be mounted.
+/// This is typically a [Directory], but may be a different variant for more advanced use cases.
 #[derive(Debug)]
 enum MountPoint {
+    /// Directory to mount the new S3 filesystem at.
     Directory(PathBuf),
+    /// Use a FUSE file descriptor that has already been opened and mounted.
     #[cfg(target_os = "linux")]
     FileDescriptor(std::os::fd::OwnedFd),
 }
