@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::future::Future;
-use std::pin::Pin;
 
+use futures::future::{BoxFuture, FutureExt};
 use futures::task::{Spawn, SpawnError};
 
 /// Type-erasure for a [Spawn] implementation.
@@ -27,16 +27,14 @@ impl BoxRuntime {
 
 /// Holds a value lazily initialized when awaiting a future.
 pub struct Lazy<T, E> {
-    future: Option<PinFuture<T, E>>,
+    future: Option<BoxFuture<'static, Result<T, E>>>,
     value: Option<T>,
 }
-
-type PinFuture<T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send>>;
 
 impl<T, E> Lazy<T, E> {
     pub fn new(f: impl Future<Output = Result<T, E>> + Send + 'static) -> Self {
         Self {
-            future: Some(Box::pin(f)),
+            future: Some(f.boxed()),
             value: None,
         }
     }
@@ -48,9 +46,14 @@ impl<T, E> Lazy<T, E> {
         Ok(())
     }
 
-    pub async fn get_mut(&mut self) -> Result<&mut T, E> {
+    pub async fn get_mut(&mut self) -> Result<Option<&mut T>, E> {
         self.force().await?;
-        Ok(self.value.as_mut().unwrap())
+        Ok(self.value.as_mut())
+    }
+
+    pub async fn into_inner(mut self) -> Result<Option<T>, E> {
+        self.force().await?;
+        Ok(self.value.take())
     }
 }
 

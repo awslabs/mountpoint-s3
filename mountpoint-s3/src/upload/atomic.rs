@@ -1,14 +1,17 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::{
-    checksums::{crc32c_from_base64, Crc32c},
-    types::{ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview},
-    ObjectClient, PutObjectRequest,
+use futures::task::SpawnExt as _;
+use mountpoint_s3_client::checksums::{crc32c, crc32c_from_base64, Crc32c};
+use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
+use mountpoint_s3_client::types::{
+    ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
 };
-use mountpoint_s3_crt::checksums::crc32c;
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::error;
 
-use crate::{checksums::combine_checksums, ServerSideEncryption};
+use crate::async_util::Lazy;
+use crate::checksums::combine_checksums;
+use crate::ServerSideEncryption;
 
 use super::{UploadError, Uploader};
 
@@ -18,16 +21,19 @@ const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 ///
 /// Wraps a PutObject request and enforces sequential writes.
 pub struct UploadRequest<Client: ObjectClient> {
+    request: Lazy<Client::PutObjectRequest, ObjectClientError<PutObjectError, Client::ClientError>>,
     bucket: String,
     key: String,
     next_request_offset: u64,
     hasher: crc32c::Hasher,
-    request: Client::PutObjectRequest,
     maximum_upload_size: Option<usize>,
     sse: ServerSideEncryption,
 }
 
-impl<Client: ObjectClient> UploadRequest<Client> {
+impl<Client> UploadRequest<Client>
+where
+    Client: ObjectClient + Send + Clone + 'static,
+{
     pub async fn new(
         uploader: &Uploader<Client>,
         bucket: &str,
@@ -58,18 +64,24 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         params = params.server_side_encryption(sse_type);
         params = params.ssekms_key_id(key_id);
 
-        let request = uploader.client.put_object(bucket, key, &params).await?;
+        let put_bucket = bucket.to_owned();
+        let put_key = key.to_owned();
+        let client = uploader.client.clone();
+        let request_handle = uploader
+            .runtime
+            .spawn_with_handle(async move { client.put_object(&put_bucket, &put_key, &params).await })
+            .unwrap();
         let maximum_upload_size = uploader
             .client
             .write_part_size()
             .map(|ps| ps.saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS));
 
         Ok(UploadRequest {
+            request: Lazy::new(request_handle),
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             next_request_offset: 0,
             hasher: crc32c::Hasher::new(),
-            request,
             maximum_upload_size,
             sse: uploader.server_side_encryption.clone(),
         })
@@ -94,7 +106,8 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         }
 
         self.hasher.update(data);
-        self.request.write(data).await?;
+        self.request.get_mut().await?.unwrap().write(data).await?;
+
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
     }
@@ -104,6 +117,9 @@ impl<Client: ObjectClient> UploadRequest<Client> {
         let checksum = self.hasher.finalize();
         let result = self
             .request
+            .into_inner()
+            .await?
+            .unwrap()
             .review_and_complete(move |review| verify_checksums(review, size, checksum))
             .await?;
         if let Err(err) = self
@@ -225,7 +241,9 @@ mod tests {
             ..Default::default()
         }));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+        let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+
+        _ = request.write(0, &[]).await.unwrap();
 
         assert!(!client.contains_key(key));
         assert!(client.is_upload_in_progress(key));
