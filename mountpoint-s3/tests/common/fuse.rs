@@ -188,8 +188,9 @@ where
     (BackgroundSession::new(session).unwrap(), mount)
 }
 
-// Opens `/dev/fuse` and calls `mount` syscall with given `mount_point`.
-// The mount gets automatically unmounted once `Mount` drops.
+/// Open `/dev/fuse` and call `mount` syscall with given `mount_point`.
+///
+/// The mount is automatically unmounted when the returned [Mount] is dropped.
 pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) -> (Arc<File>, Mount) {
     let (file, mount) = Mount::new(mount_point, options).unwrap();
 
