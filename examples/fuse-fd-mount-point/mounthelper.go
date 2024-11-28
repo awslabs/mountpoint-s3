@@ -55,13 +55,16 @@ func main() {
 	}
 
 	// 2. Perform `mount` syscall
+	// Mountpoint enables and recommends these mount options and flags by default
 	options := []string{
 		fmt.Sprintf("fd=%d", fd),
 		fmt.Sprintf("rootmode=%o", stat.Mode),
 		fmt.Sprintf("user_id=%d", os.Geteuid()),
 		fmt.Sprintf("group_id=%d", os.Getegid()),
+		"default_permissions",
 	}
-	err = syscall.Mount("mountpoint-s3", *mountPoint, "fuse", syscall.MS_NOSUID|syscall.MS_NODEV, strings.Join(options, ","))
+	var flags uintptr = syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOATIME
+	err = syscall.Mount("mountpoint-s3", *mountPoint, "fuse", flags, strings.Join(options, ","))
 	if err != nil {
 		log.Panicf("Failed to call mount syscall: %v\n", err)
 	}
