@@ -293,7 +293,7 @@ where
         FileAttr {
             ino: lookup.inode.ino(),
             size: lookup.stat.size as u64,
-            blocks: (lookup.stat.size as u64 + STAT_BLOCK_SIZE - 1) / STAT_BLOCK_SIZE,
+            blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
             atime: lookup.stat.atime.into(),
             mtime: lookup.stat.mtime.into(),
             ctime: lookup.stat.ctime.into(),

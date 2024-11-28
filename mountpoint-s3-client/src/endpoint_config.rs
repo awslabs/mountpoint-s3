@@ -215,13 +215,13 @@ impl ResolvedEndpointInfo {
         let auth_scheme_data: serde_json::Value = serde_json::from_slice(endpoint_properties.as_bytes())?;
         let auth_scheme_value = auth_scheme_data["authSchemes"]
             .get(0)
-            .ok_or_else(|| EndpointError::MissingAuthSchemeField("authSchemes"))?;
+            .ok_or(EndpointError::MissingAuthSchemeField("authSchemes"))?;
         let disable_double_encoding = auth_scheme_value["disableDoubleEncoding"]
             .as_bool()
-            .ok_or_else(|| EndpointError::MissingAuthSchemeField("disableDoubleEncoding"))?;
+            .ok_or(EndpointError::MissingAuthSchemeField("disableDoubleEncoding"))?;
         let scheme_name = auth_scheme_value["name"]
             .as_str()
-            .ok_or_else(|| EndpointError::MissingAuthSchemeField("name"))?;
+            .ok_or(EndpointError::MissingAuthSchemeField("name"))?;
         let scheme_name = match scheme_name {
             "sigv4" => SigningAlgorithm::SigV4,
             "sigv4a" => SigningAlgorithm::SigV4A,
@@ -231,12 +231,14 @@ impl ResolvedEndpointInfo {
 
         let signing_name = auth_scheme_value["signingName"]
             .as_str()
-            .ok_or_else(|| EndpointError::MissingAuthSchemeField("signingName"))?;
+            .ok_or(EndpointError::MissingAuthSchemeField("signingName"))?;
         let signing_region = auth_scheme_value
             .get("signingRegion")
             .or_else(|| auth_scheme_value["signingRegionSet"].get(0))
             .and_then(|t| t.as_str())
-            .ok_or_else(|| EndpointError::MissingAuthSchemeField("signingRegion or signingRegionSet"))?;
+            .ok_or(EndpointError::MissingAuthSchemeField(
+                "signingRegion or signingRegionSet",
+            ))?;
 
         Ok(AuthScheme {
             disable_double_encoding,

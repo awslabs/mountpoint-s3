@@ -260,7 +260,7 @@ struct MetaRequestOptionsInner<'a> {
     _pinned: PhantomPinned,
 }
 
-impl<'a> MetaRequestOptionsInner<'_> {
+impl<'a> MetaRequestOptionsInner<'a> {
     /// Convert from user_data in a callback to a reference to this struct.
     ///
     /// ## Safety
@@ -693,7 +693,7 @@ impl<'r, 's> MetaRequestWrite<'r, 's> {
     }
 }
 
-impl<'r, 's> Future for MetaRequestWrite<'r, 's> {
+impl<'s> Future for MetaRequestWrite<'_, 's> {
     type Output = Result<&'s [u8], Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {

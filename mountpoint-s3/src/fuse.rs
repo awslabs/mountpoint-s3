@@ -160,7 +160,7 @@ where
             count: &'a mut usize,
         }
 
-        impl<'a> DirectoryReplier for ReplyDirectory<'a> {
+        impl DirectoryReplier for ReplyDirectory<'_> {
             fn add(&mut self, entry: DirectoryEntry) -> bool {
                 let result = self.inner.add(entry.ino, entry.offset, entry.attr.kind, entry.name);
                 if !result {
@@ -199,7 +199,7 @@ where
             count: &'a mut usize,
         }
 
-        impl<'a> DirectoryReplier for ReplyDirectoryPlus<'a> {
+        impl DirectoryReplier for ReplyDirectoryPlus<'_> {
             fn add(&mut self, entry: DirectoryEntry) -> bool {
                 let result = self.inner.add(
                     entry.ino,

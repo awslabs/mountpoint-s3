@@ -38,7 +38,7 @@ impl<'a> InputStream<'a> {
     }
 }
 
-impl<'a> Drop for InputStream<'a> {
+impl Drop for InputStream<'_> {
     fn drop(&mut self) {
         // SAFETY: self.inner is a valid `aws_input_stream`.
         unsafe {
@@ -100,7 +100,7 @@ impl From<SeekBasis> for aws_stream_seek_basis {
     }
 }
 
-impl<'a> InputStream<'a> {
+impl InputStream<'_> {
     /// Seek to the given offset. Basis is either BEGIN or END, and describes where to seek from.
     pub fn seek(&self, offset: i64, basis: SeekBasis) -> Result<(), Error> {
         // SAFETY: self.inner is a valid input stream.
