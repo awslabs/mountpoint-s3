@@ -1099,20 +1099,40 @@ impl MountPoint {
     fn from_fd(fd: RawFd) -> anyhow::Result<Self> {
         const FUSE_DEV: &str = "/dev/fuse";
 
-        use procfs::process::{FDPermissions, FDTarget, Process};
+        use procfs::{
+            process::{FDPermissions, FDTarget, Process},
+            ProcError,
+        };
         use std::os::fd::{FromRawFd, OwnedFd};
 
+        let mount_point = format!("/dev/fd/{}", fd);
+
         let process = Process::myself().unwrap();
-        let fd_info = process.fd_from_fd(fd)?;
+        let fd_info = match process.fd_from_fd(fd) {
+            Ok(fd_info) => fd_info,
+            Err(ProcError::NotFound(_)) => {
+                return Err(anyhow!("mount point {} is not a valid file descriptor", &mount_point))
+            }
+            Err(err) => {
+                return Err(anyhow!(
+                    "failed to get file descriptor information for mount point {}: {}",
+                    &mount_point,
+                    err
+                ))
+            }
+        };
         let FDTarget::Path(path) = &fd_info.target else {
             return Err(anyhow!(
-                "expected a device file descriptor but got {:?}",
+                "expected mount point {} to be a {} device file descriptor but got {:?}",
+                &mount_point,
+                FUSE_DEV,
                 fd_info.target
             ));
         };
         if path != &PathBuf::from(FUSE_DEV) {
             return Err(anyhow!(
-                "expected {} file descriptor but got {}",
+                "expected mount point {} to be a {} file descriptor but got {}",
+                &mount_point,
                 FUSE_DEV,
                 path.display()
             ));
@@ -1120,8 +1140,8 @@ impl MountPoint {
 
         if !fd_info.mode().contains(FDPermissions::READ | FDPermissions::WRITE) {
             return Err(anyhow!(
-                "expected {} file descriptor to have read and write permissions but got {:?}",
-                FUSE_DEV,
+                "expected mount point {} file descriptor to have read and write permissions but got {:?}",
+                &mount_point,
                 fd_info.mode()
             ));
         }
