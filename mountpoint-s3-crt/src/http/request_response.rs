@@ -255,7 +255,7 @@ struct HeadersIterator<'a> {
     offset: usize,
 }
 
-impl<'a> Iterator for HeadersIterator<'a> {
+impl Iterator for HeadersIterator<'_> {
     type Item = (OsString, OsString);
 
     fn next(&mut self) -> Option<Self::Item> {

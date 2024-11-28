@@ -467,7 +467,7 @@ pub struct OperationCounter<'a> {
     operation: Operation,
 }
 
-impl<'a> OperationCounter<'a> {
+impl OperationCounter<'_> {
     /// Return number of requests since the counter was created.
     /// The counter is **not** reset when read.
     pub fn count(&self) -> u64 {
@@ -2153,7 +2153,7 @@ mod tests {
 
         let parts = attrs.object_parts.expect("parts should be returned");
 
-        let expected_parts = (OBJECT_SIZE + PART_SIZE - 1) / PART_SIZE;
+        let expected_parts = OBJECT_SIZE.div_ceil(PART_SIZE);
         assert_eq!(parts.total_parts_count, Some(expected_parts));
 
         if trailing_checksums == PutObjectTrailingChecksums::Enabled {

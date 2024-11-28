@@ -7,7 +7,7 @@ use aws_sdk_s3::primitives::ByteStream;
 use std::fs::{self, File};
 #[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Cursor, Write};
 use std::path::Path;
 use std::process::{Child, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -158,11 +158,7 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    cmd.arg(&bucket)
-        .arg(mount_point.path())
-        .arg("--auto-unmount")
-        .spawn()
-        .expect("unable to spawn child");
+    cmd.arg(&bucket).arg(mount_point.path()).arg("--auto-unmount");
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -229,9 +225,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
-        .arg("--auto-unmount")
-        .spawn()
-        .expect("unable to spawn child");
+        .arg("--auto-unmount");
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -912,10 +906,9 @@ fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Opti
     let mut cmd = Command::new("mount");
     #[cfg(target_os = "linux")]
     cmd.arg("-l");
-    let mut cmd = cmd.stdout(Stdio::piped()).spawn().expect("Unable to spawn mount tool");
+    let output = cmd.stdout(Stdio::piped()).output().expect("Unable to spawn mount tool");
 
-    let stdout = cmd.stdout.as_mut().unwrap();
-    let stdout_reader = BufReader::new(stdout);
+    let stdout_reader = BufReader::new(Cursor::new(output.stdout));
     let stdout_lines = stdout_reader.lines();
 
     for line in stdout_lines.map_while(Result::ok) {
