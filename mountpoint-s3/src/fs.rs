@@ -734,6 +734,7 @@ where
                 None => return Ok(reply.finish(offset, &dir_handle).await),
                 Some(next) => next,
             };
+            trace!(next_inode = ?next.inode, "new inode yielded by readdir handle");
 
             let attr = self.make_attr(&next);
             let entry = DirectoryEntry {
