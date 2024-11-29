@@ -105,7 +105,7 @@ Mountpoint also respects access control lists (ACLs) applied to objects in your 
 
 By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 HTTPS endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
 
-### S3 Bucket Types
+### S3 bucket types
 
 Mountpoint for Amazon S3 supports the following S3 bucket types: general purpose and directory. For more information on general purpose bucket naming rules see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html), and for directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html).
 
