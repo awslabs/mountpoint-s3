@@ -27,92 +27,27 @@ pub use incremental::AppendUploadRequest;
 
 /// An [Uploader] creates and manages streaming PutObject requests.
 #[derive(Debug)]
-pub struct Uploader<Client> {
-    client: Client,
-    storage_class: Option<String>,
-    server_side_encryption: ServerSideEncryption,
-    use_additional_checksums: bool,
-}
-
-#[derive(Debug, Error)]
-pub enum UploadPutError<S, C> {
-    #[error("put request creation failed")]
-    ClientError(#[from] ObjectClientError<S, C>),
-    #[error("SSE settings corrupted")]
-    SseCorruptedError(#[from] SseCorruptedError),
-}
-
-#[derive(Debug, Error, Clone)]
-pub enum UploadWriteError<E: std::error::Error> {
-    #[error("put request failed")]
-    PutRequestFailed(#[from] E),
-
-    #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
-    OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
-
-    #[error("object exceeded maximum upload size of {maximum_size} bytes")]
-    ObjectTooBig { maximum_size: usize },
-}
-
-impl<Client: ObjectClient> Uploader<Client> {
-    /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(
-        client: Client,
-        storage_class: Option<String>,
-        server_side_encryption: ServerSideEncryption,
-        use_additional_checksums: bool,
-    ) -> Self {
-        Self {
-            client,
-            storage_class,
-            server_side_encryption,
-            use_additional_checksums,
-        }
-    }
-
-    /// Start a new put request to the specified object.
-    pub async fn put(
-        &self,
-        bucket: &str,
-        key: &str,
-    ) -> Result<UploadRequest<Client>, UploadPutError<PutObjectError, Client::ClientError>> {
-        UploadRequest::new(self, bucket, key).await
-    }
-
-    #[cfg(test)]
-    pub fn corrupt_sse(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
-        self.server_side_encryption.corrupt_data(sse_type, sse_kms_key_id)
-    }
-}
-
-/// Maximum number of bytes an `AppendUploadQueue` can take.
-///
-/// We use this limit to prevent a single pipeline from consuming all memory.
-/// The limit may slow down writes eventually, but the overall upload throughput
-/// is already capped by a single PutObject request.
-const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
-
-/// An [AppendUploader] creates and manages streaming PutObject requests using the Append API.
-#[derive(Debug)]
-pub struct AppendUploader<Client: ObjectClient> {
+pub struct Uploader<Client: ObjectClient> {
     client: Client,
     runtime: BoxRuntime,
     mem_limiter: Arc<MemoryLimiter<Client>>,
-    buffer_size: usize,
+    storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
-    /// Default checksum algorithm, if any, to be used for new S3 objects created by an [AppendUploader].
+    buffer_size: usize,
+    /// Default checksum algorithm, if any, to be used for new S3 objects.
     ///
+    /// Only [ChecksumAlgorithm::Crc32c] is supported for multi-part uploads.
     /// For existing objects, Mountpoint will instead append using the existing checksum algorithm on the object.
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
 }
 
 #[derive(Debug, Error)]
-pub enum AppendUploadError<E> {
+pub enum UploadError<E> {
     #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
     OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
 
     #[error("put request failed")]
-    PutRequestFailed(#[source] ObjectClientError<PutObjectError, E>),
+    PutRequestFailed(#[from] ObjectClientError<PutObjectError, E>),
 
     #[error("upload was already terminated because of previous failures")]
     UploadAlreadyTerminated,
@@ -125,32 +60,47 @@ pub enum AppendUploadError<E> {
 
     #[error("head object request failed")]
     HeadObjectFailed(#[from] ObjectClientError<HeadObjectError, E>),
+
+    #[error("object exceeded maximum upload size of {maximum_size} bytes")]
+    ObjectTooBig { maximum_size: usize },
 }
 
-impl<Client> AppendUploader<Client>
+impl<Client> Uploader<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
+    /// Create a new [Uploader] that will make requests to the given client.
     pub fn new(
         client: Client,
         runtime: impl Spawn + Sync + Send + 'static,
         mem_limiter: Arc<MemoryLimiter<Client>>,
-        buffer_size: usize,
+        storage_class: Option<String>,
         server_side_encryption: ServerSideEncryption,
+        buffer_size: usize,
         default_checksum_algorithm: Option<ChecksumAlgorithm>,
     ) -> Self {
         Self {
             client,
             runtime: runtime.into(),
             mem_limiter,
-            buffer_size,
+            storage_class,
             server_side_encryption,
+            buffer_size,
             default_checksum_algorithm,
         }
     }
 
-    /// Start a new appendable upload to the specified object.
-    pub fn start_upload(
+    /// Start a new atomic upload.
+    pub async fn start_atomic_upload(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<UploadRequest<Client>, UploadError<Client::ClientError>> {
+        UploadRequest::new(self, bucket, key).await
+    }
+
+    /// Start a new incremental upload.
+    pub fn start_incremental_upload(
         &self,
         bucket: String,
         key: String,
@@ -174,7 +124,19 @@ where
             params,
         )
     }
+
+    #[cfg(test)]
+    pub fn corrupt_sse(&mut self, sse_type: Option<String>, sse_kms_key_id: Option<String>) {
+        self.server_side_encryption.corrupt_data(sse_type, sse_kms_key_id)
+    }
 }
+
+/// Maximum number of bytes an `AppendUploadQueue` can take.
+///
+/// We use this limit to prevent a single pipeline from consuming all memory.
+/// The limit may slow down writes eventually, but the overall upload throughput
+/// is already capped by a single PutObject request.
+const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
 
 struct BoxRuntime(Box<dyn Spawn + Send + Sync>);
 impl BoxRuntime {

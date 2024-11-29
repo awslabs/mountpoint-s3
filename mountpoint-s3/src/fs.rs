@@ -2,6 +2,7 @@
 
 use bytes::Bytes;
 use futures::task::Spawn;
+
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, UNIX_EPOCH};
@@ -21,7 +22,7 @@ use crate::prefix::Prefix;
 use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::{AppendUploader, Uploader};
+use crate::upload::Uploader;
 
 pub use crate::superblock::InodeNo;
 
@@ -61,7 +62,6 @@ where
     superblock: Superblock,
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
-    append_uploader: AppendUploader<Client>,
     bucket: String,
     #[allow(unused)]
     prefix: Prefix,
@@ -170,16 +170,11 @@ where
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let uploader = Uploader::new(
             client.clone(),
-            config.storage_class.to_owned(),
-            config.server_side_encryption.clone(),
-            config.use_upload_checksums,
-        );
-        let append_uploader = AppendUploader::new(
-            client.clone(),
             runtime,
             mem_limiter.clone(),
-            client.write_part_size().unwrap(),
+            config.storage_class.to_owned(),
             config.server_side_encryption.clone(),
+            client.write_part_size().unwrap(),
             config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c),
         );
 
@@ -190,7 +185,6 @@ where
             superblock,
             prefetcher,
             uploader,
-            append_uploader,
             bucket: bucket.to_string(),
             prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
