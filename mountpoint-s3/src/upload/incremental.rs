@@ -5,7 +5,9 @@ use std::mem;
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
 use bytes::{Bytes, BytesMut};
+use futures::channel::oneshot;
 use futures::future::RemoteHandle;
+use futures::task::SpawnExt as _;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, ChecksumMode, ETag, HeadObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
@@ -13,12 +15,13 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, Instrument};
 
+use crate::async_util::{BoxRuntime, Lazy};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::sync::Arc;
 use crate::ServerSideEncryption;
 
 use super::hasher::ChecksumHasher;
-use super::{BoxRuntime, ChecksumHasherError, UploadError};
+use super::{ChecksumHasherError, UploadError};
 
 /// Handle for appending data to an S3 object.
 ///
@@ -34,6 +37,20 @@ pub struct AppendUploadRequest<Client: ObjectClient> {
     offset: u64,
     buffer_size: usize,
     upload_queue: AppendUploadQueue<Client>,
+}
+
+/// Parameters to initialize an [AppendUploadQueue].
+pub struct AppendUploadQueueParams {
+    pub bucket: String,
+    pub key: String,
+    pub initial_offset: u64,
+    pub initial_etag: Option<ETag>,
+    pub server_side_encryption: ServerSideEncryption,
+    /// Preferred checksum algorithm for new objects.
+    ///
+    /// If the object already exists, its current algorithm will be used instead.
+    pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
+    pub capacity: usize,
 }
 
 impl<Client> AppendUploadRequest<Client>
@@ -116,17 +133,6 @@ where
     }
 }
 
-/// Output from the [AppendUploadQueue],
-/// providing information about the last PutObject request
-/// or providing the required checksum algorithm when first initialized.
-#[derive(Debug)]
-enum Output {
-    /// Initial output state, dictating which checksum algorithm should be used for all append requests.
-    ChecksumAlgorithm(Option<ChecksumAlgorithm>),
-    /// Result of a PutObject with offset request.
-    Result(PutObjectResult),
-}
-
 /// Queue for an active 'append' to an S3 object.
 ///
 /// This struct has message channels whose queues may contain a number of buffered parts to be appended to an object.
@@ -137,32 +143,16 @@ enum Output {
 struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for sending buffers to be appended to the object.
     request_sender: Sender<UploadBuffer<Client>>,
-    /// Channel handle for receiving the result of S3 requests via [Output] messages.
-    output_receiver: Receiver<Result<Output, UploadError<Client::ClientError>>>,
+    /// Channel handle for receiving the response of S3 requests.
+    response_receiver: Receiver<Result<PutObjectResult, UploadError<Client::ClientError>>>,
     mem_limiter: Arc<MemoryLimiter<Client>>,
     _task_handle: RemoteHandle<()>,
-    /// Algorithm used to compute checksums. Initialized asynchronously in [get_buffer].
-    ///
-    /// Outer [Option] represents if the algorithm configuration is known yet,
-    /// while the inner [Option] having value [None] indicates that no algorithm should be used.
-    checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
+    /// Algorithm used to compute checksums. Lazily initialized.
+    checksum_algorithm: Lazy<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>,
     /// Stores the last successful result to return in [join].
     last_known_result: Option<PutObjectResult>,
     /// Tracks the requests pushed to the queue but still pending a response.
     requests_in_queue: usize,
-}
-
-pub struct AppendUploadQueueParams {
-    pub bucket: String,
-    pub key: String,
-    pub initial_offset: u64,
-    pub initial_etag: Option<ETag>,
-    pub server_side_encryption: ServerSideEncryption,
-    /// Preferred checksum algorithm for new objects.
-    ///
-    /// If the object already exists, its current algorithm will be used instead.
-    pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
-    pub capacity: usize,
 }
 
 impl<Client> AppendUploadQueue<Client>
@@ -175,95 +165,22 @@ where
         mem_limiter: Arc<MemoryLimiter<Client>>,
         params: AppendUploadQueueParams,
     ) -> Self {
-        let initial_offset = params.initial_offset;
-        let span = debug_span!("append", params.key, initial_offset);
-        let (request_sender, request_receiver) = bounded::<UploadBuffer<Client>>(params.capacity);
-        let (output_sender, output_receiver) = unbounded();
+        let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
+        let (request_sender, request_receiver) = bounded(params.capacity);
+        let (response_sender, response_receiver) = unbounded();
+        let (checksum_algorithm_sender, checksum_algorithm_receiver) = oneshot::channel();
 
         // Create a task for reading data out of the upload queue and create S3 requests for them.
-        // The task is spawned on the given runtime, which is usually the CRT's event loop.
         let task_handle = runtime
             .spawn_with_handle(
                 async move {
-                    /// Send result of S3 requests to the [AppendUploadQueue].
-                    ///
-                    /// Returns `true` if output was sent successfully.
-                    /// When the output cannot be sent, buffer receiver will be shut down.
-                    async fn send_output<Client: ObjectClient>(
-                        sender: &Sender<Result<Output, UploadError<Client::ClientError>>>,
-                        receiver: &Receiver<UploadBuffer<Client>>,
-                        output: Result<Output, UploadError<Client::ClientError>>,
-                    ) -> bool {
-                        let error = output.is_err();
-                        if error {
-                            // Stop receiving new requests
-                            receiver.close();
-                        }
-                        if sender.send(output).await.is_err() {
-                            trace!("response channel is already closed");
-                            return false;
-                        } else if error {
-                            trace!("closing response channel");
-                            sender.close();
-                            return false;
-                        }
-                        true
-                    }
-
-                    let bucket = params.bucket;
-                    let key = params.key;
-                    let sse = params.server_side_encryption;
-                    let mut etag = params.initial_etag;
-                    let mut offset = params.initial_offset;
-
-                    let first_output = if offset == 0 {
-                        // If we are creating a new object or overwriting (truncate), use the default checksum algorithm.
-                        Ok(Output::ChecksumAlgorithm(params.default_checksum_algorithm))
-                    } else {
-                        // We are appending to an existing object, find out which checksum algorithm it uses.
-                        match client
-                            .head_object(
-                                &bucket,
-                                &key,
-                                &HeadObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
-                            )
-                            .await
-                        {
-                            Ok(head_object) => {
-                                trace!(?head_object, "received head_object response");
-                                if Some(head_object.etag) != etag {
-                                    // Fail early if the etag has changed.
-                                    Err(UploadError::PutRequestFailed(ObjectClientError::ServiceError(
-                                        PutObjectError::PreconditionFailed,
-                                    )))
-                                } else {
-                                    Ok(Output::ChecksumAlgorithm(
-                                        head_object.checksum.algorithms().first().cloned(),
-                                    ))
-                                }
-                            }
-                            Err(e) => Err(e.into()),
-                        }
-                    };
-                    if !send_output(&output_sender, &request_receiver, first_output).await {
+                    let checksum_algorithm = get_checksum_algorithm(&client, &params).await;
+                    let is_error = checksum_algorithm.is_err();
+                    if checksum_algorithm_sender.send(checksum_algorithm).is_err() || is_error {
                         return;
                     }
 
-                    // Main loop waiting on new buffers to append to the S3 object.
-                    while let Ok(buffer) = request_receiver.recv().await {
-                        let buffer_len = buffer.len();
-                        let result = append(&client, &bucket, &key, buffer, offset, etag.take(), sse.clone())
-                            .await
-                            .map(|result| {
-                                offset += buffer_len as u64;
-                                etag = Some(result.etag.clone());
-                                Output::Result(result)
-                            })
-                            .inspect_err(|_| trace!("append upload task failed"));
-                        if !send_output(&output_sender, &request_receiver, result).await {
-                            break;
-                        }
-                    }
+                    run_append_loop(client, params, request_receiver, response_sender).await;
                     trace!("append upload task finished");
                 }
                 .instrument(span),
@@ -271,11 +188,11 @@ where
             .unwrap();
         Self {
             request_sender,
-            output_receiver,
+            response_receiver,
             last_known_result: None,
             requests_in_queue: 0,
             mem_limiter,
-            checksum_algorithm: None,
+            checksum_algorithm: Lazy::new(async move { checksum_algorithm_receiver.await.unwrap() }),
             _task_handle: task_handle,
         }
     }
@@ -285,7 +202,7 @@ where
         if let Err(_send_error) = self.request_sender.send(buffer).await {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
-            while self.consume_next_output().await? {}
+            while self.consume_next_response().await? {}
             return Err(UploadError::UploadAlreadyTerminated);
         }
         self.requests_in_queue += 1;
@@ -296,7 +213,7 @@ where
         if self.request_sender.is_closed() {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
-            while self.consume_next_output().await? {}
+            while self.consume_next_response().await? {}
             return Err(UploadError::UploadAlreadyTerminated);
         }
         Ok(())
@@ -305,7 +222,7 @@ where
     // Close the upload queue, wait for all uploads in the queue to complete, and get the last `PutObjectResult`
     pub async fn join(mut self) -> Result<Option<PutObjectResult>, UploadError<Client::ClientError>> {
         let terminated = !self.request_sender.close();
-        while self.consume_next_output().await? {}
+        while self.consume_next_response().await? {}
         if terminated {
             return Err(UploadError::UploadAlreadyTerminated);
         }
@@ -316,22 +233,7 @@ where
         &mut self,
         capacity: usize,
     ) -> Result<UploadBuffer<Client>, UploadError<Client::ClientError>> {
-        let Some(checksum_algorithm) = self.checksum_algorithm.clone() else {
-            trace!("wait for initial output");
-            match self
-                .output_receiver
-                .recv()
-                .await
-                .unwrap_or(Err(UploadError::UploadAlreadyTerminated))?
-            {
-                Output::ChecksumAlgorithm(algorithm) => {
-                    trace!(?algorithm, "selected checksum algorithm");
-                    self.checksum_algorithm = Some(algorithm.clone());
-                    return Ok(UploadBuffer::new(capacity, &algorithm, self.mem_limiter.clone())?);
-                }
-                _ => unreachable!("the initial output always sets the checksum algorithm"),
-            }
-        };
+        let checksum_algorithm = self.checksum_algorithm.get_mut().await?.clone();
 
         while self.requests_in_queue > 0 {
             match UploadBuffer::try_new(capacity, &checksum_algorithm, self.mem_limiter.clone())? {
@@ -339,7 +241,7 @@ where
                 None => {
                     // wait for requests in the queue to complete before trying to reserve memory again
                     trace!("wait for the next request to be processed");
-                    if !self.consume_next_output().await? {
+                    if !self.consume_next_response().await? {
                         return Err(UploadError::UploadAlreadyTerminated);
                     }
                 }
@@ -353,20 +255,120 @@ where
         )?)
     }
 
-    /// Wait on output, updating the state of the [AppendUploadQueue] when next output arrives.
+    /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
     ///
-    /// Returns `true` when next output is successfully consumed, or `false` when no more output is available.
-    async fn consume_next_output(&mut self) -> Result<bool, UploadError<Client::ClientError>> {
-        let Ok(output) = self.output_receiver.recv().await else {
+    /// Returns `true` if a response was successfully consumed, or `false` if response channel was closed.
+    async fn consume_next_response(&mut self) -> Result<bool, UploadError<Client::ClientError>> {
+        let Ok(output) = self.response_receiver.recv().await else {
             return Ok(false);
         };
-        if let Output::Result(result) = output? {
-            trace!(?result, "received result");
-            self.requests_in_queue -= 1;
-            self.last_known_result = Some(result);
-        }
+        let result = output?;
+        trace!(?result, "received result");
+        self.requests_in_queue -= 1;
+        self.last_known_result = Some(result);
         Ok(true)
     }
+}
+
+async fn get_checksum_algorithm<Client>(
+    client: &Client,
+    params: &AppendUploadQueueParams,
+) -> Result<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>
+where
+    Client: ObjectClient + Send + Sync + 'static,
+{
+    if params.initial_offset == 0 {
+        // If we are creating a new object or overwriting (truncate), use the default checksum algorithm.
+        return Ok(params.default_checksum_algorithm.clone());
+    }
+    // We are appending to an existing object, find out which checksum algorithm it uses.
+    let head_object = client
+        .head_object(
+            &params.bucket,
+            &params.key,
+            &HeadObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+        )
+        .await?;
+
+    trace!(?head_object, "received head_object response");
+    if Some(head_object.etag) != params.initial_etag {
+        // Fail early if the etag has changed.
+        return Err(UploadError::PutRequestFailed(ObjectClientError::ServiceError(
+            PutObjectError::PreconditionFailed,
+        )));
+    }
+    Ok(head_object.checksum.algorithms().first().cloned())
+}
+
+/// Run the main loop waiting on new buffers to append to the S3 object.
+async fn run_append_loop<Client>(
+    client: Client,
+    params: AppendUploadQueueParams,
+    request_receiver: Receiver<UploadBuffer<Client>>,
+    response_sender: Sender<Result<PutObjectResult, UploadError<Client::ClientError>>>,
+) where
+    Client: ObjectClient + Send + Sync + 'static,
+{
+    let bucket = params.bucket;
+    let key = params.key;
+    let sse = params.server_side_encryption;
+    let mut etag = params.initial_etag;
+    let mut offset = params.initial_offset;
+
+    while let Ok(buffer) = request_receiver.recv().await {
+        let buffer_len = buffer.len();
+        let response = append(&client, &bucket, &key, buffer, offset, etag.take(), sse.clone())
+            .await
+            .inspect(|result| {
+                offset += buffer_len as u64;
+                etag = Some(result.etag.clone());
+            });
+
+        let error = response.is_err();
+        if error {
+            trace!("append upload task failed");
+            // Stop receiving new requests
+            request_receiver.close();
+        }
+
+        // Send response to the [AppendUploadQueue].
+        if response_sender.send(response).await.is_err() {
+            trace!("response channel is already closed");
+            break;
+        } else if error {
+            trace!("closing response channel");
+            response_sender.close();
+            break;
+        }
+    }
+}
+
+async fn append<Client: ObjectClient>(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    buffer: UploadBuffer<Client>,
+    offset: u64,
+    etag: Option<ETag>,
+    server_side_encryption: ServerSideEncryption,
+) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
+    trace!(key, offset, len = buffer.len(), "preparing PutObject request");
+    let (data, checksum) = buffer.freeze()?;
+    let mut request_params = if offset == 0 {
+        PutObjectSingleParams::new()
+    } else {
+        PutObjectSingleParams::new_for_append(offset).if_match(etag)
+    };
+    let (sse_type, key_id) = server_side_encryption
+        .into_inner()
+        .map_err(UploadError::SseCorruptedError)?;
+    request_params.checksum = checksum;
+    request_params.server_side_encryption = sse_type;
+    request_params.ssekms_key_id = key_id;
+    client
+        .put_object_single(bucket, key, &request_params, data)
+        .await
+        .map_err(UploadError::PutRequestFailed)
 }
 
 #[derive(Debug)]
@@ -443,34 +445,6 @@ impl<Client: ObjectClient> Drop for UploadBuffer<Client> {
     fn drop(&mut self) {
         self.mem_limiter.release(BufferArea::Upload, self.capacity as u64);
     }
-}
-
-async fn append<Client: ObjectClient>(
-    client: &Client,
-    bucket: &str,
-    key: &str,
-    buffer: UploadBuffer<Client>,
-    offset: u64,
-    etag: Option<ETag>,
-    server_side_encryption: ServerSideEncryption,
-) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
-    trace!(key, offset, len = buffer.len(), "preparing PutObject request");
-    let (data, checksum) = buffer.freeze()?;
-    let mut request_params = if offset == 0 {
-        PutObjectSingleParams::new()
-    } else {
-        PutObjectSingleParams::new_for_append(offset).if_match(etag)
-    };
-    let (sse_type, key_id) = server_side_encryption
-        .into_inner()
-        .map_err(UploadError::SseCorruptedError)?;
-    request_params.checksum = checksum;
-    request_params.server_side_encryption = sse_type;
-    request_params.ssekms_key_id = key_id;
-    client
-        .put_object_single(bucket, key, &request_params, data)
-        .await
-        .map_err(UploadError::PutRequestFailed)
 }
 
 #[cfg(test)]

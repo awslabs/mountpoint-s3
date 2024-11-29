@@ -1,8 +1,6 @@
 use std::fmt::Debug;
-use std::future::Future;
 
-use futures::future::RemoteHandle;
-use futures::task::{Spawn, SpawnError, SpawnExt};
+use futures::task::Spawn;
 
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
@@ -11,6 +9,7 @@ use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::error;
 
+use crate::async_util::BoxRuntime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
 use crate::sync::Arc;
@@ -81,7 +80,7 @@ where
     ) -> Self {
         Self {
             client,
-            runtime: runtime.into(),
+            runtime: BoxRuntime::new(runtime),
             mem_limiter,
             storage_class,
             server_side_encryption,
@@ -137,29 +136,3 @@ where
 /// The limit may slow down writes eventually, but the overall upload throughput
 /// is already capped by a single PutObject request.
 const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
-
-struct BoxRuntime(Box<dyn Spawn + Send + Sync>);
-impl BoxRuntime {
-    fn spawn_with_handle<Fut>(&self, future: Fut) -> Result<RemoteHandle<Fut::Output>, SpawnError>
-    where
-        Fut: Future + Send + 'static,
-        Fut::Output: Send,
-    {
-        self.0.spawn_with_handle(future)
-    }
-}
-
-impl Debug for BoxRuntime {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("BoxRuntime").field(&"dyn").finish()
-    }
-}
-
-impl<Runtime> From<Runtime> for BoxRuntime
-where
-    Runtime: Spawn + Sync + Send + 'static,
-{
-    fn from(value: Runtime) -> Self {
-        BoxRuntime(Box::new(value))
-    }
-}
