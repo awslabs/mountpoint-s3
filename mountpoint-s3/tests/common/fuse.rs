@@ -146,6 +146,7 @@ pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
 // `FnOnce(...)` in place of `impl TestSessionCreator`.
 impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_fuse_session<Client, Prefetcher, Runtime>(
     client: Client,
     prefetcher: Prefetcher,
