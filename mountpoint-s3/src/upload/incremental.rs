@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use std::mem;
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
-use bytes::{Bytes, BytesMut};
 use futures::channel::oneshot;
 use futures::future::RemoteHandle;
 use futures::task::SpawnExt as _;
@@ -373,7 +372,7 @@ async fn append<Client: ObjectClient>(
 
 #[derive(Debug)]
 struct UploadBuffer<Client: ObjectClient> {
-    data: BytesMut,
+    data: Vec<u8>,
     // Running checksum for the data.
     hasher: ChecksumHasher,
     capacity: usize,
@@ -390,7 +389,7 @@ impl<Client: ObjectClient> UploadBuffer<Client> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
         mem_limiter.reserve(BufferArea::Upload, capacity as u64);
         Ok(Self {
-            data: BytesMut::with_capacity(capacity),
+            data: Vec::with_capacity(capacity),
             hasher,
             capacity,
             mem_limiter,
@@ -406,7 +405,7 @@ impl<Client: ObjectClient> UploadBuffer<Client> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
         if mem_limiter.try_reserve(BufferArea::Upload, capacity as u64) {
             Ok(Some(Self {
-                data: BytesMut::with_capacity(capacity),
+                data: Vec::with_capacity(capacity),
                 hasher,
                 capacity,
                 mem_limiter,
@@ -434,10 +433,10 @@ impl<Client: ObjectClient> UploadBuffer<Client> {
         self.data.len()
     }
 
-    fn freeze(mut self) -> Result<(Bytes, Option<UploadChecksum>), ChecksumHasherError> {
-        let bytes = mem::take(&mut self.data);
+    fn freeze(mut self) -> Result<(Box<[u8]>, Option<UploadChecksum>), ChecksumHasherError> {
+        let bytes = mem::take(&mut self.data).into_boxed_slice();
         let checksum = mem::take(&mut self.hasher);
-        Ok((bytes.freeze(), checksum.finalize()?))
+        Ok((bytes, checksum.finalize()?))
     }
 }
 
