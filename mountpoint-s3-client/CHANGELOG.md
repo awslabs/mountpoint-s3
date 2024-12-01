@@ -18,6 +18,8 @@
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
 * Allow to specify any of the supported checksum algorithms when uploading objects with `put_object_single`.
   ([#1157](https://github.com/awslabs/mountpoint-s3/pull/1157))
+* Amazon S3 introduces support for AWS Dedicated Local Zones.
+  ([awslabs/aws-c-s3#465](https://github.com/awslabs/aws-c-s3/pull/465))
 
 ### Breaking changes
 
