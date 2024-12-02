@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
-use tracing::trace;
+use tracing::{debug, trace};
 
 #[derive(Debug)]
 pub enum File {
@@ -92,13 +92,13 @@ impl MaterializedReference {
     fn add_local_node(&mut self, path: impl AsRef<Path>, typ: NodeType) -> bool {
         let mut components = path.as_ref().components().peekable();
         assert_eq!(components.next(), Some(Component::RootDir));
-
+        debug!("Adding a local file");
         let mut parent_node = &mut self.root;
         while let Some(dir) = components.next() {
             let Node::Directory { children, .. } = parent_node else {
                 return false;
                 // TODO: see above -- implicit directories are allowed to disappear
-                // panic!("unexpected internal file node while adding {:?}", path.as_ref());
+                //panic!("unexpected internal file node while adding {:?}", path.as_ref());
             };
             let dir = dir.as_os_str().to_str().unwrap();
             if components.peek().is_none() {
@@ -118,14 +118,25 @@ impl MaterializedReference {
                     },
                     NodeType::File => Node::File(File::Local),
                 };
+                // If there already is a directory of this name, 
+                // then ignore the local file shadowing.
+                let before = children.get(dir);
+                match before {
+                  Some(node) => {
+                      if node.node_type() == NodeType::Directory {
+                          return true;
+                      }
+                  },
+                  _      => {}
+                };
                 children.insert(dir.to_owned(), new_node);
                 break;
             } else {
                 // TODO: see above -- implicit directories are allowed to disappear
-                // parent_node = children.entry(dir.to_owned()).or_insert_with(|| Node::Directory {
-                //     children: BTreeMap::new(),
-                //     is_local: true,
-                // })
+                 //parent_node = children.entry(dir.to_owned()).or_insert_with(|| Node::Directory {
+                 //    children: BTreeMap::new(),
+                 //    is_local: true,
+                 //})
                 let Some(child_node) = children.get_mut(dir) else {
                     return false;
                 };

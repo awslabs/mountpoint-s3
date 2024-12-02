@@ -904,7 +904,7 @@ mod mutations {
         })]
 
         #[test]
-        fn reftest_random_tree(tree in gen_tree(5, 100, 5, 20), readdir_limit in 0..10usize, ops in vec(any::<Op>(), 1..10)) {
+        fn reftest_random_tree(tree in gen_tree(5, 100, 5, 20), readdir_limit in 0..10usize, ops in vec(any::<Op>(), 1..200)) {
             run_test(tree, ops, readdir_limit);
         }
     }
@@ -950,6 +950,52 @@ mod mutations {
             0,
         )
     }
+
+    /*
+      In this test, the opened local file will be shadowed by the walkdir reader.
+      
+     */
+    #[test]
+    fn regression_put_nested_over_open_file() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([])),
+            vec![
+                Op::CreateFile(
+                    ValidName("a".into()),
+                    DirectoryIndex(0),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+                Op::PutObject(
+                    DirectoryIndex(0),
+                    Name("a/b".into()),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn regression_put_nested_over_open_file_inverse() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([])),
+            vec![
+                
+                Op::PutObject(
+                    DirectoryIndex(0),
+                    Name("a/b".into()),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+                Op::CreateFile(
+                    ValidName("a".into()),
+                    DirectoryIndex(0),
+                    FileContent(0, FileSize::Small(0)),
+                )
+            ],
+            0,
+        )
+    }
+
 
     #[test]
     fn regression_out_of_order() {
