@@ -113,7 +113,7 @@ Mountpoint for Amazon S3 supports both general purpose and directory buckets (in
 mount-s3 amzn-s3-demo-bucket /path/to/mount
 ```
 
-For a directory bucket in Availability Zones for S3 Express One Zone, use the full bucket name, including the suffix, like this:
+For a directory bucket use the full bucket name, including the suffix:
 
 ```
 mount-s3 amzn-s3-demo-bucket--az_id--x-s3 /path/to/mount
