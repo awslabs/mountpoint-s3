@@ -1,5 +1,11 @@
 ## Unreleased
 
+## v1.13.0 (December 2, 2024)
+
+### New features
+
+* Amazon S3 introduces support for AWS Dedicated Local Zones. (awslabs/aws-c-s3#465)
+
 ## v1.12.0 (November 25, 2024)
 
 ### New features
