@@ -105,6 +105,24 @@ Mountpoint also respects access control lists (ACLs) applied to objects in your 
 
 By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 HTTPS endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
 
+### S3 bucket types
+
+Mountpoint for Amazon S3 supports both general purpose and directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones). In order to mount a general purpose bucket, run Mountpoint with the following command:
+
+```
+mount-s3 amzn-s3-demo-bucket /path/to/mount
+```
+
+For a directory bucket use the full bucket name, including the suffix:
+
+```
+mount-s3 amzn-s3-demo-bucket--az_id--x-s3 /path/to/mount
+```
+
+For more information on directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html). For more information on directory buckets in Dedicated Local Zones see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-bucket-data-residency.html).
+
+Mountpoint for Amazon S3 also supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
+
 ### Mounting a bucket prefix
 
 You can use Mountpoint to access only a prefix of your S3 bucket rather than the entire bucket. This allows you to isolate multiple users, applications, or workloads from each other within a single bucket. Use the `--prefix` command-line argument to specify a prefix of your S3 bucket, which must end with the `/` character. With this argument, only objects in your bucket that begin with the given prefix will be visible with Mountpoint.
@@ -393,7 +411,7 @@ mount-s3 amzn-s3-demo-bucket /path/to/mount --cache-xz amzn-s3-demo-bucket--usw2
 
 Please note the following key considerations while opting in to the shared cache:
 
-* To manage your storage cost, you should set up Lifecycle configuration on your S3 directory bucket so that Amazon S3 expires the cached data in S3 Express One Zone after a period of time you specify. 
+* To manage your storage cost, you should set up Lifecycle configuration on your S3 directory bucket so that Amazon S3 expires the cached data in S3 Express One Zone after a period of time you specify.
   Once you opt in to the shared cache in S3 Express One Zone, you pay for the data cached in your directory bucket in S3 Express One Zone.
   You also pay for requests made against your data in the directory bucket in S3 Express One Zone.
   Visit the [Amazon S3 pricing](https://aws.amazon.com/s3/pricing/) page to learn more. Mountpoint for Amazon S3 never deletes cached objects from S3 directory buckets.
