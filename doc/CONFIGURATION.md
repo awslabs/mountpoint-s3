@@ -107,7 +107,7 @@ By default, Mountpoint will automatically mount your S3 bucket given only the bu
 
 ### S3 bucket types
 
-Mountpoint for Amazon S3 supports both general purpose and directory buckets. In order to mount a general purpose bucket, run Mountpoint with the following command:
+Mountpoint for Amazon S3 supports both general purpose and directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones). In order to mount a general purpose bucket, run Mountpoint with the following command:
 
 ```
 mount-s3 amzn-s3-demo-bucket /path/to/mount
@@ -119,7 +119,7 @@ For a directory bucket in Availability Zones for S3 Express One Zone, use the fu
 mount-s3 amzn-s3-demo-bucket--az_id--x-s3 /path/to/mount
 ```
 
-For more information on directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html).
+For more information on directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html). For more information on directory buckets in Dedicated Local Zones see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-bucket-data-residency.html).
 
 Mountpoint for Amazon S3 also supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
 
