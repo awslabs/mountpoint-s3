@@ -28,6 +28,11 @@ use crate::common::tokio_block_on;
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
 
+const MOUNT_OPTION_READ_ONLY: &'static str = "--read-only";
+const MOUNT_OPTION_AUTO_UNMOUNT: &'static str = "--auto-unmount";
+const MOUNT_OPTION_ALLOW_ROOT: &'static str = "--allow-root";
+const MOUNT_OPTION_ALLOW_OTHER: &'static str = "--allow-other";
+
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[test]
@@ -399,6 +404,49 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     let error_message = format!(
         "expected mount point {} to be a /dev/fuse device file descriptor but got Pipe",
         mount_point
+    );
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[test_case(&[MOUNT_OPTION_READ_ONLY])]
+#[test_case(&[MOUNT_OPTION_AUTO_UNMOUNT])]
+#[test_case(&[MOUNT_OPTION_ALLOW_ROOT])]
+#[test_case(&[MOUNT_OPTION_ALLOW_OTHER])]
+#[test_case(&[MOUNT_OPTION_READ_ONLY, MOUNT_OPTION_ALLOW_OTHER])]
+fn run_fail_on_non_fuse_fd_if_mount_options_passed(mount_options: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_fuse_fd_if_mount_options_passed");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let (fd, _mount) = mount_for_passing_fuse_fd(
+        mount_point.path(),
+        &[MountOption::FSName("mountpoint-s3-fd".to_string())],
+    );
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg(&bucket)
+        .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .arg(format!("--prefix={prefix}"))
+        .arg(format!("--region={region}"));
+
+    for opt in mount_options {
+        cmd.arg(opt);
+    }
+
+    let child = cmd.spawn().expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status
+    assert!(!exit_status.success());
+
+    // verify error message
+    let error_message = format!(
+        "Mount options: {} are ignored with FUSE fd mount point.\
+        Mount options should be passed while performing `mount` syscall in the caller process.",
+        mount_options.join(", "),
     );
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 

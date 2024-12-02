@@ -569,11 +569,11 @@ impl CliArgs {
             .collect::<Vec<_>>();
 
             if !passed_mount_options.is_empty() {
-                tracing::warn!(
+                return Err(anyhow!(
                     "Mount options: {} are ignored with FUSE fd mount point.\
                     Mount options should be passed while performing `mount` syscall in the caller process.",
                     passed_mount_options.join(", ")
-                );
+                ));
             }
         }
 
