@@ -28,10 +28,10 @@ use crate::common::tokio_block_on;
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
 
-const MOUNT_OPTION_READ_ONLY: &'static str = "--read-only";
-const MOUNT_OPTION_AUTO_UNMOUNT: &'static str = "--auto-unmount";
-const MOUNT_OPTION_ALLOW_ROOT: &'static str = "--allow-root";
-const MOUNT_OPTION_ALLOW_OTHER: &'static str = "--allow-other";
+const MOUNT_OPTION_READ_ONLY: &str = "--read-only";
+const MOUNT_OPTION_AUTO_UNMOUNT: &str = "--auto-unmount";
+const MOUNT_OPTION_ALLOW_ROOT: &str = "--allow-root";
+const MOUNT_OPTION_ALLOW_OTHER: &str = "--allow-other";
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
