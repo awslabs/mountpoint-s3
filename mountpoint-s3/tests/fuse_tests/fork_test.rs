@@ -350,7 +350,7 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_existent_fd");
     let region = get_test_region();
 
-    let mount_point = "/dev/fd/42";
+    let mount_point = "/dev/fd/1025";
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     let child = cmd
