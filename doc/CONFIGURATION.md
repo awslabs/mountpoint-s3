@@ -411,7 +411,7 @@ mount-s3 amzn-s3-demo-bucket /path/to/mount --cache-xz amzn-s3-demo-bucket--usw2
 
 Please note the following key considerations while opting in to the shared cache:
 
-* To manage your storage cost, you should set up Lifecycle configuration on your S3 directory bucket so that Amazon S3 expires the cached data in S3 Express One Zone after a period of time you specify.
+* To manage your storage cost, you should set up [Lifecycle configuration on your S3 directory bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-objects-lifecycle.html) so that Amazon S3 expires the cached data in S3 Express One Zone after a period of time you specify.
   Once you opt in to the shared cache in S3 Express One Zone, you pay for the data cached in your directory bucket in S3 Express One Zone.
   You also pay for requests made against your data in the directory bucket in S3 Express One Zone.
   Visit the [Amazon S3 pricing](https://aws.amazon.com/s3/pricing/) page to learn more. Mountpoint for Amazon S3 never deletes cached objects from S3 directory buckets.
