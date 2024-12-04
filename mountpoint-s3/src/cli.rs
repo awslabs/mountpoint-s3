@@ -557,16 +557,11 @@ impl CliArgs {
 
         #[cfg(target_os = "linux")]
         if matches!(mount_point, MountPoint::FileDescriptor(_)) {
-            let passed_mount_options = &[
-                (self.read_only, "--read-only"),
-                (self.auto_unmount, "--auto-unmount"),
-                (self.allow_root, "--allow-root"),
-                (self.allow_other, "--allow-other"),
-            ]
-            .iter()
-            .filter(|o| o.0)
-            .map(|o| o.1)
-            .collect::<Vec<_>>();
+            let passed_mount_options = &[(self.read_only, "--read-only"), (self.auto_unmount, "--auto-unmount")]
+                .iter()
+                .filter(|o| o.0)
+                .map(|o| o.1)
+                .collect::<Vec<_>>();
 
             if !passed_mount_options.is_empty() {
                 return Err(anyhow!(

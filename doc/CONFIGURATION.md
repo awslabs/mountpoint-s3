@@ -304,16 +304,16 @@ Mountpoint supports mounting S3 buckets to a directory or a FUSE file descriptor
 
 For directory mount points, the passed path must be an existing directory.
 
-For FUSE file descriptors on Linux, you can specify an open FUSE file descriptor as a mount point with '/dev/fd/N' syntax.
+For FUSE file descriptors on Linux, you can specify an open FUSE file descriptor as a mount point with `/dev/fd/N` syntax.
 This is useful in container environments to achieve unprivileged mounts.
 In this case, it's callers responsibility to:
-1. Opening FUSE device (/dev/fuse) in read-write mode to obtain a file descriptor
-2. Performing 'mount' syscall with desired mount point, the file descriptor and mount options.
+1. Opening FUSE device (`/dev/fuse`) in read-write mode to obtain a file descriptor
+2. Performing `mount` syscall with desired mount point, the file descriptor and mount options.
    Mountpoint by default uses and recommends enabling `nodev`, `nosuid`, `default_permissions` and `noatime` mount options,
    see [Linux kernel documentation](https://man7.org/linux/man-pages/man8/mount.fuse3.8.html#OPTIONS) about more details on mount options.
-3. Spawning Mountpoint with the file descriptor using '/dev/fd/N' syntax as mount point
+3. Spawning Mountpoint with the file descriptor using `/dev/fd/N` syntax as mount point
 4. Closing the file descriptor in the parent process
-5. Performing 'unmount' syscall on the mount point once its desired and/or Mountpoint process terminates
+5. Performing `unmount` syscall on the mount point once its desired and/or Mountpoint process terminates
 
 See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples/fuse-fd-mount-point/mounthelper.go) as an example usage of this feature.
 

@@ -30,8 +30,6 @@ use crate::common::{creds::get_scoped_down_credentials, s3::get_non_test_region,
 
 const MOUNT_OPTION_READ_ONLY: &str = "--read-only";
 const MOUNT_OPTION_AUTO_UNMOUNT: &str = "--auto-unmount";
-const MOUNT_OPTION_ALLOW_ROOT: &str = "--allow-root";
-const MOUNT_OPTION_ALLOW_OTHER: &str = "--allow-other";
 
 const MAX_WAIT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -412,9 +410,7 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test_case(&[MOUNT_OPTION_READ_ONLY])]
 #[test_case(&[MOUNT_OPTION_AUTO_UNMOUNT])]
-#[test_case(&[MOUNT_OPTION_ALLOW_ROOT])]
-#[test_case(&[MOUNT_OPTION_ALLOW_OTHER])]
-#[test_case(&[MOUNT_OPTION_READ_ONLY, MOUNT_OPTION_ALLOW_OTHER])]
+#[test_case(&[MOUNT_OPTION_READ_ONLY, MOUNT_OPTION_AUTO_UNMOUNT])]
 fn run_fail_on_non_fuse_fd_if_mount_options_passed(mount_options: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("run_fail_on_non_fuse_fd_if_mount_options_passed");
     let region = get_test_region();
