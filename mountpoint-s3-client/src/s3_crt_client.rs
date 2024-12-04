@@ -952,6 +952,7 @@ impl<'a> S3Message<'a> {
 #[derive(Debug)]
 #[pin_project(PinnedDrop)]
 struct S3HttpRequest<T, E> {
+    /// Receiver for the result of the `on_finish` callback.
     #[pin]
     receiver: Fuse<oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>>,
     meta_request: MetaRequest,
