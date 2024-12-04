@@ -1482,8 +1482,8 @@ async fn test_readdir_rewind_with_local_files_only() {
 }
 
 // Check that request with an out-of-order offset which is in bounds of previously cached response is served well.
-// This is relevant for situation when user application is interrupted in a readdir system call, which makes kernel
-// to partially discard previous response and request some entires from it again:
+// This is relevant for situation when user application is interrupted in a readdir system call, which makes the
+// kernel partially discard previous response and request some entries from it again:
 //
 // FUSE( 10) READDIRPLUS fh FileHandle(1), offset 0, size 4096
 // FUSE( 11) INTERRUPT unique RequestId(10)
