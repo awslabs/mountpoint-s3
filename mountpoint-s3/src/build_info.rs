@@ -24,15 +24,11 @@ const fn is_official_aws_release() -> bool {
 /// Formats the current git commit hash and dirty state as a version suffix.
 /// Returns the empty string if building outside a git repository.
 const fn git_commit_suffix() -> &'static str {
+    // Check first and then unwrap, so we can pull out the hash as a const
     if built::GIT_COMMIT_HASH_SHORT.is_none() {
         return "";
     }
-    // A little hacky so we can pull out the hash as a const
-    const COMMIT_HASH_STR: &str = match built::GIT_COMMIT_HASH_SHORT {
-        Some(hash) => hash,
-        // Evaluated at compile time, but never used
-        None => "unreachable",
-    };
+    const COMMIT_HASH_STR: &str = built::GIT_COMMIT_HASH_SHORT.unwrap();
     const COMMIT_DIRTY_STR: &str = match built::GIT_DIRTY {
         Some(true) => "-dirty",
         _ => "",
