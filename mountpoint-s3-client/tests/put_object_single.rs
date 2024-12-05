@@ -6,14 +6,13 @@ use std::collections::HashMap;
 
 use aws_sdk_s3::primitives::ByteStream;
 use common::*;
-use mountpoint_s3_client::checksums::crc32c;
+use mountpoint_s3_client::checksums::{crc32, crc32c, crc64nvme, sha1, sha256};
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     Checksum, ChecksumAlgorithm, GetObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_crt::checksums::{crc32, sha1, sha256};
 use rand::Rng;
 use test_case::test_case;
 
@@ -79,6 +78,7 @@ async fn test_put_object_single_empty(
 object_client_test!(test_put_object_single_empty);
 
 #[test_case(None; "no checksum")]
+#[test_case(Some(ChecksumAlgorithm::Crc64nvme))]
 #[test_case(Some(ChecksumAlgorithm::Crc32c))]
 #[test_case(Some(ChecksumAlgorithm::Crc32))]
 #[test_case(Some(ChecksumAlgorithm::Sha1))]
@@ -98,6 +98,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
     rng.fill(&mut contents[..]);
 
     let upload_checksum = match checksum_algorithm {
+        Some(ChecksumAlgorithm::Crc64nvme) => Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))),
         Some(ChecksumAlgorithm::Crc32c) => Some(UploadChecksum::Crc32c(crc32c::checksum(&contents))),
         Some(ChecksumAlgorithm::Crc32) => Some(UploadChecksum::Crc32(crc32::checksum(&contents))),
         Some(ChecksumAlgorithm::Sha1) => Some(UploadChecksum::Sha1(
@@ -117,7 +118,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
         .expect("put_object should succeed");
 
     let sdk_client = get_test_sdk_client().await;
-    let output = sdk_client
+    let head_output = sdk_client
         .head_object()
         .bucket(&bucket)
         .key(key)
@@ -126,14 +127,23 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
         .await
         .unwrap();
 
-    let output_checksum = Checksum {
-        checksum_crc32: output.checksum_crc32,
-        checksum_crc32c: output.checksum_crc32_c,
-        checksum_sha1: output.checksum_sha1,
-        checksum_sha256: output.checksum_sha256,
+    let head_checksum = Checksum {
+        checksum_crc64nvme: if upload_checksum.is_none() {
+            // If no checksum was sent with the PutObject request, S3 automatically uses CRC-64NVME.
+            // We'll ignore it for the test below.
+            // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html.
+            None
+        } else {
+            head_output.checksum_crc64_nvme
+        },
+        checksum_crc32: head_output.checksum_crc32,
+        checksum_crc32c: head_output.checksum_crc32_c,
+        checksum_sha1: head_output.checksum_sha1,
+        checksum_sha256: head_output.checksum_sha256,
     };
+
     let checksum: Checksum = upload_checksum.into();
-    assert_eq!(output_checksum, checksum);
+    assert_eq!(head_checksum, checksum);
 }
 
 #[tokio::test]
@@ -355,6 +365,7 @@ async fn test_append_fails_if_not_supported() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(b"data"))
         .send()
         .await
@@ -446,6 +457,7 @@ async fn test_append_existing_object() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(contents))
         .send()
         .await
@@ -457,7 +469,8 @@ async fn test_append_existing_object() {
     rng.fill(&mut contents[..]);
     expected_contents.extend_from_slice(&contents);
 
-    let params = PutObjectSingleParams::new_for_append(object_size as u64);
+    let params = PutObjectSingleParams::new_for_append(object_size as u64)
+        .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
     let put_object_result = client
         .put_object_single(&bucket, &key, &params, &contents)
         .await
@@ -493,6 +506,7 @@ async fn test_append_existing_object_if_match() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(contents))
         .send()
         .await
@@ -505,7 +519,9 @@ async fn test_append_existing_object_if_match() {
     rng.fill(&mut contents[..]);
     expected_contents.extend_from_slice(&contents);
 
-    let params = PutObjectSingleParams::new_for_append(object_size as u64).if_match(Some(etag.to_owned().into()));
+    let params = PutObjectSingleParams::new_for_append(object_size as u64)
+        .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))))
+        .if_match(Some(etag.to_owned().into()));
     let put_object_result = client
         .put_object_single(&bucket, &key, &params, &contents)
         .await
@@ -538,6 +554,7 @@ async fn test_append_existing_object_if_match_fails() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(INITIAL_CONTENT))
         .send()
         .await
@@ -549,14 +566,18 @@ async fn test_append_existing_object_if_match_fails() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(b"replace"))
         .send()
         .await
         .expect("sdk put_object should succeed");
     assert_ne!(etag, replace_result.e_tag().expect("sdk put_object should return etag"));
 
-    let params = PutObjectSingleParams::new_for_append(object_size as u64).if_match(Some(etag.to_owned().into()));
-    let put_object_result = client.put_object_single(&bucket, &key, &params, b"append").await;
+    let contents = b"append";
+    let params = PutObjectSingleParams::new_for_append(object_size as u64)
+        .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(contents))))
+        .if_match(Some(etag.to_owned().into()));
+    let put_object_result = client.put_object_single(&bucket, &key, &params, contents).await;
 
     let error = put_object_result.expect_err("put_object_single with the old etag should fail");
     assert!(matches!(
@@ -581,13 +602,15 @@ async fn test_append_existing_object_with_empty() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(contents))
         .send()
         .await
         .expect("sdk put_object should succeed");
 
     let contents = vec![0u8; 0];
-    let params = PutObjectSingleParams::new_for_append(object_size as u64);
+    let params = PutObjectSingleParams::new_for_append(object_size as u64)
+        .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
     let result = client.put_object_single(&bucket, &key, &params, &contents).await;
     assert!(matches!(
         result,
@@ -611,13 +634,15 @@ async fn test_append_empty_object_with_empty() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(contents))
         .send()
         .await
         .expect("sdk put_object should succeed");
 
     let contents = vec![0u8; 0];
-    let params = PutObjectSingleParams::new_for_append(object_size as u64);
+    let params = PutObjectSingleParams::new_for_append(object_size as u64)
+        .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
     let result = client.put_object_single(&bucket, &key, &params, &contents).await;
     assert!(matches!(
         result,
@@ -661,6 +686,7 @@ async fn test_append_invalid_offset() {
         .put_object()
         .bucket(&bucket)
         .key(&key)
+        .checksum_algorithm(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)
         .body(ByteStream::from_static(contents))
         .send()
         .await
@@ -671,7 +697,8 @@ async fn test_append_invalid_offset() {
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectSingleParams::new_for_append(object_size as u64 + 1);
+    let params = PutObjectSingleParams::new_for_append(object_size as u64 + 1)
+        .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
     let result = client.put_object_single(&bucket, &key, &params, &contents).await;
     assert!(matches!(
         result,
@@ -758,6 +785,7 @@ async fn test_append_with_invalid_checksum() {
     ));
 }
 
+#[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme)]
 #[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Crc32C)]
 #[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Crc32)]
 #[test_case(aws_sdk_s3::types::ChecksumAlgorithm::Sha1)]
@@ -765,8 +793,6 @@ async fn test_append_with_invalid_checksum() {
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
 async fn test_append_with_matching_checksum(checksum_algorithm: aws_sdk_s3::types::ChecksumAlgorithm) {
-    use mountpoint_s3_client::checksums::{crc32, crc32c, sha1, sha256};
-
     let (bucket, prefix) = get_test_bucket_and_prefix("test_append_with_matching_checksum");
     let client = get_test_client();
     let key = format!("{prefix}hello");
@@ -791,6 +817,7 @@ async fn test_append_with_matching_checksum(checksum_algorithm: aws_sdk_s3::type
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
     let checksum = match checksum_algorithm {
+        aws_sdk_s3::types::ChecksumAlgorithm::Crc64Nvme => UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents)),
         aws_sdk_s3::types::ChecksumAlgorithm::Crc32C => UploadChecksum::Crc32c(crc32c::checksum(&contents)),
         aws_sdk_s3::types::ChecksumAlgorithm::Crc32 => UploadChecksum::Crc32(crc32::checksum(&contents)),
         aws_sdk_s3::types::ChecksumAlgorithm::Sha1 => UploadChecksum::Sha1(sha1::checksum(&contents).unwrap()),

@@ -1416,13 +1416,19 @@ fn write_checksums_test(
             assert!(object_crc32c || parts_crc32c, "crc32c is used for trailing checksums");
         }
         UploadChecksumsMode::Disabled => {
-            // For S3 Standard, the list of parts is only present if checksums were used, but for S3
-            // Express One Zone the list of parts is always present. The important thing is just that
-            // the *checksums* aren't present, because we disabled those.
+            // If no checksum was sent with the PutObject request, S3 automatically uses CRC-64NVME.
+            // We'll ignore it for the test below.
+            // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html.
             assert!(
-                object_checksum.is_none_or(|c| c == Checksum::empty()),
+                object_checksum.is_none_or(|c| Checksum {
+                    checksum_crc64nvme: None,
+                    ..c
+                } == Checksum::empty()),
                 "checksums should not be present when upload checksums are disabled"
             );
+
+            // For S3 Standard, the list of parts is only present if checksums were used, but for S3
+            // Express One Zone the list of parts is always present.
             for part_checksum in part_checksums {
                 assert!(
                     part_checksum.is_none_or(|c| c == Checksum::empty()),
@@ -1562,6 +1568,9 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
     const INITIAL_CONTENT: &[u8] = b"initial";
     let checksum = match checksum_algorithm {
         None => None,
+        Some(ChecksumAlgorithm::Crc64nvme) => Some(UploadChecksum::Crc64nvme(
+            mountpoint_s3_client::checksums::crc64nvme::checksum(INITIAL_CONTENT),
+        )),
         Some(ChecksumAlgorithm::Crc32c) => Some(UploadChecksum::Crc32c(
             mountpoint_s3_client::checksums::crc32c::checksum(INITIAL_CONTENT),
         )),
@@ -1596,6 +1605,7 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(None)]
+#[test_case(Some(ChecksumAlgorithm::Crc64nvme))]
 #[test_case(Some(ChecksumAlgorithm::Crc32c))]
 #[test_case(Some(ChecksumAlgorithm::Crc32))]
 #[test_case(Some(ChecksumAlgorithm::Sha1))]
@@ -1605,6 +1615,7 @@ fn append_with_checksums_s3(checksum_algorithm: Option<ChecksumAlgorithm>) {
 }
 
 #[test_case(None)]
+#[test_case(Some(ChecksumAlgorithm::Crc64nvme))]
 #[test_case(Some(ChecksumAlgorithm::Crc32c))]
 #[test_case(Some(ChecksumAlgorithm::Crc32))]
 #[test_case(Some(ChecksumAlgorithm::Sha1))]

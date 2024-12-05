@@ -86,8 +86,10 @@ impl GetObjectAttributesResult {
         let checksum_crc32c = get_field_or_none(element, "ChecksumCRC32C")?;
         let checksum_sha1 = get_field_or_none(element, "ChecksumSHA1")?;
         let checksum_sha256 = get_field_or_none(element, "ChecksumSHA256")?;
+        let checksum_crc64nvme = get_field_or_none(element, "ChecksumCRC64NVME")?;
 
         Ok(Checksum {
+            checksum_crc64nvme,
             checksum_crc32,
             checksum_crc32c,
             checksum_sha1,

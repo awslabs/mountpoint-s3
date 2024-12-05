@@ -1,12 +1,25 @@
 //! Provides base64 encoding/decoding for various checksums.
 pub use mountpoint_s3_crt::checksums::crc32::{self, Crc32};
 pub use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
+pub use mountpoint_s3_crt::checksums::crc64nvme::{self, Crc64nvme};
 pub use mountpoint_s3_crt::checksums::sha1::{self, Sha1};
 pub use mountpoint_s3_crt::checksums::sha256::{self, Sha256};
 
 use base64ct::Base64;
 use base64ct::Encoding;
 use thiserror::Error;
+
+/// The base64 encoding for this CRC64-NVME checksum value.
+pub fn crc64nvme_to_base64(checksum: &Crc64nvme) -> String {
+    Base64::encode_string(&checksum.value().to_be_bytes())
+}
+
+/// Create a CRC64-NVME checksum from a base64 encoding.
+pub fn crc64nvme_from_base64(base64_str: &str) -> Result<Crc64nvme, ParseError> {
+    let mut dec_buf = [0u8; std::mem::size_of::<u64>()];
+    let _ = Base64::decode(base64_str, &mut dec_buf)?;
+    Ok(Crc64nvme::new(u64::from_be_bytes(dec_buf)))
+}
 
 /// The base64 encoding for this CRC32C checksum value.
 pub fn crc32c_to_base64(checksum: &Crc32c) -> String {
@@ -54,6 +67,20 @@ pub enum ParseError {
 mod tests {
     use super::*;
     use test_case::test_case;
+
+    #[test]
+    fn test_crc64nvme_to_base64() {
+        let crc = Crc64nvme::new(0xAE8B14860A799888);
+        let base64 = crc64nvme_to_base64(&crc);
+        assert_eq!(&base64, "rosUhgp5mIg=");
+    }
+
+    #[test]
+    fn test_crc64nvme_from_base64() {
+        let base64 = "rosUhgp5mIg=";
+        let crc = crc64nvme_from_base64(base64).expect("parsing should succeeed");
+        assert_eq!(crc.value(), 0xAE8B14860A799888);
+    }
 
     #[test]
     fn test_crc32c_to_base64() {

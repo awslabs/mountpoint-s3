@@ -38,7 +38,7 @@ use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
-use crate::checksums::{crc32_to_base64, crc32c_to_base64, sha1_to_base64, sha256_to_base64};
+use crate::checksums::{crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, sha1_to_base64, sha256_to_base64};
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
@@ -965,6 +965,7 @@ impl<'a> S3Message<'a> {
         checksum: &UploadChecksum,
     ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
         let header = match checksum {
+            UploadChecksum::Crc64nvme(crc64) => Header::new("x-amz-checksum-crc64nvme", crc64nvme_to_base64(crc64)),
             UploadChecksum::Crc32c(crc32c) => Header::new("x-amz-checksum-crc32c", crc32c_to_base64(crc32c)),
             UploadChecksum::Crc32(crc32) => Header::new("x-amz-checksum-crc32", crc32_to_base64(crc32)),
             UploadChecksum::Sha1(sha1) => Header::new("x-amz-checksum-sha1", sha1_to_base64(sha1)),
@@ -1166,8 +1167,10 @@ fn parse_checksum(headers: &Headers) -> Result<Checksum, HeadersError> {
     let checksum_crc32c = headers.get_as_optional_string("x-amz-checksum-crc32c")?;
     let checksum_sha1 = headers.get_as_optional_string("x-amz-checksum-sha1")?;
     let checksum_sha256 = headers.get_as_optional_string("x-amz-checksum-sha256")?;
+    let checksum_crc64nvme = headers.get_as_optional_string("x-amz-checksum-crc64nvme")?;
 
     Ok(Checksum {
+        checksum_crc64nvme,
         checksum_crc32,
         checksum_crc32c,
         checksum_sha1,
