@@ -199,7 +199,12 @@ async fn test_get_attributes() {
     let result = result.unwrap();
     let etag = result.etag.map(|s| s.trim_matches('"').to_string());
     assert_eq!(etag, expected_etag);
-    assert!(result.checksum.is_none());
+
+    // Behavior when uploading without explicitly specifying the checksum algorithm is changing.
+    // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#using-additional-checksums.
+    // TODO: Review this test when adding support for the new algorithm.
+    // assert!(result.checksum.is_none());
+
     assert_eq!(result.storage_class, Some(expected_storage_class.to_owned()));
     assert_eq!(result.object_size, Some(body.len() as u64));
     assert!(result.object_parts.is_none());
@@ -281,7 +286,10 @@ async fn test_get_attributes_mpu() {
     assert_eq!(result.storage_class, Some(expected_storage_class.to_owned()));
     assert_eq!(result.object_size, Some(object_size));
 
-    assert!(result.checksum.is_none());
+    // Behavior when uploading without explicitly specifying the checksum algorithm is changing.
+    // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#using-additional-checksums.
+    // TODO: Review this test when adding support for the new algorithm.
+    // assert!(result.checksum.is_none());
 
     // object_parts is returned only if the object is using additional checksums.
     let object_parts = result.object_parts.unwrap();
