@@ -459,7 +459,7 @@ mod tests {
     use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
     use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
-    use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectRequest};
+    use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectResponse};
     use test_case::test_case;
 
     fn new_uploader_for_test<Client>(
@@ -696,7 +696,7 @@ mod tests {
             .await
             .expect("get_object failed");
 
-        let checksum = get_request.get_object_checksum().await.expect("failed to get checksum");
+        let checksum = get_request.get_object_checksum().expect("failed to get checksum");
         assert_eq!(checksum.algorithms(), expected_checksum_algorithm);
 
         let actual = get_request.collect().await.expect("failed to collect body");

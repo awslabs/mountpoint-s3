@@ -27,7 +27,7 @@ pub use etag::ETag;
 #[cfg_attr(not(docsrs), async_trait)]
 #[auto_impl(Arc)]
 pub trait ObjectClient {
-    type GetObjectRequest: GetObjectRequest<ClientError = Self::ClientError>;
+    type GetObjectResponse: GetObjectResponse<ClientError = Self::ClientError>;
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
@@ -79,7 +79,7 @@ pub trait ObjectClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError>;
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError>;
 
     /// List the objects in a bucket under a given prefix
     async fn list_objects(
@@ -592,18 +592,16 @@ impl UploadChecksum {
 /// Each item of the stream is a part of the object body together with the part's offset within the
 /// object.
 #[cfg_attr(not(docsrs), async_trait)]
-pub trait GetObjectRequest:
+pub trait GetObjectResponse:
     Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {
     type ClientError: std::error::Error + Send + Sync + 'static;
 
     /// Get the object's user defined metadata.
-    /// If the metadata has already been read, return immediately. Otherwise, resolve the future
-    /// when they're read.
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError>;
+    fn get_object_metadata(&self) -> ObjectMetadata;
 
     /// Get the object's checksum, if uploaded with one
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError>;
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError>;
 
     /// Increment the flow-control window, so that response data continues downloading.
     ///
@@ -624,6 +622,15 @@ pub trait GetObjectRequest:
     /// Get the upper bound of the current read window. When backpressure is enabled, [GetObjectRequest] can
     /// return data up to this offset *exclusively*.
     fn read_window_end_offset(self: Pin<&Self>) -> u64;
+}
+
+/// Failures to return object checksum
+#[derive(Debug, Error)]
+pub enum ObjectChecksumError {
+    #[error("requested object checksums, but did not specify it in the request")]
+    DidNotRequestChecksums,
+    #[error("object checksum could not be retrieved from headers")]
+    HeadersError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 /// A single element of a [`get_object`](ObjectClient::get_object) response stream is a pair of

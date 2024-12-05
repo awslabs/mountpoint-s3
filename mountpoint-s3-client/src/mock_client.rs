@@ -28,11 +28,11 @@ use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
     Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
     DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
-    GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest, HeadObjectError, HeadObjectParams,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectClient, ObjectClientError,
-    ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest,
-    PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview,
-    UploadReviewPart,
+    GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse, HeadObjectError, HeadObjectParams,
+    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectChecksumError, ObjectClient,
+    ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams,
+    PutObjectRequest, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus,
+    UploadChecksum, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -670,7 +670,7 @@ fn validate_checksum(
 }
 
 #[derive(Debug)]
-pub struct MockGetObjectRequest {
+pub struct MockGetObjectResponse {
     object: MockObject,
     next_offset: u64,
     length: usize,
@@ -679,7 +679,7 @@ pub struct MockGetObjectRequest {
     read_window_end_offset: u64,
 }
 
-impl MockGetObjectRequest {
+impl MockGetObjectResponse {
     /// Helpful test utility to just collect the entire object into memory. Will panic if the object
     /// parts are streamed out of order.
     pub async fn collect(mut self) -> ObjectClientResult<Box<[u8]>, GetObjectError, MockClientError> {
@@ -695,14 +695,14 @@ impl MockGetObjectRequest {
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl GetObjectRequest for MockGetObjectRequest {
+impl GetObjectResponse for MockGetObjectResponse {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        Ok(self.object.object_metadata.clone())
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.object.object_metadata.clone()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         Ok(self.object.checksum.clone())
     }
 
@@ -715,7 +715,7 @@ impl GetObjectRequest for MockGetObjectRequest {
     }
 }
 
-impl Stream for MockGetObjectRequest {
+impl Stream for MockGetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -761,7 +761,7 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
 
 #[cfg_attr(not(docsrs), async_trait)]
 impl ObjectClient for MockClient {
-    type GetObjectRequest = MockGetObjectRequest;
+    type GetObjectResponse = MockGetObjectResponse;
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
@@ -829,7 +829,7 @@ impl ObjectClient for MockClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?params.range, ?params.if_match, "GetObject");
         self.inc_op_count(Operation::GetObject);
 
@@ -855,7 +855,7 @@ impl ObjectClient for MockClient {
                 (0, object.len())
             };
 
-            Ok(MockGetObjectRequest {
+            Ok(MockGetObjectResponse {
                 object: object.clone(),
                 next_offset,
                 length,
@@ -1258,7 +1258,7 @@ mod tests {
         let expected_range = expected_range.start as usize..expected_range.end as usize;
         assert_eq!(&accum[..], &body[expected_range], "body does not match");
 
-        assert_eq!(get_request.get_object_metadata().await, Ok(object_metadata));
+        assert_eq!(get_request.get_object_metadata(), object_metadata);
     }
 
     #[tokio::test]

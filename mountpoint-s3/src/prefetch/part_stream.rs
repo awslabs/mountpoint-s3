@@ -2,7 +2,7 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::{types::GetObjectParams, types::GetObjectRequest, ObjectClient};
+use mountpoint_s3_client::{types::GetObjectParams, types::GetObjectResponse, ObjectClient};
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};

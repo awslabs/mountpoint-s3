@@ -15,10 +15,10 @@ use pin_project::pin_project;
 
 use crate::object_client::{
     Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
-    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
+    ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError,
+    PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -75,7 +75,7 @@ where
     State: Send + Sync + 'static,
     GetWrapperState: Send + Sync + 'static,
 {
-    type GetObjectRequest = FailureGetRequest<Client, GetWrapperState>;
+    type GetObjectResponse = FailureGetResponse<Client, GetWrapperState>;
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
 
@@ -122,10 +122,10 @@ where
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, params)?;
         let request = self.client.get_object(bucket, key, params).await?;
-        Ok(FailureGetRequest {
+        Ok(FailureGetResponse {
             state: wrapper.state,
             result_fn: wrapper.result_fn,
             request,
@@ -206,25 +206,25 @@ where
 }
 
 #[pin_project]
-pub struct FailureGetRequest<Client: ObjectClient, GetWrapperState> {
+pub struct FailureGetResponse<Client: ObjectClient, GetWrapperState> {
     state: GetWrapperState,
     result_fn: fn(&mut GetWrapperState) -> Result<(), Client::ClientError>,
     #[pin]
-    request: Client::GetObjectRequest,
+    request: Client::GetObjectResponse,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRequest
-    for FailureGetRequest<Client, FailState>
+impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectResponse
+    for FailureGetResponse<Client, FailState>
 {
     type ClientError = Client::ClientError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        self.request.get_object_metadata().await
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.request.get_object_metadata()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
-        self.request.get_object_checksum().await
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
+        self.request.get_object_checksum()
     }
 
     fn increment_read_window(self: Pin<&mut Self>, len: usize) {
@@ -238,7 +238,7 @@ impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectReques
     }
 }
 
-impl<Client: ObjectClient, FailState> Stream for FailureGetRequest<Client, FailState> {
+impl<Client: ObjectClient, FailState> Stream for FailureGetResponse<Client, FailState> {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, Client::ClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {

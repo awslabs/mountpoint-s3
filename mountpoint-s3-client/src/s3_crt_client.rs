@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use futures::future::{Fuse, FusedFuture};
+use futures::FutureExt;
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -60,7 +62,7 @@ pub(crate) mod copy_object;
 pub(crate) mod delete_object;
 pub(crate) mod get_object;
 
-pub(crate) use get_object::S3GetObjectRequest;
+pub(crate) use get_object::S3GetObjectResponse;
 pub(crate) mod get_object_attributes;
 
 pub(crate) mod head_object;
@@ -699,7 +701,7 @@ impl S3CrtClientInner {
         Self::poll_client_metrics(&self.s3_client);
 
         Ok(S3HttpRequest {
-            receiver: rx,
+            receiver: rx.fuse(),
             meta_request,
         })
     }
@@ -950,8 +952,9 @@ impl<'a> S3Message<'a> {
 #[derive(Debug)]
 #[pin_project(PinnedDrop)]
 struct S3HttpRequest<T, E> {
+    /// Receiver for the result of the `on_finish` callback.
     #[pin]
-    receiver: oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>,
+    receiver: Fuse<oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>>,
     meta_request: MetaRequest,
 }
 
@@ -974,6 +977,12 @@ impl<T: Send, E: Send> Future for S3HttpRequest<T, E> {
 impl<T, E> PinnedDrop for S3HttpRequest<T, E> {
     fn drop(self: Pin<&mut Self>) {
         self.meta_request.cancel();
+    }
+}
+
+impl<T: Send, E: Send> FusedFuture for S3HttpRequest<T, E> {
+    fn is_terminated(&self) -> bool {
+        self.receiver.is_terminated()
     }
 }
 
@@ -1244,7 +1253,7 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
 
 #[cfg_attr(not(docsrs), async_trait)]
 impl ObjectClient for S3CrtClient {
-    type GetObjectRequest = S3GetObjectRequest;
+    type GetObjectResponse = S3GetObjectResponse;
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
@@ -1300,8 +1309,8 @@ impl ObjectClient for S3CrtClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
-        self.get_object(bucket, key, params)
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
+        self.get_object(bucket, key, params).await
     }
 
     async fn list_objects(

@@ -1,5 +1,26 @@
 ## Unreleased
 
+### Breaking changes
+
+* `get_object` method now waits for the response headers before returning and may report errors earlier.
+  Moreover, its return type on success has been renamed to `GetObjectResponse` (was `GetObjectRequest`).
+  ([#1171](https://github.com/awslabs/mountpoint-s3/pull/1171))
+* `get_object` method now requires a `GetObjectParams` parameter.
+  Two of the existing parameters, `range` and `if_match` have been moved to `GetObjectParams`.
+  ([#1121](https://github.com/awslabs/mountpoint-s3/pull/1121))
+* `head_object` method now requires a `HeadObjectParams` parameter.
+  The structure itself is not required to specify anything to achieve the existing behavior.
+  ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
+* `HeadObjectResult` no longer contains an `ObjectInfo` struct.
+  Instead, it returns the object attributes as individual fields on the `HeadObjectResult`.
+  The entity tag field has also changed and is now of type `ETag` rather than `String`.
+  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
+* `HeadObjectResult` no longer provides the bucket and key used in the original request.
+  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
+* Both `ObjectInfo` and `ChecksumAlgorithm` structs are now marked `non_exhaustive`, to indicate that new fields may be added in the future.
+  `ChecksumAlgorithm` no longer implements `Copy`.
+  ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
+
 ### Other changes
 
 * `HeadObjectResult` now includes the server-side encryption settings used when storing the object.
@@ -20,24 +41,6 @@
   ([#1157](https://github.com/awslabs/mountpoint-s3/pull/1157))
 * Amazon S3 introduces support for AWS Dedicated Local Zones.
   ([awslabs/aws-c-s3#465](https://github.com/awslabs/aws-c-s3/pull/465))
-
-### Breaking changes
-
-* `HeadObjectResult` no longer contains an `ObjectInfo` struct.
-  Instead, it returns the object attributes as individual fields on the `HeadObjectResult`.
-  The entity tag field has also changed and is now of type `ETag` rather than `String`.
-  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
-* `HeadObjectResult` no longer provides the bucket and key used in the original request.
-  ([#1058](https://github.com/awslabs/mountpoint-s3/pull/1058))
-* `head_object` method now requires a `HeadObjectParams` parameter.
-  The structure itself is not required to specify anything to achieve the existing behavior.
-  ([#1083](https://github.com/awslabs/mountpoint-s3/pull/1083))
-* Both `ObjectInfo` and `ChecksumAlgorithm` structs are now marked `non_exhaustive`, to indicate that new fields may be added in the future.
-  `ChecksumAlgorithm` no longer implements `Copy`.
-  ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
-* `get_object` method now requires a `GetObjectParams` parameter.
-  Two of the existing parameters, `range` and `if_match` have been moved to `GetObjectParams`.
-  ([#1121](https://github.com/awslabs/mountpoint-s3/pull/1121))
 
 
 ## v0.11.0 (October 17, 2024)

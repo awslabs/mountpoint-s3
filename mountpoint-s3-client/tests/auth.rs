@@ -8,21 +8,18 @@ use std::writeln;
 
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
-#[cfg(not(feature = "s3express_tests"))]
-use common::creds::get_scoped_down_credentials;
+use rusty_fork::rusty_fork_test;
+use tempfile::NamedTempFile;
+
 use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use common::*;
-use futures::StreamExt;
+
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::types::GetObjectParams;
-#[cfg(not(feature = "s3express_tests"))]
-use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
-use rusty_fork::rusty_fork_test;
-use tempfile::NamedTempFile;
 
 /// Test creating a client with the static credentials provider
 #[tokio::test]
@@ -76,15 +73,9 @@ async fn test_static_provider() {
         .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
-    let mut request = client
+    let _error = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
-        .expect("get_object request should be sent");
-
-    let _error = request
-        .next()
-        .await
-        .unwrap()
         .expect_err("bogus credentials should not work");
 }
 
@@ -154,15 +145,9 @@ async fn test_profile_provider_static_async() {
         .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
-    let mut request = client
+    let _error = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
-        .expect("get_object should be sent");
-
-    let _error = request
-        .next()
-        .await
-        .unwrap()
         .expect_err("bogus credentials should not work");
 
     // Try it again with a bogus profile name so we know it's not succeeding by accident. This time
@@ -219,12 +204,10 @@ async fn test_profile_provider_assume_role_async() {
         .endpoint_config(get_test_endpoint_config());
     let client = S3CrtClient::new(config).unwrap();
 
-    let mut request = client
+    let _error = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
-        .expect("get_object should be sent");
-
-    let _error = request.next().await.unwrap().expect_err("role arn is not set");
+        .expect_err("role arn is not set");
 
     // Build a S3CrtClient that uses the right config, now the request should succeed.
     writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
@@ -393,6 +376,9 @@ rusty_fork_test! {
 // S3 Express One Zone doesn't support scoped credentials
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_scoped_credentials() {
+    use common::creds::get_scoped_down_credentials;
+    use mountpoint_s3_client::S3RequestError;
+
     let sdk_client = get_test_sdk_client().await;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_scoped_credentials");
 
@@ -440,14 +426,9 @@ async fn test_scoped_credentials() {
         .expect("list_objects_should_succeed");
 
     // Outside the prefix, requests should fail with permissions errors
-    let mut request = client
+    let err = client
         .get_object(&bucket, &format!("{prefix}baz.txt"), &GetObjectParams::new())
         .await
-        .expect("request should be sent");
-    let err = request
-        .next()
-        .await
-        .unwrap()
         .expect_err("should fail in different prefix");
     assert!(matches!(
         err,

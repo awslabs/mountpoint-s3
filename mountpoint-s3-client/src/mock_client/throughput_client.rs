@@ -10,14 +10,14 @@ use pin_project::pin_project;
 
 use crate::mock_client::leaky_bucket::LeakyBucket;
 use crate::mock_client::{
-    MockClient, MockClientConfig, MockClientError, MockGetObjectRequest, MockObject, MockPutObjectRequest,
+    MockClient, MockClientConfig, MockClientError, MockGetObjectResponse, MockObject, MockPutObjectRequest,
 };
 use crate::object_client::{
     Checksum, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, GetBodyPart,
-    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectRequest,
+    GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams, PutObjectResult,
-    PutObjectSingleParams,
+    ObjectChecksumError, ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
+    PutObjectResult, PutObjectSingleParams,
 };
 
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
@@ -62,19 +62,19 @@ impl ThroughputMockClient {
 #[pin_project]
 pub struct ThroughputGetObjectRequest {
     #[pin]
-    request: MockGetObjectRequest,
+    request: MockGetObjectResponse,
     rate_limiter: LeakyBucket,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl GetObjectRequest for ThroughputGetObjectRequest {
+impl GetObjectResponse for ThroughputGetObjectRequest {
     type ClientError = MockClientError;
 
-    async fn get_object_metadata(&self) -> ObjectClientResult<ObjectMetadata, GetObjectError, Self::ClientError> {
-        Ok(self.request.object.object_metadata.clone())
+    fn get_object_metadata(&self) -> ObjectMetadata {
+        self.request.object.object_metadata.clone()
     }
 
-    async fn get_object_checksum(&self) -> ObjectClientResult<Checksum, GetObjectError, Self::ClientError> {
+    fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         Ok(self.request.object.checksum.clone())
     }
 
@@ -107,7 +107,7 @@ impl Stream for ThroughputGetObjectRequest {
 
 #[async_trait]
 impl ObjectClient for ThroughputMockClient {
-    type GetObjectRequest = ThroughputGetObjectRequest;
+    type GetObjectResponse = ThroughputGetObjectRequest;
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
@@ -153,7 +153,7 @@ impl ObjectClient for ThroughputMockClient {
         bucket: &str,
         key: &str,
         params: &GetObjectParams,
-    ) -> ObjectClientResult<Self::GetObjectRequest, GetObjectError, Self::ClientError> {
+    ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         let request = self.inner.get_object(bucket, key, params).await?;
         let rate_limiter = self.rate_limiter.clone();
         Ok(ThroughputGetObjectRequest { request, rate_limiter })

@@ -10,7 +10,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::GetObjectRequest;
+use mountpoint_s3_client::types::GetObjectResponse;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
@@ -221,7 +221,7 @@ pub async fn check_get_result<E: std::fmt::Debug>(
 /// Check the result of a GET against expected bytes.
 pub async fn check_backpressure_get_result(
     read_window: usize,
-    result: impl GetObjectRequest,
+    result: impl GetObjectResponse,
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {
