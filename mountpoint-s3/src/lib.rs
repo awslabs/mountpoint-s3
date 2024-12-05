@@ -1,3 +1,4 @@
+mod async_util;
 pub mod autoconfigure;
 mod build_info;
 mod checksums;
