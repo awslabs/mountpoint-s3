@@ -113,14 +113,14 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-    ) -> Result<Option<ChecksummedBytes>, (DataCacheError, &'static str)> {
+    ) -> Result<Option<ChecksummedBytes>, DataCacheError> {
         if object_size > self.config.max_object_size {
             metrics::counter!("express_data_cache.over_max_object_size", "type" => "read").increment(1);
             return Ok(None);
         }
 
         if block_offset != block_idx * self.config.block_size {
-            return Err((DataCacheError::InvalidBlockOffset, "invalid_block_offset"));
+            return Err(DataCacheError::InvalidBlockOffset);
         }
 
         let object_key = get_s3_key(&self.prefix, cache_key, block_idx);
@@ -138,7 +138,7 @@ where
                 return Ok(None);
             }
             Err(e) => {
-                return Err((DataCacheError::IoFailure(e.into()), "get_object_failure"));
+                return Err(DataCacheError::IoFailure(e.into()));
             }
         };
         let mut backpressure_handle = result.backpressure_handle().cloned();
@@ -152,7 +152,7 @@ where
             match chunk {
                 Ok((offset, body)) => {
                     if offset != buffer.len() as u64 {
-                        return Err((DataCacheError::InvalidBlockOffset, "invalid_block_offset"));
+                        return Err(DataCacheError::InvalidBlockOffset);
                     }
 
                     buffer = if buffer.is_empty() {
@@ -171,7 +171,7 @@ where
                     return Ok(None);
                 }
                 Err(e) => {
-                    return Err((DataCacheError::IoFailure(e.into()), "get_object_failure"));
+                    return Err(DataCacheError::IoFailure(e.into()));
                 }
             }
         }
@@ -180,17 +180,16 @@ where
 
         let checksum = result
             .get_object_checksum()
-            .map_err(|err| (DataCacheError::IoFailure(err.into()), "invalid_block_checksum"))?;
+            .map_err(|_| DataCacheError::InvalidBlockChecksum)?;
         let crc32c_b64 = checksum
             .checksum_crc32c
-            .ok_or_else(|| (DataCacheError::BlockChecksumMissing, "missing_block_checksum"))?;
+            .ok_or_else(|| DataCacheError::InvalidBlockChecksum)?;
         let crc32c = crc32c_from_base64(&crc32c_b64)
-            .map_err(|err| (DataCacheError::IoFailure(err.into()), "unparsable_block_checksum"))?;
+            .map_err(|_| DataCacheError::InvalidBlockChecksum)?;
 
         let block_metadata = BlockMetadata::new(block_idx, block_offset, cache_key, &self.bucket_name, crc32c);
         block_metadata
-            .validate_object_metadata(&object_metadata)
-            .map_err(|err| (err, "invalid_block_metadata"))?;
+            .validate_object_metadata(&object_metadata)?;
 
         Ok(Some(ChecksummedBytes::new_from_inner_data(buffer, crc32c)))
     }
@@ -202,21 +201,21 @@ where
         block_offset: u64,
         bytes: ChecksummedBytes,
         object_size: usize,
-    ) -> Result<(), (DataCacheError, &'static str)> {
+    ) -> Result<(), DataCacheError> {
         if object_size > self.config.max_object_size {
             metrics::counter!("express_data_cache.over_max_object_size", "type" => "write").increment(1);
             return Ok(());
         }
 
         if block_offset != block_idx * self.config.block_size {
-            return Err((DataCacheError::InvalidBlockOffset, "invalid_block_offset"));
+            return Err(DataCacheError::InvalidBlockOffset);
         }
 
         let object_key = get_s3_key(&self.prefix, &cache_key, block_idx);
 
         let (data, checksum) = bytes
             .into_inner()
-            .map_err(|_| (DataCacheError::InvalidBlockContent, "invalid_block_content"))?;
+            .map_err(|_| DataCacheError::InvalidBlockContent)?;
         let block_metadata = BlockMetadata::new(block_idx, block_offset, &cache_key, &self.bucket_name, checksum);
 
         self.client
@@ -228,7 +227,7 @@ where
             )
             .in_current_span()
             .await
-            .map_err(|err| (err.into(), "put_object_failure"))?;
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
 
         Ok(())
     }
@@ -251,15 +250,15 @@ where
             Ok(Some(data)) => {
                 metrics::counter!("express_data_cache.block_hit").increment(1);
                 metrics::counter!("express_data_cache.total_bytes", "type" => "read").increment(data.len() as u64);
-                (Ok(Some(data)), "hit")
+                (Ok(Some(data)), "ok")
             }
             Ok(None) => {
                 metrics::counter!("express_data_cache.block_hit").increment(0);
                 (Ok(None), "miss")
             }
-            Err((err, reason)) => {
+            Err(err) => {
                 metrics::counter!("express_data_cache.block_hit").increment(0);
-                metrics::counter!("express_data_cache.block_err", "reason" => reason, "type" => "read").increment(1);
+                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "read").increment(1);
                 (Err(err), "error")
             }
         };
@@ -283,10 +282,10 @@ where
         {
             Ok(()) => {
                 metrics::counter!("express_data_cache.total_bytes", "type" => "write").increment(object_size as u64);
-                (Ok(()), "hit")
+                (Ok(()), "ok")
             }
-            Err((err, reason)) => {
-                metrics::counter!("express_data_cache.block_err", "reason" => reason, "type" => "write").increment(1);
+            Err(err) => {
+                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "write").increment(1);
                 (Err(err), "error")
             }
         };
@@ -621,7 +620,7 @@ mod tests {
             .get_block(&cache_key, 0, 0, data.len())
             .await
             .expect_err("cache should return error if checksum isn't present");
-        assert!(matches!(err, DataCacheError::BlockChecksumMissing));
+        assert!(matches!(err, DataCacheError::InvalidBlockChecksum));
 
         // Remove the object metadata when writing.
         client
