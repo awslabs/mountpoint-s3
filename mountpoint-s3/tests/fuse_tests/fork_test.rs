@@ -810,7 +810,7 @@ fn read_with_no_permissions_for_a_key_sse() {
         read_result.expect("should be able to read a default-encrypted file after the first read failure");
     }
 
-    let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read failed: get request failed: get object request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
+    let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read 5 failed: get request failed: get object request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
