@@ -32,14 +32,27 @@ pub enum DataCacheError {
     IoFailure(#[source] anyhow::Error),
     #[error("Block header was not valid: {0}")]
     InvalidBlockHeader(String),
-    #[error("Block checksum was not present")]
-    BlockChecksumMissing,
+    #[error("Block checksum was not valid")]
+    InvalidBlockChecksum,
     #[error("Block content was not valid/readable")]
     InvalidBlockContent,
     #[error("Block offset does not match block index")]
     InvalidBlockOffset,
     #[error("Error while trying to evict cache content")]
     EvictionFailure,
+}
+
+impl DataCacheError {
+    fn get_reason(&self) -> &'static str {
+        match self {
+            DataCacheError::IoFailure(_) => "io_failure",
+            DataCacheError::InvalidBlockHeader(_) => "invalid_block_header",
+            DataCacheError::InvalidBlockChecksum => "invalid_block_checksum",
+            DataCacheError::InvalidBlockContent => "invalid_block_content",
+            DataCacheError::InvalidBlockOffset => "invalid_block_offset",
+            DataCacheError::EvictionFailure => "eviction_failure",
+        }
+    }
 }
 
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
