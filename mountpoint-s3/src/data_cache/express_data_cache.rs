@@ -253,7 +253,7 @@ where
             }
             Err(err) => {
                 metrics::counter!("express_data_cache.block_hit").increment(0);
-                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "read")
+                metrics::counter!("express_data_cache.block_err", "reason" => err.reason(), "type" => "read")
                     .increment(1);
                 (Err(err), "error")
             }
@@ -281,7 +281,7 @@ where
                 (Ok(()), "ok")
             }
             Err(err) => {
-                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "write")
+                metrics::counter!("express_data_cache.block_err", "reason" => err.reason(), "type" => "write")
                     .increment(1);
                 (Err(err), "error")
             }

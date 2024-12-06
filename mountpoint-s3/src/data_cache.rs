@@ -43,7 +43,7 @@ pub enum DataCacheError {
 }
 
 impl DataCacheError {
-    fn get_reason(&self) -> &'static str {
+    fn reason(&self) -> &'static str {
         match self {
             DataCacheError::IoFailure(_) => "io_failure",
             DataCacheError::InvalidBlockHeader(_) => "invalid_block_header",
