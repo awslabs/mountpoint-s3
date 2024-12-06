@@ -11,6 +11,7 @@ mod in_memory_data_cache;
 mod multilevel_cache;
 
 use async_trait::async_trait;
+use strum_macros::IntoStaticStr;
 use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
@@ -26,7 +27,8 @@ use crate::object::ObjectId;
 pub type BlockIndex = u64;
 
 /// Errors returned by operations on a [DataCache]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum DataCacheError {
     #[error("IO error when reading or writing from cache: {0}")]
     IoFailure(#[source] anyhow::Error),
@@ -44,14 +46,7 @@ pub enum DataCacheError {
 
 impl DataCacheError {
     fn get_reason(&self) -> &'static str {
-        match self {
-            DataCacheError::IoFailure(_) => "io_failure",
-            DataCacheError::InvalidBlockHeader(_) => "invalid_block_header",
-            DataCacheError::InvalidBlockChecksum => "invalid_block_checksum",
-            DataCacheError::InvalidBlockContent => "invalid_block_content",
-            DataCacheError::InvalidBlockOffset => "invalid_block_offset",
-            DataCacheError::EvictionFailure => "eviction_failure",
-        }
+        self.into()
     }
 }
 
