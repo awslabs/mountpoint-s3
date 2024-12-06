@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use base64ct::{Base64, Encoding};
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
@@ -149,8 +149,7 @@ where
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
         result.as_mut().increment_read_window(self.config.block_size as usize);
 
-        // TODO: optimize for the common case of a single chunk.
-        let mut buffer = BytesMut::default();
+        let mut buffer: Bytes = Bytes::new();
         while let Some(chunk) = result.next().await {
             match chunk {
                 Ok((offset, body)) => {
@@ -158,7 +157,15 @@ where
                         emit_failure_metric_read("invalid_block_offset");
                         return Err(DataCacheError::InvalidBlockOffset);
                     }
-                    buffer.extend_from_slice(&body);
+
+                    buffer = if buffer.is_empty() {
+                        Bytes::from(body)
+                    } else {
+                        // Unlikely: we expect `get_object` to return a single chunk.
+                        let mut buffer = BytesMut::from(buffer);
+                        buffer.extend_from_slice(&body);
+                        buffer.freeze()
+                    };
 
                     // Ensure the flow-control window is large enough.
                     result.as_mut().increment_read_window(self.config.block_size as usize);
@@ -173,7 +180,6 @@ where
                 }
             }
         }
-        let buffer = buffer.freeze();
 
         let object_metadata = result.get_object_metadata();
 
