@@ -105,7 +105,6 @@ where
             backpressure_handle.increment_read_window(self.config.block_size as usize);
         }
     }
-}
 
     async fn read_block(
         &self,
@@ -184,12 +183,10 @@ where
         let crc32c_b64 = checksum
             .checksum_crc32c
             .ok_or_else(|| DataCacheError::InvalidBlockChecksum)?;
-        let crc32c = crc32c_from_base64(&crc32c_b64)
-            .map_err(|_| DataCacheError::InvalidBlockChecksum)?;
+        let crc32c = crc32c_from_base64(&crc32c_b64).map_err(|_| DataCacheError::InvalidBlockChecksum)?;
 
         let block_metadata = BlockMetadata::new(block_idx, block_offset, cache_key, &self.bucket_name, crc32c);
-        block_metadata
-            .validate_object_metadata(&object_metadata)?;
+        block_metadata.validate_object_metadata(&object_metadata)?;
 
         Ok(Some(ChecksummedBytes::new_from_inner_data(buffer, crc32c)))
     }
@@ -213,9 +210,7 @@ where
 
         let object_key = get_s3_key(&self.prefix, &cache_key, block_idx);
 
-        let (data, checksum) = bytes
-            .into_inner()
-            .map_err(|_| DataCacheError::InvalidBlockContent)?;
+        let (data, checksum) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
         let block_metadata = BlockMetadata::new(block_idx, block_offset, &cache_key, &self.bucket_name, checksum);
 
         self.client
@@ -258,7 +253,8 @@ where
             }
             Err(err) => {
                 metrics::counter!("express_data_cache.block_hit").increment(0);
-                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "read").increment(1);
+                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "read")
+                    .increment(1);
                 (Err(err), "error")
             }
         };
@@ -285,7 +281,8 @@ where
                 (Ok(()), "ok")
             }
             Err(err) => {
-                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "write").increment(1);
+                metrics::counter!("express_data_cache.block_err", "reason" => err.get_reason(), "type" => "write")
+                    .increment(1);
                 (Err(err), "error")
             }
         };
