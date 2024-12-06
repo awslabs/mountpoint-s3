@@ -196,12 +196,16 @@ You can build Mountpoint for Amazon S3 from source. However, binaries built in t
    ```
    git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git
    ```
-4. Build Mountpoint for Amazon S3:
+4. Update Git Submodules
+   ```
+   git submodule update --init --recursive
+   ```
+5. Build Mountpoint for Amazon S3:
    ```
    cd mountpoint-s3
    cargo build --release
    ```
-5. The final binary will be at `target/release/mount-s3`. Optionally, you can install this binary by copying it to the `/usr/bin` directory:
+6. The final binary will be at `target/release/mount-s3`. Optionally, you can install this binary by copying it to the `/usr/bin` directory:
    ```
    sudo cp target/release/mount-s3 /usr/bin/
    ```
