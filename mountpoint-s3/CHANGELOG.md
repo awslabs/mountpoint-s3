@@ -2,7 +2,7 @@
 
 ### Other changes
 
-* Fix an issue where an interrupt during `readdir` syscall lead to an error. ([#965](https://github.com/awslabs/mountpoint-s3/pull/965))
+* Fix an issue where an interrupt during `readdir` syscall leads to an error. ([#965](https://github.com/awslabs/mountpoint-s3/pull/965))
 
 ## v1.13.0 (December 2, 2024)
 
