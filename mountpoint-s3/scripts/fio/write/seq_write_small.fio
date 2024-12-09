@@ -1,0 +1,15 @@
+[global]
+name=fs_bench
+bs=256k
+runtime=30s
+time_based
+group_reporting
+
+[sequential_write_small_file]
+size=5m
+rw=write
+ioengine=sync
+fallocate=none
+create_on_open=1
+fsync_on_close=1
+unlink=1
