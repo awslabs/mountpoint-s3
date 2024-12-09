@@ -52,6 +52,11 @@ impl<T, E> Lazy<T, E> {
         self.force().await?;
         Ok(self.value.as_mut().unwrap())
     }
+
+    pub async fn into_inner(mut self) -> Result<T, E> {
+        self.force().await?;
+        Ok(self.value.take().unwrap())
+    }
 }
 
 impl<T, E> Debug for Lazy<T, E>

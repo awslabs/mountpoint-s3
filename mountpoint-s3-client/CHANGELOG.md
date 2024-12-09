@@ -20,6 +20,8 @@
 * Both `ObjectInfo` and `ChecksumAlgorithm` structs are now marked `non_exhaustive`, to indicate that new fields may be added in the future.
   `ChecksumAlgorithm` no longer implements `Copy`.
   ([#1086](https://github.com/awslabs/mountpoint-s3/pull/1086))
+* `put_object` method now waits for the `CreateMultipartUpload` request to complete before returning and may report errors earlier.
+  ([#1192](https://github.com/awslabs/mountpoint-s3/pull/1192))
 
 ### Other changes
 

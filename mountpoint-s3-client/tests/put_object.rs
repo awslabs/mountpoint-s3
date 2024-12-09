@@ -6,8 +6,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use common::*;
+
 use futures::{pin_mut, FutureExt, StreamExt};
-use mountpoint_s3_client::checksums::crc32c_to_base64;
+use rand::Rng;
+use test_case::test_case;
+
+use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
@@ -15,9 +19,6 @@ use mountpoint_s3_client::types::{
     PutObjectTrailingChecksums,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
-use mountpoint_s3_crt::checksums::crc32c;
-use rand::Rng;
-use test_case::test_case;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
@@ -282,7 +283,7 @@ async fn test_put_object_write_cancelled() {
         .expect_err("further writes should fail");
     assert!(matches!(
         err,
-        ObjectClientError::ClientError(S3RequestError::RequestCanceled)
+        ObjectClientError::ClientError(S3RequestError::InternalError(_))
     ));
 }
 
@@ -294,26 +295,11 @@ async fn test_put_object_initiate_failure() {
 
     let params = PutObjectParams::new().storage_class("INVALID_STORAGE_CLASS".into());
 
-    let mut request = client
+    // The MPU initiation should fail, so we should get an error from put_object.
+    let _err = client
         .put_object(&bucket, &key, &params)
         .await
-        .expect("put_object should succeed");
-
-    // The MPU initiation should fail, so we should get an error when we try to write.
-    let _err = request.write(&[1, 2, 3, 4]).await.expect_err("write should fail");
-
-    // Try again just to make sure the failure is fused correctly and doesn't block forever if
-    // someone (incorrectly) tries to write again after a failure.
-    let _err = request
-        .write(&[1, 2, 3, 4])
-        .await
-        .expect_err("second write should fail");
-
-    // Abort the request (which should already have been canceled)
-    drop(request);
-
-    // Wait a bit to let any requests settle.
-    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        .expect_err("put_object should fail");
 
     let sdk_client = get_test_sdk_client().await;
     let uploads_in_progress = get_mpu_count_for_key(&sdk_client, &bucket, &prefix, &key)
@@ -435,8 +421,10 @@ async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<Strin
 
     let params = PutObjectParams::new().object_metadata(object_metadata.clone());
 
-    let mut request = client.put_object(&bucket, &key, &params).await.unwrap();
-    request.write(b"data").await.expect_err("header parsing should fail");
+    client
+        .put_object(&bucket, &key, &params)
+        .await
+        .expect_err("header parsing should fail");
 }
 
 #[test_case(true; "pass review")]
