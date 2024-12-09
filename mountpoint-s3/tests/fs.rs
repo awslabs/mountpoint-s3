@@ -1314,9 +1314,9 @@ async fn test_readdir_rewind_ordered() {
         .collect::<Vec<_>>();
     assert_eq!(entries.len(), 5);
 
-    // Trying to read out of order should fail (only the previous or next offsets are valid)
+    // Trying to read out of order should fail (only offsets in the range of the previous response, or the one immediately following, are valid)
     assert!(reply.entries.back().unwrap().offset > 1);
-    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 1, &mut Default::default())
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 6, &mut Default::default())
         .await
         .expect_err("out of order");
 
@@ -1479,6 +1479,80 @@ async fn test_readdir_rewind_with_local_files_only() {
     // Request everything from zero one more time
     let new_entries = ls(&fs, dir_handle, 0, 20).await;
     assert_eq!(new_entries.len(), 3); // 1 new local file + 2 dirs (. and ..) = 3 entries
+}
+
+// Check that request with an out-of-order offset which is in bounds of previously cached response is served well.
+// This is relevant for situation when user application is interrupted in a readdir system call, which makes the
+// kernel partially discard previous response and request some entries from it again:
+//
+// FUSE( 10) READDIRPLUS fh FileHandle(1), offset 0, size 4096
+// FUSE( 11) INTERRUPT unique RequestId(10)
+// FUSE( 12) READDIRPLUS fh FileHandle(1), offset 1, size 4096  <-- out-of-order offset `1`
+// FUSE( 14) READDIRPLUS fh FileHandle(1), offset 25, size 4096
+#[test_case(1, 25; "first in the beginning, second in full")]
+#[test_case(24, 25; "first in the end, second in full")]
+#[test_case(0, 26; "first in full, second in the beginning")]
+#[test_case(0, 49; "first in full, second in the end")]
+#[tokio::test]
+async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, second_repeated_offset: usize) {
+    let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+
+    for i in 0..48 {
+        // "." and ".." make it a round 50 in total
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let max_entries = 25;
+
+    // first request should just succeed
+    let first_response = ls(&fs, dir_handle, 0, max_entries).await;
+    assert!(first_response.len() == max_entries);
+
+    // request some entries from the first response again
+    let second_response = ls(&fs, dir_handle, first_repeated_offset as i64, max_entries).await;
+    assert_eq!(&first_response[first_repeated_offset..], &second_response[..]);
+
+    // read till the end
+    let third_response = ls(&fs, dir_handle, 25, max_entries).await;
+    assert!(third_response.len() == max_entries);
+
+    // request some entries from the last response again
+    let repeated_response = ls(&fs, dir_handle, second_repeated_offset as i64, max_entries).await;
+    assert_eq!(&third_response[second_repeated_offset - 25..], &repeated_response[..]);
+
+    // final response must be empty, signaling about EOF
+    let final_response = ls(&fs, dir_handle, 50, max_entries).await;
+    assert!(final_response.is_empty());
+}
+
+#[tokio::test]
+async fn test_readdir_repeat_response_after_rewind() {
+    let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+
+    for i in 0..73 {
+        // "." and ".." make it a round 75 in total
+        client.add_object(&format!("foo{i}"), b"foo".into());
+    }
+
+    let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
+    let max_entries = 25;
+
+    // read the first response, we'll later use it as an expected result
+    let first_response = ls(&fs, dir_handle, 0, max_entries).await;
+    assert!(first_response.len() == max_entries);
+
+    // proceed in the stream, so we have a new response cached
+    let second_response = ls(&fs, dir_handle, 25, max_entries).await;
+    assert!(second_response.len() == max_entries);
+
+    // ask for offset 0, causing a rewind (new S3 request)
+    let rewinded_response = ls(&fs, dir_handle, 0, max_entries).await;
+    assert_eq!(first_response, rewinded_response);
+
+    // ask for offset 1, check that the correct cached response is used
+    let repeated_response = ls(&fs, dir_handle, 1, max_entries).await;
+    assert_eq!(&first_response[1..], repeated_response);
 }
 
 #[cfg(feature = "s3_tests")]
