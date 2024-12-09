@@ -71,11 +71,11 @@ pub fn install() -> MetricsSinkHandle {
 fn poll_process_metrics(sys: &mut System) {
     if let Ok(pid) = get_current_pid() {
         let last_mem = sys.process(pid).map_or(0, |process| process.memory());
-        sys.refresh_memory_specifics(MemoryRefreshKind::new().with_ram());
+        sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
         sys.refresh_processes_specifics(
             ProcessesToUpdate::Some(&[pid]),
             false,
-            ProcessRefreshKind::new().with_memory(),
+            ProcessRefreshKind::nothing().with_memory(),
         );
         if let Some(process) = sys.process(pid) {
             // update the metrics only when there is some change, otherwise it will be too spammy.
