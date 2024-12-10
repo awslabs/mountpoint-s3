@@ -127,8 +127,9 @@ do
 done
 
 
-# start time to first byte benchmark
-jobs_dir=mountpoint-s3/scripts/fio/read_latency
+run_start_time_to_first_byte_benchmarks() {
+  category=$1
+  jobs_dir=mountpoint-s3/scripts/fio/${category}_latency
 for job_file in "${jobs_dir}"/*.fio; do
   mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
   job_name=$(basename "${job_file}")
@@ -183,7 +184,12 @@ for job_file in "${jobs_dir}"/*.fio; do
 
   # delete the raw output file from fio
   rm ${results_dir}/${job_name}.json
+
 done
+}
+
+run_start_time_to_first_byte_benchmarks read
+run_start_time_to_first_byte_benchmarks write
 
 # combine all bench results into one json file
 jq -n '[inputs]' ${results_dir}/*.json | tee ${results_dir}/output.json
