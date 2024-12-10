@@ -126,8 +126,7 @@ do
     dir_size=$(awk "BEGIN {print $dir_size*10}")
 done
 
-
-run_start_time_to_first_byte_benchmarks() {
+run_file_benchmarks() {
   category=$1
   jobs_dir=mountpoint-s3/scripts/fio/${category}_latency
 for job_file in "${jobs_dir}"/*.fio; do
@@ -188,8 +187,8 @@ for job_file in "${jobs_dir}"/*.fio; do
 done
 }
 
-run_start_time_to_first_byte_benchmarks read
-run_start_time_to_first_byte_benchmarks write
+run_file_benchmarks read
+run_file_benchmarks write
 
 # combine all bench results into one json file
 jq -n '[inputs]' ${results_dir}/*.json | tee ${results_dir}/output.json

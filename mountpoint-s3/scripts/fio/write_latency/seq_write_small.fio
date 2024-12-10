@@ -2,7 +2,7 @@
 name=fs_bench
 bs=1B
 
-[sequential_write_small_file]
+[time_to_write_one_byte_file]
 size=1B
 rw=write
 ioengine=sync
