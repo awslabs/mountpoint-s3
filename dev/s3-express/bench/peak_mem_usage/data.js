@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1733834306003,
+  "lastUpdate": 1733849418807,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "61dc41779154633ea8c6e15e07ed9e75348870bb",
-          "message": "Introduce incremental upload mode and support for append (#1165)\n\nIntroduce a new option for Mountpoint to upload files incrementally and\nsupport appending to existing files. The new option can be enabled by\nsetting the `--incremental-upload` flag at mount time and is available\nwhen mounting directory buckets in S3 Express One Zone.\n\nAddresses https://github.com/awslabs/mountpoint-s3/issues/1160.\n\n### Does this change impact existing behavior?\n\nNo changes under default settings.\n\n### Does this change need a changelog entry?\n\nYes, added entry to the `mountpoint-s3` changelog, under \"New Features\".\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-11-25T12:39:32Z",
-          "tree_id": "b1a5ead0ea75de63b7dd8fe5209eea4e57412a09",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/61dc41779154633ea8c6e15e07ed9e75348870bb"
-        },
-        "date": 1732546423490,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 17189.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 24551.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 39283.13671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 150.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 396.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 206.171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 407.08203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 78.6015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 323.94921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 86.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 323.4140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 37373.67578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 391.62890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 35277.0703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 392.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 12123.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 261.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 13349.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 9270.515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 263.5859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 358.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 234.734375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2679,6 +2545,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 234.57421875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "688ec178f5394a174ae0460e7a521a23b4862cc5",
+          "message": "Update CRT submodules to latest releases (#1195)\n\nUpdate the CRT libraries to the latest releases. In particular, include:\n* Support full object checksum and crc64nvme.\n([awslabs/aws-c-s3#468](https://github.com/awslabs/aws-c-s3/pull/468))\n\n<details>\n  <summary>Full CRT changelog:</summary>\n  \n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-common be8ed873..fadfef49:\n  > Support relative paths when prebuilding dependencies with CMake (#1174)\n  > Switch CI to use roles (#1173)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-s3 45894ed3..337155f6:\n  > Support full object checksum (#468)\n  > [meta request]: assign shutdown_callback inside critical region (#470)\n  > Switch CI to use roles (#463)\n```\n</details>\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2024-12-10T14:34:31Z",
+          "tree_id": "a76eb1fedb360c0d9396cc8f471c8043976b20b9",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/688ec178f5394a174ae0460e7a521a23b4862cc5"
+        },
+        "date": 1733849418769,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 13726.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 24200.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 37746.7421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 150.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 409.55078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 177.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 410.57421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 84.7109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 325.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 91.8203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 323.53515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 36587.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 394.87890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 37296.53515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 395.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 11611.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 264.96875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 14460.58984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11688.16796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 261.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 404.32421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 253.3046875,
             "unit": "MiB"
           }
         ]
