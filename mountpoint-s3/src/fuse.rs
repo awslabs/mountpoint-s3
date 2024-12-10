@@ -38,7 +38,7 @@ macro_rules! event {
 macro_rules! fuse_error {
     ($name:literal, $reply:expr, $err:expr) => {{
         let err = $err;
-        event!(err.level, "{} {} failed: {:#}", $name, err.to_errno(), err);
+        event!(err.level, "{} Errno: {} failed: {:#}", $name, err.to_errno(), err);
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
         $reply.error(err.to_errno());
     }};
