@@ -1290,4 +1290,24 @@ mod mutations {
             0,
         )
     }
+
+    #[test]
+    fn regression_put_nested_over_open_file() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([])),
+            vec![
+                Op::CreateFile(
+                    ValidName("a".into()),
+                    DirectoryIndex(0),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+                Op::PutObject(
+                    DirectoryIndex(0),
+                    Name("a/-".into()),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+            ],
+            0,
+        )
+    }
 }
