@@ -126,64 +126,70 @@ do
     dir_size=$(awk "BEGIN {print $dir_size*10}")
 done
 
+run_file_benchmarks() {
+  category=$1
+  jobs_dir=mountpoint-s3/scripts/fio/${category}_latency
+  
+  for job_file in "${jobs_dir}"/*.fio; do
+    mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
+    job_name=$(basename "${job_file}")
+    job_name="${job_name%.*}"
 
-# start time to first byte benchmark
-jobs_dir=mountpoint-s3/scripts/fio/read_latency
-for job_file in "${jobs_dir}"/*.fio; do
-  mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-  job_name=$(basename "${job_file}")
-  job_name="${job_name%.*}"
+    log_dir=logs/${job_name}
+    mkdir -p $log_dir
 
-  log_dir=logs/${job_name}
-  mkdir -p $log_dir
+    echo "Running ${job_name}"
 
-  echo "Running ${job_name}"
+    # mount file system
+    cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+      --allow-delete \
+      --allow-overwrite \
+      --log-directory=$log_dir \
+      --prefix=${S3_BUCKET_TEST_PREFIX} \
+      --log-metrics \
+      ${optional_args}
+    mount_status=$?
+    if [ $mount_status -ne 0 ]; then
+      echo "Failed to mount file system"
+      exit 1
+    fi
 
-  # mount file system
-  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
-    --allow-delete \
-    --allow-overwrite \
-    --log-directory=$log_dir \
-    --prefix=${S3_BUCKET_TEST_PREFIX} \
-    --log-metrics \
-    ${optional_args}
-  mount_status=$?
-  if [ $mount_status -ne 0 ]; then
-    echo "Failed to mount file system"
-    exit 1
-  fi
+    # Lay out files for the test:
+    echo >&2 Laying out files for $job_file
+    fio --thread \
+      --directory=${mount_dir} \
+      --create_only=1 \
+      --eta=never \
+      ${job_file}
 
-  # Lay out files for the test:
-  echo >&2 Laying out files for $job_file
-  fio --thread \
-    --directory=${mount_dir} \
-    --create_only=1 \
-    --eta=never \
-    ${job_file}
+    # run the benchmark
+    echo >&2 Running $job_file
+    timeout 300s fio --thread \
+      --output=${results_dir}/${job_name}.json \
+      --output-format=json \
+      --directory=${mount_dir} \
+      ${job_file}
+    job_status=$?
+    if [ $job_status -ne 0 ]; then
+      tail -1000 ${log_dir}/mountpoint-s3-*
+      echo "Job ${job_name} failed with exit code ${job_status}"
+      exit 1
+    fi
 
-  # run the benchmark
-  echo >&2 Running $job_file
-  timeout 300s fio --thread \
-    --output=${results_dir}/${job_name}.json \
-    --output-format=json \
-    --directory=${mount_dir} \
-    ${job_file}
-  job_status=$?
-  if [ $job_status -ne 0 ]; then
-    tail -1000 ${log_dir}/mountpoint-s3-*
-    echo "Job ${job_name} failed with exit code ${job_status}"
-    exit 1
-  fi
+    jq -n 'inputs.jobs[] | if (."job options".rw == "read") 
+      then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
+      elif (."job options".rw == "randread") then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
+      elif (."job options".rw == "randwrite") then {name: .jobname, value: (.write.lat_ns.mean / 1000000), unit: "milliseconds"} 
+      else {name: .jobname, value: (.write.lat_ns.mean / 1000000), unit: "milliseconds"} end' ${results_dir}/${job_name}.json | tee ${results_dir}/${job_name}_parsed.json
 
-  jq -n 'inputs.jobs[] | if (."job options".rw == "read") 
-    then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
-    elif (."job options".rw == "randread") then {name: .jobname, value: (.read.lat_ns.mean / 1000000), unit: "milliseconds"} 
-    elif (."job options".rw == "randwrite") then {name: .jobname, value: (.write.lat_ns.mean / 1000000), unit: "milliseconds"} 
-    else {name: .jobname, value: (.write.lat_ns.mean / 1000000), unit: "milliseconds"} end' ${results_dir}/${job_name}.json | tee ${results_dir}/${job_name}_parsed.json
+    # delete the raw output file from fio
+    rm ${results_dir}/${job_name}.json
 
-  # delete the raw output file from fio
-  rm ${results_dir}/${job_name}.json
-done
+  done
+}
+
+run_file_benchmarks read
+run_file_benchmarks write
 
 # combine all bench results into one json file
 jq -n '[inputs]' ${results_dir}/*.json | tee ${results_dir}/output.json
