@@ -20,6 +20,8 @@ use crate::object_client::{
     PutObjectResult, PutObjectSingleParams,
 };
 
+use super::MockBackpressureHandle;
+
 /// A [MockClient] that rate limits overall download throughput to simulate a target network
 /// performance without the jitter or service latency of targeting a real service. Note that while
 /// the rate limit is shared by all downloading streams, there is no fairness, so some streams can
@@ -60,15 +62,20 @@ impl ThroughputMockClient {
 }
 
 #[pin_project]
-pub struct ThroughputGetObjectRequest {
+pub struct ThroughputGetObjectResponse {
     #[pin]
     request: MockGetObjectResponse,
     rate_limiter: LeakyBucket,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl GetObjectResponse for ThroughputGetObjectRequest {
+impl GetObjectResponse for ThroughputGetObjectResponse {
+    type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
+
+    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle> {
+        self.request.take_backpressure_handle()
+    }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
         self.request.object.object_metadata.clone()
@@ -77,19 +84,9 @@ impl GetObjectResponse for ThroughputGetObjectRequest {
     fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         Ok(self.request.object.checksum.clone())
     }
-
-    fn increment_read_window(self: Pin<&mut Self>, len: usize) {
-        let this = self.project();
-        this.request.increment_read_window(len);
-    }
-
-    fn read_window_end_offset(self: Pin<&Self>) -> u64 {
-        let this = self.project_ref();
-        this.request.read_window_end_offset()
-    }
 }
 
-impl Stream for ThroughputGetObjectRequest {
+impl Stream for ThroughputGetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -107,8 +104,9 @@ impl Stream for ThroughputGetObjectRequest {
 
 #[async_trait]
 impl ObjectClient for ThroughputMockClient {
-    type GetObjectResponse = ThroughputGetObjectRequest;
+    type GetObjectResponse = ThroughputGetObjectResponse;
     type PutObjectRequest = MockPutObjectRequest;
+    type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
 
     fn read_part_size(&self) -> Option<usize> {
@@ -156,7 +154,7 @@ impl ObjectClient for ThroughputMockClient {
     ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         let request = self.inner.get_object(bucket, key, params).await?;
         let rate_limiter = self.rate_limiter.clone();
-        Ok(ThroughputGetObjectRequest { request, rate_limiter })
+        Ok(ThroughputGetObjectResponse { request, rate_limiter })
     }
 
     async fn list_objects(

@@ -10,7 +10,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::GetObjectResponse;
+use mountpoint_s3_client::types::{ClientBackpressureHandle, GetObjectResponse};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
@@ -221,14 +221,17 @@ pub async fn check_get_result<E: std::fmt::Debug>(
 /// Check the result of a GET against expected bytes.
 pub async fn check_backpressure_get_result(
     read_window: usize,
-    result: impl GetObjectResponse,
+    mut response: impl GetObjectResponse,
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {
     let mut accum = vec![];
     let mut next_offset = range.map(|r| r.start).unwrap_or(0);
-    pin_mut!(result);
-    while let Some(r) = result.next().await {
+    let mut backpressure_handle = response
+        .take_backpressure_handle()
+        .expect("should be able to get a backpressure handle");
+    pin_mut!(response);
+    while let Some(r) = response.next().await {
         let (offset, body) = r.expect("get_object body part failed");
         assert_eq!(offset, next_offset, "wrong body part offset");
         next_offset += body.len() as u64;
@@ -236,8 +239,8 @@ pub async fn check_backpressure_get_result(
 
         // We run out of data to read if read window is smaller than accum length of data,
         // so we keeping adding window size, otherwise the request will be blocked.
-        while next_offset >= result.as_ref().read_window_end_offset() {
-            result.as_mut().increment_read_window(read_window);
+        while next_offset >= backpressure_handle.read_window_end_offset() {
+            backpressure_handle.increment_read_window(read_window);
         }
     }
     assert_eq!(&accum[..], expected, "body does not match");
