@@ -73,8 +73,8 @@ impl GetObjectResponse for ThroughputGetObjectResponse {
     type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
 
-    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle> {
-        self.request.take_backpressure_handle()
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.request.backpressure_handle()
     }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
@@ -106,7 +106,6 @@ impl Stream for ThroughputGetObjectResponse {
 impl ObjectClient for ThroughputMockClient {
     type GetObjectResponse = ThroughputGetObjectResponse;
     type PutObjectRequest = MockPutObjectRequest;
-    type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
 
     fn read_part_size(&self) -> Option<usize> {

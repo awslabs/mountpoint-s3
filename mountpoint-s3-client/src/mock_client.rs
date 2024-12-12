@@ -669,7 +669,7 @@ fn validate_checksum(
     }
     Ok(provided_checksum)
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MockBackpressureHandle {
     read_window_end_offset: Arc<AtomicU64>,
 }
@@ -677,6 +677,11 @@ pub struct MockBackpressureHandle {
 impl ClientBackpressureHandle for MockBackpressureHandle {
     fn increment_read_window(&mut self, len: usize) {
         self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+    }
+
+    fn ensure_read_window(&mut self, desired_end_offset: u64) {
+        let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
+        self.increment_read_window(diff);
     }
 
     fn read_window_end_offset(&self) -> u64 {
@@ -715,8 +720,8 @@ impl GetObjectResponse for MockGetObjectResponse {
     type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
 
-    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle> {
-        self.backpressure_handle.take()
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.backpressure_handle.as_mut()
     }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
@@ -777,7 +782,6 @@ fn mock_client_error<T, E>(s: impl Into<Cow<'static, str>>) -> ObjectClientResul
 impl ObjectClient for MockClient {
     type GetObjectResponse = MockGetObjectResponse;
     type PutObjectRequest = MockPutObjectRequest;
-    type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
 
     fn read_part_size(&self) -> Option<usize> {
@@ -1326,7 +1330,8 @@ mod tests {
             .await
             .expect("should not fail");
         let mut backpressure_handle = get_request
-            .take_backpressure_handle()
+            .backpressure_handle()
+            .cloned()
             .expect("should be able to get a backpressure handle");
 
         let mut accum = vec![];

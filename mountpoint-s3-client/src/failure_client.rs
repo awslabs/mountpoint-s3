@@ -77,7 +77,6 @@ where
 {
     type GetObjectResponse = FailureGetResponse<Client, GetWrapperState>;
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
-    type BackpressureHandle = Client::BackpressureHandle;
     type ClientError = Client::ClientError;
 
     fn read_part_size(&self) -> Option<usize> {
@@ -218,11 +217,11 @@ pub struct FailureGetResponse<Client: ObjectClient, GetWrapperState> {
 impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectResponse
     for FailureGetResponse<Client, FailState>
 {
-    type BackpressureHandle = Client::BackpressureHandle;
+    type BackpressureHandle = <<Client as ObjectClient>::GetObjectResponse as GetObjectResponse>::BackpressureHandle;
     type ClientError = Client::ClientError;
 
-    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle> {
-        self.request.take_backpressure_handle()
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.request.backpressure_handle()
     }
 
     fn get_object_metadata(&self) -> ObjectMetadata {

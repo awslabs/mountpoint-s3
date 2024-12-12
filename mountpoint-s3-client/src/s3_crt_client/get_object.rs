@@ -171,6 +171,11 @@ impl ClientBackpressureHandle for S3BackpressureHandle {
         self.meta_request.increment_read_window(len as u64);
     }
 
+    fn ensure_read_window(&mut self, desired_end_offset: u64) {
+        let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
+        self.increment_read_window(diff);
+    }
+
     fn read_window_end_offset(&self) -> u64 {
         self.read_window_end_offset.load(Ordering::SeqCst)
     }
@@ -204,8 +209,8 @@ impl GetObjectResponse for S3GetObjectResponse {
     type BackpressureHandle = S3BackpressureHandle;
     type ClientError = S3RequestError;
 
-    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle> {
-        self.backpressure_handle.take()
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.backpressure_handle.as_mut()
     }
 
     fn get_object_metadata(&self) -> ObjectMetadata {

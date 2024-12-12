@@ -368,8 +368,10 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(PrefetchReadError::GetRequestFailed)?;
 
-        let mut backpressure_handle = request.take_backpressure_handle();
-        ensure_read_window(&mut backpressure_handle, backpressure_limiter.read_window_end_offset());
+        let mut backpressure_handle = request.backpressure_handle().cloned();
+        if let Some(handle) = backpressure_handle.as_mut() {
+            handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
+        }
 
         pin_mut!(request);
         while let Some(next) = request.next().await {
@@ -396,18 +398,12 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             }
             // Blocks if read window increment if it's not enough to read the next offset
             if let Some(next_read_window_end_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
-                ensure_read_window(&mut backpressure_handle, next_read_window_end_offset);
+                if let Some(handle) = backpressure_handle.as_mut() {
+                    handle.ensure_read_window(next_read_window_end_offset);
+                }
             }
         }
         trace!("request finished");
-    }
-}
-
-fn ensure_read_window(backpressure_handle: &mut Option<impl ClientBackpressureHandle>, desired_end_offset: u64) {
-    if let Some(backpressure_handle) = backpressure_handle {
-        let read_window_size_diff =
-            desired_end_offset.saturating_sub(backpressure_handle.read_window_end_offset()) as usize;
-        backpressure_handle.increment_read_window(read_window_size_diff);
     }
 }
 

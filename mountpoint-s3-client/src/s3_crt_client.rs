@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 
 use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
-use get_object::S3BackpressureHandle;
 use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
 };
@@ -1256,7 +1255,6 @@ fn emit_throughput_metric(bytes: u64, duration: Duration, op: &'static str) {
 impl ObjectClient for S3CrtClient {
     type GetObjectResponse = S3GetObjectResponse;
     type PutObjectRequest = S3PutObjectRequest;
-    type BackpressureHandle = S3BackpressureHandle;
     type ClientError = S3RequestError;
 
     fn read_part_size(&self) -> Option<usize> {

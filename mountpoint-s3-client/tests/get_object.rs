@@ -165,7 +165,6 @@ async fn test_mutated_during_get_object_backpressure() {
         .get_object(&bucket, &key, &GetObjectParams::new().range(Some(range.clone())))
         .await
         .expect("should not fail");
-    let mut backpressure_handle = get_request.take_backpressure_handle().unwrap();
 
     // Verify that we can receive the first part successfully
     let first_part = get_request.next().await.expect("result should not be empty");
@@ -186,7 +185,10 @@ async fn test_mutated_during_get_object_backpressure() {
         .await
         .unwrap();
 
-    backpressure_handle.increment_read_window(part_size);
+    get_request
+        .backpressure_handle()
+        .unwrap()
+        .increment_read_window(part_size);
 
     // Verify that the next part is error
     let next = get_request.next().await.expect("result should not be empty");

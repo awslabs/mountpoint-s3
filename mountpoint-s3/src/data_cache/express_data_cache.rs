@@ -100,7 +100,7 @@ where
     }
 
     // Ensure the flow-control window is large enough for reading a block of data if backpressure is enabled.
-    fn ensure_read_window(&self, backpressure_handle: &mut Option<impl ClientBackpressureHandle>) {
+    fn ensure_read_window(&self, backpressure_handle: Option<&mut impl ClientBackpressureHandle>) {
         if let Some(backpressure_handle) = backpressure_handle {
             backpressure_handle.increment_read_window(self.config.block_size as usize);
         }
@@ -152,10 +152,10 @@ where
                 return Err(DataCacheError::IoFailure(e.into()));
             }
         };
-        let mut backpressure_handle = result.take_backpressure_handle();
+        let mut backpressure_handle = result.backpressure_handle().cloned();
 
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
-        self.ensure_read_window(&mut backpressure_handle);
+        self.ensure_read_window(backpressure_handle.as_mut());
 
         let mut buffer: Bytes = Bytes::new();
         pin_mut!(result);
@@ -177,7 +177,7 @@ where
                     };
 
                     // Ensure the flow-control window is large enough.
-                    self.ensure_read_window(&mut backpressure_handle);
+                    self.ensure_read_window(backpressure_handle.as_mut());
                 }
                 Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => {
                     metrics::counter!("express_data_cache.block_hit").increment(0);

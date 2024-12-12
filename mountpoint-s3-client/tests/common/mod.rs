@@ -228,7 +228,8 @@ pub async fn check_backpressure_get_result(
     let mut accum = vec![];
     let mut next_offset = range.map(|r| r.start).unwrap_or(0);
     let mut backpressure_handle = response
-        .take_backpressure_handle()
+        .backpressure_handle()
+        .cloned()
         .expect("should be able to get a backpressure handle");
     pin_mut!(response);
     while let Some(r) = response.next().await {

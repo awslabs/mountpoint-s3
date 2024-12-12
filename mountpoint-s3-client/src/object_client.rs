@@ -26,12 +26,8 @@ pub use etag::ETag;
 #[cfg_attr(not(docsrs), async_trait)]
 #[auto_impl(Arc)]
 pub trait ObjectClient {
-    type GetObjectResponse: GetObjectResponse<
-        ClientError = Self::ClientError,
-        BackpressureHandle = Self::BackpressureHandle,
-    >;
+    type GetObjectResponse: GetObjectResponse<ClientError = Self::ClientError>;
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
-    type BackpressureHandle: ClientBackpressureHandle + Send + Sync;
     type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
     /// Query the part size this client uses for GET operations to the object store. This
@@ -604,7 +600,10 @@ pub trait ClientBackpressureHandle {
     /// Increment the flow-control read window, so that response data continues downloading.
     fn increment_read_window(&mut self, len: usize);
 
-    /// Get the upper bound of the current read window. When backpressure is enabled, [GetObjectRequest] can
+    /// Move the upper bound of the read window to the given offset if it's not already there.
+    fn ensure_read_window(&mut self, desired_end_offset: u64);
+
+    /// Get the upper bound of the read window. When backpressure is enabled, [GetObjectRequest] can
     /// return data up to this offset *exclusively*.
     fn read_window_end_offset(&self) -> u64;
 }
@@ -618,14 +617,14 @@ pub trait ClientBackpressureHandle {
 pub trait GetObjectResponse:
     Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {
-    type BackpressureHandle: ClientBackpressureHandle;
+    type BackpressureHandle: ClientBackpressureHandle + Clone + Send + Sync;
     type ClientError: std::error::Error + Send + Sync + 'static;
 
     /// Take the backpressure handle from the response.
     ///
     /// If `enable_read_backpressure` is false this call will return `None`,
     /// no backpressure is being applied and data is being downloaded as fast as possible.
-    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle>;
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle>;
 
     /// Get the object's user defined metadata.
     fn get_object_metadata(&self) -> ObjectMetadata;
