@@ -81,7 +81,8 @@ impl MaterializedReference {
     /// Try to add a new node to the tree. Returns whether the node was added.
     ///
     /// If the path already exists it will be overwritten, unless both the existing and new nodes
-    /// are directories. If any intermediate directory is not present, the node won't be added and
+    /// are directories or the new node is a file and were to override a directory.
+    /// If any intermediate directory is not present, the node won't be added and
     /// this function returns false.
     ///
     /// TODO: today our semantics makes local files/directories invisible if any of their ancestors
@@ -109,6 +110,12 @@ impl MaterializedReference {
                     if let Some(Node::Directory { is_local, .. }) = children.get_mut(dir) {
                         *is_local = true;
                         break;
+                    }
+                }
+                // If a directory of this name exists, ignore any local file
+                if let Some(node) = children.get(dir) {
+                    if node.node_type() == NodeType::Directory {
+                        return false;
                     }
                 }
                 let new_node = match typ {

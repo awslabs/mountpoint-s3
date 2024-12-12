@@ -74,7 +74,7 @@ Mountpoint allows multiple readers to access the same object at the same time.
 However, a new file can only be written to sequentially and by one writer at a time.
 New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3.
 If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object.
-Your application should not write to the same object from multiple instances at the same time.
+Your application should not write to the same object from multiple instances at the same time. If you use multiple instances for writing the same key (or another client modifies the Object while the file is open for writing), be aware that Mountpoint currently uses Multipart Uploads (MPU) that are created after the file is opened to upload the data to S3.
 
 By default, Mountpoint ensures that new file uploads to a single key are atomic. As soon as an upload completes, other clients are able to see the new key and the entire content of the object. If the `--incremental-upload` flag is set, however, Mountpoint may issue multiple separate uploads during file writes to append data to the object. After each upload, the appended object in your S3 bucket will be visible to other clients.
 
@@ -148,8 +148,13 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
 
   * `blue`
   * `blue/image.jpg`
+  
+  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. 
+The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
-  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
+Additionally, remote directories will always shadow local directories or files. 
+Thus Mountpoint shadows directory entries in the following order, where the first takes precedence: remote directories, any local state, remote files.
+For example, if you create a directory i.e. `blue/` and a conflicting object with key `blue` appears in the bucket, the local directory will still be accessible.  
 
 We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
 
@@ -270,4 +275,5 @@ Mountpoint provides strong read-after-write consistency for new object creation 
 * A process deletes an existing object from your S3 bucket using another client, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
 * A process deletes an existing object from your S3 bucket, using either Mountpoint or another client, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
 * A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
+* A process opens a file with Mountpoint, and another Mountpoint client on another instance opens the same file. In this case, the behaviour is determined by the [S3 semantics for concurrent multipart uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html#distributedmpupload).
 
