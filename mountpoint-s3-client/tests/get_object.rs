@@ -14,7 +14,9 @@ use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::types::{Checksum, ChecksumMode, ETag, GetObjectParams, GetObjectResponse};
+use mountpoint_s3_client::types::{
+    Checksum, ChecksumMode, ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse,
+};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 use test_case::test_case;
@@ -163,6 +165,7 @@ async fn test_mutated_during_get_object_backpressure() {
         .get_object(&bucket, &key, &GetObjectParams::new().range(Some(range.clone())))
         .await
         .expect("should not fail");
+    let mut backpressure_handle = get_request.take_backpressure_handle().unwrap();
 
     // Verify that we can receive the first part successfully
     let first_part = get_request.next().await.expect("result should not be empty");
@@ -183,8 +186,7 @@ async fn test_mutated_during_get_object_backpressure() {
         .await
         .unwrap();
 
-    pin_mut!(get_request);
-    get_request.as_mut().increment_read_window(part_size);
+    backpressure_handle.increment_read_window(part_size);
 
     // Verify that the next part is error
     let next = get_request.next().await.expect("result should not be empty");

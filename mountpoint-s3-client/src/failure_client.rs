@@ -77,6 +77,7 @@ where
 {
     type GetObjectResponse = FailureGetResponse<Client, GetWrapperState>;
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
+    type BackpressureHandle = Client::BackpressureHandle;
     type ClientError = Client::ClientError;
 
     fn read_part_size(&self) -> Option<usize> {
@@ -217,7 +218,12 @@ pub struct FailureGetResponse<Client: ObjectClient, GetWrapperState> {
 impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectResponse
     for FailureGetResponse<Client, FailState>
 {
+    type BackpressureHandle = Client::BackpressureHandle;
     type ClientError = Client::ClientError;
+
+    fn take_backpressure_handle(&mut self) -> Option<Self::BackpressureHandle> {
+        self.request.take_backpressure_handle()
+    }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
         self.request.get_object_metadata()
@@ -225,16 +231,6 @@ impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRespon
 
     fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         self.request.get_object_checksum()
-    }
-
-    fn increment_read_window(self: Pin<&mut Self>, len: usize) {
-        let this = self.project();
-        this.request.increment_read_window(len);
-    }
-
-    fn read_window_end_offset(self: Pin<&Self>) -> u64 {
-        let this = self.project_ref();
-        this.request.read_window_end_offset()
     }
 }
 
