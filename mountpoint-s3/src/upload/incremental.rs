@@ -232,7 +232,7 @@ where
         &mut self,
         capacity: usize,
     ) -> Result<UploadBuffer<Client>, UploadError<Client::ClientError>> {
-        let checksum_algorithm = self.checksum_algorithm.get_mut().await?.clone();
+        let checksum_algorithm = self.checksum_algorithm.get_mut().await?.unwrap().clone();
 
         while self.requests_in_queue > 0 {
             match UploadBuffer::try_new(capacity, &checksum_algorithm, self.mem_limiter.clone())? {
