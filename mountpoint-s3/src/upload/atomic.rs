@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use futures::task::SpawnExt as _;
 use mountpoint_s3_client::checksums::{crc32c, crc32c_from_base64, Crc32c};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
@@ -9,7 +8,7 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::error;
 
-use crate::async_util::Lazy;
+use crate::async_util::RemoteResult;
 use crate::checksums::combine_checksums;
 use crate::ServerSideEncryption;
 
@@ -21,7 +20,7 @@ const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 ///
 /// Wraps a PutObject request and enforces sequential writes.
 pub struct UploadRequest<Client: ObjectClient> {
-    request: Lazy<Client::PutObjectRequest, ObjectClientError<PutObjectError, Client::ClientError>>,
+    request: RemoteResult<Client::PutObjectRequest, ObjectClientError<PutObjectError, Client::ClientError>>,
     bucket: String,
     key: String,
     next_request_offset: u64,
@@ -67,9 +66,9 @@ where
         let put_bucket = bucket.to_owned();
         let put_key = key.to_owned();
         let client = uploader.client.clone();
-        let request_handle = uploader
+        let request = uploader
             .runtime
-            .spawn_with_handle(async move { client.put_object(&put_bucket, &put_key, &params).await })
+            .spawn_with_result(async move { client.put_object(&put_bucket, &put_key, &params).await })
             .unwrap();
         let maximum_upload_size = uploader
             .client
@@ -77,7 +76,7 @@ where
             .map(|ps| ps.saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS));
 
         Ok(UploadRequest {
-            request: Lazy::new(request_handle),
+            request,
             bucket: bucket.to_owned(),
             key: key.to_owned(),
             next_request_offset: 0,
@@ -369,6 +368,7 @@ mod tests {
         for i in 0..successful_writes {
             let offset = i * write_size;
             request.write(offset as i64, &data).await.expect("object should fit");
+            assert!(client.is_upload_in_progress(key));
         }
 
         let offset = successful_writes * write_size;
