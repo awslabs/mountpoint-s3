@@ -55,7 +55,11 @@ func main() {
 	}
 
 	// 2. Perform `mount` syscall
-	// Mountpoint enables and recommends these mount options and flags by default
+    // These mount options and flags match those typically set when using Mountpoint.
+    // Some are set by the underlying FUSE library.
+    // Mountpoint sets (correct at the time of authoring this comment):
+    // * `noatime` to avoid unsupported access time updates.
+    // * `default_permissions` to tell the Kernel to evaluate permissions itself, since Mountpoint does not currently provide any handler for FUSE `access`.
 	options := []string{
 		fmt.Sprintf("fd=%d", fd),
 		fmt.Sprintf("rootmode=%o", stat.Mode),

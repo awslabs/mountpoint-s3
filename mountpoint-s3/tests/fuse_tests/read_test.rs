@@ -21,6 +21,7 @@ const READ_WRITE: bool = false;
 const FUSE_PASS_FD: bool = true;
 const FUSE_SELF_MOUNT: bool = false;
 
+/// Test wrapper to support generate of test names when used with [test_case].
 enum BucketPrefix {
     None,
     Some(&'static str),
