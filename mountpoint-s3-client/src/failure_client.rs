@@ -217,7 +217,12 @@ pub struct FailureGetResponse<Client: ObjectClient, GetWrapperState> {
 impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectResponse
     for FailureGetResponse<Client, FailState>
 {
+    type BackpressureHandle = <<Client as ObjectClient>::GetObjectResponse as GetObjectResponse>::BackpressureHandle;
     type ClientError = Client::ClientError;
+
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.request.backpressure_handle()
+    }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
         self.request.get_object_metadata()
@@ -225,16 +230,6 @@ impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRespon
 
     fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         self.request.get_object_checksum()
-    }
-
-    fn increment_read_window(self: Pin<&mut Self>, len: usize) {
-        let this = self.project();
-        this.request.increment_read_window(len);
-    }
-
-    fn read_window_end_offset(self: Pin<&Self>) -> u64 {
-        let this = self.project_ref();
-        this.request.read_window_end_offset()
     }
 }
 

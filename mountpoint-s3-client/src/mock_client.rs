@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
@@ -26,13 +27,13 @@ use crate::checksums::{
 };
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
-    Checksum, ChecksumAlgorithm, ChecksumMode, CopyObjectError, CopyObjectParams, CopyObjectResult, DeleteObjectError,
-    DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError, GetObjectAttributesParts,
-    GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse, HeadObjectError, HeadObjectParams,
-    HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute, ObjectChecksumError, ObjectClient,
-    ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams,
-    PutObjectRequest, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RestoreStatus,
-    UploadChecksum, UploadReview, UploadReviewPart,
+    Checksum, ChecksumAlgorithm, ChecksumMode, ClientBackpressureHandle, CopyObjectError, CopyObjectParams,
+    CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
+    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
+    HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
+    ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart,
+    PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -668,6 +669,25 @@ fn validate_checksum(
     }
     Ok(provided_checksum)
 }
+#[derive(Clone, Debug)]
+pub struct MockBackpressureHandle {
+    read_window_end_offset: Arc<AtomicU64>,
+}
+
+impl ClientBackpressureHandle for MockBackpressureHandle {
+    fn increment_read_window(&mut self, len: usize) {
+        self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+    }
+
+    fn ensure_read_window(&mut self, desired_end_offset: u64) {
+        let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
+        self.increment_read_window(diff);
+    }
+
+    fn read_window_end_offset(&self) -> u64 {
+        self.read_window_end_offset.load(Ordering::SeqCst)
+    }
+}
 
 #[derive(Debug)]
 pub struct MockGetObjectResponse {
@@ -675,8 +695,7 @@ pub struct MockGetObjectResponse {
     next_offset: u64,
     length: usize,
     part_size: usize,
-    enable_backpressure: bool,
-    read_window_end_offset: u64,
+    backpressure_handle: Option<MockBackpressureHandle>,
 }
 
 impl MockGetObjectResponse {
@@ -696,7 +715,12 @@ impl MockGetObjectResponse {
 
 #[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectResponse for MockGetObjectResponse {
+    type BackpressureHandle = MockBackpressureHandle;
     type ClientError = MockClientError;
+
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.backpressure_handle.as_mut()
+    }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
         self.object.object_metadata.clone()
@@ -704,14 +728,6 @@ impl GetObjectResponse for MockGetObjectResponse {
 
     fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError> {
         Ok(self.object.checksum.clone())
-    }
-
-    fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
-        self.read_window_end_offset += len as u64;
-    }
-
-    fn read_window_end_offset(self: Pin<&Self>) -> u64 {
-        self.read_window_end_offset
     }
 }
 
@@ -726,10 +742,12 @@ impl Stream for MockGetObjectResponse {
         let next_read_size = self.part_size.min(self.length);
 
         // Simulate backpressure mechanism
-        if self.enable_backpressure && self.next_offset >= self.read_window_end_offset {
-            return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
-                "empty read window".into(),
-            )))));
+        if let Some(handle) = &self.backpressure_handle {
+            if self.next_offset >= handle.read_window_end_offset() {
+                return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
+                    "empty read window".into(),
+                )))));
+            }
         }
         let next_part = self.object.read(self.next_offset, next_read_size);
 
@@ -855,13 +873,20 @@ impl ObjectClient for MockClient {
                 (0, object.len())
             };
 
+            let backpressure_handle = if self.config.enable_backpressure {
+                let read_window_end_offset = Arc::new(AtomicU64::new(
+                    next_offset + self.config.initial_read_window_size as u64,
+                ));
+                Some(MockBackpressureHandle { read_window_end_offset })
+            } else {
+                None
+            };
             Ok(MockGetObjectResponse {
                 object: object.clone(),
                 next_offset,
                 length,
                 part_size: self.config.part_size,
-                enable_backpressure: self.config.enable_backpressure,
-                read_window_end_offset: next_offset + self.config.initial_read_window_size as u64,
+                backpressure_handle,
             })
         } else {
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
@@ -1199,7 +1224,7 @@ enum MockObjectParts {
 
 #[cfg(test)]
 mod tests {
-    use futures::{pin_mut, StreamExt};
+    use futures::StreamExt;
     use rand::{Rng, RngCore, SeedableRng};
     use rand_chacha::ChaChaRng;
     use std::ops::Range;
@@ -1295,11 +1320,14 @@ mod tests {
         rng.fill_bytes(&mut body);
         client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
-        let get_request = client
+        let mut get_request = client
             .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
             .await
             .expect("should not fail");
-        pin_mut!(get_request);
+        let mut backpressure_handle = get_request
+            .backpressure_handle()
+            .cloned()
+            .expect("should be able to get a backpressure handle");
 
         let mut accum = vec![];
         let mut next_offset = range.as_ref().map(|r| r.start).unwrap_or(0);
@@ -1309,10 +1337,8 @@ mod tests {
             next_offset += body.len() as u64;
             accum.extend_from_slice(&body[..]);
 
-            while next_offset >= get_request.as_ref().read_window_end_offset() {
-                get_request
-                    .as_mut()
-                    .increment_read_window(backpressure_read_window_size);
+            while next_offset >= backpressure_handle.read_window_end_offset() {
+                backpressure_handle.increment_read_window(backpressure_read_window_size);
             }
         }
         let expected_range = range.unwrap_or(0..size as u64);

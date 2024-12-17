@@ -2,7 +2,10 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::{types::GetObjectParams, types::GetObjectResponse, ObjectClient};
+use mountpoint_s3_client::{
+    types::{ClientBackpressureHandle, GetObjectParams, GetObjectResponse},
+    ObjectClient,
+};
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
@@ -359,18 +362,18 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     request_range: Range<u64>,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
-        let request = client
+        let mut request = client
             .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(PrefetchReadError::GetRequestFailed)?;
 
-        pin_mut!(request);
-        let read_window_size_diff = backpressure_limiter
-            .read_window_end_offset()
-            .saturating_sub(request.as_ref().read_window_end_offset()) as usize;
-        request.as_mut().increment_read_window(read_window_size_diff);
+        let mut backpressure_handle = request.backpressure_handle().cloned();
+        if let Some(handle) = backpressure_handle.as_mut() {
+            handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
+        }
 
+        pin_mut!(request);
         while let Some(next) = request.next().await {
             let (offset, body) = next
                 .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
@@ -394,9 +397,10 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
                 metrics::histogram!("s3.client.read_window_excess_bytes").record(excess_bytes as f64);
             }
             // Blocks if read window increment if it's not enough to read the next offset
-            if let Some(next_read_window_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
-                let diff = next_read_window_offset.saturating_sub(request.as_ref().read_window_end_offset()) as usize;
-                request.as_mut().increment_read_window(diff);
+            if let Some(next_read_window_end_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
+                if let Some(handle) = backpressure_handle.as_mut() {
+                    handle.ensure_read_window(next_read_window_end_offset);
+                }
             }
         }
         trace!("request finished");

@@ -2,6 +2,8 @@ use std::future::Future;
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
@@ -9,12 +11,13 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::future::FusedFuture;
 use futures::{select_biased, Stream};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
-use mountpoint_s3_crt::s3::client::MetaRequestResult;
+use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::pin_project;
 use thiserror::Error;
 
 use crate::object_client::{
-    Checksum, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError, ObjectClientResult, ObjectMetadata,
+    Checksum, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
+    ObjectClientResult, ObjectMetadata,
 };
 use crate::s3_crt_client::{
     parse_checksum, GetObjectResponse, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
@@ -34,7 +37,6 @@ impl S3CrtClient {
     ) -> Result<S3GetObjectResponse, ObjectClientError<GetObjectError, S3RequestError>> {
         let requested_checksums = params.checksum_mode.as_ref() == Some(&ChecksumMode::Enabled);
         let next_offset = params.range.as_ref().map(|r| r.start).unwrap_or(0);
-        let read_window_end_offset = next_offset + self.inner.initial_read_window_size as u64;
 
         let (part_sender, part_receiver) = futures::channel::mpsc::unbounded();
         let (headers_sender, mut headers_receiver) = futures::channel::oneshot::channel();
@@ -127,14 +129,23 @@ impl S3CrtClient {
         // Guaranteed when select_biased! executes the headers branch.
         assert!(!request.is_terminated());
 
+        let backpressure_handle = if self.inner.enable_backpressure {
+            let read_window_end_offset =
+                Arc::new(AtomicU64::new(next_offset + self.inner.initial_read_window_size as u64));
+            Some(S3BackpressureHandle {
+                read_window_end_offset,
+                meta_request: request.meta_request.clone(),
+            })
+        } else {
+            None
+        };
         Ok(S3GetObjectResponse {
             request,
             part_receiver,
             requested_checksums,
-            enable_backpressure: self.inner.enable_backpressure,
+            backpressure_handle,
             headers,
             next_offset,
-            read_window_end_offset,
         })
     }
 }
@@ -144,6 +155,30 @@ impl S3CrtClient {
 enum ObjectHeadersError {
     #[error("response headers are missing")]
     MissingHeaders,
+}
+
+#[derive(Clone, Debug)]
+pub struct S3BackpressureHandle {
+    /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
+    /// can return data up to this offset *exclusively*.
+    read_window_end_offset: Arc<AtomicU64>,
+    meta_request: MetaRequest,
+}
+
+impl ClientBackpressureHandle for S3BackpressureHandle {
+    fn increment_read_window(&mut self, len: usize) {
+        self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+        self.meta_request.increment_read_window(len as u64);
+    }
+
+    fn ensure_read_window(&mut self, desired_end_offset: u64) {
+        let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
+        self.increment_read_window(diff);
+    }
+
+    fn read_window_end_offset(&self) -> u64 {
+        self.read_window_end_offset.load(Ordering::SeqCst)
+    }
 }
 
 /// A streaming response to a GetObject request.
@@ -159,18 +194,20 @@ pub struct S3GetObjectResponse {
     #[pin]
     part_receiver: UnboundedReceiver<GetBodyPart>,
     requested_checksums: bool,
-    enable_backpressure: bool,
+    backpressure_handle: Option<S3BackpressureHandle>,
     headers: Headers,
     /// Next offset of the data to be polled from [poll_next]
     next_offset: u64,
-    /// Upper bound of the current read window. When backpressure is enabled, [S3GetObjectRequest]
-    /// can return data up to this offset *exclusively*.
-    read_window_end_offset: u64,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
 impl GetObjectResponse for S3GetObjectResponse {
+    type BackpressureHandle = S3BackpressureHandle;
     type ClientError = S3RequestError;
+
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle> {
+        self.backpressure_handle.as_mut()
+    }
 
     fn get_object_metadata(&self) -> ObjectMetadata {
         self.headers
@@ -189,15 +226,6 @@ impl GetObjectResponse for S3GetObjectResponse {
         }
 
         parse_checksum(&self.headers).map_err(|e| ObjectChecksumError::HeadersError(Box::new(e)))
-    }
-
-    fn increment_read_window(mut self: Pin<&mut Self>, len: usize) {
-        self.read_window_end_offset += len as u64;
-        self.request.meta_request.increment_read_window(len as u64);
-    }
-
-    fn read_window_end_offset(self: Pin<&Self>) -> u64 {
-        self.read_window_end_offset
     }
 }
 
@@ -224,10 +252,12 @@ impl Stream for S3GetObjectResponse {
                 // the next chunk we want to return error instead of keeping the request blocked.
                 // This prevents a risk of deadlock from using the [S3CrtClient], users must implement
                 // their own logic to block the request if they really want to block a [GetObjectRequest].
-                if *this.enable_backpressure && this.read_window_end_offset <= this.next_offset {
-                    return Poll::Ready(Some(Err(ObjectClientError::ClientError(
-                        S3RequestError::EmptyReadWindow,
-                    ))));
+                if let Some(handle) = &this.backpressure_handle {
+                    if *this.next_offset >= handle.read_window_end_offset() {
+                        return Poll::Ready(Some(Err(ObjectClientError::ClientError(
+                            S3RequestError::EmptyReadWindow,
+                        ))));
+                    }
                 }
                 Poll::Pending
             }

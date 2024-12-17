@@ -1,6 +1,5 @@
 use std::fmt::{self, Debug};
 use std::ops::Range;
-use std::pin::Pin;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
@@ -586,6 +585,29 @@ impl UploadChecksum {
     }
 }
 
+/// A handle for controlling backpressure enabled requests.
+///
+/// If the client was created with `enable_read_backpressure` set true,
+/// each meta request has a flow-control window that shrinks as response
+/// body data is downloaded (headers do not affect the size of the window).
+/// The client's `initial_read_window` determines the starting size of each meta request's window.
+/// If a meta request's flow-control window reaches 0, no further data will be downloaded.
+/// If the `initial_read_window` is 0, the request will not start until the window is incremented.
+/// Maintain a larger window to keep up a high download throughput,
+/// parts cannot download in parallel unless the window is large enough to hold multiple parts.
+/// Maintain a smaller window to limit the amount of data buffered in memory.
+pub trait ClientBackpressureHandle {
+    /// Increment the flow-control read window, so that response data continues downloading.
+    fn increment_read_window(&mut self, len: usize);
+
+    /// Move the upper bound of the read window to the given offset if it's not already there.
+    fn ensure_read_window(&mut self, desired_end_offset: u64);
+
+    /// Get the upper bound of the read window. When backpressure is enabled, [GetObjectRequest] can
+    /// return data up to this offset *exclusively*.
+    fn read_window_end_offset(&self) -> u64;
+}
+
 /// A streaming response to a GetObject request.
 ///
 /// This struct implements [`futures::Stream`], which you can use to read the body of the object.
@@ -595,33 +617,20 @@ impl UploadChecksum {
 pub trait GetObjectResponse:
     Stream<Item = ObjectClientResult<GetBodyPart, GetObjectError, Self::ClientError>> + Send + Sync
 {
+    type BackpressureHandle: ClientBackpressureHandle + Clone + Send + Sync;
     type ClientError: std::error::Error + Send + Sync + 'static;
+
+    /// Take the backpressure handle from the response.
+    ///
+    /// If `enable_read_backpressure` is false this call will return `None`,
+    /// no backpressure is being applied and data is being downloaded as fast as possible.
+    fn backpressure_handle(&mut self) -> Option<&mut Self::BackpressureHandle>;
 
     /// Get the object's user defined metadata.
     fn get_object_metadata(&self) -> ObjectMetadata;
 
     /// Get the object's checksum, if uploaded with one
     fn get_object_checksum(&self) -> Result<Checksum, ObjectChecksumError>;
-
-    /// Increment the flow-control window, so that response data continues downloading.
-    ///
-    /// If the client was created with `enable_read_backpressure` set true,
-    /// each meta request has a flow-control window that shrinks as response
-    /// body data is downloaded (headers do not affect the size of the window).
-    /// The client's `initial_read_window` determines the starting size of each meta request's window.
-    /// If a meta request's flow-control window reaches 0, no further data will be downloaded.
-    /// If the `initial_read_window` is 0, the request will not start until the window is incremented.
-    /// Maintain a larger window to keep up a high download throughput,
-    /// parts cannot download in parallel unless the window is large enough to hold multiple parts.
-    /// Maintain a smaller window to limit the amount of data buffered in memory.
-    ///
-    /// If `enable_read_backpressure` is false this call will have no effect,
-    /// no backpressure is being applied and data is being downloaded as fast as possible.
-    fn increment_read_window(self: Pin<&mut Self>, len: usize);
-
-    /// Get the upper bound of the current read window. When backpressure is enabled, [GetObjectRequest] can
-    /// return data up to this offset *exclusively*.
-    fn read_window_end_offset(self: Pin<&Self>) -> u64;
 }
 
 /// Failures to return object checksum

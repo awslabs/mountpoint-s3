@@ -9,7 +9,8 @@ use bytes::{Bytes, BytesMut};
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
-    ChecksumMode, GetObjectParams, GetObjectResponse, ObjectClientResult, PutObjectSingleParams, UploadChecksum,
+    ChecksumMode, ClientBackpressureHandle, GetObjectParams, GetObjectResponse, ObjectClientResult,
+    PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
@@ -97,6 +98,13 @@ where
 
         Ok(())
     }
+
+    // Ensure the flow-control window is large enough for reading a block of data if backpressure is enabled.
+    fn ensure_read_window(&self, backpressure_handle: Option<&mut impl ClientBackpressureHandle>) {
+        if let Some(backpressure_handle) = backpressure_handle {
+            backpressure_handle.increment_read_window(self.config.block_size as usize);
+        }
+    }
 }
 
 #[async_trait]
@@ -125,7 +133,7 @@ where
         }
 
         let object_key = get_s3_key(&self.prefix, cache_key, block_idx);
-        let result = match self
+        let mut result = match self
             .client
             .get_object(
                 &self.bucket_name,
@@ -144,12 +152,13 @@ where
                 return Err(DataCacheError::IoFailure(e.into()));
             }
         };
+        let mut backpressure_handle = result.backpressure_handle().cloned();
 
-        pin_mut!(result);
         // Guarantee that the request will start even in case of `initial_read_window == 0`.
-        result.as_mut().increment_read_window(self.config.block_size as usize);
+        self.ensure_read_window(backpressure_handle.as_mut());
 
         let mut buffer: Bytes = Bytes::new();
+        pin_mut!(result);
         while let Some(chunk) = result.next().await {
             match chunk {
                 Ok((offset, body)) => {
@@ -168,7 +177,7 @@ where
                     };
 
                     // Ensure the flow-control window is large enough.
-                    result.as_mut().increment_read_window(self.config.block_size as usize);
+                    self.ensure_read_window(backpressure_handle.as_mut());
                 }
                 Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => {
                     metrics::counter!("express_data_cache.block_hit").increment(0);
