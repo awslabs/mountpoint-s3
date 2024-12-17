@@ -126,8 +126,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_drop() {
+    /// Verify that [RemoteResult] always drops the result.
+    #[test_case(true; "after await")]
+    #[test_case(false; "without await")]
+    fn test_drop(await_result: bool) {
         let runtime = BoxRuntime::new(ThreadPool::new().unwrap());
 
         struct Dropping(Arc<AtomicBool>);
@@ -141,9 +143,16 @@ mod tests {
         let was_dropped = Arc::new(AtomicBool::new(false));
         let clone = was_dropped.clone();
 
-        let result = runtime
+        let mut result = runtime
             .spawn_with_result(async move { Ok::<_, &'static str>(Dropping(clone)) })
             .unwrap();
+
+        if await_result {
+            block_on(async {
+                let _ = result.get_mut().await;
+            });
+        }
+
         drop(result);
 
         assert!(was_dropped.load(Ordering::SeqCst));
