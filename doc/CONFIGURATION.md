@@ -298,6 +298,25 @@ ExecStop=/usr/bin/fusermount -u /home/ec2-user/s3-bucket-mount
 WantedBy=remote-fs.target
 ```
 
+### Providing a FUSE file descriptor for mounting
+
+Mountpoint supports mounting S3 buckets at a given path, or using a provided FUSE file descriptor (only on Linux).
+
+For directory mount points, the passed path must be an existing directory.
+
+For FUSE file descriptors on Linux, you can specify an open FUSE file descriptor as a mount point with `/dev/fd/N` syntax.
+This is useful in container environments to achieve unprivileged mounts.
+In this case, the caller is responsible for the following:
+1. Opening the FUSE device (`/dev/fuse`) in read-write mode to obtain a file descriptor.
+2. Performing the `mount` syscall with the desired mount point, the file descriptor, and any mount options.
+   Mountpoint by default uses and recommends enabling `nodev`, `nosuid`, `default_permissions`, and `noatime` mount options.
+   See the [Linux kernel documentation](https://man7.org/linux/man-pages/man8/mount.fuse3.8.html#OPTIONS) for more details on mount options.
+3. Spawning Mountpoint with the file descriptor using `/dev/fd/N` syntax as the mount point argument.
+4. Closing the file descriptor in the parent process.
+5. Performing the `unmount` syscall on the mount point when unmounting is desired or when the Mountpoint process terminates.
+
+See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples/fuse-fd-mount-point/mounthelper.go) as an example usage of this feature.
+
 ## Caching configuration
 
 Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.

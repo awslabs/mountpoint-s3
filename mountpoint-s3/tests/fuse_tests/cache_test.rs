@@ -316,7 +316,7 @@ where
     let mount_point = tempfile::tempdir().unwrap();
     let runtime = client.event_loop_group();
     let prefetcher = caching_prefetch(cache, runtime.clone(), Default::default());
-    let session = create_fuse_session(
+    let (session, _mount) = create_fuse_session(
         client,
         prefetcher,
         runtime,
@@ -324,6 +324,7 @@ where
         prefix,
         mount_point.path(),
         Default::default(),
+        false,
     );
     (mount_point, session)
 }
