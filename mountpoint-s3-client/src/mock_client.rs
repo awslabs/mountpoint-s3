@@ -695,8 +695,6 @@ pub struct MockGetObjectResponse {
     next_offset: u64,
     length: usize,
     part_size: usize,
-    enable_backpressure: bool,
-    read_window_end_offset: Arc<AtomicU64>,
     backpressure_handle: Option<MockBackpressureHandle>,
 }
 
@@ -744,11 +742,12 @@ impl Stream for MockGetObjectResponse {
         let next_read_size = self.part_size.min(self.length);
 
         // Simulate backpressure mechanism
-        let read_window_end_offset = self.read_window_end_offset.load(Ordering::SeqCst);
-        if self.enable_backpressure && self.next_offset >= read_window_end_offset {
-            return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
-                "empty read window".into(),
-            )))));
+        if let Some(handle) = &self.backpressure_handle {
+            if self.next_offset >= handle.read_window_end_offset() {
+                return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
+                    "empty read window".into(),
+                )))));
+            }
         }
         let next_part = self.object.read(self.next_offset, next_read_size);
 
@@ -874,13 +873,11 @@ impl ObjectClient for MockClient {
                 (0, object.len())
             };
 
-            let read_window_end_offset = Arc::new(AtomicU64::new(
-                next_offset + self.config.initial_read_window_size as u64,
-            ));
             let backpressure_handle = if self.config.enable_backpressure {
-                Some(MockBackpressureHandle {
-                    read_window_end_offset: read_window_end_offset.clone(),
-                })
+                let read_window_end_offset = Arc::new(AtomicU64::new(
+                    next_offset + self.config.initial_read_window_size as u64,
+                ));
+                Some(MockBackpressureHandle { read_window_end_offset })
             } else {
                 None
             };
@@ -889,8 +886,6 @@ impl ObjectClient for MockClient {
                 next_offset,
                 length,
                 part_size: self.config.part_size,
-                enable_backpressure: self.config.enable_backpressure,
-                read_window_end_offset,
                 backpressure_handle,
             })
         } else {

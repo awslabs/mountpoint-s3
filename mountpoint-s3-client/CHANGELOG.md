@@ -9,7 +9,7 @@
   Two of the existing parameters, `range` and `if_match` have been moved to `GetObjectParams`.
   ([#1121](https://github.com/awslabs/mountpoint-s3/pull/1121))
 * `increment_read_window` and `read_window_end_offset` methods have been removed from `GetObjectResponse`.
-  `ClientBackpressureHandle` can be used to interact with flow-control window instead, it can be retrieved from `take_backpressure_handle` method.
+  `ClientBackpressureHandle` can be used to interact with flow-control window instead, it can be retrieved from `backpressure_handle` method.
   ([#1200](https://github.com/awslabs/mountpoint-s3/pull/1200))
 * `head_object` method now requires a `HeadObjectParams` parameter.
   The structure itself is not required to specify anything to achieve the existing behavior.
