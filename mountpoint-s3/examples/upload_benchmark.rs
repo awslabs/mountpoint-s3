@@ -165,7 +165,7 @@ where
 
     let bucket = args.bucket.clone();
     let key = args.key.clone();
-    let mut upload_request = uploader.start_atomic_upload(&bucket, &key).await.unwrap();
+    let mut upload_request = uploader.start_atomic_upload(&bucket, &key).unwrap();
 
     let mut total_bytes_written = 0;
     let target_size = args.object_size;

@@ -8,11 +8,11 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::error;
 
-use crate::async_util::RemoteResult;
+use crate::async_util::{BoxRuntime, RemoteResult};
 use crate::checksums::combine_checksums;
 use crate::ServerSideEncryption;
 
-use super::{UploadError, Uploader};
+use super::UploadError;
 
 const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
@@ -29,60 +29,66 @@ pub struct UploadRequest<Client: ObjectClient> {
     sse: ServerSideEncryption,
 }
 
+/// Parameters to initialize an [UploadRequest].
+pub struct UploadRequestParams {
+    pub bucket: String,
+    pub key: String,
+    pub server_side_encryption: ServerSideEncryption,
+    pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
+    pub storage_class: Option<String>,
+}
+
 impl<Client> UploadRequest<Client>
 where
-    Client: ObjectClient + Send + Clone + 'static,
+    Client: ObjectClient + Send + 'static,
 {
-    pub async fn new(
-        uploader: &Uploader<Client>,
-        bucket: &str,
-        key: &str,
+    pub fn new(
+        runtime: &BoxRuntime,
+        client: Client,
+        params: UploadRequestParams,
     ) -> Result<Self, UploadError<Client::ClientError>> {
-        let mut params = PutObjectParams::new();
+        let mut put_object_params = PutObjectParams::new();
 
-        match &uploader.default_checksum_algorithm {
+        match &params.default_checksum_algorithm {
             Some(ChecksumAlgorithm::Crc32c) => {
-                params = params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
+                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
             }
             Some(unsupported) => {
                 unimplemented!("checksum algorithm not supported: {:?}", unsupported);
             }
             None => {
-                params = params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
+                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
             }
         }
 
-        if let Some(storage_class) = &uploader.storage_class {
-            params = params.storage_class(storage_class.clone());
+        if let Some(storage_class) = &params.storage_class {
+            put_object_params = put_object_params.storage_class(storage_class.clone());
         }
         // If we have detected corruption of SSE settings, we return an error, which will currently be reported as
         // `libc::EIO` on `open()`. MP won't be able to open files for write from this point, but this is a relatively
         // low-risk error as data can not be uploaded with wrong SSE settings yet. Thus there is no strong reason for
         // MP to crash and it may continue serving read's.
-        let (sse_type, key_id) = uploader.server_side_encryption.clone().into_inner()?;
-        params = params.server_side_encryption(sse_type);
-        params = params.ssekms_key_id(key_id);
+        let (sse_type, key_id) = params.server_side_encryption.clone().into_inner()?;
+        put_object_params = put_object_params.server_side_encryption(sse_type);
+        put_object_params = put_object_params.ssekms_key_id(key_id);
 
-        let put_bucket = bucket.to_owned();
-        let put_key = key.to_owned();
-        let client = uploader.client.clone();
-        let request = uploader
-            .runtime
-            .spawn_with_result(async move { client.put_object(&put_bucket, &put_key, &params).await })
-            .unwrap();
-        let maximum_upload_size = uploader
-            .client
+        let put_bucket = params.bucket.to_owned();
+        let put_key = params.key.to_owned();
+        let maximum_upload_size = client
             .write_part_size()
             .map(|ps| ps.saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS));
+        let request = runtime
+            .spawn_with_result(async move { client.put_object(&put_bucket, &put_key, &put_object_params).await })
+            .unwrap();
 
         Ok(UploadRequest {
             request,
-            bucket: bucket.to_owned(),
-            key: key.to_owned(),
+            bucket: params.bucket,
+            key: params.key,
             next_request_offset: 0,
             hasher: crc32c::Hasher::new(),
             maximum_upload_size,
-            sse: uploader.server_side_encryption.clone(),
+            sse: params.server_side_encryption,
         })
     }
 
@@ -196,6 +202,7 @@ mod tests {
     use crate::fs::SseCorruptedError;
     use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
     use crate::sync::Arc;
+    use crate::upload::Uploader;
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
@@ -240,7 +247,7 @@ mod tests {
             ..Default::default()
         }));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+        let mut request = uploader.start_atomic_upload(bucket, key).unwrap();
 
         _ = request.write(0, &[]).await.unwrap();
 
@@ -272,7 +279,7 @@ mod tests {
             true,
         );
 
-        let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+        let mut request = uploader.start_atomic_upload(bucket, key).unwrap();
 
         let data = b"foo";
         let mut offset = 0;
@@ -323,7 +330,7 @@ mod tests {
 
         // First request fails on first write.
         {
-            let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+            let mut request = uploader.start_atomic_upload(bucket, key).unwrap();
 
             let data = b"foo";
             request.write(0, data).await.expect_err("first write should fail");
@@ -333,7 +340,7 @@ mod tests {
 
         // Second request fails on complete (after one write).
         {
-            let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+            let mut request = uploader.start_atomic_upload(bucket, key).unwrap();
 
             let data = b"foo";
             _ = request.write(0, data).await.unwrap();
@@ -361,7 +368,7 @@ mod tests {
             ..Default::default()
         }));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let mut request = uploader.start_atomic_upload(bucket, key).await.unwrap();
+        let mut request = uploader.start_atomic_upload(bucket, key).unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
         let data = vec![0xaa; write_size];
@@ -401,7 +408,6 @@ mod tests {
             .corrupt_data(sse_type_corrupted.map(String::from), key_id_corrupted.map(String::from));
         let err = uploader
             .start_atomic_upload("bucket", "hello")
-            .await
             .expect_err("sse checksum must be checked");
         assert!(matches!(
             err,
@@ -428,7 +434,6 @@ mod tests {
         );
         uploader
             .start_atomic_upload(bucket, key)
-            .await
             .expect("put with sse should succeed");
     }
 }
