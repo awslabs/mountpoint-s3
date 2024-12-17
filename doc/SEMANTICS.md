@@ -148,8 +148,13 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
 
   * `blue`
   * `blue/image.jpg`
+  
+  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. 
+The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
-  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
+Additionally, remote directories will always shadow local directories or files. 
+Thus Mountpoint shadows directory entries in the following order, where the first takes precedence: remote directories, any local state, remote files.
+For example, if you create a directory i.e. `blue/` and a conflicting object with key `blue` appears in the bucket, the local directory will still be accessible.  
 
 We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
 
@@ -270,4 +275,3 @@ Mountpoint provides strong read-after-write consistency for new object creation 
 * A process deletes an existing object from your S3 bucket using another client, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
 * A process deletes an existing object from your S3 bucket, using either Mountpoint or another client, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
 * A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
-

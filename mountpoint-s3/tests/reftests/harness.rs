@@ -1290,4 +1290,27 @@ mod mutations {
             0,
         )
     }
+
+    /*
+     Ensure that local files are shadowed by the remote directories.
+    */
+    #[test]
+    fn regression_put_shadowing_new_local_file() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([])),
+            vec![
+                Op::CreateFile(
+                    ValidName("a".into()),
+                    DirectoryIndex(0),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+                Op::PutObject(
+                    DirectoryIndex(0),
+                    Name("a/b".into()),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+            ],
+            0,
+        )
+    }
 }
