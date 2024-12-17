@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1733918326856,
+  "lastUpdate": 1734451548439,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "chagem@amazon.com",
-            "name": "Christian Hagemeier",
-            "username": "c-hagem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "896a10bb9c6c70d6928c19d04f4bd4168b289cd8",
-          "message": "Fix flaky write_with_sse_kms_key_id_ok test (#1140)\n\nFixes the flakiness of write_with_sse_kms_key_id_ok test, which was\ncaused by not properly unmounting and dropping child.\n\nThis is not a breaking change; no changelog entry required (as this just\nfixes a test).\n\n\nBefore this change, this test fails in ~10 out of 100 runs, after this\nchange it fails 0 times out of 100 runs.\n\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Christian Hagemeier <chagem@amazon.com>",
-          "timestamp": "2024-11-26T14:37:17Z",
-          "tree_id": "0d9a1126b207277215874e303deb01a097575a2b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/896a10bb9c6c70d6928c19d04f4bd4168b289cd8"
-        },
-        "date": 1732639121146,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3276.89453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 333.53515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3342.9375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 349.47265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3256.98828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 270.8984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3309.4140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 211.16015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 21295.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 340.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3284.765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 373.31640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3313.5078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 219.50390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3313.99609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 3383.21484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 223.97265625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 229.33984375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "f09ac0c765ebfce6fa71a01caf3e3534f1d71e59",
+          "message": "Remove workaround for macOS builds due to pkg-config issues (#1202)\n\nIn November, macOS runners had an issue with the `pkg-config` package\nand we introduced a workaround:\nhttps://github.com/awslabs/mountpoint-s3/pull/1158/\n\nWe see now that the fix has been released and we should no longer need\nthe workaround: https://github.com/actions/runner-images/issues/10984.\n\n### Does this change impact existing behavior?\n\nNo, CI change only.\n\n### Does this change need a changelog entry?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2024-12-17T14:01:36Z",
+          "tree_id": "6d86e38850362a6cc19e08263594a8736389406b",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f09ac0c765ebfce6fa71a01caf3e3534f1d71e59"
+        },
+        "date": 1734451548398,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3320.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 333.5078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3310.90625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 348.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3390.703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 271.76953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3306.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 214.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 21484.53515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 342.96484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3264.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 372.5390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3248.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 215.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3429,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3429.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 204.84375,
             "unit": "MiB"
           }
         ]
