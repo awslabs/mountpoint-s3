@@ -1054,6 +1054,10 @@ impl S3RequestError {
     fn construction_failure(inner: impl Into<ConstructionError>) -> Self {
         S3RequestError::ConstructionFailure(inner.into())
     }
+
+    fn internal_failure(inner: impl std::error::Error + Send + Sync + 'static) -> Self {
+        S3RequestError::InternalError(Box::new(inner))
+    }
 }
 
 impl ProvideErrorMetadata for S3RequestError {

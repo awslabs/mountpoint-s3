@@ -8,9 +8,12 @@ use crate::object_client::{
 };
 use async_trait::async_trait;
 use futures::channel::oneshot::{self, Receiver};
+use futures::future::FusedFuture as _;
+use futures::select_biased;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
+use thiserror::Error;
 use tracing::error;
 use xmltree::Element;
 
@@ -30,80 +33,84 @@ impl S3CrtClient {
         key: &str,
         params: &PutObjectParams,
     ) -> ObjectClientResult<S3PutObjectRequest, PutObjectError, S3RequestError> {
-        let span = request_span!(self.inner, "put_object", bucket, key);
-        let mut message = self.new_put_request(
-            bucket,
-            key,
-            params.storage_class.as_deref(),
-            params.server_side_encryption.as_deref(),
-            params.ssekms_key_id.as_deref(),
-        )?;
-
-        let checksum_config = match params.trailing_checksums {
-            PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
-            PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
-            PutObjectTrailingChecksums::Disabled => None,
-        };
-        message.set_checksum_config(checksum_config);
-
-        for (name, value) in &params.object_metadata {
-            message
-                .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
-                .map_err(S3RequestError::construction_failure)?
-        }
-        for (name, value) in &params.custom_headers {
-            message
-                .inner
-                .add_header(&Header::new(name, value))
-                .map_err(S3RequestError::construction_failure)?;
-        }
-
         let review_callback = ReviewCallbackBox::default();
-        let callback = review_callback.clone();
-
         let (on_headers, response_headers) = response_headers_handler();
-
-        let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
-        options.send_using_async_writes(true);
-        options.on_upload_review(move |review| callback.invoke(review));
-        options.part_size(self.inner.write_part_size as u64);
-
         // Before the first write, we need to await for the multi-part upload to be created, so we can report errors.
-        // To do so, we need to detect one of two events (whichever comes first):
-        // * a CreateMultipartUpload request completes successfully (potentially after a number of retries),
-        // * the meta-request fails.
-        let (mpu_created_sender, mpu_created) = oneshot::channel();
-        let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
-        let on_error_sender = on_mpu_created_sender.clone();
+        let (mpu_created_sender, mut mpu_created) = oneshot::channel();
 
-        let body = self.inner.make_simple_http_request_from_options(
-            options,
-            span,
-            move |metrics| {
-                if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
-                    // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
-                    if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
-                        _ = sender.send(Ok(()));
+        let mut request = {
+            let span = request_span!(self.inner, "put_object", bucket, key);
+            let mut message = self.new_put_request(
+                bucket,
+                key,
+                params.storage_class.as_deref(),
+                params.server_side_encryption.as_deref(),
+                params.ssekms_key_id.as_deref(),
+            )?;
+
+            let checksum_config = match params.trailing_checksums {
+                PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
+                PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
+                PutObjectTrailingChecksums::Disabled => None,
+            };
+            message.set_checksum_config(checksum_config);
+
+            for (name, value) in &params.object_metadata {
+                message
+                    .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
+                    .map_err(S3RequestError::construction_failure)?
+            }
+            for (name, value) in &params.custom_headers {
+                message
+                    .inner
+                    .add_header(&Header::new(name, value))
+                    .map_err(S3RequestError::construction_failure)?;
+            }
+
+            let callback = review_callback.clone();
+
+            let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
+            options.send_using_async_writes(true);
+            options.on_upload_review(move |review| callback.invoke(review));
+            options.part_size(self.inner.write_part_size as u64);
+
+            let on_mpu_created_sender = Mutex::new(Some(mpu_created_sender));
+
+            self.inner.make_simple_http_request_from_options(
+                options,
+                span,
+                move |metrics| {
+                    if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
+                        // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
+                        if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
+                            _ = sender.send(());
+                        }
                     }
-                }
-            },
-            move |result| {
-                // Signal that the meta-request failed (unless a CreateMultipartUpload had already completed successfully).
-                if let Some(sender) = on_error_sender.lock().unwrap().take() {
-                    _ = sender.send(Err(result.crt_error.into()));
-                }
-                None
-            },
-            on_headers,
-        )?;
+                },
+                |_| None,
+                on_headers,
+            )?
+        };
+
+        select_biased! {
+            mpu = mpu_created => mpu.unwrap(),
+            result = request => {
+                // If the MPU was not created, the request must have failed.
+                result?;
+                return Err(S3RequestError::internal_failure(S3PutObjectRequestError::CreateMultipartUploadFailed).into());
+            }
+        };
+
+        // Guaranteed when select_biased! executes the CreateMPU branch.
+        assert!(!request.is_terminated());
 
         Ok(S3PutObjectRequest {
-            body,
+            request,
             review_callback,
             start_time: Instant::now(),
             total_bytes: 0,
             response_headers,
-            state: S3PutObjectRequestState::CreatingMPU(mpu_created),
+            state: S3PutObjectRequestState::Idle,
         })
     }
 
@@ -260,7 +267,7 @@ impl ReviewCallbackBox {
 /// object.
 #[derive(Debug)]
 pub struct S3PutObjectRequest {
-    body: S3HttpRequest<Vec<u8>, PutObjectError>,
+    request: S3HttpRequest<Vec<u8>, PutObjectError>,
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
@@ -273,14 +280,19 @@ pub struct S3PutObjectRequest {
 /// Internal state for a [S3PutObjectRequest].
 #[derive(Debug)]
 enum S3PutObjectRequestState {
-    /// Initial state indicating that CreateMultipartUpload may still be in progress. To be awaited on first
-    /// write so errors can be reported early. The signal indicates that CreateMultipartUpload completed
-    /// successfully, or that the MPU failed.
-    CreatingMPU(oneshot::Receiver<Result<(), S3RequestError>>),
     /// A write operation is in progress or was interrupted before completion.
     PendingWrite,
     /// Idle state between write calls.
     Idle,
+}
+
+/// Internal errors for a [S3PutObjectRequest].
+#[derive(Debug, Error)]
+enum S3PutObjectRequestError {
+    #[error("A previous write operation did not complete successfully")]
+    PreviousWriteFailed,
+    #[error("The CreateMultiPartUpload request did not succeed")]
+    CreateMultipartUploadFailed,
 }
 
 fn get_etag(response_headers: &Headers) -> Result<ETag, HeadersError> {
@@ -370,19 +382,14 @@ impl PutObjectRequest for S3PutObjectRequest {
         // Writing to the meta request may require multiple calls. Set the internal
         // state to `PendingWrite` until we are done.
         match std::mem::replace(&mut self.state, S3PutObjectRequestState::PendingWrite) {
-            S3PutObjectRequestState::CreatingMPU(create_mpu) => {
-                // On first write, check the pending CreateMultipartUpload so we can report errors.
-                // Wait for CreateMultipartUpload to complete successfully, or the MPU to fail.
-                create_mpu.await.unwrap()?;
-            }
             S3PutObjectRequestState::PendingWrite => {
                 // Fail if a previous write was not completed.
-                return Err(S3RequestError::RequestCanceled.into());
+                return Err(S3RequestError::internal_failure(S3PutObjectRequestError::PreviousWriteFailed).into());
             }
             S3PutObjectRequestState::Idle => {}
         }
 
-        let meta_request = &mut self.body.meta_request;
+        let meta_request = &mut self.request.meta_request;
         let mut slice = slice;
         while !slice.is_empty() {
             // Write will fail if the request has already finished (because of an error).
@@ -406,24 +413,23 @@ impl PutObjectRequest for S3PutObjectRequest {
         mut self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        // No need to check for `CreatingMPU`: errors will be reported on completing the upload.
         if matches!(self.state, S3PutObjectRequestState::PendingWrite) {
             // Fail if a previous write was not completed.
-            return Err(S3RequestError::RequestCanceled.into());
+            return Err(S3RequestError::internal_failure(S3PutObjectRequestError::PreviousWriteFailed).into());
         }
 
         self.review_callback.set(review_callback);
 
         // Write will fail if the request has already finished (because of an error).
         _ = self
-            .body
+            .request
             .meta_request
             .write(&[], true)
             .await
             .map_err(S3RequestError::CrtError)?;
 
         // Now wait for the request to finish.
-        let _ = self.body.await?;
+        let _ = self.request.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");

@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use std::mem;
 
 use async_channel::{bounded, unbounded, Receiver, Sender};
-use futures::channel::oneshot;
 use futures::future::RemoteHandle;
 use futures::task::SpawnExt as _;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
@@ -14,7 +13,7 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, Instrument};
 
-use crate::async_util::{BoxRuntime, Lazy};
+use crate::async_util::{result_channel, BoxRuntime, RemoteResult};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::sync::Arc;
 use crate::ServerSideEncryption;
@@ -147,7 +146,7 @@ struct AppendUploadQueue<Client: ObjectClient> {
     mem_limiter: Arc<MemoryLimiter<Client>>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
-    checksum_algorithm: Lazy<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>,
+    checksum_algorithm: RemoteResult<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>,
     /// Stores the last successful result to return in [join].
     last_known_result: Option<PutObjectResult>,
     /// Tracks the requests pushed to the queue but still pending a response.
@@ -167,7 +166,7 @@ where
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
         let (request_sender, request_receiver) = bounded(params.capacity);
         let (response_sender, response_receiver) = unbounded();
-        let (checksum_algorithm_sender, checksum_algorithm_receiver) = oneshot::channel();
+        let (checksum_algorithm_sender, checksum_algorithm) = result_channel();
 
         // Create a task for reading data out of the upload queue and create S3 requests for them.
         let task_handle = runtime
@@ -175,7 +174,7 @@ where
                 async move {
                     let checksum_algorithm = get_checksum_algorithm(&client, &params).await;
                     let is_error = checksum_algorithm.is_err();
-                    if checksum_algorithm_sender.send(checksum_algorithm).is_err() || is_error {
+                    if !checksum_algorithm_sender.send(checksum_algorithm).await || is_error {
                         return;
                     }
 
@@ -191,7 +190,7 @@ where
             last_known_result: None,
             requests_in_queue: 0,
             mem_limiter,
-            checksum_algorithm: Lazy::new(async move { checksum_algorithm_receiver.await.unwrap() }),
+            checksum_algorithm,
             _task_handle: task_handle,
         }
     }
@@ -232,7 +231,7 @@ where
         &mut self,
         capacity: usize,
     ) -> Result<UploadBuffer<Client>, UploadError<Client::ClientError>> {
-        let checksum_algorithm = self.checksum_algorithm.get_mut().await?.clone();
+        let checksum_algorithm = self.checksum_algorithm.get_mut().await?.unwrap().clone();
 
         while self.requests_in_queue > 0 {
             match UploadBuffer::try_new(capacity, &checksum_algorithm, self.mem_limiter.clone())? {

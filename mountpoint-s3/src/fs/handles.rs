@@ -120,10 +120,11 @@ where
                 written_bytes: 0,
             })
         } else {
-            match fs.uploader.start_atomic_upload(bucket, key).await {
-                Err(e) => return Err(err!(libc::EIO, source:e, "put failed to start")),
-                Ok(request) => FileHandleState::Write(UploadState::MPUInProgress { request, handle }),
-            }
+            let request = fs
+                .uploader
+                .start_atomic_upload(bucket, key)
+                .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
+            FileHandleState::Write(UploadState::MPUInProgress { request, handle })
         };
         metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
         Ok(handle)

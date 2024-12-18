@@ -16,6 +16,7 @@ use crate::sync::Arc;
 
 mod atomic;
 pub use atomic::UploadRequest;
+use atomic::UploadRequestParams;
 
 mod hasher;
 pub use hasher::ChecksumHasherError;
@@ -90,12 +91,19 @@ where
     }
 
     /// Start a new atomic upload.
-    pub async fn start_atomic_upload(
+    pub fn start_atomic_upload(
         &self,
         bucket: &str,
         key: &str,
     ) -> Result<UploadRequest<Client>, UploadError<Client::ClientError>> {
-        UploadRequest::new(self, bucket, key).await
+        let params = UploadRequestParams {
+            bucket: bucket.to_owned(),
+            key: key.to_owned(),
+            server_side_encryption: self.server_side_encryption.clone(),
+            default_checksum_algorithm: self.default_checksum_algorithm.clone(),
+            storage_class: self.storage_class.clone(),
+        };
+        UploadRequest::new(&self.runtime, self.client.clone(), params)
     }
 
     /// Start a new incremental upload.

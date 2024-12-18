@@ -122,7 +122,7 @@ impl S3CrtClient {
             result = request => {
                 // If we did not received the headers first, the request must have failed.
                 result?;
-                return Err(ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(ObjectHeadersError::MissingHeaders))));
+                return Err(S3RequestError::internal_failure(ObjectHeadersError::MissingHeaders).into());
             }
         };
 
