@@ -198,7 +198,7 @@ where
         block_offset: u64,
         bytes: ChecksummedBytes,
         object_size: usize,
-    ) -> Result<(), DataCacheError> {
+    ) -> DataCacheResult<()> {
         if object_size > self.config.max_object_size {
             metrics::counter!("express_data_cache.over_max_object_size", "type" => "write").increment(1);
             return Ok(());
@@ -379,7 +379,7 @@ impl BlockMetadata {
         headers: &HashMap<String, String>,
         header: &str,
         is_valid: F,
-    ) -> Result<(), DataCacheError> {
+    ) -> DataCacheResult<()> {
         let value = headers
             .get(header)
             .ok_or(DataCacheError::InvalidBlockHeader(header.to_string()))?;
