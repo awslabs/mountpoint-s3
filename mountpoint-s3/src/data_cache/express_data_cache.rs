@@ -112,7 +112,7 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-    ) -> Result<Option<ChecksummedBytes>, DataCacheError> {
+    ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if object_size > self.config.max_object_size {
             metrics::counter!("express_data_cache.over_max_object_size", "type" => "read").increment(1);
             return Ok(None);
@@ -352,7 +352,7 @@ impl BlockMetadata {
     }
 
     /// Validate the object metadata headers received match this BlockMetadata object.
-    pub fn validate_object_metadata(&self, headers: &HashMap<String, String>) -> Result<(), DataCacheError> {
+    pub fn validate_object_metadata(&self, headers: &HashMap<String, String>) -> DataCacheResult<()> {
         self.validate_header(headers, "cache-version", |version| version == CACHE_VERSION)?;
         self.validate_header(headers, "block-idx", |block_idx| {
             block_idx.parse() == Ok(self.block_idx)
