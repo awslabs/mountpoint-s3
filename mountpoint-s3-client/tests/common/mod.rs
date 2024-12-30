@@ -1,5 +1,6 @@
 #![cfg(feature = "s3_tests")]
 
+use aws_config::profile::ProfileFileCredentialsProvider;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::config::Region;
@@ -11,13 +12,14 @@ use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetObjectResponse};
-use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::{OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use mountpoint_s3_crt::common::uri::Uri;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::ops::Range;
+use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -84,6 +86,13 @@ pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Optio
     if let Some(part_size) = part_size {
         config = config.part_size(part_size);
     }
+    S3CrtClient::new(config).expect("could not create test client")
+}
+
+pub fn get_test_client_with_custom_telemetry(telemetry_callback: Arc<dyn OnTelemetry>) -> S3CrtClient {
+    let config = S3ClientConfig::new()
+        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .telemetry_callback(telemetry_callback);
     S3CrtClient::new(config).expect("could not create test client")
 }
 
