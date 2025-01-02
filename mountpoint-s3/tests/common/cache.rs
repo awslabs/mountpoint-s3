@@ -25,6 +25,8 @@ struct CacheTestWrapperInner<Cache> {
     get_block_invalid_count: AtomicU64,
     /// Number of times the `put_block` was completed
     put_block_count: AtomicU64,
+    /// Number of times the `put_block` was completed with a failure
+    put_block_fail_count: AtomicU64,
 }
 
 impl<Cache> Clone for CacheTestWrapper<Cache> {
@@ -43,6 +45,7 @@ impl<Cache> CacheTestWrapper<Cache> {
                 get_block_hit_count: AtomicU64::new(0),
                 get_block_invalid_count: AtomicU64::new(0),
                 put_block_count: AtomicU64::new(0),
+                put_block_fail_count: AtomicU64::new(0),
             }),
         }
     }
@@ -73,6 +76,11 @@ impl<Cache> CacheTestWrapper<Cache> {
     /// Number of times the `put_block` was completed
     pub fn put_block_count(&self) -> u64 {
         self.inner.put_block_count.load(Ordering::SeqCst)
+    }
+
+    /// Number of times the `put_block` was completed with failure
+    pub fn put_block_fail_count(&self) -> u64 {
+        self.inner.put_block_fail_count.load(Ordering::SeqCst)
     }
 }
 
@@ -118,6 +126,9 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
             .put_block(cache_key, block_idx, block_offset, bytes, object_size)
             .await;
         self.inner.put_block_count.fetch_add(1, Ordering::SeqCst);
+        if result.is_err() {
+            self.inner.put_block_fail_count.fetch_add(1, Ordering::SeqCst);
+        }
         result
     }
 
