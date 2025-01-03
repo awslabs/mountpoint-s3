@@ -10,7 +10,7 @@
 ### Other changes
 
 * Fix an issue where an interrupt during `readdir` syscall leads to an error. ([#965](https://github.com/awslabs/mountpoint-s3/pull/965))
-* Fix an issue with the missing verification of source bucket of a cache block ([#1208](https://github.com/awslabs/mountpoint-s3/pull/1208))
+* Fix an issue where the source bucket of a shared cache block was not correctly validated ([#1208](https://github.com/awslabs/mountpoint-s3/pull/1208))
 
 ## v1.13.0 (December 2, 2024)
 
