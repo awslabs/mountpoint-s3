@@ -83,7 +83,7 @@ where
         // calculates the prefix.
         let data = format!(
             "source_bucket={}\nblock_size={}",
-            self.bucket_name, self.config.block_size
+            self.source_bucket_name, self.config.block_size
         );
 
         // put_object is sufficient for validating cache, as S3 Directory buckets only support
