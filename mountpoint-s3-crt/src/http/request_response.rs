@@ -78,12 +78,14 @@ pub enum HeadersError {
     Invalid(OsString),
 }
 
-/// Try to convert the CRT [Error] into [HeadersError::HeaderNotFound], or return [HeadersError::CrtError].
-fn try_as_header_not_found(err: Error, header_name: &OsStr) -> HeadersError {
-    if err.raw_error() == (aws_http_errors::AWS_ERROR_HTTP_HEADER_NOT_FOUND as i32) {
-        HeadersError::HeaderNotFound(header_name.to_owned())
-    } else {
-        HeadersError::CrtError(err)
+impl HeadersError {
+    /// Try to convert the CRT [Error] into [HeadersError::HeaderNotFound], or return [HeadersError::CrtError].
+    fn try_convert(err: Error, header_name: &OsStr) -> HeadersError {
+        if err.raw_error() == (aws_http_errors::AWS_ERROR_HTTP_HEADER_NOT_FOUND as i32) {
+            HeadersError::HeaderNotFound(header_name.to_owned())
+        } else {
+            HeadersError::CrtError(err)
+        }
     }
 }
 
@@ -179,7 +181,7 @@ impl Headers {
         unsafe {
             aws_http_headers_erase(self.inner.as_ptr(), name.as_ref().as_aws_byte_cursor())
                 .ok_or_last_error()
-                .map_err(|err| try_as_header_not_found(err, name.as_ref()))?;
+                .map_err(|err| HeadersError::try_convert(err, name.as_ref()))?;
         }
 
         Ok(())
@@ -198,7 +200,7 @@ impl Headers {
                 value.as_mut_ptr(),
             )
             .ok_or_last_error()
-            .map_err(|err| try_as_header_not_found(err, name.as_ref()))?;
+            .map_err(|err| HeadersError::try_convert(err, name.as_ref()))?;
 
             value.assume_init()
         };
