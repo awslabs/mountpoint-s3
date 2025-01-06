@@ -74,8 +74,13 @@ pub enum HeadersError {
     CrtError(#[source] Error),
 
     /// Header value could not be converted to String
-    #[error("Header string was not valid: {0:?}")]
-    Invalid(OsString),
+    #[error("Header {name:?} had invalid string value: {value:?}")]
+    Invalid {
+        /// Name of the header
+        name: OsString,
+        /// Value of the header, which was not valid to convert to [String]
+        value: OsString,
+    },
 }
 
 impl HeadersError {
@@ -216,12 +221,17 @@ impl Headers {
 
     /// Get a single header by name as a [String].
     pub fn get_as_string<H: AsRef<OsStr>>(&self, name: H) -> Result<String, HeadersError> {
+        let name = name.as_ref();
         let header = self.get(name)?;
         let value = header.value();
         if let Some(s) = value.to_str() {
             Ok(s.to_string())
         } else {
-            Err(HeadersError::Invalid(value.clone()))
+            let err = HeadersError::Invalid {
+                name: name.to_owned(),
+                value: value.clone(),
+            };
+            Err(err)
         }
     }
 
