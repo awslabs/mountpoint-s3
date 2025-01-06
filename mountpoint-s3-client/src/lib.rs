@@ -16,12 +16,13 @@
 //! To construct a new S3 client and download an object from a bucket in the `us-east-1` region:
 //! ```no_run
 //! # async fn test() {
-//! use futures::TryStreamExt;
+//! use futures::{TryFutureExt, TryStreamExt};
+//! use mountpoint_s3_client::types::GetObjectParams;
 //! use mountpoint_s3_client::{S3CrtClient, ObjectClient};
 //!
 //! let client = S3CrtClient::new(Default::default()).expect("client construction failed");
 //!
-//! let response = client.get_object("my-bucket", "my-key", &GetObjectParams::new().await.expect("get_object failed"));
+//! let response = client.get_object("my-bucket", "my-key", &GetObjectParams::new()).await.expect("get_object failed");
 //! let body = response.map_ok(|(offset, body)| body.to_vec()).try_concat().await.expect("body streaming failed");
 //! # }
 //! ```
@@ -33,8 +34,7 @@
 //!
 //! let config = S3ClientConfig::new()
 //!                 .endpoint_config(EndpointConfig::new("us-west-2"))
-//!                 .auth_config(S3ClientAuthConfig::NoSigning)
-//!                 .user_agent_prefix("my-test-client");
+//!                 .auth_config(S3ClientAuthConfig::NoSigning);
 //! let client = S3CrtClient::new(config).expect("client construction failed");
 //! ```
 //!
