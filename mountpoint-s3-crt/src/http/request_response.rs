@@ -62,7 +62,11 @@ unsafe impl Send for Headers {}
 /// allow threads to simultaneously modify it.
 unsafe impl Sync for Headers {}
 
-/// Errors returned by operations on [Headers]
+/// Errors returned by operations on [Headers].
+///
+/// TODO: Where the variant contains an [OsString] for the header name,
+/// we could explore using a static [OsStr] to avoid unnecessary memory copies
+/// since we know the values at compilation time.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HeadersError {
     /// The header was not found
