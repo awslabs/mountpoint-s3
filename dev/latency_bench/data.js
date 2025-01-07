@@ -1,62 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1736251735141,
+  "lastUpdate": 1736265987368,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7a675cd70380f27849458663f617035784bd7fe9",
-          "message": "Update get_object_attributes test to account for default checksum (#1185)\n\nThe [improved support for object integrity\nchecks](https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html#using-additional-checksums)\nthat is being rolled out in Amazon S3 means that GetObjectAttributes\nreturns a `CRC-64NVME` object checksum even when no checksum was\nspecified when the object was uploaded.\n\nThis change removes the expectation of an empty checksum that was\ncausing a test failure in some regions.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-12-05T10:54:40Z",
-          "tree_id": "ca9e6a33aad4186a5bfe2dd78cc439c603c764cb",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7a675cd70380f27849458663f617035784bd7fe9"
-        },
-        "date": 1733397485675,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "readdir_100",
-            "value": 0.055,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.126,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.981,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.684,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 14.528179300000001,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 18.8159232,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1129,6 +1075,65 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 20.5412933,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "866ee1c509ca513f0f41122a5f7153bf223ec259",
+          "message": "Improve tracing and assertion messages for reftests (#1211)\n\nThis change adds some additional tracing to reftests and makes some\nadjustments to assertion messages to make it clearer why we assert what\nwe assert and would return a better message when things go wrong.\n\nThere are no significant changes, this is primarily readability and\ndebugging improvements.\n\n### Does this change impact existing behavior?\n\nNo change to behavior of Mountpoint or its libraries.\n\n### Does this change need a changelog entry?\n\nNo, no behavior change.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2025-01-07T15:41:52Z",
+          "tree_id": "b2b2f32cf333ef210f081af8c13eb7b7cd121d94",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/866ee1c509ca513f0f41122a5f7153bf223ec259"
+        },
+        "date": 1736265986532,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "readdir_100",
+            "value": 0.06,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.147,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.953,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.779,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 27.8861943,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 13.7940523,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 22.4883078,
             "unit": "milliseconds"
           }
         ]
