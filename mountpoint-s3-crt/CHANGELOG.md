@@ -4,6 +4,9 @@
 * Checksum hashers no longer implement `std::hash::Hasher`. ([#1082](https://github.com/awslabs/mountpoint-s3/pull/1082))
 * Add bindings to remaining checksum types CRC64, SHA1, and SHA256. ([#1082](https://github.com/awslabs/mountpoint-s3/pull/1082))
 * Add wrapping type `ByteBuf` for `aws_byte_buf`. ([#1082](https://github.com/awslabs/mountpoint-s3/pull/1082))
+* `HeadersError::HeaderNotFound` and `HeadersError::Invalid` variants now include the name of the header.
+  Despite the new field being private, this may impact any code that was pattern matching on these variants.
+  ([#1205](https://github.com/awslabs/mountpoint-s3/pull/1205))
 
 ## v0.10.0 (October 17, 2024)
 
