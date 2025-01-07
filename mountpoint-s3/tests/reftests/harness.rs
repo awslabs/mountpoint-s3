@@ -13,7 +13,7 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::ObjectClient;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
-use tracing::{debug, trace};
+use tracing::{debug, debug_span, trace};
 
 use crate::common::{make_test_filesystem, DirectoryReply, TestS3Filesystem};
 use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, Name, TreeNode, ValidName};
@@ -192,7 +192,10 @@ impl Harness {
     /// reference model and file system after each operation.
     pub async fn run(&mut self, ops: Vec<Op>) {
         for op in ops {
+            let span = debug_span!("execute_op", ?op);
+            let _scope = span.enter();
             debug!(?op, "executing operation");
+
             match &op {
                 Op::WriteFile(name, directory_index, contents) => {
                     let Some(index) = self.perform_create_file(name, *directory_index, contents).await else {
@@ -261,12 +264,15 @@ impl Harness {
         for name in path.iter().take(path.len().saturating_sub(1)) {
             let lookup = self.fs.lookup(parent, name.as_ref()).await.unwrap();
             assert_eq!(lookup.attr.kind, FileType::Directory);
-            assert!(seen_inos.insert(lookup.attr.ino));
+            assert!(
+                seen_inos.insert(lookup.attr.ino),
+                "should not have seen ancestor before"
+            );
             parent = lookup.attr.ino;
         }
 
         let lookup = self.fs.lookup(parent, path.last().unwrap().as_ref()).await.unwrap();
-        assert!(seen_inos.insert(lookup.attr.ino));
+        assert!(seen_inos.insert(lookup.attr.ino), "should not have seen inode before");
         match node {
             Node::Directory { .. } => {
                 assert_eq!(lookup.attr.kind, FileType::Directory);
@@ -349,8 +355,10 @@ impl Harness {
 
         let open = self.fs.open(inflight_write.inode, OpenFlags::O_WRONLY, 0).await;
         if inflight_write.file_handle.is_some() {
-            // Shouldn't be able to reopen a file that's already open for writing
-            assert!(matches!(open, Err(e) if e.to_errno() == libc::EPERM));
+            assert!(
+                matches!(open, Err(e) if e.to_errno() == libc::EPERM),
+                "should not be able to open a file that's already open for writing",
+            );
         } else {
             let open = open.expect("open should succeed");
             let inflight_write = self.inflight_writes.get_mut(index).unwrap();
@@ -604,7 +612,10 @@ impl Harness {
             self.fs.readdir(fs_dir, dir_handle, 0, &mut reply).await.unwrap();
 
             // TODO `stat` on these needs to work
-            let e0 = reply.entries.pop_front().unwrap();
+            let e0 = reply
+                .entries
+                .pop_front()
+                .expect("there should always be an entry '.' for the current directory");
             assert_eq!(e0.name, ".");
             assert_eq!(e0.ino, fs_dir);
             let mut offset = e0.offset;
@@ -614,7 +625,10 @@ impl Harness {
                 self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
-            let e1 = reply.entries.pop_front().unwrap();
+            let e1 = reply
+                .entries
+                .pop_front()
+                .expect("there should always be an entry '..' for the parent directory");
             assert_eq!(e1.name, "..");
             assert_eq!(e1.ino, fs_parent);
             offset = offset.max(e1.offset);
@@ -639,7 +653,7 @@ impl Harness {
                             let ref_kind = node.node_type().into();
                             assert_eq!(
                                 fs_kind, ref_kind,
-                                "for file {name:?} expecting {ref_kind:?} found {fs_kind:?}"
+                                "for readdir entry {name:?}, expecting {ref_kind:?} but found {fs_kind:?}",
                             );
                             assert_eq!(
                                 attr.ino, reply.ino,
@@ -657,7 +671,10 @@ impl Harness {
                                 // Recurse into directory
                                 self.compare_contents_recursive(fs_dir, reply.ino, node).await;
                             }
-                            assert!(keys.remove(name));
+                            assert!(
+                                keys.remove(name),
+                                "file name must be in the set of child names in the reference fs",
+                            );
                         }
                         None => panic!("file {name:?} not found in the reference"),
                     }
@@ -679,7 +696,7 @@ impl Harness {
     async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
         let fh = match self.fs.open(fs_file, OpenFlags::empty(), 0).await {
             Ok(ret) => ret.fh,
-            Err(e) => panic!("failed to open {fs_file}: {e:?}"),
+            Err(e) => panic!("failed to open ino {fs_file} for content comparison: {e:?}"),
         };
         let mut offset = 0;
         const MAX_READ_SIZE: usize = 128 * 1024;
@@ -687,7 +704,7 @@ impl Harness {
         while offset < file_size {
             let num_bytes = MAX_READ_SIZE.min(file_size - offset);
             let ref_bytes = ref_file.read(offset as u64, num_bytes);
-            assert_eq!(ref_bytes.len(), num_bytes);
+            assert_eq!(ref_bytes.len(), num_bytes, "number of bytes did not match");
             let bytes_from_read = self
                 .fs
                 .read(fs_file, fh, offset as i64, num_bytes as u32, 0, None)

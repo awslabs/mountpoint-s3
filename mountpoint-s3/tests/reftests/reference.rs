@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
-use tracing::trace;
 
 #[derive(Debug)]
 pub enum File {
@@ -92,7 +91,11 @@ impl MaterializedReference {
     /// implemented the opposite case; it's kept here in case we change back.
     fn add_local_node(&mut self, path: impl AsRef<Path>, typ: NodeType) -> bool {
         let mut components = path.as_ref().components().peekable();
-        assert_eq!(components.next(), Some(Component::RootDir));
+        assert_eq!(
+            components.next(),
+            Some(Component::RootDir),
+            "first component should always be the root dir",
+        );
 
         let mut parent_node = &mut self.root;
         while let Some(dir) = components.next() {
@@ -158,7 +161,7 @@ impl Reference {
     }
 
     fn rematerialize(&self) -> MaterializedReference {
-        trace!(
+        tracing::debug!(
             remote_keys=?self.remote_keys, local_files=?self.local_files, local_directories=?self.local_directories,
             "rematerialize",
         );

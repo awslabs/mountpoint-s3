@@ -937,6 +937,7 @@ impl SuperblockInner {
                 }
 
                 trace!(
+                    ino=?existing_inode.ino(),
                     same_kind,
                     same_etag,
                     existing_is_remote,
