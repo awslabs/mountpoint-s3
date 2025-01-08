@@ -90,7 +90,7 @@ pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Optio
 
 pub fn get_test_client_with_custom_telemetry(telemetry_callback: Arc<dyn OnTelemetry>) -> S3CrtClient {
     let config = S3ClientConfig::new()
-        .endpoint_config(EndpointConfig::new(&get_test_region()))
+        .endpoint_config(get_test_endpoint_config())
         .telemetry_callback(telemetry_callback);
     S3CrtClient::new(config).expect("could not create test client")
 }
