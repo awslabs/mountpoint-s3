@@ -126,6 +126,29 @@ do
     dir_size=$(awk "BEGIN {print $dir_size*10}")
 done
 
+run_file_system_benchmarks() {
+  mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
+  log_dir=logs/file_system_benchmarks
+
+  # mount file system
+  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+    --allow-delete \
+    --allow-overwrite \
+    --log-directory=$log_dir \
+    --prefix=${S3_BUCKET_TEST_PREFIX} \
+    --log-metrics \
+    ${optional_args}
+  mount_status=$?
+  if [ $mount_status -ne 0 ]; then
+    echo "Failed to mount file system"
+    exit 1
+  fi
+
+  # run file system benchmarks binary
+  file_system_benchmarks_out_file_path=${results_dir}/file_system_benchmarks_parsed.json
+  cargo run --release --features=statistical --bin file-system-benchmarks ${mount_dir} ${file_system_benchmarks_out_file_path}  # This generates a *_parsed.json file which will be included in the resulting output json
+}
+
 run_file_benchmarks() {
   category=$1
   jobs_dir=mountpoint-s3/scripts/fio/${category}_latency
@@ -188,8 +211,9 @@ run_file_benchmarks() {
   done
 }
 
+run_file_system_benchmarks
 run_file_benchmarks read
 run_file_benchmarks write
 
 # combine all bench results into one json file
-jq -n '[inputs]' ${results_dir}/*.json | tee ${results_dir}/output.json
+jq -n '[inputs] | flatten' ${results_dir}/*.json | tee ${results_dir}/output.json
