@@ -1,6 +1,5 @@
 #![cfg(feature = "s3_tests")]
 
-use aws_config::profile::ProfileFileCredentialsProvider;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::config::Region;
