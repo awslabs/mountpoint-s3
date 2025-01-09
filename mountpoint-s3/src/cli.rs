@@ -584,9 +584,11 @@ impl CliArgs {
 #[cfg(target_os = "linux")]
 fn configure_malloc() {
     unsafe {
+        // Disable dynamic MMAP_THRESHOLD and set it to 4MiB: https://github.com/bminor/glibc/blob/release/2.26/master/malloc/malloc.c#L1739
+
         // NOTE: M_MMAP_MAX is 65536. With 8MiB allocations it allows up to 512GiB of simultaneously allocated memory via mmap, which should fit for most of the cases. For more info:
         // https://github.com/bminor/glibc/blob/release/2.26/master/malloc/malloc.c#L983
-        libc::mallopt(libc::M_MMAP_THRESHOLD, 131072); // disable dynamic MMAP_THRESHOLD: https://github.com/bminor/glibc/blob/release/2.26/master/malloc/malloc.c#L1739
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 4194304);
     }
 }
 
