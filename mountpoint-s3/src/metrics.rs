@@ -44,6 +44,7 @@ pub fn install() -> MetricsSinkHandle {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
                     Err(RecvTimeoutError::Timeout) => {
                         poll_process_metrics(&mut sys);
+                        poll_malloc_metrics();
                         inner.publish()
                     }
                 }
@@ -52,6 +53,7 @@ pub fn install() -> MetricsSinkHandle {
             // any new metrics data after the sink shuts down, but we assume a clean shutdown
             // stops generating new metrics before shutting down the sink.
             poll_process_metrics(&mut sys);
+            poll_malloc_metrics();
             inner.publish();
         })
     };
@@ -84,6 +86,24 @@ fn poll_process_metrics(sys: &mut System) {
                 metrics::gauge!("system.available_memory").set(sys.available_memory() as f64);
             }
         }
+    }
+}
+
+fn poll_malloc_metrics() {
+    unsafe {
+        let mallinfo = libc::mallinfo();
+        // Space wasted due to fragmentation: `process.mallinfo.arena - process.mallinfo.fordblks`
+        metrics::gauge!("process.mallinfo.arena").set(mallinfo.arena as f64); /* non-mmapped space allocated from system */
+        metrics::gauge!("process.mallinfo.ordblks").set(mallinfo.ordblks as f64); /* number of free chunks */
+        metrics::gauge!("process.mallinfo.smblks").set(mallinfo.smblks as f64); /* number of fastbin blocks */
+        metrics::gauge!("process.mallinfo.hblks").set(mallinfo.hblks as f64); /* number of mmapped regions */
+        metrics::gauge!("process.mallinfo.hblkhd").set(mallinfo.hblkhd as f64); /* space in mmapped regions */
+        metrics::gauge!("process.mallinfo.usmblks").set(mallinfo.usmblks as f64); /* always 0, preserved for backwards compatibility */
+        metrics::gauge!("process.mallinfo.fsmblks").set(mallinfo.fsmblks as f64); /* space available in freed fastbin blocks */
+        metrics::gauge!("process.mallinfo.uordblks").set(mallinfo.uordblks as f64); /* total allocated space */
+        metrics::gauge!("process.mallinfo.fordblks").set(mallinfo.fordblks as f64); /* total free space */
+        /* top-most, releasable (via malloc_trim) space */
+        metrics::gauge!("process.mallinfo.keepcost").set(mallinfo.keepcost as f64);
     }
 }
 

@@ -581,12 +581,25 @@ impl CliArgs {
     }
 }
 
+fn configure_malloc() {
+    unsafe {
+        println!(
+            "glibc version: {:?}",
+            std::ffi::CStr::from_ptr(libc::gnu_get_libc_version())
+        );
+        // NOTE: M_MMAP_MAX is 65536. With 8MiB allocations it allows up to 512GiB of simultaneously allocated memory via mmap, which should fit for most of the cases. For more info:
+        // https://github.com/bminor/glibc/blob/release/2.26/master/malloc/malloc.c#L983
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 131072); // disable dynamic MMAP_THRESHOLD: https://github.com/bminor/glibc/blob/release/2.26/master/malloc/malloc.c#L1739
+    }
+}
+
 pub fn main<ClientBuilder, Client, Runtime>(client_builder: ClientBuilder) -> anyhow::Result<()>
 where
     ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Runtime: Spawn + Clone + Send + Sync + 'static,
 {
+    configure_malloc();
     let args = CliArgs::parse();
     let successful_mount_msg = format!(
         "{} is mounted at {}",
