@@ -44,6 +44,7 @@ pub fn install() -> MetricsSinkHandle {
                     Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
                     Err(RecvTimeoutError::Timeout) => {
                         poll_process_metrics(&mut sys);
+                        #[cfg(target_os = "linux")]
                         poll_malloc_metrics();
                         inner.publish()
                     }
@@ -53,6 +54,7 @@ pub fn install() -> MetricsSinkHandle {
             // any new metrics data after the sink shuts down, but we assume a clean shutdown
             // stops generating new metrics before shutting down the sink.
             poll_process_metrics(&mut sys);
+            #[cfg(target_os = "linux")]
             poll_malloc_metrics();
             inner.publish();
         })
@@ -89,6 +91,7 @@ fn poll_process_metrics(sys: &mut System) {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn poll_malloc_metrics() {
     unsafe {
         let mallinfo = libc::mallinfo();
