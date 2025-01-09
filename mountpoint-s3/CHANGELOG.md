@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v1.13.1 (January 9, 2025)
+
 ### New features
 
 * Mountpoint now supports specifying an open FUSE file descriptor in place of the mount path by using the syntax `/dev/fd/N`.
