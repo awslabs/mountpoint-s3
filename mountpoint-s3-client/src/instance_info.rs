@@ -66,7 +66,7 @@ fn retrieve_instance_identity_document() -> Result<IdentityDocument, InstanceInf
 
 fn imds_disabled() -> bool {
     match env::var_os("AWS_EC2_METADATA_DISABLED") {
-        Some(val) => val.to_ascii_lowercase() != "false",
+        Some(val) => !val.eq_ignore_ascii_case("false"),
         None => false,
     }
 }

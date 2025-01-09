@@ -303,7 +303,7 @@ fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
     let random_suffix: u64 = rand::thread_rng().gen();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"
     let full_key = format!("{key_prefix}{last_key_part}");
-    let full_key_size = full_key.as_bytes().len();
+    let full_key_size = full_key.len();
     let padding_size = min_size_in_bytes.saturating_sub(full_key_size);
     let padding = "0".repeat(padding_size);
     format!("{last_key_part}{padding}")
