@@ -1,7 +1,6 @@
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use lazy_static::lazy_static;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use regex::Regex;
@@ -33,14 +32,17 @@ pub enum ParseError {
     InvalidRestore(String),
 }
 
-lazy_static! {
-    // Example: ongoing-request="true"
-    static ref RESTORE_IN_PROGRESS_RE: Regex = Regex::new(r#"^ongoing-request="(?<ongoing>[^"]*)"$"#).unwrap();
+/// Regex for determining if a restore is ongoing.
+///
+/// Example: `ongoing-request="true"`
+static RESTORE_IN_PROGRESS_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^ongoing-request="(?<ongoing>[^"]*)"$"#).unwrap());
 
-    // Example: ongoing-request="false", expiry-date="Fri, 21 Dec 2012 00:00:00 GMT"
-    static ref RESTORE_DONE_RE: Regex =
-        Regex::new(r#"^ongoing-request="[^"]*",\s*expiry-date="(?<expiry>[^"]*)"$"#).unwrap();
-}
+/// Regex for determining a restore is complete.
+///
+/// Example: `ongoing-request="false", expiry-date="Fri, 21 Dec 2012 00:00:00 GMT"`
+static RESTORE_DONE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^ongoing-request="[^"]*",\s*expiry-date="(?<expiry>[^"]*)"$"#).unwrap());
 
 impl HeadObjectResult {
     fn parse_restore_status(headers: &Headers) -> Result<Option<RestoreStatus>, ParseError> {

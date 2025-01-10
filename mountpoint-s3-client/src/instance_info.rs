@@ -1,9 +1,9 @@
 //! A simple interface to retrieve information about the EC2 instance this client is running on by
 //! querying the Instance Metadata Service (IMDS).
 
+use std::cell::LazyCell;
 use std::env;
 
-use once_cell::unsync::Lazy;
 use thiserror::Error;
 
 use crate::imds_crt_client::{IdentityDocument, ImdsCrtClient, ImdsQueryRequestError};
@@ -12,7 +12,7 @@ use crate::imds_crt_client::{IdentityDocument, ImdsCrtClient, ImdsQueryRequestEr
 /// the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
 #[derive(Debug)]
 pub struct InstanceInfo {
-    document: Lazy<Result<IdentityDocument, InstanceInfoError>>,
+    document: LazyCell<Result<IdentityDocument, InstanceInfoError>>,
 }
 
 impl InstanceInfo {
@@ -20,7 +20,7 @@ impl InstanceInfo {
     /// called, and only if the `AWS_EC2_METADATA_DISABLED` environment variable is not set.
     pub fn new() -> Self {
         Self {
-            document: Lazy::new(|| {
+            document: LazyCell::new(|| {
                 if !imds_disabled() {
                     match retrieve_instance_identity_document() {
                         Ok(identity_document) => {

@@ -1,6 +1,6 @@
 use std::os::unix::prelude::OsStrExt;
+use std::sync::LazyLock;
 
-use lazy_static::lazy_static;
 use mountpoint_s3_crt::{
     auth::signing_config::SigningAlgorithm,
     common::{allocator::Allocator, uri::Uri},
@@ -8,10 +8,8 @@ use mountpoint_s3_crt::{
 };
 use thiserror::Error;
 
-lazy_static! {
-    // A static s3 endpoint rule engine that can be shared across s3 client
-    static ref S3_ENDPOINT_RULE_ENGINE: RuleEngine = RuleEngine::new(&Default::default()).unwrap();
-}
+/// A static s3 endpoint rule engine that can be shared across s3 client
+static S3_ENDPOINT_RULE_ENGINE: LazyLock<RuleEngine> = LazyLock::new(|| RuleEngine::new(&Default::default()).unwrap());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AddressingStyle {
