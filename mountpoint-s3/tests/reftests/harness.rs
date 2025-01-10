@@ -1308,6 +1308,7 @@ mod mutations {
         )
     }
 
+
     /*
      Ensure that local files are shadowed by the remote directories.
     */
@@ -1330,4 +1331,65 @@ mod mutations {
             0,
         )
     }
+
+
+    #[test]
+    fn regression_local_lost_when_removing_remote_entries() {
+        run_test(TreeNode::Directory(BTreeMap::from([])), vec![
+            Op::CreateDirectory(
+                DirectoryIndex(
+                    0,
+                ),
+                ValidName(
+                    "a".into(),
+                ),
+            ),
+            Op::CreateDirectory(
+                DirectoryIndex(
+                    0,
+                ),
+                ValidName(
+                    "-".into(),
+                ),
+            ),
+            Op::WriteFile(
+                ValidName(
+                    "a".into(),
+                ),
+                DirectoryIndex(
+                    1,
+                ),
+                FileContent(
+                    0,
+                    FileSize::Small(0),
+                ),
+            ),
+            Op::CreateFile(
+                ValidName(
+                    "aa".into(),
+                ),
+                DirectoryIndex(
+                    1,
+                ),
+                FileContent(
+                    0,
+                    FileSize::Small(0),
+                ),
+            ),
+            Op::DeleteObject(
+                KeyIndex(
+                    0,
+                ),
+            ),
+            Op::CreateDirectory(
+                DirectoryIndex(
+                    0,
+                ),
+                ValidName(
+                    "a".into(),
+                ),
+            ),
+        ], 0)
+    }
+
 }
