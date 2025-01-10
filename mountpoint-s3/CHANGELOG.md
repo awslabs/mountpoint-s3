@@ -1,13 +1,15 @@
 ## Unreleased
 
-## v1.13.1 (January 10, 2025)
+## v1.14.0 (January 10, 2025)
 
 ### New features
 
 * Mountpoint now supports specifying an open FUSE file descriptor in place of the mount path by using the syntax `/dev/fd/N`.
-  See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples/fuse-fd-mount-point/mounthelper.go) as an example usage and see
-  [Configuring mount point](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#configuring-mount-point) about more details on configuring this feature.
-  ([#1103](https://github.com/awslabs/mountpoint-s3/pull/1103))
+  See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples/fuse-fd-mount-point/mounthelper.go) as an example usage and see [Configuring mount point](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#providing-a-fuse-file-descriptor-for-mounting) about more details on configuring this feature. ([#1103](https://github.com/awslabs/mountpoint-s3/pull/1103))
+
+## v1.13.1 (January 10, 2025)
+
+Erroneously includes the FUSE file descriptor feature released in 1.14.0.
 
 ### Other changes
 
