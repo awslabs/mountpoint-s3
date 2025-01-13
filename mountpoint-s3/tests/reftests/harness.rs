@@ -253,26 +253,40 @@ impl Harness {
     /// Compared to [compare_contents], this avoids doing a `readdir` before `lookup`, and so tests
     /// a different path through the inode code.
     pub async fn compare_single_path(&self, idx: usize) {
-        let inodes = self.reference.list_recursive();
-        if inodes.is_empty() {
+        let ref_inodes = self.reference.list_recursive();
+        if ref_inodes.is_empty() {
             return;
         }
-        let (path, node) = &inodes[idx % inodes.len()];
+        let (path_components, node) = &ref_inodes[idx % ref_inodes.len()];
 
         let mut parent = FUSE_ROOT_INODE;
         let mut seen_inos = HashSet::from([FUSE_ROOT_INODE]);
-        for name in path.iter().take(path.len().saturating_sub(1)) {
-            let lookup = self.fs.lookup(parent, name.as_ref()).await.unwrap();
+
+        let (leaf, ancestors) = path_components
+            .split_last()
+            .expect("there should always be at least one path component");
+        for name in ancestors {
+            let lookup = self
+                .fs
+                .lookup(parent, name.as_ref())
+                .await
+                .expect("ancestor must exist in MP fs");
             assert_eq!(lookup.attr.kind, FileType::Directory);
+            let ino = lookup.attr.ino;
             assert!(
-                seen_inos.insert(lookup.attr.ino),
-                "should not have seen ancestor before"
+                seen_inos.insert(ino),
+                "should not have seen ancestor ino {ino} in MP fs before"
             );
-            parent = lookup.attr.ino;
+            parent = ino;
         }
 
-        let lookup = self.fs.lookup(parent, path.last().unwrap().as_ref()).await.unwrap();
-        assert!(seen_inos.insert(lookup.attr.ino), "should not have seen inode before");
+        let lookup = self
+            .fs
+            .lookup(parent, leaf.as_ref())
+            .await
+            .expect("directory entry at path should exist in MP fs");
+        let ino = lookup.attr.ino;
+        assert!(seen_inos.insert(ino), "should not have seen ino {ino} before");
         match node {
             Node::Directory { .. } => {
                 assert_eq!(lookup.attr.kind, FileType::Directory);
@@ -605,8 +619,8 @@ impl Harness {
     ) -> BoxFuture<'a, ()> {
         async move {
             let dir_handle = self.fs.opendir(fs_dir, 0).await.unwrap().fh;
-            let children = ref_dir.children();
-            let mut keys = children.keys().cloned().collect::<HashSet<_>>();
+            let ref_children = ref_dir.children();
+            let mut unvisited_ref_children = ref_children.keys().cloned().collect::<HashSet<_>>();
 
             let mut reply = DirectoryReply::new(self.readdir_limit);
             self.fs.readdir(fs_dir, dir_handle, 0, &mut reply).await.unwrap();
@@ -648,7 +662,7 @@ impl Harness {
                     let lkup = self.fs.lookup(fs_dir, &reply.name).await.unwrap();
                     let attr = lkup.attr;
 
-                    match children.get(name) {
+                    match ref_children.get(name) {
                         Some(node) => {
                             let ref_kind = node.node_type().into();
                             assert_eq!(
@@ -672,7 +686,7 @@ impl Harness {
                                 self.compare_contents_recursive(fs_dir, reply.ino, node).await;
                             }
                             assert!(
-                                keys.remove(name),
+                                unvisited_ref_children.remove(name),
                                 "file name must be in the set of child names in the reference fs",
                             );
                         }
@@ -684,8 +698,8 @@ impl Harness {
             }
 
             assert!(
-                keys.is_empty(),
-                "reference contained elements not in the filesystem in dir inode {fs_dir}: {keys:?}"
+                unvisited_ref_children.is_empty(),
+                "reference contained elements not in the filesystem in dir inode {fs_dir}: {unvisited_ref_children:?}"
             );
 
             self.fs.releasedir(fs_dir, dir_handle, 0).await.unwrap();
@@ -693,10 +707,10 @@ impl Harness {
         .boxed()
     }
 
-    async fn compare_file<'a>(&'a self, fs_file: InodeNo, ref_file: &'a MockObject) {
-        let fh = match self.fs.open(fs_file, OpenFlags::empty(), 0).await {
+    async fn compare_file<'a>(&'a self, fs_ino: InodeNo, ref_file: &'a MockObject) {
+        let fh = match self.fs.open(fs_ino, OpenFlags::empty(), 0).await {
             Ok(ret) => ret.fh,
-            Err(e) => panic!("failed to open ino {fs_file} for content comparison: {e:?}"),
+            Err(e) => panic!("failed to open ino {fs_ino} for content comparison: {e:?}"),
         };
         let mut offset = 0;
         const MAX_READ_SIZE: usize = 128 * 1024;
@@ -707,7 +721,7 @@ impl Harness {
             assert_eq!(ref_bytes.len(), num_bytes, "number of bytes did not match");
             let bytes_from_read = self
                 .fs
-                .read(fs_file, fh, offset as i64, num_bytes as u32, 0, None)
+                .read(fs_ino, fh, offset as i64, num_bytes as u32, 0, None)
                 .await
                 .expect("read should succeed");
             assert_eq!(&ref_bytes[..], &bytes_from_read, "read bytes did not match");

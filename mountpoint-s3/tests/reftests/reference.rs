@@ -61,7 +61,7 @@ impl Node {
 #[derive(Debug)]
 pub struct Reference {
     /// Contents of our S3 bucket
-    remote_keys: BTreeMap<String, MockObject>,
+    remote_objects: BTreeMap<String, MockObject>,
     /// Local files
     local_files: Vec<PathBuf>,
     /// Local directories
@@ -98,25 +98,25 @@ impl MaterializedReference {
         );
 
         let mut parent_node = &mut self.root;
-        while let Some(dir) = components.next() {
+        while let Some(name) = components.next() {
             let Node::Directory { children, .. } = parent_node else {
                 return false;
                 // TODO: see above -- implicit directories are allowed to disappear
                 // panic!("unexpected internal file node while adding {:?}", path.as_ref());
             };
-            let dir = dir.as_os_str().to_str().unwrap();
+            let name = name.as_os_str().to_str().unwrap();
             if components.peek().is_none() {
                 // If both a local and a remote directory exist, don't overwrite the remote one's
                 // contents, as they will be visible even though the directory is local. But
                 // remember the directory is still local.
                 if typ == NodeType::Directory {
-                    if let Some(Node::Directory { is_local, .. }) = children.get_mut(dir) {
+                    if let Some(Node::Directory { is_local, .. }) = children.get_mut(name) {
                         *is_local = true;
                         break;
                     }
                 }
                 // If a directory of this name exists, ignore any local file
-                if let Some(node) = children.get(dir) {
+                if let Some(node) = children.get(name) {
                     if node.node_type() == NodeType::Directory {
                         return false;
                     }
@@ -128,7 +128,7 @@ impl MaterializedReference {
                     },
                     NodeType::File => Node::File(File::Local),
                 };
-                children.insert(dir.to_owned(), new_node);
+                children.insert(name.to_owned(), new_node);
                 break;
             } else {
                 // TODO: see above -- implicit directories are allowed to disappear
@@ -136,7 +136,7 @@ impl MaterializedReference {
                 //     children: BTreeMap::new(),
                 //     is_local: true,
                 // })
-                let Some(child_node) = children.get_mut(dir) else {
+                let Some(child_node) = children.get_mut(name) else {
                     return false;
                 };
                 parent_node = child_node;
@@ -153,7 +153,7 @@ impl Reference {
         let local_directories = vec![];
         let materialized = build_reference(remote_keys.iter().map(|(k, o): &(_, _)| (k, o)));
         Self {
-            remote_keys: remote_keys.into_iter().collect(),
+            remote_objects: remote_keys.into_iter().collect(),
             local_files,
             local_directories,
             materialized,
@@ -162,10 +162,10 @@ impl Reference {
 
     fn rematerialize(&self) -> MaterializedReference {
         tracing::debug!(
-            remote_keys=?self.remote_keys, local_files=?self.local_files, local_directories=?self.local_directories,
+            remote_keys=?self.remote_objects.keys(), local_files=?self.local_files, local_directories=?self.local_directories,
             "rematerialize",
         );
-        let mut materialized = build_reference(self.remote_keys.iter());
+        let mut materialized = build_reference(self.remote_objects.iter());
         for local_dir in self.local_directories.iter() {
             let added = materialized.add_local_node(local_dir, NodeType::Directory);
             if added {
@@ -252,12 +252,12 @@ impl Reference {
     }
 
     pub fn add_remote_key(&mut self, key: &str, object: MockObject) {
-        self.remote_keys.insert(key.to_owned(), object);
+        self.remote_objects.insert(key.to_owned(), object);
         self.materialized = self.rematerialize();
     }
 
     pub fn remove_remote_key(&mut self, key: &str) {
-        self.remote_keys.remove(key);
+        self.remote_objects.remove(key);
         self.materialized = self.rematerialize();
     }
 
@@ -301,7 +301,7 @@ impl Reference {
 
     /// A list of objects in the bucket
     pub fn remote_keys(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.remote_keys.keys().map(|key| key.as_str())
+        self.remote_objects.keys().map(|key| key.as_str())
     }
 }
 
