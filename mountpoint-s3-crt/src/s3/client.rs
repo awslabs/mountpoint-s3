@@ -462,6 +462,14 @@ impl<'a> MetaRequestOptions<'a> {
         options.inner.send_using_async_writes = send_using_async_writes;
         self
     }
+
+    /// Set the URI of source bucket/key for COPY request only
+    pub fn copy_source_uri(&mut self, source_uri: &str) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.inner.copy_source_uri = unsafe { source_uri.as_aws_byte_cursor() };
+        self
+    }
 }
 
 impl Default for MetaRequestOptions<'_> {
