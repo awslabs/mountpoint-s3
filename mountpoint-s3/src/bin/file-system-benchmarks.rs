@@ -61,7 +61,7 @@ trait DurationExt {
 impl DurationExt for Duration {
     fn as_millis_f64_temp(&self) -> f64 {
         const NANOS_PER_MILLI: f64 = 1_000_000.0;
-        return self.as_nanos() as f64 / NANOS_PER_MILLI;
+        self.as_nanos() as f64 / NANOS_PER_MILLI
     }
 }
 
