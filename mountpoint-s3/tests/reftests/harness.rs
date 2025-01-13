@@ -4,6 +4,9 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{make_test_filesystem, DirectoryReply, TestS3Filesystem};
+use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, Name, TreeNode, ValidName};
+use crate::reftests::reference::{File, Node, Reference};
 use fuser::FileType;
 use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3::fs::{CacheConfig, InodeNo, OpenFlags, ToErrno, FUSE_ROOT_INODE};
@@ -14,10 +17,6 @@ use mountpoint_s3_client::ObjectClient;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, debug_span, trace};
-
-use crate::common::{make_test_filesystem, DirectoryReply, TestS3Filesystem};
-use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, Name, TreeNode, ValidName};
-use crate::reftests::reference::{File, Node, Reference};
 
 /// Operations that the mutating proptests can perform on the file system.
 // TODO: "reboot" (forget all the local inodes and re-bootstrap)
@@ -156,6 +155,17 @@ impl InflightWrites {
     fn remove(&mut self, index: InflightWriteIndex) -> InflightWrite {
         let index = self.index(index).unwrap();
         self.writes.remove(index)
+    }
+
+    // Invalidates all inflight writes that are shadowed / affected by a PutObject request.
+    fn invalidate(&mut self, path: PathBuf) {
+        debug!("writes has {} entries ", self.writes.len());
+        debug!("path: {:?}", path);
+        for write in &mut self.writes {
+            debug!("write with path {}", write.path.display());
+        }
+        self.writes.retain(|write| write.path.starts_with(&path));
+        debug!("writes has {} entries", self.writes.len());
     }
 }
 
@@ -576,7 +586,12 @@ impl Harness {
         self.client.add_object(&key, object.clone());
         self.reference.add_remote_key(&key, object);
         // Any local directories along the path are made remote by adding this object
-        self.reference.remove_local_parents(key_as_path);
+        self.reference.remove_local_parents(key_as_path.clone());
+        // If we overwrite a file that is currently part of an inflight write
+        // we have to remove that inflight write, as otherwise we fail when opening the
+        // ino to continue writing.
+        debug!("invalidating");
+        self.inflight_writes.invalidate(key_as_path);
     }
 
     /// Perform a DeleteObject on the bucket, to simulate concurrent access to the bucket by a
@@ -1329,5 +1344,26 @@ mod mutations {
             ],
             0,
         )
+    }
+
+    #[test]
+    fn regression_stale_ino() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([])),
+            vec![
+                Op::CreateFile(
+                    ValidName("a".into()),
+                    DirectoryIndex(0),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+                Op::PutObject(
+                    DirectoryIndex(0),
+                    Name("a/a".into()),
+                    FileContent(0, FileSize::Small(0)),
+                ),
+                Op::FinishWrite(InflightWriteIndex(0)),
+            ],
+            0,
+        );
     }
 }
