@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use serde::{Serialize, Serializer};
 use serde_json::json;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -71,11 +71,11 @@ fn mean(v: &[f64]) -> f64 {
 }
 
 fn one_byte_file_creation_benchmark(
-    mount_dir_str: &str,
+    mount_dir: &Path,
     num_files: u32,
     include_breakdown: bool,
 ) -> Result<Vec<BenchmarkResult>> {
-    file_creation_benchmark("One Byte File Creation", mount_dir_str, num_files, 1, include_breakdown)
+    file_creation_benchmark("One Byte File Creation", mount_dir, num_files, 1, include_breakdown)
 }
 
 /// Benchmarks file creation operations by measuring the latency of opening, writing, and flushing files.
@@ -102,7 +102,7 @@ fn one_byte_file_creation_benchmark(
 /// * Flush latency: Time taken to flush and close the file
 fn file_creation_benchmark(
     benchmark_name: &str,
-    mount_dir_str: &str,
+    mount_dir: &Path,
     num_files: u32,
     file_size_bytes: u64,
     include_breakdown: bool,
@@ -114,7 +114,7 @@ fn file_creation_benchmark(
 
     for file_number in 1..=num_files {
         let mut elapsed_total_ms: f64 = 0.0;
-        let path = format!("{mount_dir_str}/bench_file_{file_number}");
+        let path = mount_dir.join(format!("bench_file_{file_number}"));
 
         // Perform and time the open operation
         let mut file = {
@@ -127,7 +127,7 @@ fn file_creation_benchmark(
             let start = Instant::now();
             let file = open
                 .open(path.clone())
-                .map_err(|e| anyhow::anyhow!("Failed to open file {}: {}", path, e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to open file {}: {}", path.display(), e))?;
             let elapsed_ms = start.elapsed().as_millis_f64_temp();
             open_latency_samples.push(elapsed_ms);
             elapsed_total_ms += elapsed_ms;
@@ -138,7 +138,7 @@ fn file_creation_benchmark(
         {
             let start = Instant::now();
             file.write_all(&vec![0u8; file_size_bytes as usize])
-                .map_err(|e| anyhow::anyhow!("Failed to write to file {}: {}", path, e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to write to file {}: {}", path.display(), e))?;
             let elapsed_ms = start.elapsed().as_millis_f64_temp();
             write_latency_samples.push(elapsed_ms);
             elapsed_total_ms += elapsed_ms;
@@ -155,7 +155,8 @@ fn file_creation_benchmark(
 
         total_latency_samples.push(elapsed_total_ms);
 
-        fs::remove_file(path.clone()).map_err(|e| anyhow::anyhow!("Failed to remove file {}: {}", path, e))?;
+        fs::remove_file(path.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to remove file {}: {}", path.display(), e))?;
     }
 
     let total_latency_result = BenchmarkResult {
@@ -195,18 +196,13 @@ fn main() -> Result<()> {
         benchmark_type,
         detailed,
     } = CliArgs::parse();
-    let mount_dir_os_str = mount_dir.into_os_string();
-    let mount_dir_str = mount_dir_os_str
-        .to_str()
-        .ok_or_else(|| anyhow!("Invalid UTF-8 in mount directory path"))?;
-
     const NUM_FILES: u32 = 100;
     let benchmark_results = match benchmark_type {
-        BenchmarkType::OneByteFile => one_byte_file_creation_benchmark(mount_dir_str, NUM_FILES, detailed)?,
-        BenchmarkType::All => vec![one_byte_file_creation_benchmark(mount_dir_str, NUM_FILES, detailed)?]
-            .into_iter()
-            .flatten()
-            .collect(),
+        BenchmarkType::OneByteFile => one_byte_file_creation_benchmark(&mount_dir, NUM_FILES, detailed)?,
+        BenchmarkType::All => vec![one_byte_file_creation_benchmark(&mount_dir, NUM_FILES, detailed)?]
+        .into_iter()
+        .flatten()
+        .collect(),
     };
 
     let contents = json!(benchmark_results);
@@ -216,4 +212,39 @@ fn main() -> Result<()> {
     writer.flush()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mean_empty_vector() {
+        let numbers: Vec<f64> = vec![];
+        assert!((mean(&numbers)).is_nan());
+    }
+
+    #[test]
+    fn test_mean_single_number() {
+        let numbers = vec![42.0];
+        assert_eq!(mean(&numbers), 42.0);
+    }
+
+    #[test]
+    fn test_mean_mixed_numbers() {
+        let numbers = vec![-2.0, -1.5, 0.0, 1.0, 2.5];
+        assert_eq!(mean(&numbers), 0.0);
+    }
+
+    #[test]
+    fn test_mean_large_numbers() {
+        let numbers = vec![1e7, 2e7, 3e7];
+        assert_eq!(mean(&numbers), 2e7);
+    }
+
+    #[test]
+    fn test_mean_precision() {
+        let numbers = vec![1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0];
+        assert!((mean(&numbers) - 1.0 / 3.0).abs() < f64::EPSILON);
+    }
 }
