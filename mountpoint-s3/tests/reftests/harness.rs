@@ -947,7 +947,7 @@ mod mutations {
     #[test]
     fn regression_overwrite() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::WriteFile("-a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
                 Op::WriteFile("-a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
@@ -959,7 +959,7 @@ mod mutations {
     #[test]
     fn regression_empty_file() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateFile("a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
                 Op::FinishWrite(InflightWriteIndex(0)),
@@ -988,7 +988,7 @@ mod mutations {
     #[test]
     fn regression_unlink_local_directory() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateDirectory(DirectoryIndex(0), "a".into()),
                 Op::UnlinkFile(DirectoryIndex(0), ChildIndex(0)),
@@ -1161,7 +1161,7 @@ mod mutations {
     #[test]
     fn regression_mkdir_put() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateDirectory(DirectoryIndex(0), "a".into()),
                 Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
@@ -1173,7 +1173,7 @@ mod mutations {
     #[test]
     fn regression_put_over_open_file() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateFile("a".into(), DirectoryIndex(0), FileContent(0, FileSize::Small(0))),
                 Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
@@ -1185,7 +1185,7 @@ mod mutations {
     #[test]
     fn regression_put_over_open_directory() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateDirectory(DirectoryIndex(0), "a".into()),
                 Op::PutObject(DirectoryIndex(0), "a".into(), FileContent(0, FileSize::Small(0))),
@@ -1236,7 +1236,7 @@ mod mutations {
     #[test]
     fn regression_put_into_directory1() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateDirectory(DirectoryIndex(0), "a".into()),
                 Op::CreateDirectory(DirectoryIndex(0), "-".into()),
@@ -1298,7 +1298,7 @@ mod mutations {
     #[test]
     fn regression_unlink_newly_put_object() {
         run_test(
-            TreeNode::File(FileContent(0, FileSize::Small(0))),
+            TreeNode::Directory(BTreeMap::from([])),
             vec![
                 Op::CreateDirectory(DirectoryIndex(0), "a".into()),
                 Op::PutObject(DirectoryIndex(1), "a".into(), FileContent(0, FileSize::Small(0))),

@@ -90,9 +90,16 @@ impl FileContent {
     }
 }
 
+/// Represents a file system tree.
+///
+/// The root should always be the [TreeNode::Directory] variant.
 #[derive(Clone)]
 pub enum TreeNode {
+    /// File node in a tree.
+    ///
+    /// A file node must never be at the root of the tree, and is given a name by its parent (a [TreeNode::Directory]).
     File(FileContent),
+    /// Directory node in the tree.
     Directory(BTreeMap<Name, TreeNode>),
 }
 
@@ -115,19 +122,26 @@ impl Debug for TreeNode {
     }
 }
 
+/// Generates a tree of directories and files.
+///
+/// Leaves are always [TreeNode::File] or an empty [TreeNode::Directory].
+/// Parents are always [TreeNode::Directory].
 pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> impl Strategy<Value = TreeNode> {
-    let leaf = prop_oneof![any::<FileContent>().prop_map(TreeNode::File),];
-    leaf.prop_recursive(
+    let leaf = any::<FileContent>().prop_map(TreeNode::File);
+
+    let strategy = leaf.prop_recursive(
         depth,     // levels
         max_size,  // max number of nodes
         max_items, // number of items per collection
         move |inner| {
-            prop_oneof![
-                // Take the inner strategy and make the recursive cases.
-                prop::collection::btree_map(any::<Name>(), inner, 0..max_width).prop_map(TreeNode::Directory),
-            ]
+            // Take the inner strategy and make the recursive cases.
+            // Since the size of the tree could be zero, this also introduces directories as leaves.
+            prop::collection::btree_map(any::<Name>(), inner, 0..max_width).prop_map(TreeNode::Directory)
         },
-    )
+    );
+
+    // Ensure the root is always a directory by wrapping the inner strategy
+    prop::collection::btree_map(any::<Name>(), strategy, 0..max_width).prop_map(TreeNode::Directory)
 }
 
 /// Take a generated tree and create the corresponding S3 namespace (list of keys)
@@ -135,10 +149,8 @@ pub fn flatten_tree(node: TreeNode) -> Vec<(String, MockObject)> {
     fn aux(node: TreeNode, path: String, acc: &mut Vec<(String, MockObject)>) {
         match node {
             TreeNode::File(content) => {
-                // Don't create an empty key if a [TreeNode::File] is the root of the tree
-                if !path.is_empty() {
-                    acc.push((path, content.to_mock_object()));
-                }
+                assert!(!path.is_empty(), "file node should never be created at root");
+                acc.push((path, content.to_mock_object()));
             }
             TreeNode::Directory(contents) => {
                 for (name, child) in contents {
