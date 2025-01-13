@@ -1330,4 +1330,59 @@ mod mutations {
             0,
         )
     }
+
+    #[test]
+    fn regression_failure() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([("\u{1}".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("--".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("-a".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), (".".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("a".into(), TreeNode::Directory(BTreeMap::from([("-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ]))), ("a-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("a--".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("aa".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ("aa-".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ])),
+            vec![
+                Op::CreateDirectory(
+                    DirectoryIndex(
+                        3296192854338490297,
+                    ),
+                    ValidName(
+                        "a".into(),
+                    ),
+                ),
+                Op::DeleteObject(
+                    KeyIndex(
+                        2232113103029274817,
+                    ),
+                ),
+                Op::WriteFile(
+                    ValidName(
+                        "-".into(),
+                    ),
+                    DirectoryIndex(
+                        0,
+                    ),
+                    FileContent(
+                        0,
+                        FileSize::Small(0),
+                    ),
+                ),
+                Op::CreateDirectory(
+                    DirectoryIndex(
+                        0,
+                    ),
+                    ValidName(
+                        "a".into(),
+                    ),
+                ),
+                Op::WriteFile(
+                    ValidName(
+                        "a".into(),
+                    ),
+                    DirectoryIndex(
+                        6142221791957190127,
+                    ),
+                    FileContent(
+                        0,
+                        FileSize::Small(0),
+                    ),
+                ),
+            ],
+            0
+        );
+    }
 }
