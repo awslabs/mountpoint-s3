@@ -1330,4 +1330,46 @@ mod mutations {
             0,
         )
     }
+
+    /*
+     * In this test, a directory is duplicated.
+     */
+    #[test]
+    fn regression_duplicate_localdir() {
+        run_test(
+            TreeNode::Directory(BTreeMap::from([("-".into(), TreeNode::Directory(BTreeMap::from([("aaa".into(), TreeNode::File(FileContent(0, FileSize::Small(0)))), ]))), ])),
+            vec![
+                Op::CreateDirectory(
+                    DirectoryIndex(
+                        1,
+                    ),
+                    ValidName(
+                        "aa".into(),
+                    ),
+                ),
+                Op::DeleteObject(
+                    KeyIndex(
+                        0,
+                    ),
+                ),
+                Op::CreateDirectory(
+                    DirectoryIndex(
+                        0,
+                    ),
+                    ValidName(
+                        "-".into(),
+                    ),
+                ),
+                Op::CreateDirectory(
+                    DirectoryIndex(
+                        1,
+                    ),
+                    ValidName(
+                        "aa".into(),
+                    ),
+                ),
+            ],
+            0
+        );
+    }
 }
