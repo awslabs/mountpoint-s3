@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1736532944348,
+  "lastUpdate": 1736770581479,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5112fcbcd52780390cfa5f7f3f4166ffa4b2a67a",
-          "message": "Update cargo dependencies and allow-list Unicode-3.0 license (#1193)\n\nRun `cargo update`. In particular, update crate `idna` from version\n`0.5.0` to `1.0.3`, in order to address\n[RUSTSEC-2024-0421](https://rustsec.org/advisories/RUSTSEC-2024-0421).\n\nAlso add \"Unicode-3.0\" to the list of allowed licenses in deny.toml.\nRequired by the new dependency:\n```\nicu_normalizer v1.5.0\n└── idna_adapter v1.2.0\n    └── idna v1.0.3\n```\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2024-12-10T10:21:41Z",
-          "tree_id": "5a514b796dae0cf82b75b70d8c6f9dbf2601f511",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5112fcbcd52780390cfa5f7f3f4166ffa4b2a67a"
-        },
-        "date": 1733833603447,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3289.828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 331.77734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3289.2890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 358.42578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3306.65625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 266.4765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3116.546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 219.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 21534.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 344.24609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3287.61328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 365.87890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3352.28125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 226.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3403.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 3489.8125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 211.625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 217.0703125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d6e8f9d26a451a155edcf8289f93781158fd3bb",
+          "message": "Update reftest to always generate a directory at the root of the reference model (#1219)\n\nThis change impacts only Mountpoint's reference tests.\n\nThe current strategy for generating the tree allows for the root to be a\nfile, which is not possible. This leads to us adding special cases to\nthe reftest comparison logic as well as having bizarre test cases which\nare hard to understand.\n\nThis change updates the strategy by ensuring that the root is always a\ndirectory, and simplifies some of the unused proptest layers.\n\n### Does this change impact existing behavior?\n\nNo change to existing Mountpoint behavior. This changes the type of\ntrees generated by our reference tests, removing those that are not\npossible in Mountpoint.\n\n### Does this change need a changelog entry?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2025-01-13T10:13:22Z",
+          "tree_id": "63a375fb619d6f7b74727aad6ad70d4584e2c293",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7d6e8f9d26a451a155edcf8289f93781158fd3bb"
+        },
+        "date": 1736770581440,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3161.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 331.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3330.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 352.671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3213.86328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 257.80859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3315.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 214.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 33721.8828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 347.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3190.65234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 381.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3270.36328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 240.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3365.140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 14855.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 213.1015625,
             "unit": "MiB"
           }
         ]
