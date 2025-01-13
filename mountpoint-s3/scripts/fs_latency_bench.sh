@@ -126,6 +126,7 @@ do
     dir_size=$(awk "BEGIN {print $dir_size*10}")
 done
 
+# Run benchmarks which measure the latencies of real-world usage patterns of Mountpoint. These include file system operations instead of focusing solely on IO data transfer.
 run_file_system_benchmarks() {
   mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
   log_dir=logs/file_system_benchmarks
@@ -146,10 +147,10 @@ run_file_system_benchmarks() {
 
   # run file system benchmarks binary
   file_system_benchmarks_out_file_path=${results_dir}/file_system_benchmarks_parsed.json
-  cargo run --release --features=statistical --bin file-system-benchmarks ${mount_dir} ${file_system_benchmarks_out_file_path}  # This generates a *_parsed.json file which will be included in the resulting output json
+  cargo run --release --bin file-system-benchmarks ${mount_dir} ${file_system_benchmarks_out_file_path}  # This generates a *_parsed.json file which will be included in the resulting output json
 }
 
-run_file_benchmarks() {
+run_file_io_benchmarks() {
   category=$1
   jobs_dir=mountpoint-s3/scripts/fio/${category}_latency
   
@@ -212,8 +213,8 @@ run_file_benchmarks() {
 }
 
 run_file_system_benchmarks
-run_file_benchmarks read
-run_file_benchmarks write
+run_file_io_benchmarks read
+run_file_io_benchmarks write
 
 # combine all bench results into one json file
 jq -n '[inputs] | flatten' ${results_dir}/*.json | tee ${results_dir}/output.json

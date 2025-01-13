@@ -1,14 +1,13 @@
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::json;
-use statistical::mean;
-use std::{
-    fs::{self, File, OpenOptions},
-    io::{BufWriter, Write},
-    path::PathBuf,
-    time::Instant,
-};
+
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
+use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Parser, Debug, Clone, ValueEnum)]
 enum BenchmarkType {
@@ -16,6 +15,7 @@ enum BenchmarkType {
     All,
 }
 
+/// Benchmark tool for measuring the time of Linux file system operations.
 #[derive(Parser, Debug)]
 struct CliArgs {
     #[clap(help = "Directory of mounted S3 bucket", value_name = "MOUNT_DIRECTORY")]
@@ -35,7 +35,39 @@ struct CliArgs {
 struct BenchmarkResult {
     name: String,
     value: f64,
-    unit: String,
+    unit: Unit,
+}
+
+enum Unit {
+    Milliseconds,
+}
+
+impl Serialize for Unit {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match *self {
+            Unit::Milliseconds => serializer.serialize_str("milliseconds"),
+        }
+    }
+}
+
+trait DurationExt {
+    // This is a temporary alternative to 'as_millis' to avoid loss of precision and should be removed when 'as_millis_f64_temp' is no longer a nightly-only experimental API.
+    fn as_millis_f64_temp(&self) -> f64;
+}
+
+impl DurationExt for Duration {
+    fn as_millis_f64_temp(&self) -> f64 {
+        const NANOS_PER_MILLI: f64 = 1_000_000.0;
+        return self.as_nanos() as f64 / NANOS_PER_MILLI;
+    }
+}
+
+fn mean(v: &[f64]) -> f64 {
+    let len = v.len() as f64;
+    v.iter().fold(0.0, |acc: f64, elem| acc + *elem) / len
 }
 
 fn one_byte_file_creation_benchmark(
@@ -43,19 +75,38 @@ fn one_byte_file_creation_benchmark(
     num_files: u32,
     include_breakdown: bool,
 ) -> Result<Vec<BenchmarkResult>> {
-    file_creation_benchmark(mount_dir_str, num_files, include_breakdown, "One Byte File Creation", 1)
+    file_creation_benchmark("One Byte File Creation", mount_dir_str, num_files, 1, include_breakdown)
 }
 
+/// Benchmarks file creation operations by measuring the latency of opening, writing, and flushing files.
+///
+/// # Arguments
+///
+/// * `benchmark_name` - A string slice containing the name of the benchmark for result labeling
+/// * `mount_dir_str` - A string slice containing the path to the directory where benchmark files will be created
+/// * `num_files` - The number of files to create during the benchmark (the creation of these files is done in serial)
+/// * `file_len_bytes` - The size of each file to create in bytes
+/// * `include_breakdown` - Whether to include detailed timing breakdown in the results
+///
+/// # Returns
+///
+/// Returns a `Result<Vec<BenchmarkResult>>` where:
+/// * On success: Vector of `BenchmarkResult` containing timing measurements
+/// * On error: An `anyhow::Error` describing what went wrong
+///
+/// # Measurements
+///
+/// The function measures three distinct operations for each file:
+/// * Open latency: Time taken to create and open a new file
+/// * Write latency: Time taken to write the specified number of bytes
+/// * Flush latency: Time taken to flush and close the file
 fn file_creation_benchmark(
+    benchmark_name: &str,
     mount_dir_str: &str,
     num_files: u32,
+    file_size_bytes: u64,
     include_breakdown: bool,
-    benchmark_name: &str,
-    file_size: u64, // In bytes
 ) -> Result<Vec<BenchmarkResult>> {
-    const NANOS_PER_MILLI: f64 = 1_000_000.0;
-
-    let mut lookup_latency_samples = vec![];
     let mut open_latency_samples = vec![];
     let mut write_latency_samples = vec![];
     let mut flush_latency_samples = vec![];
@@ -65,41 +116,42 @@ fn file_creation_benchmark(
         let mut elapsed_total_ms: f64 = 0.0;
         let path = format!("{mount_dir_str}/bench_file_{file_number}");
 
-        // Perform and time the lookup operation
-        let start = Instant::now();
-        let _ = fs::metadata(path.clone());
-        let elapsed_ms = start.elapsed().as_nanos() as f64 / NANOS_PER_MILLI;
-        lookup_latency_samples.push(elapsed_ms);
-        elapsed_total_ms += elapsed_ms;
-
         // Perform and time the open operation
-        let mut open = OpenOptions::new();
-        open.create(true);
-        open.truncate(true);
-        open.write(true);
-        open.read(true);
-        let start = Instant::now();
-        let mut file = open
-            .open(path.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to open file {}: {}", path, e))?;
-        let elapsed_ms = start.elapsed().as_nanos() as f64 / NANOS_PER_MILLI;
-        open_latency_samples.push(elapsed_ms);
-        elapsed_total_ms += elapsed_ms;
+        let mut file = {
+            let mut open = OpenOptions::new();
+            open.create(true);
+            open.truncate(true);
+            open.write(true);
+            open.read(true);
+
+            let start = Instant::now();
+            let file = open
+                .open(path.clone())
+                .map_err(|e| anyhow::anyhow!("Failed to open file {}: {}", path, e))?;
+            let elapsed_ms = start.elapsed().as_millis_f64_temp();
+            open_latency_samples.push(elapsed_ms);
+            elapsed_total_ms += elapsed_ms;
+            file
+        };
 
         // Perform and time the writing operation
-        let start = Instant::now();
-        file.write_all(&vec![0u8; file_size as usize])
-            .map_err(|e| anyhow::anyhow!("Failed to write to file {}: {}", path, e))?;
-        let elapsed_ms = start.elapsed().as_nanos() as f64 / NANOS_PER_MILLI;
-        write_latency_samples.push(elapsed_ms);
-        elapsed_total_ms += elapsed_ms;
+        {
+            let start = Instant::now();
+            file.write_all(&vec![0u8; file_size_bytes as usize])
+                .map_err(|e| anyhow::anyhow!("Failed to write to file {}: {}", path, e))?;
+            let elapsed_ms = start.elapsed().as_millis_f64_temp();
+            write_latency_samples.push(elapsed_ms);
+            elapsed_total_ms += elapsed_ms;
+        };
 
         // Perform and time the flush operation
-        let start = Instant::now();
-        drop(file);
-        let elapsed_ms = start.elapsed().as_nanos() as f64 / NANOS_PER_MILLI;
-        flush_latency_samples.push(elapsed_ms);
-        elapsed_total_ms += elapsed_ms;
+        {
+            let start = Instant::now();
+            drop(file);
+            let elapsed_ms = start.elapsed().as_millis_f64_temp();
+            flush_latency_samples.push(elapsed_ms);
+            elapsed_total_ms += elapsed_ms;
+        };
 
         total_latency_samples.push(elapsed_total_ms);
 
@@ -109,7 +161,7 @@ fn file_creation_benchmark(
     let total_latency_result = BenchmarkResult {
         name: format!("{benchmark_name} - Average Total Latency"),
         value: mean(&total_latency_samples),
-        unit: "milliseconds".to_string(),
+        unit: Unit::Milliseconds,
     };
 
     if !include_breakdown {
@@ -118,24 +170,19 @@ fn file_creation_benchmark(
         Ok(vec![
             total_latency_result,
             BenchmarkResult {
-                name: format!("{benchmark_name} - Average Lookup Latency"),
-                value: mean(&lookup_latency_samples),
-                unit: "milliseconds".to_string(),
-            },
-            BenchmarkResult {
                 name: format!("{benchmark_name} - Average Open Latency"),
                 value: mean(&open_latency_samples),
-                unit: "milliseconds".to_string(),
+                unit: Unit::Milliseconds,
             },
             BenchmarkResult {
                 name: format!("{benchmark_name} - Average Write Latency"),
                 value: mean(&write_latency_samples),
-                unit: "milliseconds".to_string(),
+                unit: Unit::Milliseconds,
             },
             BenchmarkResult {
                 name: format!("{benchmark_name} - Average Flush Latency"),
                 value: mean(&flush_latency_samples),
-                unit: "milliseconds".to_string(),
+                unit: Unit::Milliseconds,
             },
         ])
     }
