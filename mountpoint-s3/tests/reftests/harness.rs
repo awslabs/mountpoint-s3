@@ -728,6 +728,7 @@ impl Harness {
 /// paths is correct.
 mod read_only {
     use super::*;
+    use std::env;
 
     #[derive(Debug)]
     enum CheckType {
@@ -769,7 +770,10 @@ mod read_only {
 
     proptest! {
         #![proptest_config(ProptestConfig {
-            failure_persistence: None,
+            cases: match env::var("TESTING_PROPTEST_CASES") {
+                    Ok(s) => s.parse::<u32>().unwrap_or(256),
+                    _ => 256
+            },
             .. ProptestConfig::default()
         })]
 
@@ -883,6 +887,7 @@ mod read_only {
 mod mutations {
     use super::*;
     use proptest::collection::vec;
+    use std::env;
 
     fn run_test(initial_tree: TreeNode, ops: Vec<Op>, readdir_limit: usize) {
         const BUCKET_NAME: &str = "test-bucket";
@@ -916,7 +921,10 @@ mod mutations {
 
     proptest! {
         #![proptest_config(ProptestConfig {
-            failure_persistence: None,
+            cases: match env::var("TESTING_PROPTEST_CASES") {
+                    Ok(s) => s.parse::<u32>().unwrap_or(256),
+                    _ => 256
+            },
             .. ProptestConfig::default()
         })]
 
