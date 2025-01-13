@@ -728,7 +728,6 @@ impl Harness {
 /// paths is correct.
 mod read_only {
     use super::*;
-    use std::env;
 
     #[derive(Debug)]
     enum CheckType {
@@ -769,14 +768,6 @@ mod read_only {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig {
-            cases: match env::var("TESTING_PROPTEST_CASES") {
-                    Ok(s) => s.parse::<u32>().unwrap_or(256),
-                    _ => 256
-            },
-            .. ProptestConfig::default()
-        })]
-
         #[test]
         fn reftest_random_tree_full(readdir_limit in 0..10usize, tree in gen_tree(5, 100, 5, 20)) {
             run_test(tree, CheckType::FullTree, readdir_limit);
@@ -887,7 +878,6 @@ mod read_only {
 mod mutations {
     use super::*;
     use proptest::collection::vec;
-    use std::env;
 
     fn run_test(initial_tree: TreeNode, ops: Vec<Op>, readdir_limit: usize) {
         const BUCKET_NAME: &str = "test-bucket";
@@ -920,14 +910,6 @@ mod mutations {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig {
-            cases: match env::var("TESTING_PROPTEST_CASES") {
-                    Ok(s) => s.parse::<u32>().unwrap_or(256),
-                    _ => 256
-            },
-            .. ProptestConfig::default()
-        })]
-
         #[test]
         fn reftest_random_tree(tree in gen_tree(5, 100, 5, 20), readdir_limit in 0..10usize, ops in vec(any::<Op>(), 1..10)) {
             run_test(tree, ops, readdir_limit);
