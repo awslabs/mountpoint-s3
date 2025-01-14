@@ -200,9 +200,9 @@ fn main() -> Result<()> {
     let benchmark_results = match benchmark_type {
         BenchmarkType::OneByteFile => one_byte_file_creation_benchmark(&mount_dir, NUM_FILES, detailed)?,
         BenchmarkType::All => vec![one_byte_file_creation_benchmark(&mount_dir, NUM_FILES, detailed)?]
-        .into_iter()
-        .flatten()
-        .collect(),
+            .into_iter()
+            .flatten()
+            .collect(),
     };
 
     let contents = json!(benchmark_results);
