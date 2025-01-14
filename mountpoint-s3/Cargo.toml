@@ -105,3 +105,7 @@ required-features = ["mock"]
 [[bin]]
 name = "mount-s3-log-analyzer"
 path = "src/bin/mount-s3-log-analyzer.rs"
+
+[[bin]]
+name = "file-system-benchmarks"
+path = "src/bin/file-system-benchmarks.rs"
