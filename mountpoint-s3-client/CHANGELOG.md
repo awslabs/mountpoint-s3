@@ -27,12 +27,8 @@
   ([#1192](https://github.com/awslabs/mountpoint-s3/pull/1192))
 
 ### Other changes
-* Consume extension for Copy Operation, that required extra header with the Source URI [aws/aws-c-s3#482](https://github.com/awslabs/aws-c-s3/pull/482)
-* Auto - Update S3 Ruleset & Partition [aws/aws-c-s3#483](https://github.com/awslabs/aws-c-s3/pull/483)
-* Add retry on failed TLS negotiation [aws/aws-c-s3#478](https://github.com/awslabs/aws-c-s3/pull/478)
-* Add retry on ExpiredToken [aws/aws-c-s3#472](https://github.com/awslabs/aws-c-s3/pull/472)
-* Respect checksum header over settings from options [aws/aws-c-s3#474](https://github.com/awslabs/aws-c-s3/pull/474)
-* `HeadObjectResult` now includes the server-side encryption settings used when storing the object. 
+
+* `HeadObjectResult` now includes the server-side encryption settings used when storing the object.
   ([#1143](https://github.com/awslabs/mountpoint-s3/pull/1143))
 * Add parameter to request checksum information as part of a `HeadObject` request.
   If specified, the result should contain the checksum for the object if available in the S3 response.
