@@ -64,6 +64,22 @@ Here is the full list of changelog files we maintain for reference.
 - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt/CHANGELOG.md
 - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt-sys/CHANGELOG.md
 
+### Version numbers
+
+Mountpoint and the other `mountpoint-s3-*` crates in this repository follow [semantic versioning](https://semver.org/) rules. After we release Mountpoint or [publish the
+other crates](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/PUBLISHING_CRATES.md), we provisionally increase the patch version number
+of the corresponding crate.
+
+When a pull request is submitted, we consider whether the changes it contains should trigger a version number increment by comparing the latest released
+version with the one on `main`. If a pull request introduces a new Mountpoint feature, we make sure that the minor version of the `mountpoint-s3`
+crate is incremented compared to the latest release, if it was not already. The crate's `CHANGELOG.md` will show the latest released version and all the more
+recent changes under the `Unreleased` section. Example:
+
+* A pull request introduces a new feature and adds an entry to the changelog,
+* The latest release, as reported on the changelog, is `1.13.0`,
+* The version on `main` is `1.13.1`,
+* The minor version number must be incremented, so the new version should be `1.14.0`.
+
 ## Finding contributions to work on
 
 Looking at the existing issues is a great way to find something to contribute on. We use issue labels to identify [good first issues](https://github.com/awslabs/mountpoint-s3/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) as a great place to start.
