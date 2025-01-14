@@ -128,8 +128,7 @@ impl Debug for TreeNode {
 /// Parents are always [TreeNode::Directory].
 pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> impl Strategy<Value = TreeNode> {
     let leaf = any::<FileContent>().prop_map(TreeNode::File);
-
-    let strategy = leaf.prop_recursive(
+    leaf.prop_recursive(
         depth,     // levels
         max_size,  // max number of nodes
         max_items, // number of items per collection
@@ -138,10 +137,12 @@ pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> 
             // Since the size of the tree could be zero, this also introduces directories as leaves.
             prop::collection::btree_map(any::<Name>(), inner, 0..max_width).prop_map(TreeNode::Directory)
         },
-    );
-
-    // Ensure the root is always a directory by wrapping the inner strategy
-    prop::collection::btree_map(any::<Name>(), strategy, 0..max_width).prop_map(TreeNode::Directory)
+    )
+    // Ensure the root is always a directory by transforming invalid nodes (i.e. file as root) into empty directories
+    .prop_map(|x| match x {
+        TreeNode::File(_) => TreeNode::Directory(BTreeMap::from([])),
+        _ => x,
+    })
 }
 
 /// Take a generated tree and create the corresponding S3 namespace (list of keys)
