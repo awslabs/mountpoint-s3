@@ -50,16 +50,9 @@ impl S3CrtClient {
             let endpoint = self.inner.endpoint_config.resolve_for_bucket(source_bucket)
                 .map_err(|e| S3RequestError::from(e))?;
             let uri = endpoint.uri()
-                .map_err(|e| S3RequestError::from(e))?;
-            let hostname = uri.host_name().to_str().unwrap();
-            let path_prefix = uri.path().to_os_string().into_string().unwrap();
-            let port = uri.host_port();
-            let hostname_header = if port > 0 {
-                format!("{}:{}", hostname, port)
-            } else {
-                hostname.to_string()
-            };
-            let source_uri = format!("{hostname_header}{path_prefix}/{source_key}");
+                .map_err(|e| S3RequestError::from(e))?
+                .as_os_str();
+            let source_uri = format!("{uri}/{source_key}");
             trace!(source_uri, "resolved source uri");
             options.copy_source_uri(&source_uri);
             self.inner.make_simple_http_request_from_options(options, span, |_| {}, parse_copy_object_error, |_, _| ())?
