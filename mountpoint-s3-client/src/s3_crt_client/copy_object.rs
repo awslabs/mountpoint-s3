@@ -1,8 +1,10 @@
-use crate::object_client::{CopyObjectError, CopyObjectParams, CopyObjectResult, ObjectClientResult};
-use crate::s3_crt_client::{ConstructionError, S3CrtClient, S3CrtClientInner, S3Operation, S3RequestError};
-use mountpoint_s3_crt::{http::request_response::Header, s3::client::MetaRequestResult};
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
+
+use mountpoint_s3_crt::{http::request_response::Header, s3::client::MetaRequestResult};
+
+use crate::object_client::{CopyObjectError, CopyObjectParams, CopyObjectResult, ObjectClientResult};
+use crate::s3_crt_client::{S3CrtClient, S3CrtClientInner, S3Operation, S3RequestError};
 use tracing::trace;
 
 impl S3CrtClient {
@@ -44,9 +46,9 @@ impl S3CrtClient {
                 .inner
                 .endpoint_config
                 .resolve_for_bucket(source_bucket)
-                .map_err(|e| S3RequestError::from(ConstructionError::from(e)))?
+                .map_err(S3RequestError::construction_failure)?
                 .uri()
-                .map_err(|e| S3RequestError::from(ConstructionError::from(e)))?;
+                .map_err(S3RequestError::construction_failure)?;
             let source_uri = format!("{}/{source_key}", uri.as_os_str().to_string_lossy());
             trace!(source_uri, "resolved source uri");
             options.copy_source_uri(source_uri);

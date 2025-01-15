@@ -241,6 +241,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned checksum config, if provided.
     checksum_config: Option<ChecksumConfig>,
 
+    /// Owned source uri for copy request, if provided.
+    copy_source_uri: Option<String>,
+
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
 
@@ -258,9 +261,6 @@ struct MetaRequestOptionsInner<'a> {
 
     /// Pin this struct because inner.user_data will be a pointer to this object.
     _pinned: PhantomPinned,
-
-    /// Owned source uri for copy request, if provided.
-    store_copy_source_uri: Option<String>,
 }
 
 impl<'a> MetaRequestOptionsInner<'a> {
@@ -329,7 +329,7 @@ impl<'a> MetaRequestOptions<'a> {
             on_upload_review: None,
             on_finish: None,
             _pinned: Default::default(),
-            store_copy_source_uri: None,
+            copy_source_uri: None,
         });
 
         // Pin the options in-place. This is because it's about to become self-referential.
@@ -471,12 +471,10 @@ impl<'a> MetaRequestOptions<'a> {
     pub fn copy_source_uri(&mut self, source_uri: String) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
-        options.store_copy_source_uri = Some(source_uri);
-        if let Some(uri) = &options.store_copy_source_uri {
-            // SAFETY: We ensure that the cursor points to data that lives
-            // as long as the options struct
-            options.inner.copy_source_uri = unsafe { uri.as_aws_byte_cursor() };
-        }
+        options.copy_source_uri = Some(source_uri);
+        // SAFETY: We ensure that the cursor points to data that lives
+        // as long as the options struct
+        options.inner.copy_source_uri = unsafe { options.copy_source_uri.as_mut().unwrap().as_aws_byte_cursor() };
         self
     }
 }
