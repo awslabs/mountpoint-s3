@@ -28,6 +28,9 @@
 
 ### Other changes
 
+* Copy object operation now support buckets with dots in the name by including extra header with source uri 
+  ([#1228](https://github.com/awslabs/mountpoint-s3/pull/1228)).
+  Support on CRT side was introduced in [awslabs/aws-c-s3/482](https://github.com/awslabs/aws-c-s3/pull/482)
 * `HeadObjectResult` now includes the server-side encryption settings used when storing the object.
   ([#1143](https://github.com/awslabs/mountpoint-s3/pull/1143))
 * Add parameter to request checksum information as part of a `HeadObject` request.

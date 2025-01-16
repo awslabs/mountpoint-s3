@@ -323,13 +323,13 @@ impl<'a> MetaRequestOptions<'a> {
             endpoint: None,
             signing_config: None,
             checksum_config: None,
+            copy_source_uri: None,
             on_telemetry: None,
             on_headers: None,
             on_body: None,
             on_upload_review: None,
             on_finish: None,
             _pinned: Default::default(),
-            copy_source_uri: None,
         });
 
         // Pin the options in-place. This is because it's about to become self-referential.
