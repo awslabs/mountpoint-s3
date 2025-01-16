@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Source directory in the main branch
-SOURCE_DIR=".github/actions/static_files"
+SOURCE_DIR="benchmark_website"
 # Temporary directory to store files in after switching to gh-pages branch
-TMP_DIR="/tmp/static_files"
+TMP_DIR="/tmp/benchmark_website"
 
 # Check if at least one destination directory is provided as argument
 if [ "$#" -lt 1 ]; then
