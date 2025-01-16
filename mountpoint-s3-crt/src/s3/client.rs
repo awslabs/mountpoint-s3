@@ -241,6 +241,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned checksum config, if provided.
     checksum_config: Option<ChecksumConfig>,
 
+    /// Owned source uri for copy request, if provided.
+    copy_source_uri: Option<String>,
+
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
 
@@ -320,6 +323,7 @@ impl<'a> MetaRequestOptions<'a> {
             endpoint: None,
             signing_config: None,
             checksum_config: None,
+            copy_source_uri: None,
             on_telemetry: None,
             on_headers: None,
             on_body: None,
@@ -460,6 +464,17 @@ impl<'a> MetaRequestOptions<'a> {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.inner.send_using_async_writes = send_using_async_writes;
+        self
+    }
+
+    /// Set the URI of source bucket/key for COPY request only
+    pub fn copy_source_uri(&mut self, source_uri: String) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.copy_source_uri = Some(source_uri);
+        // SAFETY: We ensure that the cursor points to data that lives
+        // as long as the options struct
+        options.inner.copy_source_uri = unsafe { options.copy_source_uri.as_mut().unwrap().as_aws_byte_cursor() };
         self
     }
 }
