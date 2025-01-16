@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1736883092909,
+  "lastUpdate": 1737041112314,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "441a5025600604e8bcf38ef991f200436f5148ff",
-          "message": "Allow partial repeat of `readdir` response (#965)\n\n## Description of change\nWhen user application gets interrupted in a `readdir` syscall the\nunderlying chain of `readdir` fuse requests gets reset to an offset\nwhich is considered stale by Mountpoint. In that case Mountpoint still\ncompletes the interrupted `readdir` request, but kernel partially\ndiscards the response. We already cache the last response, so we can use\nit to serve the request which follows the interrupt.\n\nRelevant issues: https://github.com/awslabs/mountpoint-s3/issues/955\n\n## Does this change impact existing behavior?\n\nThis is not a breaking change. Previously an error was returned, now\nit'll be handled properly.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vladislav Volodkin <vlaad@amazon.co.uk>\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vladislav Volodkin <vlaad@amazon.co.uk>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
-          "timestamp": "2024-12-10T17:03:49Z",
-          "tree_id": "6c94fffcbf7a1071bef1b3ce6ba35f0a5bb6a611",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/441a5025600604e8bcf38ef991f200436f5148ff"
-        },
-        "date": 1733858135319,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 15923.66796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 27302.0390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 36754.98046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 151.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 391.3515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 166.296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 402.1484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 82.79296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 328.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 88.58984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 324.8984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 39293.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 386.7421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 40967.43359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 376.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 12114.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 262.97265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 13991.01953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11306.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 262.015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 409.15625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 256.91015625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2679,6 +2545,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 236.93359375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "iisaev@amazon.co.uk",
+            "name": "Isaev Ilya",
+            "username": "IsaevIlya"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ace3093f899257dfd1b9c074b75883749595429c",
+          "message": "Add source uri to headers for COPY request (#1228)\n\nThis changes is to address gap in supporting buckets with dots in the\nname for COPY requests.\nFirst encountered in s3-torch-connector\nhttps://github.com/awslabs/s3-connector-for-pytorch/issues/295\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry?\n\nYes\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Ilya Isaev <iisaev@amazon.com>\nSigned-off-by: Isaev Ilya <iisaev@amazon.co.uk>\nCo-authored-by: Ilya Isaev <iisaev@amazon.com>\nCo-authored-by: Alessandro Passaro <alessandro.passaro@gmail.com>",
+          "timestamp": "2025-01-16T13:11:30Z",
+          "tree_id": "e29fd95b60737addbbdc3eb51e8326e96c17fbfe",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/ace3093f899257dfd1b9c074b75883749595429c"
+        },
+        "date": 1737041112274,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 16014.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 26344.58984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 39138.64453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 155.84765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 387.05078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 152.4921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 419.7109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 83.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 327.01953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 87.21875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 329.97265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 35111.73828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 383.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 33667.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 389.8046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 14199.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 268.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13032.7734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 12442.3828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 266.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 368.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 256.5078125,
             "unit": "MiB"
           }
         ]
