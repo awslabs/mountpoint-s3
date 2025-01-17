@@ -832,3 +832,54 @@ async fn test_append_with_matching_checksum(checksum_algorithm: aws_sdk_s3::type
         .await
         .expect("append should succeed");
 }
+
+#[cfg(feature = "s3express_tests")]
+#[tokio::test]
+async fn test_append_to_service_side_crc64nvme() {
+    use mountpoint_s3_client::types::{ChecksumMode, HeadObjectParams};
+
+    const PART_SIZE: usize = 5 * 1024 * 1024;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_append_to_service_side_crc64nvme");
+    let client_config = S3ClientConfig::new()
+        .part_size(PART_SIZE)
+        .endpoint_config(get_test_endpoint_config());
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let key = format!("{prefix}hello");
+
+    let initial_contents = vec![0u8; 1024];
+    client
+        .put_object_single(
+            &bucket,
+            &key,
+            &PutObjectSingleParams::new().checksum(None),
+            &initial_contents,
+        )
+        .await
+        .expect("initial put_object with no checksum should succeed");
+
+    let head_object = client
+        .head_object(
+            &bucket,
+            &key,
+            &HeadObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        head_object.checksum.checksum_crc64nvme.is_some(),
+        "service should have computed crc64nvme checksum"
+    );
+
+    let contents = vec![1u8; 1024];
+    let append_checksum = UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents));
+    client
+        .put_object_single(
+            &bucket,
+            &key,
+            &PutObjectSingleParams::new_for_append(initial_contents.len() as u64).checksum(Some(append_checksum)),
+            &contents,
+        )
+        .await
+        .expect("append put_object with crc64nvme checksum should succeed");
+}
