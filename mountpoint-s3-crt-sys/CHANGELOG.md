@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.11.0 (January 20, 2025)
+
 * Update to latest CRT dependencies
 
 ## v0.10.0 (October 17, 2024)
