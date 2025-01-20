@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.12.0 (January 20, 2025)
+
 ### Breaking changes
 
 * `get_object` method now waits for the response headers before returning and may report errors earlier.
