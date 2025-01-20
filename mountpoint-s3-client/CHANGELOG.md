@@ -30,8 +30,12 @@
 
 ### Other changes
 
+* Add support for custom telemetry handlers.
+  ([#1080](https://github.com/awslabs/mountpoint-s3/pull/1080))
 * Add support for source buckets with dots in the name in `copy_object`.
   ([#1228](https://github.com/awslabs/mountpoint-s3/pull/1228))
+* Add support for object metadata in GET requests.
+  ([#1065](https://github.com/awslabs/mountpoint-s3/pull/1065))
 * `HeadObjectResult` now includes the server-side encryption settings used when storing the object.
   ([#1143](https://github.com/awslabs/mountpoint-s3/pull/1143))
 * Add parameter to request checksum information as part of a `HeadObject` request.
