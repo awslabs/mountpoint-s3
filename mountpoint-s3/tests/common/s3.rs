@@ -45,6 +45,13 @@ pub fn get_test_bucket_forbidden() -> String {
     std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
 }
 
+/// An S3 Express bucket with SSE-KMS set as a default encryption with a key matching the `KMS_TEST_KEY_ID`
+#[cfg(feature = "s3express_tests")]
+pub fn get_express_sse_kms_bucket() -> String {
+    std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS")
+        .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS to run integration tests")
+}
+
 pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
 }
