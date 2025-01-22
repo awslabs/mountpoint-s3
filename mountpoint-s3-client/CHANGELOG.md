@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other Changes
+* Add support for overriding the number of threads used by the Event Loop.
+  ([#1240](https://github.com/awslabs/mountpoint-s3/pull/1240/)
+
 ## v0.12.0 (January 20, 2025)
 
 ### Breaking changes
