@@ -1,17 +1,12 @@
 use crate::common::cache::CacheTestWrapper;
 use crate::common::fuse::create_fuse_session;
 use crate::common::fuse::s3_session::create_crt_client;
-use crate::common::s3::{
-    get_bucket_owner, get_external_express_bucket, get_test_bucket, get_test_endpoint_config, get_test_prefix,
-};
+use crate::common::s3::{get_test_bucket, get_test_prefix};
 
-use futures::executor::block_on;
 use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::caching_prefetch;
-use mountpoint_s3_client::config::S3ClientConfig;
-use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::{S3CrtClient, S3RequestError};
+use mountpoint_s3_client::S3CrtClient;
 
 use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
@@ -22,7 +17,9 @@ use tempfile::TempDir;
 use test_case::test_case;
 
 #[cfg(feature = "s3express_tests")]
-use crate::common::s3::{get_express_bucket, get_standard_bucket};
+use crate::common::s3::{
+    get_bucket_owner, get_express_bucket, get_external_express_bucket, get_standard_bucket, get_test_endpoint_config,
+};
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
 #[cfg(feature = "s3express_tests")]
@@ -297,7 +294,13 @@ where
 #[test_case(get_express_bucket(), true, true; "bucket owned by the expected account")]
 #[test_case(get_external_express_bucket(), true, false; "bucket owned by another account")]
 #[test_case(get_external_express_bucket(), false, false; "bucket owned by another account, not checked")]
+#[cfg(feature = "s3express_tests")]
 fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
+    use futures::executor::block_on;
+    use mountpoint_s3_client::config::S3ClientConfig;
+    use mountpoint_s3_client::error::ObjectClientError;
+    use mountpoint_s3_client::S3RequestError;
+
     let bucket_owner = get_bucket_owner();
     // Configure the client to enforce the bucket owner
     let mut client_config = S3ClientConfig::default()
