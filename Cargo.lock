@@ -2595,7 +2595,6 @@ dependencies = [
  "linked-hash-map",
  "metrics",
  "mountpoint-s3-client",
- "mountpoint-s3-crt",
  "nix",
  "owo-colors 4.1.0",
  "predicates",
