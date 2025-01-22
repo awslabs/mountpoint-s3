@@ -1,7 +1,6 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use mountpoint_s3_client::config::EndpointConfig;
-use mountpoint_s3_crt::common::{allocator::Allocator, uri::Uri};
+use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
 

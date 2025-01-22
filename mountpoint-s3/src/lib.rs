@@ -23,13 +23,13 @@ pub use fs::{S3Filesystem, S3FilesystemConfig, ServerSideEncryption};
 #[cfg(test)]
 #[ctor::ctor]
 fn init_tracing_subscriber() {
-    let _ = mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter::try_init();
+    let _ = mountpoint_s3_client::config::RustLogAdapter::try_init();
     let _ = tracing_subscriber::fmt::try_init();
 }
 
 #[cfg(test)]
 #[ctor::ctor]
 fn init_crt() {
-    mountpoint_s3_crt::io::io_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
-    mountpoint_s3_crt::s3::s3_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
+    mountpoint_s3_client::config::io_library_init(&mountpoint_s3_client::config::Allocator::default());
+    mountpoint_s3_client::config::s3_library_init(&mountpoint_s3_client::config::Allocator::default());
 }

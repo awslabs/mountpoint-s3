@@ -1,6 +1,6 @@
 use mountpoint_s3_client::checksums::{crc32, crc32c, crc64nvme, sha1, sha256};
+use mountpoint_s3_client::config::Allocator;
 use mountpoint_s3_client::types::{ChecksumAlgorithm, UploadChecksum};
-use mountpoint_s3_crt::common::allocator::Allocator;
 use thiserror::Error;
 
 #[derive(Debug, Default)]
@@ -57,5 +57,5 @@ pub enum ChecksumHasherError {
     UnsupportedChecksumAlgorithm(ChecksumAlgorithm),
 
     #[error("Unknown CRT error")]
-    CrtError(#[from] mountpoint_s3_crt::common::error::Error),
+    CrtError(#[from] mountpoint_s3_client::error::CrtError),
 }

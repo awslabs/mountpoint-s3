@@ -13,16 +13,18 @@ use std::time::{Duration, Instant};
 
 use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
-use mountpoint_s3_crt::auth::credentials::{
+pub use mountpoint_s3_crt::auth::credentials::{
     CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
+    CredentialsProviderStaticOptions,
 };
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
+pub use mountpoint_s3_crt::common::error::Error as CrtError;
 use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError, Message};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
-use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
+pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::io::stream::InputStream;

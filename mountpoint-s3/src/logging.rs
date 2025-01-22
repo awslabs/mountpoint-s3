@@ -8,7 +8,7 @@ use std::thread;
 
 use crate::metrics::metrics_tracing_span_layer;
 use anyhow::Context;
-use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use mountpoint_s3_client::config::RustLogAdapter;
 use rand::Rng;
 use time::format_description::FormatItem;
 use time::macros;

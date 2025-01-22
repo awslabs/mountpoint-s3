@@ -67,8 +67,18 @@ pub use s3_crt_client::{
 
 /// Configuration for the S3 client
 pub mod config {
-    pub use super::endpoint_config::{AddressingStyle, EndpointConfig};
-    pub use super::s3_crt_client::{S3ClientAuthConfig, S3ClientConfig};
+    pub use super::endpoint_config::{AddressingStyle, EndpointConfig, SigningAlgorithm, Uri};
+    pub use super::s3_crt_client::{
+        CredentialsProvider, CredentialsProviderStaticOptions, EventLoopGroup, S3ClientAuthConfig, S3ClientConfig,
+    };
+
+    pub use mountpoint_s3_crt::common::allocator::Allocator;
+    pub use mountpoint_s3_crt::common::rust_log_adapter::{RustLogAdapter, AWSCRT_LOG_TARGET};
+
+    #[doc(hidden)]
+    pub use mountpoint_s3_crt::io::io_library_init;
+    #[doc(hidden)]
+    pub use mountpoint_s3_crt::s3::s3_library_init;
 }
 
 /// Types used by all object clients
@@ -92,6 +102,8 @@ pub mod error {
         CopyObjectError, DeleteObjectError, GetObjectAttributesError, GetObjectError, HeadObjectError,
         ListObjectsError, ObjectClientError, PutObjectError,
     };
+    #[doc(hidden)]
+    pub use super::s3_crt_client::CrtError;
     #[doc(hidden)]
     pub use super::s3_crt_client::HeadBucketError;
 }

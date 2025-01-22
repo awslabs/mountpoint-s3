@@ -7,13 +7,13 @@ use async_trait::async_trait;
 use base64ct::{Base64, Encoding};
 use bytes::{Bytes, BytesMut};
 use futures::{pin_mut, StreamExt};
+use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     ChecksumMode, ClientBackpressureHandle, GetObjectParams, GetObjectResponse, ObjectClientResult,
     PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
 
