@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+
+- The ECS credentials provider now performs retries in the event of some failures. ([awslabs/aws-c-auth#259][https://github.com/awslabs/aws-c-auth/pull/259/])
+
 ## v0.12.0 (January 20, 2025)
 
 ### Breaking changes
