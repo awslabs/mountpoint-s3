@@ -92,6 +92,7 @@ s3express_tests = []
 shuttle = []
 # Other feature flags
 mock = ["mountpoint-s3-client/mock", "futures/thread-pool"]
+second_account_tests = []
 
 [[bin]]
 name = "mount-s3"

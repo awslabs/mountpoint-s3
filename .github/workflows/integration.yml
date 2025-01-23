@@ -139,9 +139,9 @@ jobs:
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Build tests
-      run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests' --no-run
+      run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests,second_account_tests' --no-run
     - name: Run tests
-      run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests'
+      run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests,second_account_tests'
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
