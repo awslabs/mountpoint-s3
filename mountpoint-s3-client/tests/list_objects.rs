@@ -172,6 +172,7 @@ async fn test_interesting_keys() {
     assert!(result.next_continuation_token.is_none());
 }
 
+#[test_case(ChecksumAlgorithm::Crc64Nvme)]
 #[test_case(ChecksumAlgorithm::Crc32)]
 #[test_case(ChecksumAlgorithm::Crc32C)]
 #[test_case(ChecksumAlgorithm::Sha1)]
@@ -211,6 +212,7 @@ async fn test_checksum_attribute(upload_checksum_algorithm: ChecksumAlgorithm) {
     assert_eq!(object.key, format!("{}{}", prefix, "hello.txt"));
 
     let expected_checksum_algorithm = match upload_checksum_algorithm {
+        ChecksumAlgorithm::Crc64Nvme => mountpoint_s3_client::types::ChecksumAlgorithm::Crc64nvme,
         ChecksumAlgorithm::Crc32 => mountpoint_s3_client::types::ChecksumAlgorithm::Crc32,
         ChecksumAlgorithm::Crc32C => mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c,
         ChecksumAlgorithm::Sha1 => mountpoint_s3_client::types::ChecksumAlgorithm::Sha1,

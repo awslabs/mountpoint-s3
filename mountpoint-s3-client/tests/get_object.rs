@@ -438,6 +438,7 @@ async fn test_get_object_user_metadata_after_stream(size: usize, metadata: HashM
     assert_eq!(actual_metadata, metadata);
 }
 
+#[test_case(ChecksumAlgorithm::Crc64Nvme)]
 #[test_case(ChecksumAlgorithm::Crc32)]
 #[test_case(ChecksumAlgorithm::Crc32C)]
 #[test_case(ChecksumAlgorithm::Sha1)]
@@ -473,6 +474,10 @@ async fn test_get_object_checksum(checksum_algorithm: ChecksumAlgorithm) {
     let checksum: Checksum = result.get_object_checksum().expect("should return checksum");
 
     match checksum_algorithm {
+        ChecksumAlgorithm::Crc64Nvme => assert_eq!(
+            checksum.checksum_crc64nvme,
+            put_object_output.checksum_crc64_nvme().map(|s| s.to_string())
+        ),
         ChecksumAlgorithm::Crc32 => assert_eq!(
             checksum.checksum_crc32,
             put_object_output.checksum_crc32().map(|s| s.to_string())

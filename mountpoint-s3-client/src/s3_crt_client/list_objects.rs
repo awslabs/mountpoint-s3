@@ -122,6 +122,7 @@ fn parse_checksum_algorithm(element: &mut xmltree::Element) -> Result<Vec<Checks
     while let Some(content) = element.take_child("ChecksumAlgorithm") {
         let algo_string = get_text(&content)?;
         let checksum_algorithm = match algo_string.as_str() {
+            "CRC64NVME" => ChecksumAlgorithm::Crc64nvme,
             "CRC32" => ChecksumAlgorithm::Crc32,
             "CRC32C" => ChecksumAlgorithm::Crc32c,
             "SHA1" => ChecksumAlgorithm::Sha1,
