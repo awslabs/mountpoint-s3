@@ -1,6 +1,7 @@
 ## Unreleased
 
 * Update to latest CRT dependencies.
+* Rename `Crc64` to `Crc64nvme` and add case to `ChecksumAlgorithm`. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
 
 ## v0.11.0 (January 20, 2025)
 
