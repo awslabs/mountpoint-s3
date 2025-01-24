@@ -90,6 +90,7 @@ fuse_tests = []
 s3_tests = []
 s3express_tests = []
 shuttle = []
+second_account_tests = []
 # Other feature flags
 mock = ["mountpoint-s3-client/mock", "futures/thread-pool"]
 
