@@ -170,7 +170,7 @@ where
                     block_index,
                     ?range,
                     ?error,
-                    "error reading block from cache",
+                    "error reading block from cache, falling back to S3",
                 ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
