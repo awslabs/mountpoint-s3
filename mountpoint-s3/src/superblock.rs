@@ -90,7 +90,10 @@ impl Superblock {
         let mut inodes = InodeMap::default();
         inodes.insert(root.ino(), root);
 
-        let negative_cache = NegativeCache::new(config.cache_config.negative_cache_size, config.cache_config.file_ttl);
+        let negative_cache = NegativeCache::new(
+            config.cache_config.negative_cache_size,
+            config.cache_config.negative_cache_ttl,
+        );
 
         let inner = SuperblockInner {
             bucket: bucket.to_owned(),
@@ -1386,6 +1389,7 @@ mod tests {
                     serve_lookup_from_cache: true,
                     dir_ttl: ttl,
                     file_ttl: ttl,
+                    negative_cache_ttl: ttl,
                     ..Default::default()
                 },
                 s3_personality: S3Personality::Standard,

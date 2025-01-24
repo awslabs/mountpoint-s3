@@ -319,6 +319,14 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
+        help = "Time-to-live (TTL) for cached negative entries in seconds [default: same as metadata TTL]",
+        value_name = "SECONDS|indefinite|minimal",
+        help_heading = CACHING_OPTIONS_HEADER,
+    )]
+    pub negative_cache_ttl: Option<TimeToLive>,
+
+    #[clap(
+        long,
         help = "Maximum size of the cache directory in MiB [default: preserve 5% of available space]",
         value_name = "MiB",
         value_parser = value_parser!(u64),
@@ -934,6 +942,11 @@ where
     }
     tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
+    if let Some(negative_cache_ttl) = args.negative_cache_ttl {
+        filesystem_config.cache_config = filesystem_config
+            .cache_config
+            .with_negative_cache_ttl(negative_cache_ttl);
+    }
 
     match (args.disk_data_cache_config(), args.express_data_cache_config()) {
         (None, Some((config, bucket_name, cache_bucket_name))) => {

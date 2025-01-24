@@ -87,6 +87,8 @@ pub struct CacheConfig {
     pub file_ttl: Duration,
     /// How long the kernel will cache metadata for directories
     pub dir_ttl: Duration,
+    /// How long the kernel will cache negative entries
+    pub negative_cache_ttl: Duration,
     /// Maximum number of negative entries to cache.
     pub negative_cache_size: usize,
 }
@@ -116,6 +118,7 @@ impl Default for CacheConfig {
             serve_lookup_from_cache: false,
             file_ttl,
             dir_ttl,
+            negative_cache_ttl: file_ttl,
             negative_cache_size,
         }
     }
@@ -130,13 +133,32 @@ impl CacheConfig {
                 serve_lookup_from_cache: true,
                 file_ttl: TimeToLive::INDEFINITE_DURATION,
                 dir_ttl: TimeToLive::INDEFINITE_DURATION,
+                negative_cache_ttl: TimeToLive::INDEFINITE_DURATION,
                 ..Default::default()
             },
             TimeToLive::Duration(ttl) => Self {
                 serve_lookup_from_cache: true,
                 file_ttl: ttl,
                 dir_ttl: ttl,
+                negative_cache_ttl: ttl,
                 ..Default::default()
+            },
+        }
+    }
+
+    pub fn with_negative_cache_ttl(self, negative_cache_ttl: TimeToLive) -> Self {
+        match negative_cache_ttl {
+            TimeToLive::Minimal => Self {
+                negative_cache_ttl: Self::default().negative_cache_ttl,
+                ..self
+            },
+            TimeToLive::Indefinite => Self {
+                negative_cache_ttl: TimeToLive::INDEFINITE_DURATION,
+                ..self
+            },
+            TimeToLive::Duration(ttl) => Self {
+                negative_cache_ttl: ttl,
+                ..self
             },
         }
     }
