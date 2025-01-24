@@ -103,6 +103,7 @@ pub struct S3ClientConfig {
     initial_read_window: usize,
     network_interface_names: Vec<String>,
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
+    event_loop_threads: Option<u16>,
 }
 
 impl Default for S3ClientConfig {
@@ -122,6 +123,7 @@ impl Default for S3ClientConfig {
             initial_read_window: DEFAULT_PART_SIZE,
             network_interface_names: vec![],
             telemetry_callback: None,
+            event_loop_threads: None,
         }
     }
 }
@@ -230,6 +232,13 @@ impl S3ClientConfig {
         self.telemetry_callback = Some(telemetry_callback);
         self
     }
+
+    /// Override the number of threads used by the CRTs AwsEventLoop
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn event_loop_threads(mut self, event_loop_threads: u16) -> Self {
+        self.event_loop_threads = Some(event_loop_threads);
+        self
+    }
 }
 
 /// Authentication configuration for the CRT-based S3 client
@@ -304,7 +313,7 @@ impl S3CrtClientInner {
     fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
-        let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
+        let mut event_loop_group = EventLoopGroup::new_default(&allocator, config.event_loop_threads, || {}).unwrap();
 
         let resolver_options = HostResolverDefaultOptions {
             max_entries: 8,
