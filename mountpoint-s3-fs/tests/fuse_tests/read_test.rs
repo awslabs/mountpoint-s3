@@ -8,9 +8,8 @@ use std::time::{Duration, Instant};
 
 use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::data_cache::InMemoryDataCache;
-use rand::RngCore;
-use rand::SeedableRng as _;
-use rand_chacha::ChaChaRng;
+use rand::rngs::SmallRng;
+use rand::{RngCore, SeedableRng};
 use test_case::test_matrix;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
@@ -45,7 +44,7 @@ fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<Fil
 }
 
 fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only: bool, pass_fuse_fd: bool) {
-    let mut rng = ChaChaRng::seed_from_u64(0x87654321);
+    let mut rng = SmallRng::seed_from_u64(0x87654321);
 
     let test_session = creator_fn(prefix, TestSessionConfig::default().with_pass_fuse_fd(pass_fuse_fd));
 
@@ -355,7 +354,7 @@ fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "data.bin";
     let test_session = creator_fn("read_after_flush_test", Default::default());
 
-    let mut rng = ChaChaRng::seed_from_u64(0x87654321);
+    let mut rng = SmallRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
     test_session.client().put_object(KEY, &two_mib_body).unwrap();

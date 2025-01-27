@@ -12,8 +12,8 @@ use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::S3Path;
 
+use rand::rngs::SmallRng;
 use rand::{Rng, RngCore, SeedableRng};
-use rand_chacha::ChaChaRng;
 use std::fs;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -391,7 +391,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
 /// Generates random data of the specified size
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::rng().random();
-    let mut rng = ChaChaRng::seed_from_u64(seed);
+    let mut rng = SmallRng::seed_from_u64(seed);
     let mut data = vec![0; size_in_bytes];
     rng.fill_bytes(&mut data);
     data

@@ -34,8 +34,7 @@ xmltree = "0.11.0"
 async-io = { version = "2.6.0", optional = true }
 async-lock = { version = "3.4.1", optional = true }
 md-5 = { version = "0.10.6", optional = true }
-rand = { version = "0.9.2", optional = true }
-rand_chacha = { version = "0.9.0", optional = true }
+rand = { version = "0.9.2", features = ["small_rng"], optional = true }
 
 [dev-dependencies]
 aws-config = "1.8.7"
@@ -63,7 +62,7 @@ mountpoint-s3-fs = { path = "../mountpoint-s3-fs" }
 built = { version = "0.8.0", features = ["git2"] }
 
 [features]
-mock = ["dep:async-io", "dep:async-lock", "dep:md-5", "dep:rand", "dep:rand_chacha"]
+mock = ["dep:async-io", "dep:async-lock", "dep:md-5", "dep:rand"]
 # Features for choosing tests
 s3_tests = []
 fips_tests = []

@@ -22,8 +22,8 @@ use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::{Prefix, S3Personality};
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use nix::unistd::{getgid, getuid};
+use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::ops::Add;
@@ -443,7 +443,7 @@ async fn test_mknod_cached() {
 async fn test_random_read(object_size: usize) {
     let (client, fs) = make_test_filesystem("test_random_read", &Default::default(), Default::default());
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + object_size as u64);
     let mut expected = vec![0; object_size];
     rng.fill(&mut expected[..]);
     client.add_object("file", MockObject::from_bytes(&expected[..], ETag::for_tests()));
@@ -460,7 +460,7 @@ async fn test_random_read(object_size: usize) {
 
     let fh = fs.open(ino, OpenFlags::empty(), 0).await.unwrap().fh;
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
+    let mut rng = SmallRng::seed_from_u64(0x12345678);
     for _ in 0..10 {
         let offset = rng.random_range(0..object_size);
         // TODO do we need to bound it? should work anyway, just partial read, right?
@@ -539,7 +539,7 @@ async fn test_sequential_write(write_size: usize) {
 
     let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
