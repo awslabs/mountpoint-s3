@@ -196,6 +196,7 @@ async fn test_lookup_negative_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            negative_cache_ttl: Duration::from_secs(600),
             ..Default::default()
         },
         ..Default::default()
@@ -267,6 +268,7 @@ async fn test_lookup_then_open_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            negative_cache_ttl: Duration::from_secs(600),
             ..Default::default()
         },
         ..Default::default()
@@ -333,6 +335,7 @@ async fn test_readdir_then_open_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            negative_cache_ttl: Duration::from_secs(600),
             ..Default::default()
         },
         ..Default::default()
@@ -384,6 +387,7 @@ async fn test_unlink_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            negative_cache_ttl: Duration::from_secs(600),
             ..Default::default()
         },
         allow_delete: true,
@@ -434,6 +438,7 @@ async fn test_mknod_cached() {
             serve_lookup_from_cache: true,
             dir_ttl: Duration::from_secs(600),
             file_ttl: Duration::from_secs(600),
+            negative_cache_ttl: Duration::from_secs(600),
             ..Default::default()
         },
         ..Default::default()
