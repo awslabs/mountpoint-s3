@@ -1463,6 +1463,8 @@ impl ChecksumConfig {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum ChecksumAlgorithm {
+    /// Crc64nvme checksum.
+    Crc64nvme,
     /// Crc32c checksum.
     Crc32c,
     /// Crc32 checksum.
@@ -1482,6 +1484,7 @@ impl ChecksumAlgorithm {
     fn from_aws_s3_checksum_algorithm(algorithm: aws_s3_checksum_algorithm) -> Option<Self> {
         match algorithm {
             aws_s3_checksum_algorithm::AWS_SCA_NONE => None,
+            aws_s3_checksum_algorithm::AWS_SCA_CRC64NVME => Some(ChecksumAlgorithm::Crc64nvme),
             aws_s3_checksum_algorithm::AWS_SCA_CRC32C => Some(ChecksumAlgorithm::Crc32c),
             aws_s3_checksum_algorithm::AWS_SCA_CRC32 => Some(ChecksumAlgorithm::Crc32),
             aws_s3_checksum_algorithm::AWS_SCA_SHA1 => Some(ChecksumAlgorithm::Sha1),
@@ -1494,6 +1497,7 @@ impl ChecksumAlgorithm {
 impl Display for ChecksumAlgorithm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ChecksumAlgorithm::Crc64nvme => f.write_str("CRC64NVME"),
             ChecksumAlgorithm::Crc32c => f.write_str("CRC32C"),
             ChecksumAlgorithm::Crc32 => f.write_str("CRC32"),
             ChecksumAlgorithm::Sha1 => f.write_str("SHA1"),

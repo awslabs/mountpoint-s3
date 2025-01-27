@@ -1,7 +1,7 @@
 //! Benchmarks for the CRT checksums library
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use mountpoint_s3_crt::checksums::{crc32, crc32c, crc64, sha1, sha256};
+use mountpoint_s3_crt::checksums::{crc32, crc32c, crc64nvme, sha1, sha256};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
@@ -41,8 +41,8 @@ fn crc32c(c: &mut Criterion) {
     benchmark_hasher(c, crc32c::checksum, "crc32c");
 }
 
-fn crc64(c: &mut Criterion) {
-    benchmark_hasher(c, crc64::checksum, "crc64");
+fn crc64nvme(c: &mut Criterion) {
+    benchmark_hasher(c, crc64nvme::checksum, "crc64");
 }
 
 fn sha1(c: &mut Criterion) {
@@ -53,5 +53,5 @@ fn sha256(c: &mut Criterion) {
     benchmark_hasher(c, sha256::checksum, "sha256");
 }
 
-criterion_group!(checksum_benches, crc32, crc32c, crc64, sha1, sha256);
+criterion_group!(checksum_benches, crc32, crc32c, crc64nvme, sha1, sha256);
 criterion_main!(checksum_benches);

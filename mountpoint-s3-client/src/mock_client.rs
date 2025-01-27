@@ -22,7 +22,8 @@ use time::OffsetDateTime;
 use tracing::trace;
 
 use crate::checksums::{
-    crc32, crc32_to_base64, crc32c, crc32c_to_base64, sha1, sha1_to_base64, sha256, sha256_to_base64,
+    crc32, crc32_to_base64, crc32c, crc32c_to_base64, crc64nvme, crc64nvme_to_base64, sha1, sha1_to_base64, sha256,
+    sha256_to_base64,
 };
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
@@ -631,6 +632,10 @@ fn compute_checksum(content: &[u8], algorithms: &[ChecksumAlgorithm]) -> Checksu
     let mut checksum = Checksum::empty();
     for algorithm in algorithms {
         match algorithm {
+            ChecksumAlgorithm::Crc64nvme => {
+                let crc64nvme = crc64nvme::checksum(content);
+                checksum.checksum_crc64nvme = Some(crc64nvme_to_base64(&crc64nvme));
+            }
             ChecksumAlgorithm::Crc32 => {
                 let crc32 = crc32::checksum(content);
                 checksum.checksum_crc32 = Some(crc32_to_base64(&crc32));
@@ -1031,6 +1036,7 @@ impl ObjectClient for MockClient {
                                         .enumerate()
                                         .map(|(i, part)| ObjectPart {
                                             checksum: Some(Checksum {
+                                                checksum_crc64nvme: None,
                                                 checksum_crc32: None,
                                                 checksum_crc32c: part.checksum.clone(),
                                                 checksum_sha1: None,
@@ -1848,6 +1854,7 @@ mod tests {
         client.add_object("a.txt", MockObject::constant(0u8, 5, ETag::for_tests()));
         let mut object_b = MockObject::constant(1u8, 5, ETag::for_tests());
         object_b.set_checksum(Checksum {
+            checksum_crc64nvme: None,
             checksum_crc32: None,
             checksum_crc32c: None,
             checksum_sha1: Some(String::from("QwzjTQIHJO11oZbfwq1nx3dy0Wk=")),
@@ -2201,11 +2208,13 @@ mod tests {
             // We trust that other tests will cover checksum correctness,
             // so let's just check the right checksums are set.
             let Checksum {
+                checksum_crc64nvme,
                 checksum_crc32,
                 checksum_crc32c,
                 checksum_sha1,
                 checksum_sha256,
             } = attrs.checksum.expect("object checksum should be present");
+            assert!(checksum_crc64nvme.is_none(), "CRC64NVME should not be set");
             assert!(checksum_crc32.is_none(), "CRC32 should not be set");
             assert!(checksum_crc32c.is_some(), "CRC32C should be set");
             assert!(checksum_sha1.is_none(), "SHA1 should not be set");

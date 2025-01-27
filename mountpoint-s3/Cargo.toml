@@ -58,7 +58,7 @@ assert_cmd = "2.0.16"
 assert_fs = "1.1.2"
 aws-config = "1.5.10"
 aws-credential-types = "1.2.1"
-aws-sdk-s3 = "1.65.0"
+aws-sdk-s3 = "1.69.0"
 ctor = "0.2.9"
 filetime = "0.2.25"
 futures = { version = "*", features = ["thread-pool"] }

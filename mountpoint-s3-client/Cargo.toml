@@ -38,7 +38,7 @@ rand_chacha = { version = "0.3.1", optional = true }
 [dev-dependencies]
 aws-config = "1.5.10"
 aws-credential-types = "1.2.1"
-aws-sdk-s3 = "1.65.0"
+aws-sdk-s3 = "1.69.0"
 aws-smithy-runtime-api = "1.7.3"
 bytes = "1.9.0"
 clap = { version = "4.5.23", features = ["derive"] }
