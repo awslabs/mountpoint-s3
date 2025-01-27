@@ -852,9 +852,13 @@ where
 
         let result = write_state.complete_if_in_progress(&file_handle.full_key).await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
+        if let Ok(true) = result {
+            debug!(key = ?&file_handle.full_key, "upload completed async after file was closed");
+        }
+
         // Errors won't actually be seen by the user because `release` is async,
         // but it's the right thing to do.
-        result
+        result.map(|_| ())
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
