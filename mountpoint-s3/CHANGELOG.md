@@ -2,6 +2,9 @@
 
 * Add support for appending to objects originally uploaded with a CRC64-NVME checksum. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
 
+### Other Changes
+* Fix an issue where file names were not expelled from negative cache.
+
 ## v1.14.0 (January 10, 2025)
 
 ### New features

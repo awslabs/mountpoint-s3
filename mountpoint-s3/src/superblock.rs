@@ -367,6 +367,8 @@ impl Superblock {
             let inode = self
                 .inner
                 .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
+            // Expel inode from negative cache, if it is present
+            self.inner.negative_cache.remove(parent_inode.ino(), name);
             LookedUp { inode, stat }
         };
 
