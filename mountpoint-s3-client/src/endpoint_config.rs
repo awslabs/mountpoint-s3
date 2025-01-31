@@ -2,11 +2,13 @@ use std::os::unix::prelude::OsStrExt;
 use std::sync::LazyLock;
 
 use mountpoint_s3_crt::{
-    auth::signing_config::SigningAlgorithm,
-    common::{allocator::Allocator, uri::Uri},
+    common::allocator::Allocator,
     s3::endpoint_resolver::{RequestContext, ResolvedEndpoint, ResolverError, RuleEngine},
 };
 use thiserror::Error;
+
+pub use mountpoint_s3_crt::auth::signing_config::SigningAlgorithm;
+pub use mountpoint_s3_crt::common::uri::Uri;
 
 /// A static s3 endpoint rule engine that can be shared across s3 client
 static S3_ENDPOINT_RULE_ENGINE: LazyLock<RuleEngine> = LazyLock::new(|| RuleEngine::new(&Default::default()).unwrap());

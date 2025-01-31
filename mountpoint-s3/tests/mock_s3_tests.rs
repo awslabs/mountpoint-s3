@@ -4,11 +4,11 @@ use common::{make_test_filesystem_with_client, TestS3Filesystem};
 use httpmock::{Method, MockServer, Then};
 use mountpoint_s3::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3::fs::FUSE_ROOT_INODE;
-use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::config::{
+    AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
+};
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::S3CrtClient;
-use mountpoint_s3_crt::common::allocator::Allocator;
-use mountpoint_s3_crt::common::uri::Uri;
 
 use test_case::test_case;
 

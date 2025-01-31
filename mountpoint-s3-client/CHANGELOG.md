@@ -4,8 +4,10 @@
 
 * Add support for CRC64-NVME checksum algorithm. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
 * Add support for overriding the number of threads used by the Event Loop.
-  ([#1240](https://github.com/awslabs/mountpoint-s3/pull/1240/))
-* The ECS credentials provider now performs retries in the event of some failures. ([awslabs/aws-c-auth#259](https://github.com/awslabs/aws-c-auth/pull/259/))
+  ([#1240](https://github.com/awslabs/mountpoint-s3/pull/1240))
+* The ECS credentials provider now performs retries in the event of some failures. ([awslabs/aws-c-auth#259](https://github.com/awslabs/aws-c-auth/pull/259))
+* Export missing types in public API which previously required a direct dependency on `mountpoint-s3-crt`.
+  ([#1248](https://github.com/awslabs/mountpoint-s3/pull/1248))
 
 ## v0.12.0 (January 20, 2025)
 

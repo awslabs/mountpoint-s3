@@ -13,16 +13,16 @@ use std::time::{Duration, Instant};
 
 use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
-use mountpoint_s3_crt::auth::credentials::{
-    CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
-};
+pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
+pub use mountpoint_s3_crt::common::error::Error as CrtError;
 use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError, Message};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
-use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
+pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::io::stream::InputStream;
@@ -1232,7 +1232,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
     /// Try to look for error related to no signing credentials, returns generic error otherwise
     fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
-        if crt_error_code == mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
+        if crt_error_code == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
             S3RequestError::NoSigningCredentials
         } else {
             S3RequestError::CrtError(crt_error_code.into())
@@ -1241,7 +1241,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
 
     fn try_parse_throttled(request_result: &MetaRequestResult) -> Option<S3RequestError> {
         let crt_error_code = request_result.crt_error.raw_error();
-        if crt_error_code == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_SLOW_DOWN as i32 {
+        if crt_error_code == mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3_SLOW_DOWN as i32 {
             Some(S3RequestError::Throttled)
         } else {
             None
@@ -1701,7 +1701,7 @@ mod tests {
 
     #[test]
     fn parse_no_signing_credential_error() {
-        let error_code = mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32;
+        let error_code = mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32;
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::NoSigningCredentials) = result else {
@@ -1712,7 +1712,7 @@ mod tests {
     #[test]
     fn parse_test_other_crt_error() {
         // A signing error that isn't "no signing credentials"
-        let error_code = mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_UNSUPPORTED_ALGORITHM as i32;
+        let error_code = mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_UNSUPPORTED_ALGORITHM as i32;
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::CrtError(error)) = result else {

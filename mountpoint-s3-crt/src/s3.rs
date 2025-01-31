@@ -4,6 +4,8 @@ use std::sync::Once;
 
 use mountpoint_s3_crt_sys::aws_s3_library_init;
 
+pub use mountpoint_s3_crt_sys::aws_s3_errors as ErrorCode;
+
 use crate::common::allocator::Allocator;
 
 pub mod client;

@@ -506,11 +506,11 @@ pub mod s3_session {
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let checksum_algorithm = params.checksum.map(|c| match c.checksum_algorithm() {
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64Nvme,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64Nvme,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
                 other => panic!("Unsupported algorithm: {}", other),
             });
             let full_key = format!("{}{}", self.prefix, key);

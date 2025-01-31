@@ -32,8 +32,8 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
 async fn express_invalid_block_read() {
+    use mountpoint_s3_client::checksums::crc32c;
     use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
-    use mountpoint_s3_crt::checksums::crc32c;
 
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
@@ -193,11 +193,11 @@ async fn express_cache_verify_fail_non_express() {
 #[cfg(feature = "s3express_tests")]
 async fn express_cache_verify_fail_forbidden() {
     use crate::common::creds::get_scoped_down_credentials;
-    use mountpoint_s3_client::config::S3ClientAuthConfig;
+    use mountpoint_s3_client::config::{
+        Allocator, CredentialsProvider, CredentialsProviderStaticOptions, S3ClientAuthConfig,
+    };
     use mountpoint_s3_client::error::ObjectClientError;
     use mountpoint_s3_client::S3RequestError::CrtError;
-    use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-    use mountpoint_s3_crt::common::allocator::Allocator;
 
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_express_bucket();

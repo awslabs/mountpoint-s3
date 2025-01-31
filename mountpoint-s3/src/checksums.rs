@@ -1,7 +1,7 @@
 use std::ops::{Bound, Range, RangeBounds};
 
 use bytes::{Bytes, BytesMut};
-use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
+use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 
 use thiserror::Error;
 
@@ -274,7 +274,7 @@ impl PartialEq for ChecksummedBytes {
 mod tests {
     use std::ops::{RangeFrom, RangeTo};
 
-    use mountpoint_s3_crt::checksums::crc32c;
+    use mountpoint_s3_client::checksums::crc32c;
     use test_case::test_case;
 
     use super::*;

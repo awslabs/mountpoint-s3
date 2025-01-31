@@ -1,4 +1,4 @@
-use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
+use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 
 /// Server-side encryption configuration for newly created objects

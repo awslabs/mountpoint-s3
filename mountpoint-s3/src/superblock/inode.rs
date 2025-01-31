@@ -5,8 +5,8 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::time::{Duration, SystemTime};
 
 use fuser::FileType;
+use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
-use mountpoint_s3_crt::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::trace;
 
