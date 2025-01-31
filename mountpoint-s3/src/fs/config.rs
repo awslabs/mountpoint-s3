@@ -87,7 +87,7 @@ pub struct CacheConfig {
     pub file_ttl: Duration,
     /// How long the kernel will cache metadata for directories
     pub dir_ttl: Duration,
-    /// How long the kernel will cache negative entries
+    /// How long the file system will cache negative entries
     pub negative_cache_ttl: Duration,
     /// Maximum number of negative entries to cache.
     pub negative_cache_size: usize,
