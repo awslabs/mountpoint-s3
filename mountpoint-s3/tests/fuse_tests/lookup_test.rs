@@ -199,7 +199,7 @@ fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
                 serve_lookup_from_cache: true,
                 dir_ttl: Duration::from_secs(600),
                 file_ttl: Duration::from_secs(600),
-                negative_ttl: Duration::from_secs(600),
+                negative_cache_ttl: Duration::from_secs(600),
                 ..Default::default()
             },
             ..Default::default()
