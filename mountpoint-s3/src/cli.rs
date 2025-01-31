@@ -323,7 +323,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         value_name = "SECONDS|indefinite|minimal",
         help_heading = CACHING_OPTIONS_HEADER,
     )]
-    pub negative_cache_ttl: Option<TimeToLive>,
+    pub negative_metadata_ttl: Option<TimeToLive>,
 
     #[clap(
         long,
@@ -942,7 +942,7 @@ where
     }
     tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
-    if let Some(negative_cache_ttl) = args.negative_cache_ttl {
+    if let Some(negative_cache_ttl) = args.negative_metadata_ttl {
         filesystem_config.cache_config = filesystem_config
             .cache_config
             .with_negative_cache_ttl(negative_cache_ttl);
