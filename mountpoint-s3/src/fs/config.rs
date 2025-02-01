@@ -146,8 +146,8 @@ impl CacheConfig {
         }
     }
 
-    pub fn with_negative_cache_ttl(self, negative_cache_ttl: TimeToLive) -> Self {
-        match negative_cache_ttl {
+    pub fn with_negative_metadata_ttl(self, negative_metadata_ttl: TimeToLive) -> Self {
+        match negative_metadata_ttl {
             TimeToLive::Minimal => Self {
                 negative_cache_ttl: Self::default().negative_cache_ttl,
                 ..self

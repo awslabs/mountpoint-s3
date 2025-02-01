@@ -945,7 +945,7 @@ where
     if let Some(negative_cache_ttl) = args.negative_metadata_ttl {
         filesystem_config.cache_config = filesystem_config
             .cache_config
-            .with_negative_cache_ttl(negative_cache_ttl);
+            .with_negative_metadata_ttl(negative_cache_ttl);
     }
 
     match (args.disk_data_cache_config(), args.express_data_cache_config()) {
