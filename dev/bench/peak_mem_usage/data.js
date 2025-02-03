@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1738585334058,
+  "lastUpdate": 1738588530628,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "133711035+aws-hans-pistor@users.noreply.github.com",
-            "name": "aws-hans-pistor",
-            "username": "aws-hans-pistor"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ab77aaa0b908d76f760d0ea51f6ad4f036ee069d",
-          "message": "Allow clients to define custom callbacks to handle telemetry (#1080)\n\n## Description of change\nDifferent users of mountpoint will care about different metrics returned\nfor each requests, so allow them to define their own custom handlers for\nthe on_telemetry callback in addition to the default metrics that\nmountpoint emits.\n\nThis allows users to do things like: \n- emit extended request ids (\"x-amz-id-2\")\n- When some criteria is met, log out additional information\n\nRelevant issues: #1079 \n\n## Does this change impact existing behavior?\n\n\nNo there should be no breaking changes, the only visible change is that\nthere's a new field to the S3ClientConfig which defines the custom\ntelemetry handler\n\n## Does this change need a changelog entry in any of the crates?\n\nJust a note in mountpoint-s3-client letting users know this feature now\nexists\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Hans Pistor <hpistor@amazon.com>\nSigned-off-by: aws-hans-pistor <133711035+aws-hans-pistor@users.noreply.github.com>\nCo-authored-by: Volodkin Vladislav <vladvolodkin@gmail.com>",
-          "timestamp": "2025-01-13T10:44:39Z",
-          "tree_id": "8371c3ea91f63a67ed87f1e39e6acee811dfc836",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/ab77aaa0b908d76f760d0ea51f6ad4f036ee069d"
-        },
-        "date": 1736773356215,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 13962.0390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 21135.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 38899.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 92.77734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 358.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 92.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 368.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 73.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 308.71484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 75.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 303.9609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 35034.42578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 390.76171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 35652.82421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 398.3671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 10212.765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 261.95703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 11570.41796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 12551.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 264.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 792.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 578.03515625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2679,6 +2545,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 437.03515625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8075c204939c66b8a5732a27bb00562243dfa8df",
+          "message": "Increment crates version numbers for next release (#1253)\n\nIncrement the version numbers of the client crates after publishing to\ncrates.io.\n\n### Does this change impact existing behavior?\n\nN/A\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nN/A\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-02-03T11:03:12Z",
+          "tree_id": "0c6673e0b1dd662d816fe5d0e593341b6ff7e10a",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8075c204939c66b8a5732a27bb00562243dfa8df"
+        },
+        "date": 1738588530579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 14580.140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 24680.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 33138.578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 90.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 357.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 96.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 373.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 77.17578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 305.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 74.37890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 308.796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 34790.234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 385.16796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 32983.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 386.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 9275.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 255.71875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 11346.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11740.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 265.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 727.91796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 452.1328125,
             "unit": "MiB"
           }
         ]
