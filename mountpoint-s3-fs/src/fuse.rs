@@ -235,7 +235,7 @@ where
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdirplus.entries").increment(count as u64);
+                metrics::histogram!("fuse.readdirplus.entries").record(count as f64);
             }
             Err(e) => fuse_error!("readdirplus", reply, e, self, req),
         }
