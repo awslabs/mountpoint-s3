@@ -4,6 +4,7 @@ use std::time::SystemTime;
 
 use async_trait::async_trait;
 use auto_impl::auto_impl;
+use bytes::Bytes;
 use futures::Stream;
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use std::collections::HashMap;
@@ -648,7 +649,11 @@ pub enum ObjectChecksumError {
 
 /// A single element of a [`get_object`](ObjectClient::get_object) response stream is a pair of
 /// offset within the object and the bytes starting at that offset.
-pub type GetBodyPart = (u64, Box<[u8]>);
+#[derive(Debug)]
+pub struct GetBodyPart {
+    pub offset: u64,
+    pub data: Bytes,
+}
 
 /// A streaming put request which allows callers to asynchronously write the body of the request.
 ///

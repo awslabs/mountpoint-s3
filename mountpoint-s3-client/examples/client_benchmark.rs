@@ -52,8 +52,8 @@ fn run_benchmark(
                         let mut request = pin!(request);
                         loop {
                             match request.next().await {
-                                Some(Ok((_offset, body))) => {
-                                    received_size_clone.fetch_add(body.len() as u64, Ordering::SeqCst);
+                                Some(Ok(part)) => {
+                                    received_size_clone.fetch_add(part.data.len() as u64, Ordering::SeqCst);
                                 }
                                 Some(Err(e)) => {
                                     tracing::error!(error = ?e, "request failed");

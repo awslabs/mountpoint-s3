@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use clap::Parser;
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::GetObjectParams;
+use mountpoint_s3_client::types::{GetBodyPart, GetObjectParams};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use regex::Regex;
@@ -92,7 +92,7 @@ fn main() {
             .expect("couldn't create get request");
         loop {
             match StreamExt::next(&mut request).await {
-                Some(Ok((offset, body))) => {
+                Some(Ok(GetBodyPart { offset, data: body })) => {
                     let mut last_offset = last_offset_clone.lock().unwrap();
                     assert!(Some(offset) > *last_offset, "out-of-order body parts");
                     *last_offset = Some(offset);
