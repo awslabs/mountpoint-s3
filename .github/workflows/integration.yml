@@ -35,6 +35,7 @@ env:
   S3_BUCKET_OWNER: ${{ vars.S3_BUCKET_OWNER }}
   S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL }}
   KMS_TEST_KEY_ID: ${{ vars.KMS_TEST_KEY_ID }}
+  S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS }}
   RUST_FEATURES: fuse_tests,s3_tests,fips_tests,event_log,second_account_tests
 
 permissions:
