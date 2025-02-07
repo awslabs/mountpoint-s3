@@ -261,7 +261,8 @@ async fn express_cache_verify_fail_forbidden() {
     let err = cache.verify_cache_valid().await.expect_err("cache must be write-able");
 
     if let DataCacheError::IoFailure(err) = err {
-        assert!(err.to_string().contains("AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED"))
+        let body = format!("{:?}", err);
+        assert!(body.contains("AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED"))
     } else {
         panic!("wrong error type");
     }
