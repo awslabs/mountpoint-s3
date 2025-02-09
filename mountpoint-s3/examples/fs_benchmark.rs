@@ -1,16 +1,15 @@
-use clap::{Arg, ArgAction, Command};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use clap::{value_parser, Parser};
 use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3::fuse::S3FuseFilesystem;
 use mountpoint_s3::prefetch::default_prefetch;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::S3CrtClient;
-use std::{
-    fs::{File, OpenOptions},
-    io::{self, BufRead, BufReader},
-    path::Path,
-    time::Instant,
-};
 use tempfile::tempdir;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -30,84 +29,73 @@ fn init_tracing_subscriber() {
     subscriber.try_init().expect("unable to install global subscriber");
 }
 
+#[derive(Parser, Debug)]
+#[clap(about = "Read a single file from a path and ignore its contents.")]
+pub struct CliArgs {
+    #[clap(help = "S3 bucket to mount")]
+    pub bucket: String,
+
+    #[clap(help = "Path to read relative to the mountpoint")]
+    pub file_path: PathBuf,
+
+    #[clap(long, help = "AWS region of the bucket", default_value = "us-east-1")]
+    pub region: String,
+
+    #[clap(long, help = "Buffer reader capacity in kibibytes", default_value_t = 128)]
+    pub buffer_capacity_kb: usize,
+
+    #[clap(long, help = "Open file with O_DIRECT option")]
+    pub direct: bool,
+
+    #[clap(
+        long,
+        help = "Target throughput in gibibits per second",
+        value_name = "N",
+        value_parser = value_parser!(u64).range(1..),
+        alias = "throughput-target-gbps",
+    )]
+    pub maximum_throughput_gbps: Option<f64>,
+
+    #[clap(long, help = "Number of times to run the benchmark", default_value_t = 1)]
+    pub iterations: usize,
+}
+
 fn main() -> io::Result<()> {
     init_tracing_subscriber();
 
     const KB: usize = 1 << 10;
     const MB: usize = 1 << 20;
-    const DEFAULT_BUF_CAP: usize = 128;
 
-    let matches = Command::new("benchmark")
-        .about("Read a single file from a path and ignore its contents")
-        .arg(Arg::new("bucket").required(true))
-        .arg(
-            Arg::new("file_path")
-                .required(true)
-                .help("relative path to the mountpoint"),
-        )
-        .arg(
-            Arg::new("buffer-capacity-kb")
-                .long("buffer-capacity-kb")
-                .help("Buffer reader capacity in KB"),
-        )
-        .arg(
-            Arg::new("direct")
-                .long("direct")
-                .help("Open file with O_DIRECT option")
-                .action(ArgAction::SetTrue),
-        )
-        .arg(
-            Arg::new("throughput-target-gbps")
-                .long("throughput-target-gbps")
-                .help("Desired throughput in Gbps"),
-        )
-        .arg(
-            Arg::new("iterations")
-                .long("iterations")
-                .help("Number of times to download"),
-        )
-        .arg(Arg::new("region").long("region").default_value("us-east-1"))
-        .get_matches();
+    let args = CliArgs::parse();
 
-    let bucket_name = matches.get_one::<String>("bucket").unwrap();
-    let file_path = matches.get_one::<String>("file_path").unwrap();
-    let buffer_capacity = matches
-        .get_one::<String>("buffer-capacity-kb")
-        .map(|s| s.parse::<usize>().expect("buffer capacity must be a number"));
-    let direct = matches.get_flag("direct");
-    let throughput_target_gbps = matches
-        .get_one::<String>("throughput-target-gbps")
-        .map(|s| s.parse::<f64>().expect("throughput target must be an f64"));
-    let iterations = matches
-        .get_one::<String>("iterations")
-        .map(|s| s.parse::<usize>().expect("iterations must be a number"));
-    let region = matches.get_one::<String>("region").unwrap();
+    let file_path = args.file_path;
+    let direct = args.direct;
 
     let temp_dir = tempdir().expect("Should be able to create temp directory");
     let mountpoint = temp_dir.path();
-    let session = mount_file_system(mountpoint, bucket_name, region, throughput_target_gbps);
+    let session = mount_file_system(mountpoint, &args.bucket, &args.region, args.maximum_throughput_gbps);
 
     #[cfg(not(target_os = "linux"))]
     if direct {
         panic!("O_DIRECT only supported on Linux");
     }
 
-    for i in 0..iterations.unwrap_or(1) {
-        let file_path = mountpoint.join(file_path);
+    for i in 0..args.iterations {
+        let file_path = mountpoint.join(&file_path);
         let file = if direct {
             let mut open = OpenOptions::new();
             open.read(true);
             #[cfg(target_os = "linux")]
             open.custom_flags(libc::O_DIRECT);
-            open.open(file_path)?
+            open.open(&file_path)?
         } else {
-            File::open(file_path)?
+            File::open(&file_path)?
         };
         let mut received_size: u64 = 0;
         let mut op_counter: u64 = 0;
 
         let start = Instant::now();
-        let mut reader = BufReader::with_capacity(buffer_capacity.unwrap_or(DEFAULT_BUF_CAP) * KB, file);
+        let mut reader = BufReader::with_capacity(args.buffer_capacity_kb * KB, file);
         loop {
             let length = {
                 let buffer = reader.fill_buf()?;
