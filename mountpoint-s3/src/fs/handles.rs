@@ -337,11 +337,13 @@ where
                 handle,
                 initial_etag,
                 ..
-            } => Self::complete_append(request, key, handle, initial_etag)
-                .await
-                .map(|()| true),
+            } => {
+                Self::complete_append(request, key, handle, initial_etag).await?;
+                Ok(true)
+            }
             UploadState::MPUInProgress { request, handle, .. } => {
-                Self::complete_upload(request, key, handle).await.map(|()| true)
+                Self::complete_upload(request, key, handle).await?;
+                Ok(true)
             }
             UploadState::Failed(_) | UploadState::Completed => Ok(false),
         }
