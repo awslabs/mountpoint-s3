@@ -71,8 +71,8 @@ By default, Mountpoint provides strong read-after-write consistency for file wri
 If you modify or delete an existing object in your S3 bucket with another client, however, Mountpoint may return stale metadata for that object for up to 1 second, by default. This occurs only if the object had already been accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
 
 Mountpoint allows multiple readers to access the same object at the same time.
-However, a new file can only be written to sequentially and by one writer at a time.
-New files that are being written are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3.
+However, files can only be written to sequentially and by one writer at a time.
+Files that are being written to are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3, regardless of upload mode.
 If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object.
 Your application should not write to the same object from multiple instances at the same time.
 
