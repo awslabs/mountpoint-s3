@@ -151,6 +151,10 @@ fn mount_file_system(
     throughput_target_gbps: Option<f64>,
 ) -> BackgroundSession {
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
+    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
+    config = config
+        .read_backpressure(true)
+        .initial_read_window(initial_read_window_size);
     if let Some(throughput_target_gbps) = throughput_target_gbps {
         config = config.throughput_target_gbps(throughput_target_gbps);
     }
