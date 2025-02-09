@@ -79,6 +79,7 @@ struct CrtClientConfig {
     region: String,
     throughput_target_gbps: f64,
     part_size: usize,
+    network_interface_names: Option<Vec<String>>,
 }
 
 impl CrtClient {
@@ -123,6 +124,9 @@ impl CrtClient {
             .retry_strategy(retry_strategy);
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.part_size(config.part_size);
+        if let Some(ref network_interface_names) = config.network_interface_names {
+            client_config.network_interface_names(network_interface_names.clone());
+        }
 
         let client = Client::new(&allocator, client_config)?;
 
@@ -206,6 +210,12 @@ struct CliArgs {
     maximum_throughput_gbps: f64,
     #[arg(long, help = "part size (bytes)", default_value = "8388608")]
     part_size: usize,
+    #[clap(
+        long,
+        help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
+        value_name = "NETWORK_INTERFACE"
+    )]
+    bind: Option<Vec<String>>,
     #[arg(long, help = "number of times to download", default_value = "1")]
     iterations: usize,
 }
@@ -220,6 +230,7 @@ fn main() -> anyhow::Result<()> {
         region: args.region,
         throughput_target_gbps: args.maximum_throughput_gbps,
         part_size: args.part_size,
+        network_interface_names: args.bind,
     };
     let client = CrtClient::new(config)?;
 

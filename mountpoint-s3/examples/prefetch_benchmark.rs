@@ -87,6 +87,13 @@ pub struct CliArgs {
 
     #[arg(long, help = "Number of concurrent downloads", default_value_t = 1, value_name = "N")]
     downloads: usize,
+
+    #[clap(
+        long,
+        help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
+        value_name = "NETWORK_INTERFACE"
+    )]
+    pub bind: Option<Vec<String>>,
 }
 
 fn main() {
@@ -107,6 +114,9 @@ fn main() {
     }
     if let Some(part_size) = args.part_size {
         config = config.part_size(part_size as usize);
+    }
+    if let Some(interfaces) = &args.bind {
+        config = config.network_interface_names(interfaces.clone());
     }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
 
