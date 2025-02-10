@@ -1,5 +1,6 @@
 use std::os::unix::prelude::OsStrExt;
 use std::sync::LazyLock;
+use std::time::Instant;
 
 use mountpoint_s3_crt::{
     common::allocator::Allocator,
@@ -185,9 +186,12 @@ impl EndpointConfig {
                 .unwrap()
         };
 
-        let resolved_endpoint = S3_ENDPOINT_RULE_ENGINE
-            .resolve(endpoint_request_context)
-            .map_err(EndpointError::UnresolvedEndpoint)?;
+        let resolved_endpoint = {
+            let start_time = Instant::now();
+            let endpoint_result = S3_ENDPOINT_RULE_ENGINE.resolve(endpoint_request_context);
+            metrics::histogram!("s3.endpoint_resolution_us").record(start_time.elapsed().as_micros() as f64);
+            endpoint_result.map_err(EndpointError::UnresolvedEndpoint)?
+        };
 
         Ok(ResolvedEndpointInfo(resolved_endpoint))
     }
