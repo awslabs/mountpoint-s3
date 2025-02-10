@@ -1250,15 +1250,12 @@ fn create_client_for_bucket(
 /// PID file configuration is available for attaching debug tooling to Mountpoint, and may be removed in the future.
 fn create_pid_file() -> anyhow::Result<()> {
     const ENV_PID_FILENAME: &str = "UNSTABLE_MOUNTPOINT_PID_FILE";
-    match std::env::var_os(ENV_PID_FILENAME) {
-        Some(val) => {
-            let pid = std::process::id();
-            fs::write(&val, pid.to_string().as_bytes()).context("failed to write PID to file")?;
-            tracing::trace!("PID ({pid} written to file {val:?}");
-            Ok(())
-        }
-        None => Ok(()),
+    if let Some(val) = std::env::var_os(ENV_PID_FILENAME) {
+        let pid = std::process::id();
+        fs::write(&val, pid.to_string()).context("failed to write PID to file")?;
+        tracing::trace!("PID ({pid}) written to file {val:?}");
     }
+    Ok(())
 }
 
 fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
