@@ -1,7 +1,8 @@
 use std::io::Write;
+use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
-use clap::{Arg, Command};
+use clap::Parser;
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::GetObjectParams;
@@ -24,33 +25,60 @@ fn init_tracing_subscriber() {
     subscriber.try_init().expect("unable to install global subscriber");
 }
 
+#[derive(Parser, Debug)]
+#[clap(about = "Download a single object from S3")]
+pub struct CliArgs {
+    #[clap(help = "S3 bucket name containing the S3 object to fetch")]
+    pub bucket: String,
+
+    #[clap(help = "S3 object key to fetch")]
+    pub s3_key: String,
+
+    #[clap(long, help = "AWS region of the bucket", default_value = "us-east-1")]
+    pub region: String,
+
+    #[clap(
+        long,
+        help = "byte range to download (inclusive)",
+        value_parser = parse_range,
+    )]
+    pub range: Option<Range<u64>>,
+}
+
+/// Empty error type, since we don't care too much for an example.
+#[derive(Debug, thiserror::Error)]
+#[error("failed to parse range")]
+struct RangeParseError;
+
+fn parse_range(range: &str) -> Result<Range<u64>, RangeParseError> {
+    let range_regex = Regex::new(r"^(?P<start>[0-9]+)-(?P<end>[0-9]+)$").unwrap();
+    let matches = range_regex.captures(range).expect("failed to recognize range pattern");
+    let start = matches
+        .name("start")
+        .unwrap()
+        .as_str()
+        .parse::<u64>()
+        .expect("failed to parse range start");
+    let end = matches
+        .name("end")
+        .unwrap()
+        .as_str()
+        .parse::<u64>()
+        .expect("failed to parse range end");
+
+    // bytes range is inclusive, but the `Range` type is exclusive, so bump the end by 1
+    Ok(start..(end + 1))
+}
+
 fn main() {
     init_tracing_subscriber();
 
-    let matches = Command::new("download")
-        .about("Download a single key from S3")
-        .arg(Arg::new("bucket").required(true))
-        .arg(Arg::new("key").required(true))
-        .arg(Arg::new("region").long("region").default_value("us-east-1"))
-        .arg(
-            Arg::new("range")
-                .long("range")
-                .help("byte range to download (inclusive)")
-                .value_name("0-10"),
-        )
-        .get_matches();
+    let args = CliArgs::parse();
 
-    let bucket = matches.get_one::<String>("bucket").unwrap();
-    let key = matches.get_one::<String>("key").unwrap();
-    let region = matches.get_one::<String>("region").unwrap();
-    let range = matches.get_one::<String>("range").map(|s| {
-        let range_regex = Regex::new(r"^(?P<start>[0-9]+)-(?P<end>[0-9]+)$").unwrap();
-        let matches = range_regex.captures(s).expect("invalid range");
-        let start = matches.name("start").unwrap().as_str().parse::<u64>().unwrap();
-        let end = matches.name("end").unwrap().as_str().parse::<u64>().unwrap();
-        // bytes range is inclusive, but the `Range` type is exclusive, so bump the end by 1
-        start..(end + 1)
-    });
+    let bucket = &args.bucket;
+    let key = &args.s3_key;
+    let region = &args.region;
+    let range = args.range;
 
     let client = S3CrtClient::new(S3ClientConfig::new().endpoint_config(EndpointConfig::new(region)))
         .expect("couldn't create client");

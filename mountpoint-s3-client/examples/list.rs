@@ -2,7 +2,7 @@ use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 
-use clap::{Arg, Command};
+use clap::Parser;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
@@ -19,26 +19,37 @@ fn init_tracing_subscriber() {
     subscriber.try_init().expect("unable to install global subscriber");
 }
 
+#[derive(Parser, Debug)]
+#[clap(about = "List an S3 bucket using Mountpoint's S3 client")]
+pub struct CliArgs {
+    #[clap(help = "S3 bucket to list")]
+    pub bucket: String,
+
+    #[clap(long, help = "Delimiter to use to group keys service-side")]
+    pub delimiter: Option<String>,
+
+    #[clap(long, help = "Prefix to list within")]
+    pub prefix: Option<String>,
+
+    #[clap(long, help = "AWS region of the bucket", default_value = "us-east-1")]
+    pub region: String,
+}
+
 fn main() {
     init_tracing_subscriber();
 
-    let matches = Command::new("list")
-        .about("List an S3 bucket")
-        .arg(Arg::new("bucket").required(true))
-        .arg(Arg::new("delimiter").long("delimiter").default_value(""))
-        .arg(Arg::new("prefix").long("prefix").default_value(""))
-        .arg(Arg::new("region").long("region").default_value("us-east-1"))
-        .get_matches();
+    let args = CliArgs::parse();
 
-    let bucket = matches.get_one::<String>("bucket").unwrap();
-    let delimiter = matches.get_one::<String>("delimiter").unwrap();
-    let prefix = matches.get_one::<String>("prefix").unwrap();
-    let region = matches.get_one::<String>("region").unwrap();
+    let bucket = args.bucket.as_str();
+    let delimiter = args.delimiter.unwrap_or_default();
+    let prefix = args.prefix.unwrap_or_default();
+    let region = args.region.as_str();
 
     let client = S3CrtClient::new(S3ClientConfig::new().endpoint_config(EndpointConfig::new(region)))
         .expect("couldn't create client");
 
-    let result = futures::executor::block_on(client.list_objects(bucket, None, delimiter, 500, prefix)).unwrap();
+    // TODO: Expose max-keys and cont. token arg, print common prefixes and continuation token
+    let result = futures::executor::block_on(client.list_objects(bucket, None, &delimiter, 500, &prefix)).unwrap();
 
     for object in result.objects {
         println!("{object:?}");
