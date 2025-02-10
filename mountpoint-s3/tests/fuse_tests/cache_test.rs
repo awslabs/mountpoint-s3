@@ -16,6 +16,8 @@ use std::time::Duration;
 use tempfile::TempDir;
 use test_case::test_case;
 
+#[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
+use crate::common::s3::{get_bucket_owner, get_external_express_bucket, get_test_endpoint_config};
 #[cfg(feature = "s3express_tests")]
 use crate::common::s3::{get_express_bucket, get_standard_bucket};
 #[cfg(feature = "s3express_tests")]
@@ -30,8 +32,8 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
 async fn express_invalid_block_read() {
+    use mountpoint_s3_client::checksums::crc32c;
     use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
-    use mountpoint_s3_crt::checksums::crc32c;
 
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
@@ -191,11 +193,11 @@ async fn express_cache_verify_fail_non_express() {
 #[cfg(feature = "s3express_tests")]
 async fn express_cache_verify_fail_forbidden() {
     use crate::common::creds::get_scoped_down_credentials;
-    use mountpoint_s3_client::config::S3ClientAuthConfig;
+    use mountpoint_s3_client::config::{
+        Allocator, CredentialsProvider, CredentialsProviderStaticOptions, S3ClientAuthConfig,
+    };
     use mountpoint_s3_client::error::ObjectClientError;
     use mountpoint_s3_client::S3RequestError::CrtError;
-    use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-    use mountpoint_s3_crt::common::allocator::Allocator;
 
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_express_bucket();
@@ -286,6 +288,67 @@ where
         .await
         .expect("should not return an error");
     assert!(block.is_none());
+}
+
+/// A test that checks that data is not written to the bucket owned by an unexpected account
+#[test_case(get_express_bucket(), true, true; "bucket owned by the expected account")]
+#[test_case(get_external_express_bucket(), true, false; "bucket owned by another account")]
+#[test_case(get_external_express_bucket(), false, false; "bucket owned by another account, not checked")]
+#[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
+fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
+    use futures::executor::block_on;
+    use mountpoint_s3_client::config::S3ClientConfig;
+    use mountpoint_s3_client::error::ObjectClientError;
+    use mountpoint_s3_client::S3RequestError;
+
+    let bucket_owner = get_bucket_owner();
+    // Configure the client to enforce the bucket owner
+    let mut client_config = S3ClientConfig::default()
+        .part_size(CLIENT_PART_SIZE)
+        .endpoint_config(get_test_endpoint_config())
+        .read_backpressure(true)
+        .initial_read_window(CLIENT_PART_SIZE);
+    if owner_checked {
+        client_config = client_config.bucket_owner(&bucket_owner);
+    }
+    let client = S3CrtClient::new(client_config).unwrap();
+
+    // Create cache and mount a bucket
+    let bucket = get_standard_bucket();
+    let prefix = get_test_prefix("express_expected_bucket_owner");
+    let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket, &cache_bucket);
+    let cache_valid = block_on(cache.verify_cache_valid());
+    if owner_checked && !owner_matches {
+        match cache_valid {
+            Err(ObjectClientError::ClientError(S3RequestError::Forbidden(..))) => (),
+            _ => panic!("expected S3RequestError::Forbidden, got: {:?}", cache_valid),
+        }
+    } else {
+        cache_valid.expect("should succeed if not enforcing bucket owner");
+    }
+
+    let cache = CacheTestWrapper::new(cache);
+    let (mount_point, _session) = mount_bucket(client, cache.clone(), &bucket, &prefix);
+
+    // Write an object, no caching happens yet
+    let key = get_random_key(&prefix, "key", 100);
+    let path = mount_point.path().join(&key);
+    let written = random_binary_data(CACHE_BLOCK_SIZE as usize);
+    fs::write(&path, &written).expect("write should succeed");
+
+    // First read should be from the source bucket and be cached
+    let put_block_count = cache.put_block_count();
+    let read = fs::read(&path).expect("read should succeed");
+    assert_eq!(read, written);
+
+    // Cache population is async, wait for it to happen
+    cache.wait_for_put(Duration::from_secs(10), put_block_count);
+
+    if owner_checked && !owner_matches {
+        assert_eq!(cache.put_block_fail_count(), cache.put_block_count());
+    } else {
+        assert_eq!(cache.put_block_fail_count(), 0);
+    }
 }
 
 /// Generates random data of the specified size

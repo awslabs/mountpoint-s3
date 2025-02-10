@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use crate::checksums::{self, crc32_to_base64, crc32c_to_base64, sha1_to_base64, sha256_to_base64};
+use crate::checksums::{
+    self, crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, sha1_to_base64, sha256_to_base64,
+};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 
 mod etag;
@@ -567,6 +569,7 @@ impl PutObjectSingleParams {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum UploadChecksum {
+    Crc64nvme(checksums::Crc64nvme),
     Crc32c(checksums::Crc32c),
     Crc32(checksums::Crc32),
     Sha1(checksums::Sha1),
@@ -577,6 +580,7 @@ impl UploadChecksum {
     /// The checksum algorithm used to compute this checksum.
     pub fn checksum_algorithm(&self) -> ChecksumAlgorithm {
         match self {
+            UploadChecksum::Crc64nvme(_) => ChecksumAlgorithm::Crc64nvme,
             UploadChecksum::Crc32c(_) => ChecksumAlgorithm::Crc32c,
             UploadChecksum::Crc32(_) => ChecksumAlgorithm::Crc32,
             UploadChecksum::Sha1(_) => ChecksumAlgorithm::Sha1,
@@ -807,6 +811,9 @@ impl fmt::Display for ObjectAttribute {
 /// S3 API Reference* for more details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checksum {
+    /// Base64-encoded, 64-bit CRC64NVME checksum of the object
+    pub checksum_crc64nvme: Option<String>,
+
     /// Base64-encoded, 32-bit CRC32 checksum of the object
     pub checksum_crc32: Option<String>,
 
@@ -824,6 +831,7 @@ impl Checksum {
     /// Construct an empty [Checksum]
     pub fn empty() -> Self {
         Self {
+            checksum_crc64nvme: None,
             checksum_crc32: None,
             checksum_crc32c: None,
             checksum_sha1: None,
@@ -838,12 +846,16 @@ impl Checksum {
 
         // Pattern match forces us to accomodate any new fields when added.
         let Self {
+            checksum_crc64nvme,
             checksum_crc32,
             checksum_crc32c,
             checksum_sha1,
             checksum_sha256,
         } = &self;
 
+        if checksum_crc64nvme.is_some() {
+            algorithms.push(ChecksumAlgorithm::Crc64nvme);
+        }
         if checksum_crc32.is_some() {
             algorithms.push(ChecksumAlgorithm::Crc32);
         }
@@ -865,6 +877,7 @@ impl From<Option<UploadChecksum>> for Checksum {
     fn from(value: Option<UploadChecksum>) -> Self {
         let mut checksum = Checksum::empty();
         match value.as_ref() {
+            Some(UploadChecksum::Crc64nvme(crc64)) => checksum.checksum_crc64nvme = Some(crc64nvme_to_base64(crc64)),
             Some(UploadChecksum::Crc32c(crc32c)) => checksum.checksum_crc32c = Some(crc32c_to_base64(crc32c)),
             Some(UploadChecksum::Crc32(crc32)) => checksum.checksum_crc32 = Some(crc32_to_base64(crc32)),
             Some(UploadChecksum::Sha1(sha1)) => checksum.checksum_sha1 = Some(sha1_to_base64(sha1)),
@@ -923,6 +936,7 @@ mod tests {
     #[test]
     fn test_checksum_algorithm_one_set() {
         let checksum = Checksum {
+            checksum_crc64nvme: None,
             checksum_crc32: None,
             checksum_crc32c: None,
             checksum_sha1: Some("checksum_sha1".to_string()),
@@ -934,6 +948,7 @@ mod tests {
     #[test]
     fn test_checksum_algorithm_none_set() {
         let checksum = Checksum {
+            checksum_crc64nvme: None,
             checksum_crc32: None,
             checksum_crc32c: None,
             checksum_sha1: None,
@@ -946,6 +961,7 @@ mod tests {
     fn test_checksum_algorithm_many_set() {
         // Amazon S3 doesn't support more than one algorithm today, but just in case... let's show we don't panic.
         let checksum = Checksum {
+            checksum_crc64nvme: None,
             checksum_crc32: None,
             checksum_crc32c: Some("checksum_crc32c".to_string()),
             checksum_sha1: Some("checksum_sha1".to_string()),

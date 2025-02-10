@@ -1,29 +1,28 @@
 [package]
 name = "mountpoint-s3-client"
 # See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.11.0"
+version = "0.13.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.10.0" }
-mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.10.0" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.12.1" }
 
-async-trait = "0.1.83"
-auto_impl = "1.2.0"
+async-trait = "0.1.85"
+auto_impl = "1.2.1"
 base64ct = { version = "1.6.0", features = ["std"] }
 const_format = "0.2.34"
 futures = "0.3.31"
 metrics = "0.24.1"
 percent-encoding = "2.3.1"
-pin-project = "1.1.7"
-platform-info = "2.0.4"
+pin-project = "1.1.8"
+platform-info = "2.0.5"
 regex = "1.11.1"
-serde_json = "1.0.133"
+serde_json = "1.0.137"
 static_assertions = "1.1.0"
-thiserror = "2.0.6"
+thiserror = "2.0.11"
 time = { version = "0.3.37", features = ["formatting", "parsing"] }
 tracing = { version = "0.1.41", default-features = false, features = ["std", "log"] }
 xmltree = "0.11.0"
@@ -36,18 +35,18 @@ rand = { version = "0.8.5", optional = true }
 rand_chacha = { version = "0.3.1", optional = true }
 
 [dev-dependencies]
-aws-config = "1.5.10"
+aws-config = "1.5.15"
 aws-credential-types = "1.2.1"
-aws-sdk-s3 = "1.65.0"
+aws-sdk-s3 = "1.71.0"
 aws-smithy-runtime-api = "1.7.3"
 bytes = "1.9.0"
-clap = { version = "4.5.23", features = ["derive"] }
+clap = { version = "4.5.27", features = ["derive"] }
 ctor = "0.2.9"
-proptest = "1.5.0"
+proptest = "1.6.0"
 rusty-fork = "0.3.0"
-tempfile = "3.14.0"
+tempfile = "3.15.0"
 test-case = "3.3.1"
-tokio = { version = "1.42.0", features = ["rt", "macros"] }
+tokio = { version = "1.43.0", features = ["rt", "macros"] }
 tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
 
 # HACK: we want our own tests to use the mock client, but don't want to enable it for consumers by

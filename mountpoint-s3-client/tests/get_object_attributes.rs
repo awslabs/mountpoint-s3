@@ -139,6 +139,10 @@ async fn test_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
 
     let checksum = result.checksum.unwrap();
     match checksum_algorithm {
+        ChecksumAlgorithm::Crc64Nvme => assert_eq!(
+            checksum.checksum_crc64nvme,
+            put_object_output.checksum_crc64_nvme().map(|s| s.to_string())
+        ),
         ChecksumAlgorithm::Crc32 => assert_eq!(
             checksum.checksum_crc32,
             put_object_output.checksum_crc32().map(|s| s.to_string())
@@ -210,10 +214,11 @@ async fn test_get_attributes() {
     assert!(result.object_parts.is_none());
 }
 
-#[test_case(ChecksumAlgorithm::Crc32; "Checksum CRC32")]
-#[test_case(ChecksumAlgorithm::Crc32C; "Checksum CRC32C")]
-#[test_case(ChecksumAlgorithm::Sha1; "Checksum SHA1")]
-#[test_case(ChecksumAlgorithm::Sha256; "Checksum SHA256")]
+#[test_case(ChecksumAlgorithm::Crc64Nvme)]
+#[test_case(ChecksumAlgorithm::Crc32)]
+#[test_case(ChecksumAlgorithm::Crc32C)]
+#[test_case(ChecksumAlgorithm::Sha1)]
+#[test_case(ChecksumAlgorithm::Sha256)]
 #[tokio::test]
 async fn test_get_attributes_with_checksum(checksum_algorithm: ChecksumAlgorithm) {
     test_with_checksum(checksum_algorithm).await;

@@ -4,14 +4,17 @@ This document guides maintainers in releasing new versions of [`mountpoint-s3-cl
 
 ## Preparing the release
 
-First, a commit should be prepared and merged which updates the versions of each of the crates that are changing
-as well as a change log for each detailing what has been updated.
-You can refer to the following pull request as an example of this commit: https://github.com/awslabs/mountpoint-s3/pull/657.
+First, confirm that for each crate:
 
-The change log should have been updated when the changes were made, but please verify this.
+* `CHANGELOG.md` lists the relevant changes since the latest released version,
+* `Cargo.toml` sets the version that you intend to publish.
 
-The `Cargo.toml` manifest for each crate that will have a new version should be updated with the new version number.
-Additionally, crates which depend on the updated crates should have their dependencies updated.
+Second, prepare a new commit to update each `CHANGELOG.md` file by adding a header for the new release with
+the current date under the `## Unreleased` header. E.g.:
+
+```
+## v0.10.0 (October 17, 2024)
+```
 
 Once ready, check everything still compiles and publish a pull request.
 After that is merged, the next step is to publish the new crates.
@@ -54,3 +57,14 @@ For each crate replacing the crate and version number where applicable:
    ```
 
 Once these steps have been completed for all crates that need to be updated, you're done.
+
+## Update to next versions
+
+After all the crates have been published, a commit should be prepared which increments the patch version number of each crate,
+in its `Cargo.toml`, as well as in the crates depending on it.
+
+E.g. if `mountpoint-s3-crt-sys-0.99.0` was just published, `mountpoint-s3-crt-sys/Cargo.toml` should be updated to `version = "0.99.1"`
+and the corresponding entry in `mountpoint-s3-crt/Cargo.toml` should be updated to
+`mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.99.1" }`.
+
+Once ready, check everything still compiles and publish a pull request.

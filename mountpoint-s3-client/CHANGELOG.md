@@ -1,5 +1,20 @@
 ## Unreleased
 
+## v0.13.0 (February 3, 2025)
+
+### Other changes
+
+* Add support for CRC64-NVME checksum algorithm.
+  ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
+* Add support for overriding the number of threads used by the Event Loop.
+  ([#1240](https://github.com/awslabs/mountpoint-s3/pull/1240))
+* The ECS credentials provider now performs retries in the event of some failures.
+  ([awslabs/aws-c-auth#259](https://github.com/awslabs/aws-c-auth/pull/259))
+* Export missing types in public API which previously required a direct dependency on `mountpoint-s3-crt`.
+  ([#1248](https://github.com/awslabs/mountpoint-s3/pull/1248))
+
+## v0.12.0 (January 20, 2025)
+
 ### Breaking changes
 
 * `get_object` method now waits for the response headers before returning and may report errors earlier.
@@ -28,6 +43,12 @@
 
 ### Other changes
 
+* Add support for custom telemetry handlers.
+  ([#1080](https://github.com/awslabs/mountpoint-s3/pull/1080))
+* Add support for source buckets with dots in the name in `copy_object`.
+  ([#1228](https://github.com/awslabs/mountpoint-s3/pull/1228))
+* Add support for object metadata in GET requests.
+  ([#1065](https://github.com/awslabs/mountpoint-s3/pull/1065))
 * `HeadObjectResult` now includes the server-side encryption settings used when storing the object.
   ([#1143](https://github.com/awslabs/mountpoint-s3/pull/1143))
 * Add parameter to request checksum information as part of a `HeadObject` request.

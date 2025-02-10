@@ -1,6 +1,6 @@
 [package]
 name = "mountpoint-s3"
-version = "1.14.0"
+version = "1.14.1"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -8,19 +8,18 @@ default-run = "mount-s3"
 
 [dependencies]
 fuser = { path = "../vendor/fuser", version = "0.15.0", features = ["abi-7-28"] }
-mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.11.0" }
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.10.0" }
+mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.13.1" }
 
-anyhow = { version = "1.0.94", features = ["backtrace"] }
+anyhow = { version = "1.0.95", features = ["backtrace"] }
 async-channel = "2.3.1"
 async-lock = "3.4.0"
 async-stream = "0.3.6"
-async-trait = "0.1.83"
+async-trait = "0.1.85"
 base64ct = "1.6.0"
 bincode = "1.3.3"
-bitflags = "2.6.0"
+bitflags = "2.8.0"
 bytes = { version = "1.9.0", features = ["serde"] }
-clap = { version = "4.5.23", features = ["derive"] }
+clap = { version = "4.5.27", features = ["derive"] }
 const_format = "0.2.34"
 crc32c = "0.6.8"
 ctrlc = { version = "3.4.5", features = ["termination"] }
@@ -29,20 +28,20 @@ futures = "0.3.31"
 hdrhistogram = { version = "7.5.4", default-features = false }
 hex = "0.4.3"
 humansize = "2.1.3"
-libc = "0.2.168"
+libc = "0.2.169"
 linked-hash-map = "0.5.6"
 metrics = "0.24.1"
 nix = { version = "0.29.0", default-features = false, features = ["fs", "process", "signal", "user"] }
 owo-colors = { version = "4.1.0", features = ["supports-colors"] }
 rand = "0.8.5"
 regex = "1.11.1"
-serde = { version = "1.0.215", features = ["derive"] }
-serde_json = "1.0.133"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.137"
 sha2 = "0.10.8"
 supports-color = "3.0.2"
-sysinfo = "0.33.0"
+sysinfo = "0.33.1"
 syslog = "7.0.0"
-thiserror = "2.0.6"
+thiserror = "2.0.11"
 time = { version = "0.3.37", features = ["macros", "formatting"] }
 tracing = { version = "0.1.41", features = ["log"] }
 tracing-log = "0.2.0"
@@ -56,24 +55,24 @@ mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
 
 assert_cmd = "2.0.16"
 assert_fs = "1.1.2"
-aws-config = "1.5.10"
+aws-config = "1.5.15"
 aws-credential-types = "1.2.1"
-aws-sdk-s3 = "1.65.0"
+aws-sdk-s3 = "1.71.0"
 ctor = "0.2.9"
 filetime = "0.2.25"
 futures = { version = "*", features = ["thread-pool"] }
 httpmock = "0.7.0"
-predicates = "3.1.2"
-proptest = "1.5.0"
-proptest-derive = "0.5.0"
+predicates = "3.1.3"
+proptest = "1.6.0"
+proptest-derive = "0.5.1"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 serial_test = "3.2.0"
 sha2 = "0.10.8"
 shuttle = { version = "0.8.0" }
-tempfile = "3.14.0"
+tempfile = "3.15.0"
 test-case = "3.3.1"
-tokio = { version = "1.42.0", features = ["rt", "macros"] }
+tokio = { version = "1.43.0", features = ["rt", "macros"] }
 walkdir = "2.5.0"
 
 [build-dependencies]
@@ -90,6 +89,7 @@ fuse_tests = []
 s3_tests = []
 s3express_tests = []
 shuttle = []
+second_account_tests = []
 # Other feature flags
 mock = ["mountpoint-s3-client/mock", "futures/thread-pool"]
 
@@ -105,3 +105,7 @@ required-features = ["mock"]
 [[bin]]
 name = "mount-s3-log-analyzer"
 path = "src/bin/mount-s3-log-analyzer.rs"
+
+[[bin]]
+name = "file-system-benchmarks"
+path = "src/bin/file-system-benchmarks.rs"

@@ -1,3 +1,5 @@
+//! Provides [Strategy]s for [proptest]. Strategies are ways that [proptest] can generate values for tests from primitive types.
+
 use mountpoint_s3_client::mock_client::MockObject;
 use mountpoint_s3_client::types::ETag;
 use proptest::prelude::*;
@@ -9,13 +11,20 @@ use std::ops::Deref;
 
 use crate::reftests::reference::valid_inode_name;
 
+/// [Strategy] for providing valid POSIX path names.
+///
+/// We intentionally limit to a small input space to avoid testing less useful inputs.
 pub fn valid_name_strategy() -> impl Strategy<Value = String> {
+    // Literally the character `a` and `-` between 1 and 3 times.
     string_regex("[a-]{1,3}").unwrap()
 }
 
+/// [Strategy] providing strings which may or may not be valid POSIX path names.
+///
+/// We intentionally limit to a small input space to avoid testing less useful inputs.
+/// We also give more weight to the generation of valid names.
 pub fn name_strategy() -> impl Strategy<Value = String> {
     prop_oneof![
-        // Valid names
         5 => valid_name_strategy(),
         // Potentially invalid names
         1 => string_regex("[a\\-/.\u{1}]{1,3}").unwrap(),
@@ -57,6 +66,12 @@ impl From<&str> for ValidName {
     }
 }
 
+/// Split file size into two groups.
+///
+/// This allows [proptest] to generate a set of values for each group,
+/// and we can apply a weight to each group (which is equal by default).
+/// It is in our interest to balance focus between smaller file sizes where we may hit more edge cases,
+/// but also cover some much larger file sizes.
 #[derive(Clone, Copy, Arbitrary)]
 pub enum FileSize {
     Small(u8),
@@ -81,6 +96,10 @@ impl Debug for FileSize {
     }
 }
 
+/// Represents some file content for property-based testing.
+///
+/// The second value is the length of the file content,
+/// while the first is the byte that will be repeated to generate the content.
 #[derive(Clone, Debug, Arbitrary)]
 pub struct FileContent(pub u8, pub FileSize);
 
@@ -128,8 +147,7 @@ impl Debug for TreeNode {
 /// Parents are always [TreeNode::Directory].
 pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> impl Strategy<Value = TreeNode> {
     let leaf = any::<FileContent>().prop_map(TreeNode::File);
-
-    let strategy = leaf.prop_recursive(
+    leaf.prop_recursive(
         depth,     // levels
         max_size,  // max number of nodes
         max_items, // number of items per collection
@@ -138,10 +156,12 @@ pub fn gen_tree(depth: u32, max_size: u32, max_items: u32, max_width: usize) -> 
             // Since the size of the tree could be zero, this also introduces directories as leaves.
             prop::collection::btree_map(any::<Name>(), inner, 0..max_width).prop_map(TreeNode::Directory)
         },
-    );
-
-    // Ensure the root is always a directory by wrapping the inner strategy
-    prop::collection::btree_map(any::<Name>(), strategy, 0..max_width).prop_map(TreeNode::Directory)
+    )
+    // Ensure the root is always a directory by transforming invalid nodes (i.e. file as root) into empty directories
+    .prop_map(|x| match x {
+        TreeNode::File(_) => TreeNode::Directory(BTreeMap::from([])),
+        _ => x,
+    })
 }
 
 /// Take a generated tree and create the corresponding S3 namespace (list of keys)

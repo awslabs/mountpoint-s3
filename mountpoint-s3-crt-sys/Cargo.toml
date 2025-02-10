@@ -1,7 +1,7 @@
 [package]
 name = "mountpoint-s3-crt-sys"
 # See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.10.0"
+version = "0.12.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
@@ -23,14 +23,18 @@ exclude = [
     "crt/aws-lc/**/*test*.json",
     "crt/aws-lc/**/*test*.py",
     "crt/aws-lc/**/*test*.txt",
+    # All the text files in kat/ directory are 'known answer tests'
+    "crt/aws-lc/crypto/ml_dsa/kat/*.txt",
     "crt/aws-lc/crypto/**/*_test.cc",
     "crt/aws-lc/crypto/cipher_extra/test/*",
     "crt/aws-lc/crypto/fipsmodule/bn/test/*",
     "crt/aws-lc/crypto/fipsmodule/policydocs/*",
     "crt/aws-lc/crypto/fipsmodule/sha/testvectors/*",
-    # All the text files in crt/aws-lc/crypto/*/kat/ directory are used for tests
+    # All the text files in kat/ directory are 'known answer tests'
     "crt/aws-lc/crypto/fipsmodule/ml_kem/kat/*.txt",
+    # All the text files in kat/ directory are 'known answer tests'
     "crt/aws-lc/crypto/kyber/kat/*.txt",
+    # All the text files in kat/ directory are 'known answer tests'
     "crt/aws-lc/crypto/dilithium/kat/*.txt",
     "crt/aws-lc/crypto/x509/test/*",
     "crt/aws-lc/crypto/ocsp/test/*",
@@ -39,7 +43,7 @@ exclude = [
     "crt/aws-lc/generated-src/ios-*",
     "crt/aws-lc/generated-src/mac-*",
     "crt/aws-lc/generated-src/win-*",
-    "crt/aws-lc/generated-src/crypto_test_data.cc",
+    "crt/aws-lc/generated-src/crypto_test_data.cc.tar.bz2",
     "crt/aws-lc/ssl/ssl_test.cc",
     "crt/aws-lc/ssl/test/*",
     "crt/aws-lc/tests",
@@ -73,13 +77,13 @@ exclude = [
 bindgen = { version = "0.71.1", default-features = false, features = [
     "runtime",
 ] }
-cc = "1.2.3"
+cc = "1.2.10"
 cmake = "0.1.52"
 rustflags = "0.1.6"
-which = "7.0.0"
+which = "7.0.1"
 
 [dependencies]
-libc = "0.2.168"
+libc = "0.2.169"
 
 [lib]
 doctest = false

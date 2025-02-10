@@ -75,13 +75,14 @@ fn run_in_background_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
     );
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
         .arg(format!("--prefix={prefix}"))
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
 
@@ -202,14 +203,15 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
     );
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let mut child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
         .arg(format!("--prefix={prefix}"))
         .arg("--foreground")
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+    let mut child = cmd.spawn().expect("unable to spawn child");
 
     wait_for_mount("mountpoint-s3-fd", mount_point.path().to_str().unwrap());
 
@@ -233,6 +235,7 @@ fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn s
     // the mount would fail from error 403 on HeadBucket
     let bucket = get_test_bucket_forbidden();
     let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
 
     let (fd, mount) = mount_for_passing_fuse_fd(
         mount_point.path(),
@@ -240,11 +243,15 @@ fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn s
     );
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
+    let cmd = cmd
         .arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
 
@@ -263,11 +270,13 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     // the mount would fail from error 403 on HeadBucket
     let bucket = get_test_bucket_forbidden();
     let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     cmd.arg(&bucket).arg(mount_point.path()).arg("--auto-unmount");
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
+        cmd.arg(format!("--region={region}"));
     }
 
     let child = cmd.spawn().expect("unable to spawn child");
@@ -285,12 +294,14 @@ fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
     // the mount would fail from error 403 on HeadBucket
     let bucket = get_test_bucket_forbidden();
     let mount_point = assert_fs::TempDir::new()?;
+    let region = get_test_region();
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg("--auto-unmount")
-        .arg("--foreground");
+        .arg("--foreground")
+        .arg(format!("--region={region}"));
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -356,13 +367,15 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = "/dev/fd/1025";
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point)
         .arg(format!("--prefix={prefix}"))
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
 
@@ -385,13 +398,14 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = "/dev/fd/1";
 
     let mut cmd = Command::cargo_bin("mount-s3")?;
-    let child = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(mount_point)
         .arg(format!("--prefix={prefix}"))
-        .arg(format!("--region={region}"))
-        .spawn()
-        .expect("unable to spawn child");
+        .arg(format!("--region={region}"));
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
 
@@ -426,7 +440,9 @@ fn run_fail_on_non_fuse_fd_if_mount_options_passed(mount_options: &[&str]) -> Re
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
         .arg(format!("--prefix={prefix}"))
         .arg(format!("--region={region}"));
-
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
     for opt in mount_options {
         cmd.arg(opt);
     }

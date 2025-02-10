@@ -6,9 +6,9 @@
 
 **TODO: Please confirm there's no breaking change, or call out any that are made.**
 
-### Does this change need a changelog entry?
+### Does this change need a changelog entry? Does it require a version change?
 
-**TODO: Confirm with justification if not added.**
+**TODO: Confirm with justification if not required.**
 
 ---
 

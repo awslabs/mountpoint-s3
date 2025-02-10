@@ -1,5 +1,12 @@
 ## Unreleased
 
+## v0.12.0 (February 3, 2025)
+
+* Update to latest CRT dependencies.
+* Rename `Crc64` to `Crc64nvme` and add case to `ChecksumAlgorithm`. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
+
+## v0.11.0 (January 20, 2025)
+
 * Update to latest CRT dependencies.
 * Checksum hashers no longer implement `std::hash::Hasher`. ([#1082](https://github.com/awslabs/mountpoint-s3/pull/1082))
 * Add bindings to remaining checksum types CRC64, SHA1, and SHA256. ([#1082](https://github.com/awslabs/mountpoint-s3/pull/1082))

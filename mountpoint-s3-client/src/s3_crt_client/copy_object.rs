@@ -2,9 +2,10 @@ use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt::{http::request_response::Header, s3::client::MetaRequestResult};
+use tracing::trace;
 
 use crate::object_client::{CopyObjectError, CopyObjectParams, CopyObjectResult, ObjectClientResult};
-use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+use crate::s3_crt_client::{S3CrtClient, S3CrtClientInner, S3Operation, S3RequestError};
 
 impl S3CrtClient {
     /// Create and begin a new CopyObject request.
@@ -40,8 +41,24 @@ impl S3CrtClient {
                 destination_key
             );
 
-            self.inner
-                .make_simple_http_request(message, S3Operation::CopyObject, span, parse_copy_object_error)?
+            let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::CopyObject);
+            let uri = self
+                .inner
+                .endpoint_config
+                .resolve_for_bucket(source_bucket)
+                .map_err(S3RequestError::construction_failure)?
+                .uri()
+                .map_err(S3RequestError::construction_failure)?;
+            let source_uri = format!("{}/{source_key}", uri.as_os_str().to_string_lossy());
+            trace!(source_uri, "resolved source uri");
+            options.copy_source_uri(source_uri);
+            self.inner.make_simple_http_request_from_options(
+                options,
+                span,
+                |_| {},
+                parse_copy_object_error,
+                |_, _| (),
+            )?
         };
 
         let _body = request.await?;

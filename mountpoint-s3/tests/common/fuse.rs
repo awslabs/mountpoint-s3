@@ -506,10 +506,11 @@ pub mod s3_session {
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let checksum_algorithm = params.checksum.map(|c| match c.checksum_algorithm() {
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
-                mountpoint_s3_crt::s3::client::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64Nvme,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32C,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
+                mountpoint_s3_client::types::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
                 other => panic!("Unsupported algorithm: {}", other),
             });
             let full_key = format!("{}{}", self.prefix, key);
@@ -600,6 +601,7 @@ pub mod s3_session {
                     .send(),
             )?;
             let object_checksum = attrs.checksum.map(|checksum| Checksum {
+                checksum_crc64nvme: checksum.checksum_crc64_nvme,
                 checksum_crc32: checksum.checksum_crc32,
                 checksum_crc32c: checksum.checksum_crc32_c,
                 checksum_sha1: checksum.checksum_sha1,
@@ -615,6 +617,7 @@ pub mod s3_session {
                         .into_iter()
                         .map(|part| {
                             Some(Checksum {
+                                checksum_crc64nvme: part.checksum_crc64_nvme,
                                 checksum_crc32: part.checksum_crc32,
                                 checksum_crc32c: part.checksum_crc32_c,
                                 checksum_sha1: part.checksum_sha1,

@@ -241,6 +241,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned checksum config, if provided.
     checksum_config: Option<ChecksumConfig>,
 
+    /// Owned source uri for copy request, if provided.
+    copy_source_uri: Option<String>,
+
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
 
@@ -320,6 +323,7 @@ impl<'a> MetaRequestOptions<'a> {
             endpoint: None,
             signing_config: None,
             checksum_config: None,
+            copy_source_uri: None,
             on_telemetry: None,
             on_headers: None,
             on_body: None,
@@ -460,6 +464,17 @@ impl<'a> MetaRequestOptions<'a> {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.inner.send_using_async_writes = send_using_async_writes;
+        self
+    }
+
+    /// Set the URI of source bucket/key for COPY request only
+    pub fn copy_source_uri(&mut self, source_uri: String) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.copy_source_uri = Some(source_uri);
+        // SAFETY: We ensure that the cursor points to data that lives
+        // as long as the options struct
+        options.inner.copy_source_uri = unsafe { options.copy_source_uri.as_mut().unwrap().as_aws_byte_cursor() };
         self
     }
 }
@@ -1448,6 +1463,8 @@ impl ChecksumConfig {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum ChecksumAlgorithm {
+    /// Crc64nvme checksum.
+    Crc64nvme,
     /// Crc32c checksum.
     Crc32c,
     /// Crc32 checksum.
@@ -1467,6 +1484,7 @@ impl ChecksumAlgorithm {
     fn from_aws_s3_checksum_algorithm(algorithm: aws_s3_checksum_algorithm) -> Option<Self> {
         match algorithm {
             aws_s3_checksum_algorithm::AWS_SCA_NONE => None,
+            aws_s3_checksum_algorithm::AWS_SCA_CRC64NVME => Some(ChecksumAlgorithm::Crc64nvme),
             aws_s3_checksum_algorithm::AWS_SCA_CRC32C => Some(ChecksumAlgorithm::Crc32c),
             aws_s3_checksum_algorithm::AWS_SCA_CRC32 => Some(ChecksumAlgorithm::Crc32),
             aws_s3_checksum_algorithm::AWS_SCA_SHA1 => Some(ChecksumAlgorithm::Sha1),
@@ -1479,6 +1497,7 @@ impl ChecksumAlgorithm {
 impl Display for ChecksumAlgorithm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ChecksumAlgorithm::Crc64nvme => f.write_str("CRC64NVME"),
             ChecksumAlgorithm::Crc32c => f.write_str("CRC32C"),
             ChecksumAlgorithm::Crc32 => f.write_str("CRC32"),
             ChecksumAlgorithm::Sha1 => f.write_str("SHA1"),

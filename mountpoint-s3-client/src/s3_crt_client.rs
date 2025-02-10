@@ -13,16 +13,16 @@ use std::time::{Duration, Instant};
 
 use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
-use mountpoint_s3_crt::auth::credentials::{
-    CredentialsProvider, CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
-};
+pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
+pub use mountpoint_s3_crt::common::error::Error as CrtError;
 use mountpoint_s3_crt::common::string::AwsString;
 use mountpoint_s3_crt::common::uri::Uri;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError, Message};
 use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapOptions};
-use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
+pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::io::stream::InputStream;
@@ -38,7 +38,7 @@ use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
-use crate::checksums::{crc32_to_base64, crc32c_to_base64, sha1_to_base64, sha256_to_base64};
+use crate::checksums::{crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, sha1_to_base64, sha256_to_base64};
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
@@ -103,6 +103,7 @@ pub struct S3ClientConfig {
     initial_read_window: usize,
     network_interface_names: Vec<String>,
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
+    event_loop_threads: Option<u16>,
 }
 
 impl Default for S3ClientConfig {
@@ -122,6 +123,7 @@ impl Default for S3ClientConfig {
             initial_read_window: DEFAULT_PART_SIZE,
             network_interface_names: vec![],
             telemetry_callback: None,
+            event_loop_threads: None,
         }
     }
 }
@@ -230,6 +232,13 @@ impl S3ClientConfig {
         self.telemetry_callback = Some(telemetry_callback);
         self
     }
+
+    /// Override the number of threads used by the CRTs AwsEventLoop
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn event_loop_threads(mut self, event_loop_threads: u16) -> Self {
+        self.event_loop_threads = Some(event_loop_threads);
+        self
+    }
 }
 
 /// Authentication configuration for the CRT-based S3 client
@@ -304,7 +313,7 @@ impl S3CrtClientInner {
     fn new(config: S3ClientConfig) -> Result<Self, NewClientError> {
         let allocator = Allocator::default();
 
-        let mut event_loop_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
+        let mut event_loop_group = EventLoopGroup::new_default(&allocator, config.event_loop_threads, || {}).unwrap();
 
         let resolver_options = HostResolverDefaultOptions {
             max_entries: 8,
@@ -956,6 +965,7 @@ impl<'a> S3Message<'a> {
         checksum: &UploadChecksum,
     ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
         let header = match checksum {
+            UploadChecksum::Crc64nvme(crc64) => Header::new("x-amz-checksum-crc64nvme", crc64nvme_to_base64(crc64)),
             UploadChecksum::Crc32c(crc32c) => Header::new("x-amz-checksum-crc32c", crc32c_to_base64(crc32c)),
             UploadChecksum::Crc32(crc32) => Header::new("x-amz-checksum-crc32", crc32_to_base64(crc32)),
             UploadChecksum::Sha1(sha1) => Header::new("x-amz-checksum-sha1", sha1_to_base64(sha1)),
@@ -1157,8 +1167,10 @@ fn parse_checksum(headers: &Headers) -> Result<Checksum, HeadersError> {
     let checksum_crc32c = headers.get_as_optional_string("x-amz-checksum-crc32c")?;
     let checksum_sha1 = headers.get_as_optional_string("x-amz-checksum-sha1")?;
     let checksum_sha256 = headers.get_as_optional_string("x-amz-checksum-sha256")?;
+    let checksum_crc64nvme = headers.get_as_optional_string("x-amz-checksum-crc64nvme")?;
 
     Ok(Checksum {
+        checksum_crc64nvme,
         checksum_crc32,
         checksum_crc32c,
         checksum_sha1,
@@ -1220,7 +1232,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
     /// Try to look for error related to no signing credentials, returns generic error otherwise
     fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
-        if crt_error_code == mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
+        if crt_error_code == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
             S3RequestError::NoSigningCredentials
         } else {
             S3RequestError::CrtError(crt_error_code.into())
@@ -1229,7 +1241,7 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
 
     fn try_parse_throttled(request_result: &MetaRequestResult) -> Option<S3RequestError> {
         let crt_error_code = request_result.crt_error.raw_error();
-        if crt_error_code == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_SLOW_DOWN as i32 {
+        if crt_error_code == mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3_SLOW_DOWN as i32 {
             Some(S3RequestError::Throttled)
         } else {
             None
@@ -1689,7 +1701,7 @@ mod tests {
 
     #[test]
     fn parse_no_signing_credential_error() {
-        let error_code = mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32;
+        let error_code = mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32;
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::NoSigningCredentials) = result else {
@@ -1700,7 +1712,7 @@ mod tests {
     #[test]
     fn parse_test_other_crt_error() {
         // A signing error that isn't "no signing credentials"
-        let error_code = mountpoint_s3_crt_sys::aws_auth_errors::AWS_AUTH_SIGNING_UNSUPPORTED_ALGORITHM as i32;
+        let error_code = mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_UNSUPPORTED_ALGORITHM as i32;
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::CrtError(error)) = result else {

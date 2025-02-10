@@ -14,16 +14,14 @@ use clap::{value_parser, ArgGroup, Parser, ValueEnum};
 use fuser::{MountOption, Session};
 use futures::executor::block_on;
 use futures::task::Spawn;
-use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::config::{
+    AddressingStyle, Allocator, EndpointConfig, EventLoopGroup, S3ClientAuthConfig, S3ClientConfig, SigningAlgorithm,
+    Uri, AWSCRT_LOG_TARGET,
+};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
-use mountpoint_s3_crt::auth::signing_config::SigningAlgorithm;
-use mountpoint_s3_crt::common::allocator::Allocator;
-use mountpoint_s3_crt::common::rust_log_adapter::AWSCRT_LOG_TARGET;
-use mountpoint_s3_crt::common::uri::Uri;
-use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 use regex::Regex;

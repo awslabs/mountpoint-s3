@@ -1,3 +1,12 @@
+//! Provides the test harness along with operations that can be performed against
+//! the [Harness::reference] model and the system under test [Harness::fs].
+//!
+//! Note that the system under test is Mountpoint's file system type wrapped by [TestS3Filesystem],
+//! and does not include FUSE integration.
+//!
+//! - TODO: How can we test the new incremental upload mode?
+//! - TODO: How can we test directory bucket semantics?
+
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::path::{Component, Path, PathBuf};
@@ -23,14 +32,26 @@ use crate::reftests::reference::{File, Node, Reference};
 // TODO: "reboot" (forget all the local inodes and re-bootstrap)
 #[derive(Debug, Arbitrary)]
 pub enum Op {
-    /// Do an entire write in one step
+    /// Opens a new file, writes to it, and 'closes' it in one step.
     WriteFile(ValidName, DirectoryIndex, FileContent),
 
     // Individual steps of a file write -- create, open, write, close
+    /// Create a new file, but don't open it yet. (aka. `mknod`)
+    ///
+    /// If other writing file operations are invoked before this step,
+    /// the other file operations will be no-op (as there are no in-flight writes).
     CreateFile(ValidName, DirectoryIndex, FileContent),
+    /// Open a file for writing that was created by `CreateFile`.
     StartWriting(InflightWriteIndex),
-    // usize is the percentage of the file to write (taken modulo 101)
+    /// Write some percentage of the desired file content to the open file.
+    ///
+    /// Effectively applies `StartWriting` if not already done.
+    /// The second value is the percentage of the file to write (taken modulo 101).
     WritePart(InflightWriteIndex, usize),
+    /// Closes an open file using `release`.
+    ///
+    /// Does not invoke `flush`.
+    /// If `StartWriting` wasn't already applied, it is effectively applied in this operation.
     FinishWrite(InflightWriteIndex),
 
     /// Remove a file
@@ -120,6 +141,7 @@ pub struct InflightWrite {
     inode: InodeNo,
     /// Initially None until the file is opened by [Op::StartWriting]
     file_handle: Option<u64>,
+    /// Prepared bytes ready to be written to the file system by the test.
     object: MockObject,
     written: usize,
 }
@@ -161,9 +183,15 @@ impl InflightWrites {
 
 #[derive(Debug)]
 pub struct Harness {
-    readdir_limit: usize, // max number of entries that a readdir will return; 0 means no limit
+    /// Max number of entries that a readdir operation will return.
+    ///
+    /// 0 means no limit.
+    readdir_limit: usize,
+    /// Reference model for the system under test (SUT) to be compared against.
     reference: Reference,
+    /// The system under test (SUT) that we compare against the [Self::reference].
     fs: TestS3Filesystem<Arc<MockClient>>,
+    /// An S3 client, used for performing operations against the 'remote' S3.
     client: Arc<MockClient>,
     bucket: String,
     inflight_writes: InflightWrites,
@@ -242,7 +270,7 @@ impl Harness {
         }
     }
 
-    /// Walk the filesystem tree and check that at each level, contents match the reference
+    /// Walk the filesystem tree using `readdir` and `lookup` and check that at each level, contents match the reference.
     pub async fn compare_contents(&self) {
         let root = self.reference.root();
         self.compare_contents_recursive(FUSE_ROOT_INODE, FUSE_ROOT_INODE, root)
@@ -250,6 +278,7 @@ impl Harness {
     }
 
     /// Walk a single path through the filesystem tree and ensure each node matches the reference.
+    ///
     /// Compared to [compare_contents], this avoids doing a `readdir` before `lookup`, and so tests
     /// a different path through the inode code.
     pub async fn compare_single_path(&self, idx: usize) {
@@ -316,8 +345,15 @@ impl Harness {
         Ok(inode)
     }
 
-    /// Create a new file ready for writing. We don't allow overwrites of existing files by default, so this
-    /// can return None if the name already exists in the chosen directory.
+    /// Create a new file within the directory ready for writing.
+    ///
+    /// The file is not yet opened.
+    /// Contents are provided only to be stored as part of the test state in this step,
+    /// and will be read from when performing writes against the file system.
+    ///
+    /// We don't allow overwrites of existing files by default,
+    /// so this returns [None] if the name already exists in the chosen directory.
+    ///
     /// TODO: Update this function to support overwrites
     async fn perform_create_file(
         &mut self,
@@ -361,7 +397,7 @@ impl Harness {
         }
     }
 
-    /// Open a previously created file (by `perform_create_file`) for writing
+    /// Open a previously created file (using [Self::perform_create_file]) for writing.
     async fn perform_start_writing(&mut self, index: InflightWriteIndex) {
         let Some(inflight_write) = self.inflight_writes.get(index) else {
             return;
@@ -380,7 +416,7 @@ impl Harness {
         }
     }
 
-    /// Continue writing to an open file
+    /// Continue writing to a file open for writing.
     async fn perform_write_part(&mut self, index: InflightWriteIndex, percent: usize) {
         let Some(inflight_write) = self.inflight_writes.get(index) else {
             // No inflight writes available
@@ -611,6 +647,8 @@ impl Harness {
         self.reference.remove_remote_key(&key);
     }
 
+    /// Recurse through the file systems using readdir,
+    /// comparing the [Self::reference] expected state to the system under test ([Self::fs]).
     fn compare_contents_recursive<'a>(
         &'a self,
         fs_parent: InodeNo,
@@ -707,6 +745,8 @@ impl Harness {
         .boxed()
     }
 
+    /// Compare the contents of a given reference file to the system under test (SUT),
+    /// by opening and reading the file from the SUT.
     async fn compare_file<'a>(&'a self, fs_ino: InodeNo, ref_file: &'a MockObject) {
         let fh = match self.fs.open(fs_ino, OpenFlags::empty(), 0).await {
             Ok(ret) => ret.fh,

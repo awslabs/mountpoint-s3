@@ -82,8 +82,8 @@ jobs:
         fail-on-alert: true
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.publish }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
         comment-on-alert: true
         max-items-in-chart: 20
         summary-always: true
@@ -98,12 +98,18 @@ jobs:
         fail-on-alert: false
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.publish }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
         comment-on-alert: false
         max-items-in-chart: 20
         skip-fetch-gh-pages: true
         summary-always: true
+    - name: Provision static content and push benchmark results
+      # Store the results and deploy GitHub pages if the results are from main branch
+      if: ${{ inputs.publish }}
+      run: |
+        .github/actions/scripts/copy-static-files.sh dev/s3-express/bench dev/s3-express/bench/peak_mem_usage
+        git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
 
   latency-bench:
     name: Benchmark (Latency)
@@ -159,8 +165,14 @@ jobs:
         fail-on-alert: true
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        # Store the results and deploy GitHub pages automatically if the results are from main branch
-        auto-push: ${{ inputs.publish }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
         comment-on-alert: false
         max-items-in-chart: 20
         summary-always: true
+    - name: Provision static content and push benchmark results
+      # Store the results and deploy GitHub pages if the results are from main branch
+      if: ${{ inputs.publish }}
+      run: |
+        .github/actions/scripts/copy-static-files.sh dev/s3-express/latency_bench
+        git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages

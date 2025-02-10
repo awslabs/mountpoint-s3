@@ -1,15 +1,24 @@
+//! Provides an expected state for the file system and its S3 bucket.
+//!
+//! As part of the reference model testing,
+//! a [MaterializedReference] is generated representing the expected state of the file system and S3.
+//! We compare its state with that returned by Mountpoint's file system
+//! when traversing or visiting specific paths to assert correctness.
+
 use mountpoint_s3_client::mock_client::MockObject;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
+/// A file node, which could be local or remote.
 #[derive(Debug)]
 pub enum File {
     Local,
     Remote(Box<MockObject>),
 }
 
+/// A node in the reference model. This node could be local or remote.
 #[derive(Debug)]
 pub enum Node {
     Directory {
@@ -52,12 +61,18 @@ impl Node {
     }
 }
 
-/// The expected state of a file system. We track three pieces of state: the keys in an S3 bucket,
-/// plus lists of local files and local directories. Whenever we need the tree structure of the
-/// file system, we construct it from these inputs as a [MaterializedReference]. Building the
-/// reference in this indirect way allows us to have only one definition of correctness -- the
-/// implementation of [build_reference] -- and to test both mutations to the file system itself and
-/// "remote" mutations to the bucket (like adding or deleting a key using another client).
+/// The expected state of a file system and its S3 bucket.
+///
+/// We track three pieces of state:
+/// - The keys in an S3 bucket.
+/// - The list of local directories.
+/// - The list of local files.
+///
+/// Whenever we need the tree structure of the file system,
+/// we take this state and produce a [MaterializedReference].
+/// By producing the reference in this indirect way, it allows us to have only one definition of correctness
+/// -- the implementation of [build_reference] -- and to test both mutations to the file system itself
+/// and "remote" mutations to the bucket (like adding or deleting a key using another client).
 #[derive(Debug)]
 pub struct Reference {
     /// Contents of our S3 bucket
@@ -70,9 +85,17 @@ pub struct Reference {
     materialized: MaterializedReference,
 }
 
+/// A [MaterializedReference] is a product of the [Reference],
+/// presenting the desired tree ([Self::root]) and list of directories ([Self::directories]).
+///
+/// This should be 'rematerialized' each time S3 or local state is mutated
+/// to show the new desired state of the reference using [Reference::rematerialize].
+/// This will use [build_reference] to construct the file system based on the remote state,
+/// and then mutate it based on local state.
 #[derive(Debug)]
 struct MaterializedReference {
     root: Node,
+    /// A collection of all the directories in the [Reference], both local and remote.
     directories: Vec<PathBuf>,
 }
 
@@ -160,6 +183,10 @@ impl Reference {
         }
     }
 
+    /// Create a new [MaterializedReference] from the [Reference].
+    ///
+    /// This will reevaluate what is in S3 and what should be maintained locally,
+    /// and produce a result which should maintain our promised semantics.
     fn rematerialize(&self) -> MaterializedReference {
         tracing::debug!(
             remote_keys=?self.remote_objects.keys(), local_files=?self.local_files, local_directories=?self.local_directories,

@@ -1,7 +1,6 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use mountpoint_s3_client::config::EndpointConfig;
-use mountpoint_s3_crt::common::{allocator::Allocator, uri::Uri};
+use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
 
@@ -48,6 +47,17 @@ pub fn get_test_bucket_forbidden() -> String {
 
 pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
+}
+
+/// Account ID owning buckets specified in `S3_BUCKET_NAME` and `S3_EXPRESS_ONE_ZONE_BUCKET_NAME`
+pub fn get_bucket_owner() -> String {
+    std::env::var("S3_BUCKET_OWNER").expect("Set S3_BUCKET_OWNER to run integration tests")
+}
+
+/// A name of an S3 Express bucket which is owned by a different account (different to `S3_BUCKET_OWNER`)
+pub fn get_external_express_bucket() -> String {
+    std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL")
+        .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL to run integration tests")
 }
 
 /// Optional config for testing against a custom endpoint url

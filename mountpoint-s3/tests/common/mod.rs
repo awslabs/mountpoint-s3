@@ -19,12 +19,11 @@ use mountpoint_s3::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3::prefetch::{default_prefetch, DefaultPrefetcher};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::{S3Filesystem, S3FilesystemConfig};
-use mountpoint_s3_client::config::S3ClientAuthConfig;
+use mountpoint_s3_client::config::{
+    Allocator, CredentialsProvider, CredentialsProviderStaticOptions, RustLogAdapter, S3ClientAuthConfig,
+};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::common::allocator::Allocator;
-use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
@@ -130,6 +129,6 @@ fn init_tracing_subscriber() {
 
 #[ctor::ctor]
 fn init_crt() {
-    mountpoint_s3_crt::io::io_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
-    mountpoint_s3_crt::s3::s3_library_init(&mountpoint_s3_crt::common::allocator::Allocator::default());
+    mountpoint_s3_client::config::io_library_init(&mountpoint_s3_client::config::Allocator::default());
+    mountpoint_s3_client::config::s3_library_init(&mountpoint_s3_client::config::Allocator::default());
 }
