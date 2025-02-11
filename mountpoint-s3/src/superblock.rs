@@ -792,7 +792,7 @@ impl SuperblockInner {
             return Err(InodeError::NotADirectory(parent.err()));
         }
 
-        if self.config.cache_config.serve_lookup_from_cache {
+        if self.config.cache_config.use_negative_cache {
             match &remote {
                 // Remove negative cache entry.
                 Some(_) => self.negative_cache.remove(parent_ino, name),
