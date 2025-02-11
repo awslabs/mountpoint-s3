@@ -1167,7 +1167,7 @@ mod tests {
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
-    use crate::fs::{ToErrno, FUSE_ROOT_INODE};
+    use crate::fs::{TimeToLive, ToErrno, FUSE_ROOT_INODE};
 
     use super::*;
 
@@ -1330,12 +1330,7 @@ mod tests {
             bucket,
             &prefix,
             SuperblockConfig {
-                cache_config: CacheConfig {
-                    serve_lookup_from_cache: true,
-                    dir_ttl: ttl,
-                    file_ttl: ttl,
-                    ..Default::default()
-                },
+                cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
             },
         );
@@ -1385,13 +1380,7 @@ mod tests {
             bucket,
             &prefix,
             SuperblockConfig {
-                cache_config: CacheConfig {
-                    serve_lookup_from_cache: true,
-                    dir_ttl: ttl,
-                    file_ttl: ttl,
-                    negative_cache_ttl: ttl,
-                    ..Default::default()
-                },
+                cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
             },
         );
