@@ -1,7 +1,7 @@
 use std::env;
 use std::ffi::OsString;
 use std::fmt::Debug;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd, RawFd};
@@ -605,6 +605,8 @@ where
 
         let _metrics = metrics::install();
 
+        create_pid_file()?;
+
         // mount file system as a foreground process
         let session = mount(args, client_builder)?;
 
@@ -634,6 +636,8 @@ where
                 init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
+
+                create_pid_file()?;
 
                 let session = mount(args, client_builder);
 
@@ -1249,6 +1253,22 @@ fn create_client_for_bucket(
         Err(e) => Err(e)
             .with_context(|| format!("initial ListObjectsV2 failed for bucket {bucket} in region {region_to_try}")),
     }
+}
+
+/// Creates PID file at location specified by env var, writing the PID of the Mountpoint process.
+///
+/// The written PID may not match the PID visible in your namespace.
+/// This can happen, for example, when using it from the host when Mountpoint runs in a container.
+///
+/// PID file configuration is available for attaching debug tooling to Mountpoint, and may be removed in the future.
+fn create_pid_file() -> anyhow::Result<()> {
+    const ENV_PID_FILENAME: &str = "UNSTABLE_MOUNTPOINT_PID_FILE";
+    if let Some(val) = std::env::var_os(ENV_PID_FILENAME) {
+        let pid = std::process::id();
+        fs::write(&val, pid.to_string()).context("failed to write PID to file")?;
+        tracing::trace!("PID ({pid}) written to file {val:?}");
+    }
+    Ok(())
 }
 
 fn parse_perm_bits(perm_bit_str: &str) -> Result<u16, anyhow::Error> {
