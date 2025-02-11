@@ -5,7 +5,7 @@ use fuser::FileType;
 use mountpoint_s3::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3::fs::{CacheConfig, OpenFlags, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3::fs::{CacheConfig, OpenFlags, TimeToLive, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3::prefix::Prefix;
 use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3::S3FilesystemConfig;
@@ -192,12 +192,7 @@ async fn test_read_dir_nested(prefix: &str) {
 #[tokio::test]
 async fn test_lookup_negative_cached() {
     let fs_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: true,
-            dir_ttl: Duration::from_secs(600),
-            file_ttl: Duration::from_secs(600),
-            ..Default::default()
-        },
+        cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_negative_cached", &Default::default(), fs_config);
@@ -263,12 +258,7 @@ async fn test_lookup_negative_cached() {
 #[tokio::test]
 async fn test_lookup_then_open_cached() {
     let fs_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: true,
-            dir_ttl: Duration::from_secs(600),
-            file_ttl: Duration::from_secs(600),
-            ..Default::default()
-        },
+        cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
@@ -297,10 +287,7 @@ async fn test_lookup_then_open_cached() {
 #[tokio::test]
 async fn test_lookup_then_open_no_cache() {
     let fs_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: false,
-            ..Default::default()
-        },
+        cache_config: CacheConfig::new(TimeToLive::Minimal),
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_then_open_no_cache", &Default::default(), fs_config);
@@ -329,12 +316,7 @@ async fn test_lookup_then_open_no_cache() {
 #[tokio::test]
 async fn test_readdir_then_open_cached() {
     let fs_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: true,
-            dir_ttl: Duration::from_secs(600),
-            file_ttl: Duration::from_secs(600),
-            ..Default::default()
-        },
+        cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_readdir_then_open_cached", &Default::default(), fs_config);
@@ -380,12 +362,7 @@ async fn test_readdir_then_open_cached() {
 #[tokio::test]
 async fn test_unlink_cached() {
     let fs_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: true,
-            dir_ttl: Duration::from_secs(600),
-            file_ttl: Duration::from_secs(600),
-            ..Default::default()
-        },
+        cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         allow_delete: true,
         ..Default::default()
     };
@@ -430,12 +407,7 @@ async fn test_unlink_cached() {
 async fn test_mknod_cached() {
     const BUCKET_NAME: &str = "test_mknod_cached";
     let fs_config = S3FilesystemConfig {
-        cache_config: CacheConfig {
-            serve_lookup_from_cache: true,
-            dir_ttl: Duration::from_secs(600),
-            file_ttl: Duration::from_secs(600),
-            ..Default::default()
-        },
+        cache_config: CacheConfig::new(TimeToLive::Duration(Duration::from_secs(600))),
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), fs_config);

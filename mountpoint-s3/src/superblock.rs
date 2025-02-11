@@ -90,7 +90,10 @@ impl Superblock {
         let mut inodes = InodeMap::default();
         inodes.insert(root.ino(), root);
 
-        let negative_cache = NegativeCache::new(config.cache_config.negative_cache_size, config.cache_config.file_ttl);
+        let negative_cache = NegativeCache::new(
+            config.cache_config.negative_cache_size,
+            config.cache_config.negative_cache_ttl,
+        );
 
         let inner = SuperblockInner {
             bucket: bucket.to_owned(),
@@ -789,7 +792,7 @@ impl SuperblockInner {
             return Err(InodeError::NotADirectory(parent.err()));
         }
 
-        if self.config.cache_config.serve_lookup_from_cache {
+        if self.config.cache_config.use_negative_cache {
             match &remote {
                 // Remove negative cache entry.
                 Some(_) => self.negative_cache.remove(parent_ino, name),
@@ -1164,7 +1167,7 @@ mod tests {
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
-    use crate::fs::{ToErrno, FUSE_ROOT_INODE};
+    use crate::fs::{TimeToLive, ToErrno, FUSE_ROOT_INODE};
 
     use super::*;
 
@@ -1327,12 +1330,7 @@ mod tests {
             bucket,
             &prefix,
             SuperblockConfig {
-                cache_config: CacheConfig {
-                    serve_lookup_from_cache: true,
-                    dir_ttl: ttl,
-                    file_ttl: ttl,
-                    ..Default::default()
-                },
+                cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
             },
         );
@@ -1382,12 +1380,7 @@ mod tests {
             bucket,
             &prefix,
             SuperblockConfig {
-                cache_config: CacheConfig {
-                    serve_lookup_from_cache: true,
-                    dir_ttl: ttl,
-                    file_ttl: ttl,
-                    ..Default::default()
-                },
+                cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
             },
         );

@@ -87,6 +87,10 @@ pub struct CacheConfig {
     pub file_ttl: Duration,
     /// How long the kernel will cache metadata for directories
     pub dir_ttl: Duration,
+    /// Should the file system cache negative lookups?
+    pub use_negative_cache: bool,
+    /// How long the file system will cache negative entries
+    pub negative_cache_ttl: Duration,
     /// Maximum number of negative entries to cache.
     pub negative_cache_size: usize,
 }
@@ -116,6 +120,8 @@ impl Default for CacheConfig {
             serve_lookup_from_cache: false,
             file_ttl,
             dir_ttl,
+            use_negative_cache: false,
+            negative_cache_ttl: file_ttl,
             negative_cache_size,
         }
     }
@@ -130,13 +136,37 @@ impl CacheConfig {
                 serve_lookup_from_cache: true,
                 file_ttl: TimeToLive::INDEFINITE_DURATION,
                 dir_ttl: TimeToLive::INDEFINITE_DURATION,
+                use_negative_cache: true,
+                negative_cache_ttl: TimeToLive::INDEFINITE_DURATION,
                 ..Default::default()
             },
             TimeToLive::Duration(ttl) => Self {
                 serve_lookup_from_cache: true,
                 file_ttl: ttl,
                 dir_ttl: ttl,
+                use_negative_cache: true,
+                negative_cache_ttl: ttl,
                 ..Default::default()
+            },
+        }
+    }
+
+    pub fn with_negative_metadata_ttl(self, negative_metadata_ttl: TimeToLive) -> Self {
+        match negative_metadata_ttl {
+            TimeToLive::Minimal => Self {
+                use_negative_cache: false,
+                negative_cache_ttl: Self::default().negative_cache_ttl,
+                ..self
+            },
+            TimeToLive::Indefinite => Self {
+                use_negative_cache: true,
+                negative_cache_ttl: TimeToLive::INDEFINITE_DURATION,
+                ..self
+            },
+            TimeToLive::Duration(ttl) => Self {
+                use_negative_cache: true,
+                negative_cache_ttl: ttl,
+                ..self
             },
         }
     }
