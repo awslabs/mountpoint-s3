@@ -6,7 +6,6 @@ use crate::common::s3::{get_test_bucket, get_test_prefix};
 use mountpoint_s3::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3::object::ObjectId;
 use mountpoint_s3::prefetch::caching_prefetch;
-use mountpoint_s3::ServerSideEncryption;
 use mountpoint_s3_client::S3CrtClient;
 
 use fuser::BackgroundSession;
@@ -143,13 +142,7 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
     );
 }
 
-// The following test case should work after we consume the CRT's update: https://github.com/awslabs/aws-c-s3/releases/tag/v0.7.10
-// #[test_case(Some("AES256".to_string()), None, get_express_sse_kms_bucket(); "overriding to AES256")]
-
-// The following test cases would only pass if the express bucket with SSE-S3 default encryption was
-// configured with "aws:kms" and a key in past:
-// #[test_case(Some("aws:kms".to_string()), Some(get_test_kms_key_id()), get_express_bucket(); "overriding to aws:kms with a key")]
-// #[test_case(Some("aws:kms".to_string()), None, get_express_bucket(); "overriding to aws:kms without a key")]
+#[test_case(Some("AES256".to_string()), None, get_express_sse_kms_bucket(); "overriding to AES256")]
 #[test_case(Some("aws:kms".to_string()), Some(get_test_kms_key_id()), get_express_sse_kms_bucket(); "enforcing aws:kms with a key")]
 #[test_case(Some("aws:kms".to_string()), None, get_express_sse_kms_bucket(); "enforcing aws:kms without a key")]
 #[test_case(Some("AES256".to_string()), None, get_express_bucket(); "enforcing AES256")]
@@ -158,6 +151,7 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 #[cfg(feature = "s3express_tests")]
 fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<String>, cache_bucket: String) {
     use mountpoint_s3::data_cache::ExpressDataCacheConfig;
+    use mountpoint_s3::ServerSideEncryption;
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();

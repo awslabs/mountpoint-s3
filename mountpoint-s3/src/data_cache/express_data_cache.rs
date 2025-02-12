@@ -78,6 +78,46 @@ where
         }
     }
 
+    pub async fn make_put_object_request<'a>(
+        &self,
+        mut params: PutObjectSingleParams,
+        object_key: &str,
+        data: impl AsRef<[u8]> + Send + 'a,
+    ) -> Result<(), DataCacheError> {
+        let (sse_type, key_id) = self
+            .config
+            .sse
+            .clone()
+            .into_inner()
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+        params = params.server_side_encryption(sse_type);
+        params = params.ssekms_key_id(key_id);
+
+        let result = self
+            .client
+            .put_object_single(&self.bucket_name, object_key, &params, data)
+            .in_current_span()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
+        // Verify that headers of the PUT response match the expected SSE
+        if let Err(err) = self
+            .config
+            .sse
+            .verify_response(result.sse_type.as_deref(), result.sse_kms_key_id.as_deref())
+        {
+            tracing::error!(object_key=?object_key, error=?err, "Unexpected SSE in PutObject response from S3. A cache block may be stored with wrong encryption settings.");
+            // Reaching this point is very unlikely and means that SSE settings were corrupted in transit or on S3 side, this may be a sign of a bug
+            // in CRT code or S3. Thus, we terminate Mountpoint to send the most noticeable signal to customer about the issue. We prefer exiting
+            // instead of returning an error because:
+            // 1. this error would only be reported to logs because the cache population is an async process
+            // 2. the reported error is severe as the object was already uploaded to S3.
+            std::process::exit(1);
+        }
+
+        Ok(())
+    }
+
     pub async fn verify_cache_valid(&self) -> Result<(), DataCacheError> {
         let object_key = format!("{}/_mountpoint_cache_metadata", &self.prefix);
         // This data is human-readable, and not expected to be read by Mountpoint.
@@ -92,21 +132,8 @@ where
         // put_object is sufficient for validating cache, as S3 Directory buckets only support
         // read-only, or read-write. Write implies read access.
         // Validating we're in a directory bucket by using the `EXPRESS_ONEZONE` storage class.
-        let mut params = PutObjectSingleParams::new().storage_class("EXPRESS_ONEZONE".to_string());
-        let (sse_type, key_id) = self
-            .config
-            .sse
-            .clone()
-            .into_inner()
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-        params = params.server_side_encryption(sse_type);
-        params = params.ssekms_key_id(key_id);
-        self.client
-            .put_object_single(&self.bucket_name, &object_key, &params, data)
-            .in_current_span()
-            .await?;
-
-        Ok(())
+        let params = PutObjectSingleParams::new().storage_class("EXPRESS_ONEZONE".to_string());
+        self.make_put_object_request(params, &object_key, data).await
     }
 
     // Ensure the flow-control window is large enough for reading a block of data if backpressure is enabled.
@@ -224,39 +251,8 @@ where
         let block_metadata =
             BlockMetadata::new(block_idx, block_offset, &cache_key, &self.source_bucket_name, checksum);
 
-        let mut params = block_metadata.to_put_object_params();
-        let (sse_type, key_id) = self
-            .config
-            .sse
-            .clone()
-            .into_inner()
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-        params = params.server_side_encryption(sse_type);
-        params = params.ssekms_key_id(key_id);
-
-        let result = self
-            .client
-            .put_object_single(&self.bucket_name, &object_key, &params, data)
-            .in_current_span()
+        self.make_put_object_request(block_metadata.to_put_object_params(), &object_key, data)
             .await
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-
-        // Verify that headers of the PUT response match the expected SSE
-        if let Err(err) = self
-            .config
-            .sse
-            .verify_response(result.sse_type.as_deref(), result.sse_kms_key_id.as_deref())
-        {
-            tracing::error!(key=?cache_key, error=?err, "A cache block was stored with wrong encryption settings");
-            // Reaching this point is very unlikely and means that SSE settings were corrupted in transit or on S3 side, this may be a sign of a bug
-            // in CRT code or S3. Thus, we terminate Mountpoint to send the most noticeable signal to customer about the issue. We prefer exiting
-            // instead of returning an error because:
-            // 1. this error would only be reported to logs because the cache population is an async process
-            // 2. the reported error is severe as the object was already uploaded to S3.
-            std::process::exit(1);
-        }
-
-        Ok(())
     }
 }
 
