@@ -54,3 +54,34 @@ This will run the default experiment, including many different configuration com
 Output is written to `multirun/` within directories for the date, time, and experiment number run.
 The output directory includes a few different files from an individual experiment run,
 including the individual benchmark output `benchmark.log`, FIO output, and Mountpoint logs.
+
+## Advanced configuration
+
+### Configuring multiple network interfaces
+
+When investigating performance with multiple network cards,
+we need to tell Mountpoint about what network interfaces are available
+and even configure it with things like a 'target throughput'
+such that it allocates enough resources to maximize its utilisation of the available network bandwidth.
+
+Below shows how to configure two network cards:
+
+```sh
+uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket \
+    "network.interface_names=['eth0', 'eth1']" network.maximum_throughput_gbps=200
+```
+
+If you want to run experiments varying the interfaces provided to Mountpoint, you can vary it like below:
+
+```sh
+uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket \
+    "network.interface_names=['eth0'], ['eth0', 'eth1']" network.maximum_throughput_gbps=200
+```
+
+If you want to do specific combinations, you will need to create full dictionaries to vary values over.
+Below is an example of varying both network interfaces alongside the target network throughput.
+
+```sh
+uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket \
+    "network={interface_names:['eth0'],maximum_throughput_gbps:100},{interface_names:['eth0','eth1'],maximum_throughput_gbps:200}"
+```

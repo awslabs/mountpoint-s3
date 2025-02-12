@@ -19,6 +19,11 @@ mountpoint_binary: !!null
 mountpoint_debug: false
 mountpoint_debug_crt: false
 
+# No configuration out of the box, use defaults.
+network:
+  interface_names: !!null
+  maximum_throughput_gbps: !!null
+
 # For overriding upload checksums configured for Mountpoint. Passed as `--upload-checksums` argument.
 upload_checksums: !!null
 
