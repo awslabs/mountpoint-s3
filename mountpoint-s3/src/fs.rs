@@ -850,11 +850,22 @@ where
             FileHandleState::Write(write_state) => write_state,
         };
 
-        let result = write_state.complete_if_in_progress(&file_handle.full_key).await;
+        let complete_result = write_state.complete_if_in_progress(&file_handle.full_key).await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
-        // Errors won't actually be seen by the user because `release` is async,
-        // but it's the right thing to do.
-        result
+
+        match complete_result {
+            Ok(upload_completed_async) => {
+                if upload_completed_async {
+                    debug!(key = ?&file_handle.full_key, "upload completed async after file was closed");
+                }
+                Ok(())
+            }
+            Err(e) => {
+                // Errors won't actually be seen by the user because `release` is async,
+                // but it's the right thing to do so we'll return it.
+                Err(e)
+            }
+        }
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {

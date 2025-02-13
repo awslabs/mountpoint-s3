@@ -2,7 +2,7 @@ use std::str::FromStr as _;
 
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
-use tracing::{debug, error, trace};
+use tracing::{debug, error};
 
 use crate::object::ObjectId;
 use crate::prefetch::Prefetch;
@@ -295,15 +295,13 @@ where
             }
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
-                    trace!(key, "not completing upload because nothing was written");
+                    debug!(key, "not completing upload because nothing was written yet");
                     return Ok(());
                 }
                 if !are_from_same_process(open_pid, pid) {
-                    trace!(
+                    debug!(
                         key,
-                        pid,
-                        open_pid,
-                        "not completing upload because current pid differs from pid at open"
+                        pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
                     return Ok(());
                 }
@@ -329,16 +327,25 @@ where
         result
     }
 
-    pub async fn complete_if_in_progress(self, key: &str) -> Result<(), Error> {
+    /// Check state of upload, and complete the upload if it is still in-progress.
+    ///
+    /// When successful, returns `true` where the upload was still in-progress and thus completed by this method call.
+    pub async fn complete_if_in_progress(self, key: &str) -> Result<bool, Error> {
         match self {
             UploadState::AppendInProgress {
                 request,
                 handle,
                 initial_etag,
                 ..
-            } => Self::complete_append(request, key, handle, initial_etag).await,
-            UploadState::MPUInProgress { request, handle, .. } => Self::complete_upload(request, key, handle).await,
-            UploadState::Failed(_) | UploadState::Completed => Ok(()),
+            } => {
+                Self::complete_append(request, key, handle, initial_etag).await?;
+                Ok(true)
+            }
+            UploadState::MPUInProgress { request, handle, .. } => {
+                Self::complete_upload(request, key, handle).await?;
+                Ok(true)
+            }
+            UploadState::Failed(_) | UploadState::Completed => Ok(false),
         }
     }
 
