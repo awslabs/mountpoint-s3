@@ -319,7 +319,7 @@ See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples
 
 ## Caching configuration
 
-Mountpoint can optionally cache object metadata and content to reduce cost and improve performance for repeated reads to the same file.
+Mountpoint can optionally cache filesystem metadata and content to reduce cost and improve performance for repeated reads to the same file.
 Mountpoint can serve [supported file system requests](./SEMANTICS.md) from the cache, excluding listing of directory contents.
 
 ### Metadata Cache
@@ -331,8 +331,13 @@ It can be set to a positive numerical value in seconds, or to one of the pre-con
 > Caching of metadata entries relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
-When configured with metadata caching, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports is up to date with the content of the mounted S3 bucket.
-You can use the `--metadata-ttl` flag to choose the appropriate trade off between consistency (`--metadata-ttl minimal`) and performance/cost optimization (`--metadata-ttl indefinite`), depending on the requirements of your workload.
+The `--metadata-ttl` flag is used to control how long Mountpoint considers it's filesystem metadata (file existence, size, etag, etc) accurate before re-fetching from S3.
+When configured, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports 
+is up to date with the content of the mounted S3 bucket.
+When configured with a local cache or shared cache, the stored data is considered accurate until the metadata TTL expires.
+After this period, Mountpoint revalidates if the cached data is still accurate by verifying the object's etag hasn't changed.
+
+Mountpoint provides two presets which trade off consistency (`--metadata-ttl minimal`) and performance/cost optimization (`--metadata-ttl indefinite`), and should be used depending on the requirements of your workload.
 In scenarios where the content of the mounted S3 bucket is modified by another client, and you require Mountpoint to return recently up-to-date information, setting `--metadata-ttl minimal` is most appropriate.
 A setting of `--metadata-ttl 300` would instead allow Mountpoint to perform fewer requests to the mounted S3 bucket by delaying updates for up to 300 seconds.
 If your workload does not require consistency, for example because the content of the mounted S3 bucket does not change, you should use `--metadata-ttl indefinite`.
