@@ -1,30 +1,29 @@
 # Benchmark experiment runner
 
-This project allows to perform sequential read benchmarks with different variables,
-such that a number of experiments can be run with ease and the logs and results be collected in single directories.
+This project allows to perform some Mountpoint benchmarks with different variables,
+such that a number of experiments can be run with ease and the logs
+and results be collected in a directory for each experiment run.
 
-We use the Python script `benchmark.py` to handle the setup and teardown after each experiment.
-We manage the experiment configuration space using [Hydra](https://hydra.cc/).
-It is configured in `conf/` to run experiments over a set of parameters such as maximum number of Mountpoint FUSE workers, number of application workers reading from unique file handles, etc..
+The Python script `benchmark.py` handles the setup and teardown for each experiment.
+The experiment configuration space is managed using [Hydra](https://hydra.cc/).
+Configurations in `conf/` describe which values to configure to run experiments over a set of parameters
+such as the maximum count of Mountpoint FUSE workers,
+number of application workers reading from unique file handles, etc..
 
 ## Before you start
 
-We recommend [Poetry](https://python-poetry.org/) to manage the Python environments for this project.
-Poetry will ensure that a Python virtual environment is setup with the correct dependencies.
+This project uses [uv](https://github.com/astral-sh/uv) to manage Python environments and dependencies.
 
-You'll first need to ensure that Python dependencies are installed:
+Think of `uv` as a close analog of Rust's _cargo_ but for Python.
+It will automatically configure a Python virtual environment for you and install the project dependencies.
 
-```sh
-poetry install
-```
-
-After, you can run the benchmark script using Poetry. Below will execute the script, showing the help page.
+Assuming `uv` is installed, getting started is (almost) as easy as running the `benchmark.py` script!
 
 ```sh
-poetry run python benchmark.py --help
+uv run benchmark.py --
 ```
 
-If not using Poetry, you will need to ensure the dependencies in `pyproject.toml` are installed.
+It should tell you that you forgot some arguments for the Python script itself.
 
 ## Running the experiment
 
@@ -32,12 +31,12 @@ There are a few variables that are required, such as the S3 bucket used for test
 You must set this in order to be able to use the benchmark script.
 
 Additionally, you should configure the AWS credentials for Mountpoint.
-You might use AWS profiles or set credentials in the environment.
+You might use AWS profiles or set some credentials in the environment.
 
 To run the experiment, you can execute a command like this:
 
 ```
-poetry run python benchmark.py s3_bucket=amzn-s3-demo-bucket
+uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket
 ```
 
 This will run the default experiment, including many different configuration combinations.

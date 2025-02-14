@@ -1,12 +1,9 @@
-[tool.poetry]
-package-mode = false
+[project]
+name = "benchmark"
+version = "0.1.0"
 description = "Benchmark runner for measuring Mountpoint performance while varying configuration"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.9"
-hydra-core = "^1.3.2"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires-python = ">=3.11"
+dependencies = [
+    "hydra-core>=1.3.2",
+]
