@@ -319,7 +319,7 @@ See [mounthelper.go](https://github.com/awslabs/mountpoint-s3/tree/main/examples
 
 ## Caching configuration
 
-Mountpoint can optionally cache filesystem metadata and content to reduce cost and improve performance for repeated reads to the same file.
+Mountpoint can optionally cache file system metadata and object content to reduce cost and improve performance for repeated reads to the same file.
 Mountpoint can serve [supported file system requests](./SEMANTICS.md) from the cache, excluding listing of directory contents.
 
 ### Metadata Cache
@@ -331,7 +331,7 @@ It can be set to a positive numerical value in seconds, or to one of the pre-con
 > Caching of metadata entries relaxes the strong read-after-write consistency offered by Amazon S3 and Mountpoint in its default configuration.
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
-The `--metadata-ttl` flag is used to control how long Mountpoint considers it's filesystem metadata (file existence, size, etag, etc) accurate before re-fetching from S3.
+The `--metadata-ttl` flag is used to control how long Mountpoint considers it's file system metadata (file existence, size, object etag, etc) accurate before re-fetching from S3.
 When configured, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports 
 is up to date with the content of the mounted S3 bucket.
 When configured with a local cache or shared cache, the stored data is considered accurate until the metadata TTL expires.
