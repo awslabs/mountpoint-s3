@@ -195,6 +195,9 @@ New objects can be uploaded using different server-side encryption (SSE) setting
 > [!IMPORTANT]
 > Mountpoint currently accepts only **KMS key ARN** as the value for `--sse-kms-key-id` argument. AWS KMS [defines](https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-id) several other key identifiers, including key ID, key alias name and key alias ARN, which are not supported by Mountpoint.
 
+> [!IMPORTANT]
+> CLI arguments `--sse` and `--sse-kms-key-id` can be used to override or enforce SSE type of the objects uploaded to the [shared cache](#shared-cache). We advise against overriding the encryption type to `aws:kms`, when the bucket default encryption is `AES256`, which will result in read failures of cache blocks. For more information on behaviour of overriding SSE type for objects in S3 Express bucket see [documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-express-specifying-kms-encryption.html).
+
 Mountpoint does not support client-side encryption using the Amazon S3 Encryption Client.
 
 ### Other S3 bucket configuration
