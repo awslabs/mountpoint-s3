@@ -15,7 +15,7 @@ static STUB_CRC32C: LazyLock<bool> = LazyLock::new(|| {
             let disable_checksum = env_str_value != "0" && env_str_value.to_lowercase() != "false";
             tracing::warn!("overriding crc32c checksums, crc32c stubbed?: {disable_checksum}");
             disable_checksum
-        },
+        }
         Err(VarError::NotPresent) => false,
         Err(err) => {
             tracing::error!("failed to read {VAR_KEY}: {err:?}");
@@ -268,7 +268,7 @@ impl TryFrom<ChecksummedBytes> for Bytes {
 /// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
 /// `suffix_crc` is the checksum for `B`, and `suffix_len` is the length of `B`.
 pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
-    if *STUB_CRC32C{
+    if *STUB_CRC32C {
         return Crc32c::new(0);
     }
     let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);

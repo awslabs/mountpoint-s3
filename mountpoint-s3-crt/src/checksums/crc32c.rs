@@ -10,7 +10,7 @@ static STUB_CRC32C: LazyLock<bool> = LazyLock::new(|| {
             let disable_checksum = env_str_value != "0" && env_str_value.to_lowercase() != "false";
             log::warn!("overriding crc32c checksums, crc32c stubbed?: {disable_checksum}");
             disable_checksum
-        },
+        }
         Err(VarError::NotPresent) => false,
         Err(err) => {
             log::error!("failed to read {VAR_KEY}: {err:?}");

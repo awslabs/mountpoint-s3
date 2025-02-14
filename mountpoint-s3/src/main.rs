@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
             let use_mock_s3_client = env_str_value != "0" && env_str_value.to_lowercase() != "false";
             tracing::warn!("should use mock S3 client?: {use_mock_s3_client}");
             use_mock_s3_client
-        },
+        }
         Err(env::VarError::NotPresent) => false,
         Err(err) => {
             tracing::error!("failed to read {USE_MOCK_S3_VAR}: {err:?}");

@@ -21,10 +21,10 @@ use mountpoint_s3_client::config::{
 };
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::instance_info::InstanceInfo;
-use mountpoint_s3_client::user_agent::UserAgent;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
 use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_client::user_agent::UserAgent;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 use regex::Regex;
