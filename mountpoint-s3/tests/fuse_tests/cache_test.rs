@@ -19,7 +19,7 @@ use test_case::test_case;
 #[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
 use crate::common::s3::{get_bucket_owner, get_external_express_bucket, get_test_endpoint_config};
 #[cfg(feature = "s3express_tests")]
-use crate::common::s3::{get_express_bucket, get_standard_bucket};
+use crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_standard_bucket, get_test_kms_key_id};
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
 #[cfg(feature = "s3express_tests")]
@@ -142,6 +142,36 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
     );
 }
 
+#[test_case(Some("AES256".to_string()), None, get_express_sse_kms_bucket(); "overriding to AES256")]
+#[test_case(Some("aws:kms".to_string()), Some(get_test_kms_key_id()), get_express_sse_kms_bucket(); "enforcing aws:kms with a key")]
+#[test_case(Some("aws:kms".to_string()), None, get_express_sse_kms_bucket(); "enforcing aws:kms without a key")]
+#[test_case(Some("AES256".to_string()), None, get_express_bucket(); "enforcing AES256")]
+#[test_case(None, None, get_express_bucket(); "using the default, AES256")]
+#[test_case(None, None, get_express_sse_kms_bucket(); "using the default, aws:kms")]
+#[cfg(feature = "s3express_tests")]
+fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<String>, cache_bucket: String) {
+    use mountpoint_s3::data_cache::ExpressDataCacheConfig;
+    use mountpoint_s3::ServerSideEncryption;
+
+    let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
+    let bucket_name = get_standard_bucket();
+    let config = ExpressDataCacheConfig {
+        sse: ServerSideEncryption::new(sse_type.clone(), kms_key_id.clone()),
+        ..Default::default()
+    };
+    let cache = ExpressDataCache::new(client.clone(), config, &bucket_name, &cache_bucket);
+
+    cache_write_read_base(
+        client,
+        &bucket_name,
+        "key",
+        100,
+        1024,
+        cache,
+        "express_cache_write_read",
+    )
+}
+
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
 async fn express_cache_read_empty() {
@@ -168,8 +198,7 @@ async fn disk_cache_read_empty() {
 #[tokio::test]
 #[cfg(feature = "s3express_tests")]
 async fn express_cache_verify_fail_non_express() {
-    use mountpoint_s3_client::error::ObjectClientError;
-    use mountpoint_s3_client::S3RequestError::ResponseError;
+    use mountpoint_s3::data_cache::DataCacheError;
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
@@ -180,9 +209,8 @@ async fn express_cache_verify_fail_non_express() {
         .await
         .expect_err("cannot use standard bucket as shared cache");
 
-    if let ObjectClientError::ClientError(ResponseError(request_result)) = err {
-        let body = request_result.error_response_body.as_ref().expect("should have body");
-        let body = body.clone().into_string().unwrap();
+    if let DataCacheError::IoFailure(err) = err {
+        let body = format!("{:?}", err);
         assert!(body.contains("<Code>InvalidStorageClass</Code>"));
     } else {
         panic!("wrong error type");
@@ -193,11 +221,10 @@ async fn express_cache_verify_fail_non_express() {
 #[cfg(feature = "s3express_tests")]
 async fn express_cache_verify_fail_forbidden() {
     use crate::common::creds::get_scoped_down_credentials;
+    use mountpoint_s3::data_cache::DataCacheError;
     use mountpoint_s3_client::config::{
         Allocator, CredentialsProvider, CredentialsProviderStaticOptions, S3ClientAuthConfig,
     };
-    use mountpoint_s3_client::error::ObjectClientError;
-    use mountpoint_s3_client::S3RequestError::CrtError;
 
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_express_bucket();
@@ -227,8 +254,9 @@ async fn express_cache_verify_fail_forbidden() {
     let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket_name, &cache_bucket_name);
     let err = cache.verify_cache_valid().await.expect_err("cache must be write-able");
 
-    if let ObjectClientError::ClientError(CrtError(err)) = err {
-        assert!(err.to_string().contains("AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED"))
+    if let DataCacheError::IoFailure(err) = err {
+        let body = format!("{:?}", err);
+        assert!(body.contains("AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED"))
     } else {
         panic!("wrong error type");
     }
@@ -297,9 +325,8 @@ where
 #[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
 fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool, owner_matches: bool) {
     use futures::executor::block_on;
+    use mountpoint_s3::data_cache::DataCacheError;
     use mountpoint_s3_client::config::S3ClientConfig;
-    use mountpoint_s3_client::error::ObjectClientError;
-    use mountpoint_s3_client::S3RequestError;
 
     let bucket_owner = get_bucket_owner();
     // Configure the client to enforce the bucket owner
@@ -320,7 +347,10 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
     let cache_valid = block_on(cache.verify_cache_valid());
     if owner_checked && !owner_matches {
         match cache_valid {
-            Err(ObjectClientError::ClientError(S3RequestError::Forbidden(..))) => (),
+            Err(DataCacheError::IoFailure(err)) => {
+                let body = format!("{:?}", err);
+                assert!(body.contains("Forbidden"));
+            }
             _ => panic!("expected S3RequestError::Forbidden, got: {:?}", cache_valid),
         }
     } else {

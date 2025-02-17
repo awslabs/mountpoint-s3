@@ -474,6 +474,7 @@ impl CliArgs {
         let express_bucket_name = self.cache_express_bucket_name()?;
         let config = ExpressDataCacheConfig {
             block_size: self.cache_block_size_in_bytes(),
+            sse: ServerSideEncryption::new(self.sse.clone(), self.sse_kms_key_id.clone()),
             ..Default::default()
         };
 

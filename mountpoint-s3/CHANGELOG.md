@@ -9,6 +9,10 @@
 
 * Add support for appending to objects originally uploaded with a CRC64-NVME checksum. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
 
+### Breaking changes
+
+* CLI flags `--sse` and `--sse-kms-key-id` are now applied to object uploads to the xz cache. ([#1257](https://github.com/awslabs/mountpoint-s3/pull/1257))
+
 ## v1.14.0 (January 10, 2025)
 
 ### New features

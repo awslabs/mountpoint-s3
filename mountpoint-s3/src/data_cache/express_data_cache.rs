@@ -1,5 +1,6 @@
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 use crate::object::ObjectId;
+use crate::ServerSideEncryption;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -8,10 +9,9 @@ use base64ct::{Base64, Encoding};
 use bytes::{Bytes, BytesMut};
 use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
-use mountpoint_s3_client::error::{GetObjectError, ObjectClientError, PutObjectError};
+use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
-    ChecksumMode, ClientBackpressureHandle, GetObjectParams, GetObjectResponse, ObjectClientResult,
-    PutObjectSingleParams, UploadChecksum,
+    ChecksumMode, ClientBackpressureHandle, GetObjectParams, GetObjectResponse, PutObjectSingleParams, UploadChecksum,
 };
 use mountpoint_s3_client::ObjectClient;
 use sha2::{Digest, Sha256};
@@ -28,6 +28,8 @@ pub struct ExpressDataCacheConfig {
     pub block_size: u64,
     /// The maximum size of an object to be cached.
     pub max_object_size: usize,
+    /// The SSE to be used in PUT requests to the cache bucket.
+    pub sse: ServerSideEncryption,
 }
 
 impl Default for ExpressDataCacheConfig {
@@ -35,6 +37,7 @@ impl Default for ExpressDataCacheConfig {
         Self {
             block_size: 1024 * 1024,      // 1 MiB
             max_object_size: 1024 * 1024, // 1 MiB
+            sse: ServerSideEncryption::default(),
         }
     }
 }
@@ -75,7 +78,47 @@ where
         }
     }
 
-    pub async fn verify_cache_valid(&self) -> ObjectClientResult<(), PutObjectError, Client::ClientError> {
+    pub async fn make_put_object_request<'a>(
+        &self,
+        mut params: PutObjectSingleParams,
+        object_key: &str,
+        data: impl AsRef<[u8]> + Send + 'a,
+    ) -> Result<(), DataCacheError> {
+        let (sse_type, key_id) = self
+            .config
+            .sse
+            .clone()
+            .into_inner()
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+        params = params.server_side_encryption(sse_type);
+        params = params.ssekms_key_id(key_id);
+
+        let result = self
+            .client
+            .put_object_single(&self.bucket_name, object_key, &params, data)
+            .in_current_span()
+            .await
+            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
+
+        // Verify that headers of the PUT response match the expected SSE
+        if let Err(err) = self
+            .config
+            .sse
+            .verify_response(result.sse_type.as_deref(), result.sse_kms_key_id.as_deref())
+        {
+            tracing::error!(object_key=?object_key, error=?err, "Unexpected SSE in PutObject response from S3. A cache block may be stored with wrong encryption settings.");
+            // Reaching this point is very unlikely and means that SSE settings were corrupted in transit or on S3 side, this may be a sign of a bug
+            // in CRT code or S3. Thus, we terminate Mountpoint to send the most noticeable signal to customer about the issue. We prefer exiting
+            // instead of returning an error because:
+            // 1. this error would only be reported to logs because the cache population is an async process
+            // 2. the reported error is severe as the object was already uploaded to S3.
+            std::process::exit(1);
+        }
+
+        Ok(())
+    }
+
+    pub async fn verify_cache_valid(&self) -> Result<(), DataCacheError> {
         let object_key = format!("{}/_mountpoint_cache_metadata", &self.prefix);
         // This data is human-readable, and not expected to be read by Mountpoint.
         // The file format used here is NOT stable.
@@ -89,17 +132,8 @@ where
         // put_object is sufficient for validating cache, as S3 Directory buckets only support
         // read-only, or read-write. Write implies read access.
         // Validating we're in a directory bucket by using the `EXPRESS_ONEZONE` storage class.
-        self.client
-            .put_object_single(
-                &self.bucket_name,
-                &object_key,
-                &PutObjectSingleParams::new().storage_class("EXPRESS_ONEZONE".to_string()),
-                data,
-            )
-            .in_current_span()
-            .await?;
-
-        Ok(())
+        let params = PutObjectSingleParams::new().storage_class("EXPRESS_ONEZONE".to_string());
+        self.make_put_object_request(params, &object_key, data).await
     }
 
     // Ensure the flow-control window is large enough for reading a block of data if backpressure is enabled.
@@ -217,18 +251,8 @@ where
         let block_metadata =
             BlockMetadata::new(block_idx, block_offset, &cache_key, &self.source_bucket_name, checksum);
 
-        self.client
-            .put_object_single(
-                &self.bucket_name,
-                &object_key,
-                &block_metadata.to_put_object_params(),
-                data,
-            )
-            .in_current_span()
+        self.make_put_object_request(block_metadata.to_put_object_params(), &object_key, data)
             .await
-            .map_err(|err| DataCacheError::IoFailure(err.into()))?;
-
-        Ok(())
     }
 }
 
