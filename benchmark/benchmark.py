@@ -39,8 +39,8 @@ def _mounted_bucket(
             subprocess.check_output(["umount", mount_dir])
             log.debug(f"{mount_dir} unmounted")
             os.rmdir(mount_dir)
-        except Exception as e:
-            log.error(f"Error cleaning up Mountpoint at {mount_dir}: {e}")
+        except Exception:
+            log.error(f"Error cleaning up Mountpoint at {mount_dir}:",  exc_info=True)
 
 
 class MountError(Exception):
@@ -121,7 +121,7 @@ def _mount_mp(
         output = subprocess.check_output(subprocess_args, env=subprocess_env)
     except subprocess.CalledProcessError as e:
         log.error(f"Error during mounting: {e}")
-        raise MountError()
+        raise MountError() from e
 
     log.info("Mountpoint output: %s", output.decode("utf-8").strip())
 
