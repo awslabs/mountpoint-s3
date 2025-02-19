@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import logging
@@ -20,33 +21,58 @@ MOUNT_DIRECTORY = "s3"
 MP_LOGS_DIRECTORY = "mp_logs/"
 
 
+@contextmanager
+def _mounted_bucket(
+        cfg: DictConfig,
+        ):
+    """
+    Mounts the S3 bucket, providing metadata about the successful mount.
+
+    Context manager allows use of `with` clause, automatically unmounting the bucket.
+    """
+    mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
+    mount_metadata = _mount_mp(cfg, mount_dir)
+    try:
+        yield mount_metadata
+    finally:
+        try:
+            subprocess.check_output(["/usr/bin/umount", mount_dir])
+            log.info(f"{mount_dir} unmounted")
+            os.rmdir(mount_dir)
+        except Exception as e:
+            log.error(f"Error cleaning up Mountpoint at {mount_dir}: {e}")
+
+
+class MountError(Exception):
+    pass
+
+
 def _mount_mp(
         cfg: DictConfig,
-        metadata: dict[str, any],
         mount_dir: str,
-        ) -> str:
+        ) -> dict[str, any] | MountError | subprocess.CalledProcessError:
     """
     Mount an S3 bucket using Mountpoint,
     using the configuration to apply Mountpoint arguments.
 
     Returns Mountpoint version string.
     """
-    mountpoint_binary = path.join(
-        hydra.utils.get_original_cwd(),
-        cfg['mountpoint_binary'],
-    )
+    mountpoint_args = [cfg['mountpoint_binary']]
 
     os.makedirs(MP_LOGS_DIRECTORY, exist_ok=True)
 
     bucket = cfg['s3_bucket']
 
     mountpoint_version_output = subprocess \
-        .check_output([mountpoint_binary, "--version"]) \
+        .check_output([
+            *mountpoint_args,
+            "--version"
+            ]) \
         .decode("utf-8")
     log.info("Mountpoint version: %s", mountpoint_version_output.strip())
 
     subprocess_args = [
-        mountpoint_binary,
+        *mountpoint_args,
         bucket,
         mount_dir,
         "--log-metrics",
@@ -79,13 +105,20 @@ def _mount_mp(
         subprocess_args.append(f"--max-threads={cfg['fuse_threads']}")
 
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
-    metadata["mount_s3_command"] = " ".join(subprocess_args)
-    metadata["mount_s3_env"] = subprocess_env
-    output = subprocess.check_output(subprocess_args, env=subprocess_env)
+    try:
+        output = subprocess.check_output(subprocess_args, env=subprocess_env)
+    except subprocess.CalledProcessError as e:
+        log.error(f"Error during mounting: {e}")
+        raise MountError()
 
     log.info("Mountpoint output: %s", output.decode("utf-8").strip())
 
-    return mountpoint_version_output
+    return {
+        "mount_dir": mount_dir,
+        "mount_s3_command": " ".join(subprocess_args),
+        "mount_s3_env": subprocess_env,
+        "mp_version": mountpoint_version_output.strip(),
+    }
 
 
 def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
@@ -96,18 +129,16 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     fio_job_name = cfg["fio_benchmark"]
     fio_output_filepath = f"fio.{fio_job_name}.json"
 
-    subprocess_args = []
-
     # TODO: Avoid duplicating/diverging the FIO jobs between `benchmark/fio/` and `mountpoint-s3/scripts/fio/`
     fio_job_filepath = hydra.utils.to_absolute_path(f"fio/{fio_job_name}.fio")
-    subprocess_args.extend([
+    subprocess_args = [
         FIO_BINARY,
         "--eta=never",
         "--output-format=json",
         f"--output={fio_output_filepath}",
         f"--directory={mount_dir}",
         fio_job_filepath,
-    ])
+    ]
     subprocess_env = {
         "APP_WORKERS": str(cfg['application_workers']),
         "SIZE_GIB": str(100),
@@ -127,14 +158,6 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
             raise subprocess.CalledProcessError(exit_code, subprocess_args)
         else:
             log.info("FIO process completed successfully")
-
-
-def _unmount_mp(mount_dir: str) -> None:
-    """
-    Attempts to unmount Mountpoint
-    """
-    subprocess.check_output(["/usr/bin/umount", mount_dir])
-    log.info(f"{mount_dir} unmounted")
 
 
 def _collect_logs() -> None:
@@ -182,38 +205,22 @@ def run_experiment(cfg: DictConfig) -> None:
     We should collect all of the logs and metric and dump them in the output directory.
     """
     log.info("Experiment starting")
-    success = False
-    mounted = False
-    start_time = datetime.now(tz=timezone.utc)
     metadata = {
-        "start_time": start_time,
+        "start_time": datetime.now(tz=timezone.utc),
+        "success": False,
     }
 
-    try:
-        mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
-        mp_version = _mount_mp(cfg, metadata, mount_dir)
-        mounted = True
-        metadata["mp_version"] = mp_version
-    except subprocess.SubprocessError as e:
-        log.error(f"Error during mounting: {e}")
-
-    if mounted:
+    with _mounted_bucket(cfg) as mount_metadata:
+        metadata.update(mount_metadata)
+        mount_dir = mount_metadata["mount_dir"]
         try:
             # TODO: Add resource monitoring during FIO job
             _run_fio(cfg, mount_dir)
-            success = True
-        except subprocess.SubprocessError as e:
+            metadata["success"] = True
+        except Exception as e:
             log.error(f"Error running experiment: {e}")
 
     metadata["end_time"] = datetime.now(tz=timezone.utc)
-    metadata["success"] = success
-
-    if mounted:
-        try:
-            _unmount_mp(mount_dir)
-            os.rmdir(mount_dir)
-        except Exception as e:
-            log.error(f"Error cleaning up Mountpoint at {mount_dir}: {e}")
 
     _postprocessing(metadata)
     log.info("Experiment ended")
