@@ -154,14 +154,14 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     subprocess_env = {
         "PATH": os.environ["PATH"],
         "APP_WORKERS": str(cfg['application_workers']),
-        "SIZE_GIB": str(100),
-        "DIRECT": str(1 if cfg['direct_io'] else 0),
+        "SIZE_GIB": "100",
+        "DIRECT": "1" if cfg['direct_io'] else "0",
         "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
         # TODO: Confirm assumption that `libaio` should make direct IO go faster.
         # TODO: Review if we should use sync or psync. We use `sync` in other benchmarks.
-        "IO_ENGINE": str("libaio" if cfg['direct_io'] else "psync"),
+        "IO_ENGINE": "libaio" if cfg['direct_io'] else "psync",
     }
-    log.info(f"Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
+    log.info("Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
 
     # Use Popen instead of check_output, as we had some issues when trying to attach perf
     with Popen(subprocess_args, env=subprocess_env) as process:
@@ -199,8 +199,7 @@ def _collect_logs() -> None:
 
 def _write_metadata(metadata: dict[str, any]) -> None:
     with open("metadata.json", "w") as f:
-        json_str = json.dumps(metadata, default=str)
-        f.write(json_str)
+        json.dump(metadata, f, default=str)
 
 
 def _postprocessing(metadata: dict[str, any]) -> None:
