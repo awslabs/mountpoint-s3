@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1739986450634,
+  "lastUpdate": 1739987296637,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "814c5c707bd4180b1ba33d23275c4bb893bd84f2",
-          "message": "Update CRT submodules to latest releases (#1242)\n\nUpdate the CRT to the latest releases.\n\nThis change also updates the exclude list, primarily due to one of the\ntest files being replaced by a compressed (but still large) file:\nhttps://github.com/aws/aws-lc/pull/2123/\n\nThis change pulls in a bug fix\n(https://github.com/awslabs/aws-c-auth/pull/259/), addressing\nhttps://github.com/awslabs/mountpoint-s3/issues/1207.\n\n### Does this change impact existing behavior?\n\nOne bug fix is included in CRT changes.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChange log entry added for the CRT fix. It is a bug fix, so patch\nversion bump to `mountpoint-s3-client` remains appropriate.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2025-01-23T00:32:37Z",
-          "tree_id": "b72914763f4527bc2013976b2a10445e812b765d",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/814c5c707bd4180b1ba33d23275c4bb893bd84f2"
-        },
-        "date": 1737600387260,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 15452.9140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 23947.80078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 43041.85546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 148.5703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 412.8671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 241.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 419.6640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 88.8359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 321.71484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 87.74609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 323.9296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 33289.234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 383.6015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 33684.10546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 390.71484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 13347.61328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 259.859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 13339.97265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 10082.625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 266.66796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 401.78125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 239.2109375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2679,6 +2545,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 235.328125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49482875+ujinho@users.noreply.github.com",
+            "name": "Eugene Dolgy",
+            "username": "ujinho"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2a50bbdf765b1a5652e6b9a5e89919feaf212be",
+          "message": "Fuser fork submodule (#1269)\n\n### Overview\nTo be prepared for further refactoring we want to ease the supporting\neffort for the FUSER fork we're using.\nAs a first step we want to embed it as a git submodule which will be\nusing the existing `fuser/fork` branch as a remote.\nThis will allow us to keep the current sync flow with the original FUSER\n[repo](https://github.com/cberner/fuser) but skip the manual sync step\nin our `main` branch.\n\nWe will be able to update the fork by running `git submodule update\n--remote mountpoint-s3-fuser` which is more idiomatic. So we still be\nable to test changes locally w/o publishing the fork.\n\n*NB* We will need to commit the changes (dirty indices) after\nsubmodule's update.\n\n### Does this change impact existing behavior?\n\nThis change is completely internal and does not impact customer-facing\nbehavior.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nThis change does not require version or changelog changes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Evgeny (Zhenia) Dolgii <evdolgy@amazon.com>",
+          "timestamp": "2025-02-19T15:34:36Z",
+          "tree_id": "56231be5cdb9a08a04d49dbf5c17de883229d997",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d2a50bbdf765b1a5652e6b9a5e89919feaf212be"
+        },
+        "date": 1739987296589,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 15819.37890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 28963.65625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 39430.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 154.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 401.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 186.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 408.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 85.609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 319.4296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 90.72265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 323.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 35592.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 385.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 36695.44140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 397.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13319.1953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 261.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13641.6953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 12891.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 268.1953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 406.2578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 239.14453125,
             "unit": "MiB"
           }
         ]
