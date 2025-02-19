@@ -4,7 +4,7 @@ members = [
 	"mountpoint-s3-crt-sys",
 	"mountpoint-s3-client",
 	"mountpoint-s3",
-	"vendor/fuser",
+	"mountpoint-s3-fuser",
 ]
 resolver = "2"
 
