@@ -9,6 +9,8 @@ rm -rf $FUSER_FULL_PATH
 
 git submodule update --remote $FUSER_FULL_PATH
 
-git add $FUSER_FULL_PATH
+COMMIT=$(git -C $FUSER_FULL_PATH rev-parse --short HEAD)
 
+# Commit only the updated reference and the superproject's lock file
+git add mountpoint-s3-fuser Cargo.lock
 git commit -m "Update vendored fuser to $COMMIT" -s
