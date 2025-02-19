@@ -14,8 +14,8 @@ metadata_ttl: "indefinite"
 
 fio_benchmarks: sequential_read  #, random_read, sequential_write
 
-# Mountpoint binary, relative to the current working directory. (`benchmark/`, right?)
-mountpoint_binary: "../target/release/mount-s3"
+# Path to Mountpoint binary. Recommended to use an absolute path.
+mountpoint_binary: !!null
 mountpoint_debug: false
 mountpoint_debug_crt: false
 

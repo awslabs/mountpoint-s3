@@ -36,8 +36,8 @@ def _mounted_bucket(
         yield mount_metadata
     finally:
         try:
-            subprocess.check_output(["/usr/bin/umount", mount_dir])
-            log.info(f"{mount_dir} unmounted")
+            subprocess.check_output(["umount", mount_dir])
+            log.debug(f"{mount_dir} unmounted")
             os.rmdir(mount_dir)
         except Exception as e:
             log.error(f"Error cleaning up Mountpoint at {mount_dir}: {e}")
@@ -57,7 +57,17 @@ def _mount_mp(
 
     Returns Mountpoint version string.
     """
-    mountpoint_args = [cfg['mountpoint_binary']]
+
+    if cfg['mountpoint_binary'] is None:
+        mountpoint_args = [
+            "cargo",
+            "run",
+            "--quiet",
+            "--release",
+            "--",
+        ]
+    else:
+        mountpoint_args = [cfg['mountpoint_binary']]
 
     os.makedirs(MP_LOGS_DIRECTORY, exist_ok=True)
 
@@ -80,7 +90,9 @@ def _mount_mp(
         "--allow-delete",
         f"--log-directory={MP_LOGS_DIRECTORY}",
     ]
-    subprocess_env = {}
+    subprocess_env = {
+        "PATH": os.environ["PATH"],
+    }
 
     if cfg['s3_prefix'] is not None:
         subprocess_args.append(f"--prefix={cfg['s3_prefix']}")
@@ -125,7 +137,7 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     """
     Run the FIO workload against the file system.
     """
-    FIO_BINARY = "/usr/bin/fio"
+    FIO_BINARY = "fio"
     fio_job_name = cfg["fio_benchmark"]
     fio_output_filepath = f"fio.{fio_job_name}.json"
 
@@ -140,6 +152,7 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
         fio_job_filepath,
     ]
     subprocess_env = {
+        "PATH": os.environ["PATH"],
         "APP_WORKERS": str(cfg['application_workers']),
         "SIZE_GIB": str(100),
         "DIRECT": str(1 if cfg['direct_io'] else 0),
@@ -204,7 +217,7 @@ def run_experiment(cfg: DictConfig) -> None:
 
     We should collect all of the logs and metric and dump them in the output directory.
     """
-    log.info("Experiment starting")
+    log.debug("Experiment starting")
     metadata = {
         "start_time": datetime.now(tz=timezone.utc),
         "success": False,

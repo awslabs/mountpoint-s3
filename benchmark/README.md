@@ -17,12 +17,18 @@ and also use environment variables in the job definition to allow this script to
 
 ## Before you start
 
+You should have the environment setup where you want to run the benchmarking experiments.
+For instance, this might be an EC2 instance. You also need an S3 bucket to run the workload against.
+
+You should clone this repository to the environment. This tool will build Mountpoint for you.
+
 This project uses [uv](https://github.com/astral-sh/uv) to manage Python environments and dependencies.
 
 Think of `uv` as a close analog of Rust's _cargo_ but for Python.
 It will automatically configure a Python virtual environment for you and install the project dependencies.
 
-Assuming `uv` is installed, getting started is (almost) as easy as running the `benchmark.py` script!
+Assuming `uv` is installed, getting started is (almost) as easy as
+running the `benchmark.py` script from this directory!
 
 ```sh
 uv run benchmark.py --
