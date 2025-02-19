@@ -10,6 +10,11 @@ Configurations in `conf/` describe which values to configure to run experiments 
 such as the maximum count of Mountpoint FUSE workers,
 number of application workers reading from unique file handles, etc..
 
+The benchmark script currently supports FIO jobs.
+The list is defined in `conf/config.yaml` under the `fio_benchmarks` config entry.
+The FIO jobs define what workload they run,
+and also use environment variables in the job definition to allow this script to vary parameters.
+
 ## Before you start
 
 This project uses [uv](https://github.com/astral-sh/uv) to manage Python environments and dependencies.
@@ -40,4 +45,6 @@ uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket
 ```
 
 This will run the default experiment, including many different configuration combinations.
-Output is written to `multirun/` within directories for the date, time, and job run.
+Output is written to `multirun/` within directories for the date, time, and experiment number run.
+The output directory includes a few different files from an individual experiment run,
+including the individual benchmark output `benchmark.log`, FIO output, and Mountpoint logs.
