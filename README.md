@@ -6,7 +6,7 @@ This is a fork of the excellent [`fuser`](https://github.com/cberner/fuser) Rust
 
 This fork should be maintained in the `fuser/fork` branch of the [awslabs/mountpoint-s3 repository on GitHub](https://github.com/awslabs/mountpoint-s3/tree/main/vendor/fuser).
 
-To pull in new changes from upstream, you should fetch and rebase the changes locally and then force push to the `fuser/fork` branch (- not ideal!).
+To pull in new changes from upstream, you should fetch the original and rebase the changes locally onto the latest [tag](https://github.com/cberner/fuser/tags) and then force push to the `fuser/fork` branch (- not ideal!).
 Once the `fuser/fork` branch is as desired, create a new branch from Mountpoint's `main` branch.
 Run the [`vendor-fuser.sh` script](https://github.com/awslabs/mountpoint-s3/blob/main/vendor-fuser.sh).
 You should open a pull request with the new commit created by the script.

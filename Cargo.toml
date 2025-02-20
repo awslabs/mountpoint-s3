@@ -1,10 +1,10 @@
 [package]
-name = "fuser"
+name = "mountpoint-s3-fuser"
 description = "Filesystem in Userspace (FUSE) for Rust"
 license = "MIT"
-repository = "https://github.com/cberner/fuser"
+repository = "https://github.com/awslabs/mountpoint-s3/tree/fuser/fork"
 documentation = "https://docs.rs/fuser"
-homepage = "https://github.com/cberner/fuser"
+homepage = "https://github.com/awslabs/mountpoint-s3/tree/fuser/fork"
 version = "0.15.1"
 edition = "2021"
 readme = "README.md"
