@@ -36,6 +36,9 @@ mountpoint_congestion_threshold: !!null
 # For monitoring network bandwidth
 with_bwm: false
 
+# Works automatically ONLY where this script manages compilation. It has no effect if `mountpoint_binary` is set.
+stub_mode: "off" # fs_handler
+
 iterations: 1
 
 # Define defaults for these columns, but script will run as MULTIRUN by default

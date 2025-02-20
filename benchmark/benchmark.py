@@ -128,6 +128,17 @@ def _mount_mp(
     if cfg['mountpoint_congestion_threshold'] is not None:
         subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg["mountpoint_congestion_threshold"])
 
+    stub_mode = str(cfg["stub_mode"]).lower()
+    if stub_mode != "off" and cfg["mountpoint_binary"] is not None:
+        raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
+    match stub_mode:
+        case "off":
+            pass
+        case "fs_handler":
+            subprocess_env["MOUNTPOINT_BUILD_STUB_FS_HANDLER"] = "1"
+        case _:
+            raise ValueError(f"Unknown stub_mode: {stub_mode}")
+
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
     try:
         output = subprocess.check_output(subprocess_args, env=subprocess_env)
