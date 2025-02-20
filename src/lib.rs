@@ -995,8 +995,7 @@ pub trait Filesystem {
 /// Mount the given filesystem to the given mountpoint. This function will
 /// not return until the filesystem is unmounted.
 ///
-/// Note that you need to lead each option with a separate `"-o"` string. See
-/// `examples/hello.rs`.
+/// Note that you need to lead each option with a separate `"-o"` string.
 #[deprecated(note = "use mount2() instead")]
 pub fn mount<FS: Filesystem, P: AsRef<Path>>(
     filesystem: FS,
