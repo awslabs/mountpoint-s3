@@ -10,7 +10,6 @@ pub mod allocator;
 pub mod byte_buf;
 pub mod error;
 pub mod logging;
-pub mod ref_count;
 pub mod rust_log_adapter;
 pub mod string;
 pub mod task_scheduler;
