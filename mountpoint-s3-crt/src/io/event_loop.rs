@@ -404,18 +404,6 @@ mod test {
         assert!(el_group.get_loop_count() > 0);
     }
 
-    /// Test that creating an event loop group with too many threads will fail.
-    /// This exercises the error path for creating an event loop group, but it also triggers ASAN
-    /// failures, so it's ignored for now.
-    #[test]
-    #[ignore]
-    fn test_new_event_loop_group_max_threads_fails() {
-        let allocator = Allocator::default();
-
-        EventLoopGroup::new_default(&allocator, Some(u16::MAX), || {})
-            .expect_err("creating an event loop group with u16::MAX threads should fail");
-    }
-
     /// Test the EventLoopTimer with some simple timers.
     #[test]
     fn test_timer_future() {
