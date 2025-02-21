@@ -1,0 +1,8 @@
+[global]
+include global_incl.fio
+
+[sequential_read]
+filename_format=j$jobnum_${SIZE_GIB}GiB.bin
+size=${SIZE_GIB}Gi
+rw=read
+fallocate=none

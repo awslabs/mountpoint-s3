@@ -1,0 +1,13 @@
+bs=256k ; no. of bytes
+runtime=30s
+time_based
+group_reporting
+; Use multiple threads instead of processes to parallelize IO
+thread
+size=${SIZE_GIB}Gi
+; Do not make this non-zero, otherwise prefetcher can buffer before ramp ends
+ramp_time=0s
+ioengine=${IO_ENGINE}
+numjobs=${APP_WORKERS}
+openfiles=${APP_WORKERS}
+direct=${DIRECT}
