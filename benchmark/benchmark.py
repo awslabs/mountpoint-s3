@@ -7,6 +7,8 @@ from os import path
 import subprocess
 from subprocess import Popen
 import tempfile
+from typing import Optional
+import urllib.request
 
 import hydra
 from omegaconf import DictConfig
@@ -207,6 +209,24 @@ def _postprocessing(metadata: dict[str, any]) -> None:
     _write_metadata(metadata)
 
 
+def _get_ec2_instance_id() -> Optional[str]:
+    if os.getenv("AWS_EC2_METADATA_DISABLED") == "true":
+        return None
+
+    token_url = "http://169.254.169.254/latest/api/token"
+    token_request = urllib.request.Request(token_url, method='PUT')
+    token_request.add_header("X-aws-ec2-metadata-token-ttl-seconds", "21600")
+    with urllib.request.urlopen(token_request) as token_response:
+        token = token_response.read().decode()
+
+    metadata_url = "http://169.254.169.254/latest/meta-data/instance-id"
+    metadata_request = urllib.request.Request(metadata_url, headers={"X-aws-ec2-metadata-token": token})
+    with urllib.request.urlopen(metadata_request) as metadata_response:
+        instance_id = metadata_response.read().decode()
+
+    return instance_id
+
+
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run_experiment(cfg: DictConfig) -> None:
     """
@@ -218,6 +238,7 @@ def run_experiment(cfg: DictConfig) -> None:
     """
     log.debug("Experiment starting")
     metadata = {
+        "ec2_instance_id": _get_ec2_instance_id(),
         "start_time": datetime.now(tz=timezone.utc),
         "success": False,
     }
