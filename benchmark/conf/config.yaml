@@ -24,6 +24,13 @@ upload_checksums: !!null
 
 iterations: 1
 
+# Define defaults for these columns, but script will run as MULTIRUN by default
+fuse_threads: !!null
+application_workers: 1
+direct_io: false
+fio_benchmark: "sequential_read"
+iteration: 1
+
 hydra:
   help:
     app_name: "Mountpoint sequential read experiment runner"
@@ -33,11 +40,11 @@ hydra:
   sweeper:
     params:
       # Maximum number of FUSE threads for Mountpoint. Passed as `--max-threads` argument.
-      '+fuse_threads': 16, 32, 64, 128
+      'fuse_threads': 16, 32, 64, 128
       # Number of processes that will be interacting with the file.
-      '+application_workers': 1, 4, 8, 16, 32, 64, 128, 256
+      'application_workers': 1, 4, 8, 16, 32, 64, 128, 256
       # Configure if application should use Direct IO, skipping the Linux page cache
-      '+direct_io': false, true
+      'direct_io': false, true
       # Don't touch the params below, they are based on settings above.
-      '+fio_benchmark': "${fio_benchmarks}"
-      '+iteration': "range(${iterations})"
+      'fio_benchmark': "${fio_benchmarks}"
+      'iteration': "range(${iterations})"
