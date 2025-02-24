@@ -353,7 +353,7 @@ where
         let size = upload.size();
         let (put_result, etag) = match upload.complete().await {
             Ok(result) => {
-                debug!(key, size, "put succeeded");
+                debug!(etag = ?result.etag.as_str(), key, size, "put succeeded");
                 (Ok(()), Some(result.etag))
             }
             Err(e) => (Err(err!(libc::EIO, source:e, "put failed")), None),
