@@ -27,6 +27,11 @@ network:
 # For overriding upload checksums configured for Mountpoint. Passed as `--upload-checksums` argument.
 upload_checksums: !!null
 
+# For overriding fuse max_background and congestion threshold setttings
+# environment variables
+mountpoint_max_background: !!null
+mountpoint_congestion_threshold: !!null
+
 iterations: 1
 
 hydra:

@@ -123,6 +123,12 @@ def _mount_mp(
     if (max_throughput := cfg['network']['maximum_throughput_gbps']) is not None:
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
+    if cfg ['mountpoint_max_background'] is not None:
+        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(cfg['mountpoint_max_background'])
+
+    if cfg['mountpoint_congestion_threshold'] is not None:
+        subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg["mountpoint_congestion_threshold"])
+
     log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
     try:
         output = subprocess.check_output(subprocess_args, env=subprocess_env)
