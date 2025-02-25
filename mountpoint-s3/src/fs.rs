@@ -421,7 +421,7 @@ where
         };
 
         let inode = lookup.inode.clone();
-        let full_key = lookup.inode.full_key().to_owned();
+        let full_key = self.superblock.full_key_for_inode(&inode);
         let handle = FileHandle {
             inode,
             full_key,
