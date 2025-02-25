@@ -6,14 +6,44 @@ This is a fork of the excellent [`fuser`](https://github.com/cberner/fuser) Rust
 
 This fork should be maintained in the `fuser/fork` branch of the [awslabs/mountpoint-s3 repository on GitHub](https://github.com/awslabs/mountpoint-s3/tree/main/vendor/fuser).
 
-To pull in new changes from upstream, you should fetch and rebase the changes locally and then force push to the `fuser/fork` branch (- not ideal!).
-Once the `fuser/fork` branch is as desired, create a new branch from Mountpoint's `main` branch.
-Run the [`vendor-fuser.sh` script](https://github.com/awslabs/mountpoint-s3/blob/main/vendor-fuser.sh).
-You should open a pull request with the new commit created by the script.
-This pull request is where the changes are reviewed.
+#### Sync with the origin
 
-If you wish to add new divergent changes to this fork of Fuser,
-open a pull request on the Mountpoint repository branching from the `fuser/fork` branch and use `fuser/fork` as the base branch when creating the pull request.
+To pull in new changes from upstream, you should fetch changes from the original upstream and rebase them locally.
+
+1. Add a new remote if haven't done it already `git remote add fuser https://github.com/cberner/fuser.git`
+2. Fetch from the remote `git fetch fuser`
+3. List all the FUSER's tags `git tag -l | grep v`, it'll output all of the FUSER versions like `v0.15.1`. Select the version that you'd want to sync with (latest one by default)
+4. **Important** Next step implies history change, so at this point we need to make sure that we have a snapshot of the current state of `fuser/fork` branch. It must be a tag, e.g. `fuser-fork-<version>` containing the head commit. We assume we have it since we supposed to be following this runbook during the previous sync.
+    1. Create a new branch from `fuser/fork`, `git rebase v0.15.1 -i` there and pick our commits which we'd like to put on top of the target tag (all of the commits by default)
+    2. Once rebase is finished and all the possible conflicts (at least in `Cargo.toml`) are solved bump the fork's version and commit the change. Original version is not equal to fork's version, but we have to bump either major or patch part of it depending on what's changed in the original
+5. We might want to create a "read-only" PR from the rebased branch with `awslabs:fuser/fork` as the base branch. This PR should never get merged as it'll produce a new commit, but this is a good way for us to have a collaborative consensus on what we're pulling in. After the PR is reviewed it needs to be closed
+> *Note* If we're sure what we're doing the PR step can be skipped and we can force push rebased branch into `fuser/fork`
+6. After PR is approved or changes pushed directly to `awslabs:fuser/fork` we need to create a tag for persisting the branch history.
+    1. Create a new tag with descriptive name containing the currently used fork version, e.g `git tag fuser-fork-0.2.0`.
+    2. Push the created tag to remote `git push upstream fuser-fork-0.2.0`.
+    3. Make sure it's there `git ls-remote --tags upstream "refs/tags/fuser-fork-0.2.0"`.
+It should produce something like `bc31e4d2c2f4601d51b9f0ec37159ee515280253 refs/tags/fuser-fork-0.2.0`
+7. Once `fuser/fork` is in the desired state and the tag is ready we can consume the change in the `main` branch
+    1. `git checkout main`
+    2. Pull in the changes from upstream including submodules `git pull upstream main --recurse-submodules` and update the submodule `git submodule update --remote mountpoint-s3-fuser`.
+> We can avoid adding `--recurse-submodules` argument all the time by telling git to update submodules on every pull `git config set submodule.recurse true`
+
+    1. Since we changed the `fuser/fork` branch and `mountpoint-s3-fuser` refers to it submodule update should produce changes in `mountpoint-s3-fuser` index as well as in `Cargo.lock` if fork's version was changed. We need to commit these changes
+    2. Make sure that everything works by running tests and/or other checks and create a PR to `main` branch
+    3. Get the PR merged
+
+
+#### PR to `fuser/fork`
+
+Create a new branch from `fuser/fork`, commit changes and create a PR with `awslabs:fuser/fork` as the base branch.
+
+The checks for this PR will be broken as they run against the `main` branch which has different structure (this is a point for improvement), but we still can have a consensus on what we're pulling in.
+After PR is reviewed it needs to be closed (as will don't want to further modify the history via GitHub Merge) and the commit needs to be cherry-picked on top of `fuser/fork` branch `git cherry-pick <commit-hash>` and branch is pushed to remote.
+
+After that we can push the updated local `fuser/fork` branch to remote.
+
+#### Publishing the fork
+We want to treat the fork as a standard crate inside our project and follow the existing [manual](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/PUBLISHING_CRATES.md) for publishing.
 
 ---
 

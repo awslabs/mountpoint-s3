@@ -4,7 +4,7 @@ on:
   pull_request:
   push: # required for actions/cache to work
     branches:
-      - master
+      - fuser/fork
 
 jobs:
   compile:
