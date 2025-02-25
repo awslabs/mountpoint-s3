@@ -21,7 +21,7 @@ mountpoint_debug_crt: false
 
 # No configuration out of the box, use defaults.
 network:
-  interface_names: !!null
+  interface_names: []
   maximum_throughput_gbps: !!null
 
 # For overriding upload checksums configured for Mountpoint. Passed as `--upload-checksums` argument.
