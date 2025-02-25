@@ -203,11 +203,11 @@ struct CliArgs {
     region: String,
     #[arg(
         long,
-        help = "max throughput (gigabits/second)",
+        help = "Target throughput (gigabits/second)",
         value_name = "GBPS",
-        default_value = "10.0"
+        visible_alias = "maximum-throughput-gbps"
     )]
-    maximum_throughput_gbps: f64,
+    throughput_target_gbps: f64,
     #[arg(long, help = "part size (bytes)", default_value = "8388608")]
     part_size: usize,
     #[clap(
@@ -228,7 +228,7 @@ fn main() -> anyhow::Result<()> {
 
     let config = CrtClientConfig {
         region: args.region,
-        throughput_target_gbps: args.maximum_throughput_gbps,
+        throughput_target_gbps: args.throughput_target_gbps,
         part_size: args.part_size,
         network_interface_names: args.bind,
     };

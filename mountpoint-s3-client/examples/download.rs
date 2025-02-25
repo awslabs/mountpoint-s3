@@ -44,6 +44,15 @@ pub struct CliArgs {
     )]
     pub range: Option<Range<u64>>,
 
+    #[arg(
+        long,
+        help = "Configure S3 client's desired throughput in Gbps",
+        default_value_t = 10.0,
+        visible_alias = "maximum-throughput-gbps",
+        value_name = "GBPS"
+    )]
+    throughput_target_gbps: f64,
+
     #[clap(
         long,
         help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
@@ -90,6 +99,7 @@ fn main() {
     let mut config = S3ClientConfig::new();
 
     config = config.endpoint_config(EndpointConfig::new(region));
+    config = config.throughput_target_gbps(args.throughput_target_gbps);
     if let Some(interfaces) = &args.bind {
         config = config.network_interface_names(interfaces.clone());
     }
