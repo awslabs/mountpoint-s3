@@ -2593,6 +2593,7 @@ dependencies = [
  "humansize",
  "libc",
  "linked-hash-map",
+ "log",
  "metrics",
  "mountpoint-s3-client",
  "nix",
