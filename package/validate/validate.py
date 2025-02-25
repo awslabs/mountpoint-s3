@@ -18,10 +18,10 @@ def validate(args: argparse.Namespace) -> str:
         image = "public.ecr.aws/ubuntu/ubuntu:20.04"
     elif package == "rpm-al2" or package == "gzip-al2":
         image = "public.ecr.aws/amazonlinux/amazonlinux:2"
-    elif package == "rpm-sles":
+    elif package == "rpm-suse":
         image = "registry.suse.com/bci/bci-base:15.6"
     else:
-        raise Exception(f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-sles")
+        raise Exception(f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-suse")
 
     print("Validating Mountpoint Release Package")
     print(f"\tVersion: {args.version}")
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     p.add_argument("--version", help="the version number for the Mountpoint release", required=True)
     p.add_argument("--arch", help="the architecture to validate", required=True, choices=["x86_64", "arm64"])
     p.add_argument("--artifact", help="the artifact to validate", required=True, choices=["deb", "rpm", "gzip"])
-    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2", "sles"])
+    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2", "suse"])
     p.add_argument("--bucket", help="the public bucket to mount", required=True)
 
     args = p.parse_args()

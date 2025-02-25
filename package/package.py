@@ -39,10 +39,13 @@ class BuildMetadata:
     arch: str
     arch_name: str
 
-    def artifact_name(self, extension: str, distr: Optional[str]=None):
-        if distr:
-            return f"mount-s3-{self.version_string}-{self.arch_name}-{distr}.{extension}"
+    def artifact_name(self, extension: str):
         return f"mount-s3-{self.version_string}-{self.arch_name}.{extension}"
+
+    def spec_file_name(self, distr: Optional[str]=None):
+        if distr:
+            return f"mount-s3-{distr}.spec"
+        return "mount-s3.spec"
 
 
 OPT_PATH = "opt/aws/mountpoint-s3"
@@ -206,7 +209,8 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str]=No
     """Build an RPM package from the contents of the package directory. Return the path to the
     final RPM package."""
 
-    rpm_buildroot = tempfile.mkdtemp()
+    rpm_buildroot = os.path.join(metadata.buildroot, "rpm-{}".format(distr or "default"))
+    os.mkdir(rpm_buildroot)
 
     rpm_topdir = os.path.join(rpm_buildroot, "rpm-topdir")
     log("Building RPM in topdir {} for {} Linux distribution".format(rpm_topdir, distr or "default"))
@@ -223,10 +227,7 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str]=No
     run(["tar", "czvf", source_tar_path, "-C", rpm_package_dir, "opt"])
 
     # Build the RPM
-    spec_file_name = "mount-s3.spec"
-    if distr:
-        spec_file_name = f"mount-s3-{distr}.spec"
-    spec_file = os.path.join(metadata.cargoroot, f"package/{spec_file_name}")
+    spec_file = os.path.join(metadata.cargoroot, f"package/{metadata.spec_file_name(distr)}")
     cmd = [
         "rpmbuild",
         "-bb",
@@ -243,7 +244,7 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str]=No
     rpms = os.listdir(arch_dir)
     assert len(rpms) == 1
     rpm_path = os.path.join(arch_dir, rpms[0])
-    final_rpm_path = os.path.join(metadata.output_dir, metadata.artifact_name("rpm", distr))
+    final_rpm_path = os.path.join(metadata.output_dir, metadata.artifact_name("{}.rpm".format(distr) if distr else "rpm"))
     shutil.copy2(rpm_path, final_rpm_path)
 
     log(f"Built RPM: {final_rpm_path}")
@@ -323,8 +324,8 @@ def build(args: argparse.Namespace) -> str:
     artifacts = []
     if not args.no_rpm:
         artifacts.append(build_rpm(metadata, package_dir))
-    if not args.no_sles_rpm:
-        artifacts.append(build_rpm(metadata, package_dir, "sles"))
+    if not args.no_suse_rpm:
+        artifacts.append(build_rpm(metadata, package_dir, "suse"))
     if not args.no_deb:
         artifacts.append(build_deb(metadata, package_dir))
     artifacts.append(build_package_archive(metadata, package_dir))
@@ -340,7 +341,7 @@ if __name__ == "__main__":
     p.add_argument("--root-dir", help="override the path to the Cargo workspace")
     p.add_argument("--expected-version", help="expected version number for the Mountpoint binary")
     p.add_argument("--no-rpm", action="store_true", help="do not build an RPM")
-    p.add_argument("--no-sles-rpm", action="store_true", help="do not build an RPM for SLES")
+    p.add_argument("--no-suse-rpm", action="store_true", help="do not build an RPM for SUSE")
     p.add_argument("--no-deb", action="store_true", help="do not build a DEB")
     p.add_argument("--official", action="store_true", help="build as an official release")
 

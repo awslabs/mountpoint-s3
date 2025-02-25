@@ -10,7 +10,7 @@ Mountpoint for Amazon S3 is only available for Linux operating systems.
 
 The instructions for downloading and installing Mountpoint for Amazon S3 depend on which Linux operating system you are using.
 
-### RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL)
+### RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL; excluding SUSE)
 
 To download and install Mountpoint for Amazon S3 on RPM-based distributions, including Amazon Linux, follow these steps:
 
@@ -84,20 +84,20 @@ To download and install Mountpoint for Amazon S3 on SLES, follow these steps:
 1. Download the Mountpoint for Amazon S3 package using the appropriate command for your architecture:
    * x86_64:
      ```
-     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3-sles.rpm
+     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.suse.rpm
      ```
    * ARM64 (Graviton):
      ```
-     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/arm64/mount-s3-sles.rpm
+     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/arm64/mount-s3.suse.rpm
      ```
 2. Optionally, you can verify authenticity and integrity of the downloaded file. Identify the appropriate signature link depending on your architecture:
-    * x86_64 architecture: `https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3-sles.rpm.asc`
-    * ARM64 (Graviton) architecture: `https://s3.amazonaws.com/mountpoint-s3-release/latest/arm64/mount-s3-sles.rpm.asc`
+    * x86_64 architecture: `https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.suse.rpm.asc`
+    * ARM64 (Graviton) architecture: `https://s3.amazonaws.com/mountpoint-s3-release/latest/arm64/mount-s3.suse.rpm.asc`
 
    Then see [Verifying the signature of the Mountpoint for Amazon S3 package](#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) below.
 3. Install the package by entering the following command:
    ```
-   sudo zypper refresh && sudo zypper --no-gpg-checks install -y ./mount-s3-sles.rpm
+   sudo zypper refresh && sudo zypper --no-gpg-checks install -y ./mount-s3.suse.rpm
    ```
 4. Verify that Mountpoint for Amazon S3 is successfully installed by entering the following command:
    ```
