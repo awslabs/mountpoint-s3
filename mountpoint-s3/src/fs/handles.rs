@@ -98,7 +98,7 @@ where
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
         let handle = fs.superblock.write(&fs.client, ino, &write_mode, is_truncate).await?;
-        let bucket = &fs.bucket;
+        let bucket = fs.bucket.clone();
         let key = fs.superblock.full_key_for_inode(&lookup.inode);
         let handle = if write_mode.incremental_upload {
             let initial_etag = if is_truncate {
@@ -107,9 +107,9 @@ where
                 lookup.stat.etag.as_ref().map(|e| e.into())
             };
             let current_offset = if is_truncate { 0 } else { lookup.stat.size as u64 };
-            let request =
-                fs.uploader
-                    .start_incremental_upload(bucket.to_owned(), key, current_offset, initial_etag.clone());
+            let request = fs
+                .uploader
+                .start_incremental_upload(bucket, key, current_offset, initial_etag.clone());
             FileHandleState::Write(UploadState::AppendInProgress {
                 request,
                 handle,
@@ -119,7 +119,7 @@ where
         } else {
             let request = fs
                 .uploader
-                .start_atomic_upload(bucket, &key)
+                .start_atomic_upload(bucket, key)
                 .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
             FileHandleState::Write(UploadState::MPUInProgress { request, handle })
         };
