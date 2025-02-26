@@ -14,6 +14,9 @@
 
 * CLI flags `--sse` and `--sse-kms-key-id` are now applied to object uploads to the xz cache. ([#1257](https://github.com/awslabs/mountpoint-s3/pull/1257))
 
+### Other Changes
+* Fix an issue where file names were not expelled from negative cache.
+
 ## v1.14.0 (January 10, 2025)
 
 ### New features
