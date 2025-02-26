@@ -8,6 +8,7 @@
 ### Other changes
 
 * Add support for appending to objects originally uploaded with a CRC64-NVME checksum. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
+* Add a package for SUSE Linux Enterprise Server (SLES). ([#1278](https://github.com/awslabs/mountpoint-s3/pull/1278))
 
 ### Breaking changes
 
