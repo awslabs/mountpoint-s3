@@ -15,7 +15,6 @@ use thiserror::Error;
 
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
-use crate::common::ref_count::{abort_shutdown_callback, new_shutdown_callback_options};
 use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
 use crate::io::futures::FutureSpawner;
 use crate::io::io_library_init;
@@ -110,18 +109,32 @@ impl EventLoopGroup {
     ) -> Result<Self, Error> {
         io_library_init(allocator);
 
-        let max_threads = max_threads.unwrap_or(0);
+        let loop_count = max_threads.unwrap_or(0);
 
-        let shutdown_options = new_shutdown_callback_options(on_shutdown);
+        let user_data = Box::leak(Box::new(ShutdownCallbackUserData {
+            callback: Box::new(on_shutdown),
+        }));
+        let shutdown_options = aws_shutdown_callback_options {
+            shutdown_callback_fn: Some(shutdown_callback),
+            shutdown_callback_user_data: user_data as *mut ShutdownCallbackUserData as *mut libc::c_void,
+        };
+
+        let event_loop_group_options = aws_event_loop_group_options {
+            loop_count,
+            shutdown_options: &shutdown_options,
+            ..Default::default()
+        };
 
         // SAFETY: `allocator` is a valid `aws_allocator`. If the creation of the event loop group
-        // fails, then (and only then), we abort the callback which frees the internal data
-        // structures, which is safe since we know the callback won't fire if the event loop group
-        // cannot be created.
+        // fails, then (and only then), we drop the callback user_data, which is safe since we know
+        // the callback won't fire if the event loop group cannot be created.
         let inner = unsafe {
-            aws_event_loop_group_new_default(allocator.inner.as_ptr(), max_threads, &shutdown_options)
+            aws_event_loop_group_new(allocator.inner.as_ptr(), &event_loop_group_options)
                 .ok_or_last_error()
-                .inspect_err(|_| abort_shutdown_callback(shutdown_options))?
+                .inspect_err(|_| {
+                    let user_data: Box<ShutdownCallbackUserData> = Box::from_raw(user_data);
+                    std::mem::drop(user_data);
+                })?
         };
 
         Ok(Self { inner })
@@ -147,6 +160,18 @@ impl EventLoopGroup {
         // SAFETY: self.inner is a valid event_loop_group.
         unsafe { aws_event_loop_group_get_loop_count(self.inner.as_ptr()) }
     }
+}
+
+struct ShutdownCallbackUserData {
+    callback: Box<dyn FnOnce()>,
+}
+
+/// SAFETY: not safe to call directly, only let the CRT call this function as a callback.
+unsafe extern "C" fn shutdown_callback(user_data: *mut libc::c_void) {
+    assert!(!user_data.is_null());
+    let user_data: Box<ShutdownCallbackUserData> = Box::from_raw(user_data as *mut ShutdownCallbackUserData);
+
+    (user_data.callback)();
 }
 
 impl crate::private::Sealed for EventLoopGroup {}
@@ -377,18 +402,6 @@ mod test {
         let el_group = EventLoopGroup::new_default(&allocator, None, || {}).unwrap();
 
         assert!(el_group.get_loop_count() > 0);
-    }
-
-    /// Test that creating an event loop group with too many threads will fail.
-    /// This exercises the error path for creating an event loop group, but it also triggers ASAN
-    /// failures, so it's ignored for now.
-    #[test]
-    #[ignore]
-    fn test_new_event_loop_group_max_threads_fails() {
-        let allocator = Allocator::default();
-
-        EventLoopGroup::new_default(&allocator, Some(u16::MAX), || {})
-            .expect_err("creating an event loop group with u16::MAX threads should fail");
     }
 
     /// Test the EventLoopTimer with some simple timers.
