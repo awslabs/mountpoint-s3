@@ -257,14 +257,25 @@ class ResourceMonitoring():
 
     def _close(self) -> None:
         log.debug("Shutting down resource monitors...")
-        if self.mpstat_process:
-            self.mpstat_process.send_signal(signal.SIGINT)
-            self.mpstat_process.wait()
-        if self.bwm_ng_process:
-            self.bwm_ng_process.send_signal(signal.SIGINT)
-            self.bwm_ng_process.wait()
+        for process in [self.mpstat_process, self.bwm_ng_process]:
+            self._stop_resource_monitor(process)
+
         for output_file in self.output_files:
+            self.close_output_file(output_file)
+
+    def close_output_file(self, output_file):
+        try:
             output_file.close()
+        except Exception:
+            log.error("Error closing {output_file}:", exc_info=True)
+
+    def _stop_resource_monitor(self, process):
+        try:
+            if process:
+                process.send_signal(signal.SIGINT)
+                process.wait()
+        except Exception:
+            log.error("Error shutting down monitoring:", exc_info=True)
 
     def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
         """Start process_args with output to output_file.
@@ -293,8 +304,6 @@ class ResourceMonitoring():
             '/usr/local/bin/bwm-ng',
             '-o', 'csv'
             ], 'bwm-ng.csv')
-
-    from contextlib import contextmanager
 
     @contextmanager
     def managed(with_bwm=False):
