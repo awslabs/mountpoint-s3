@@ -93,12 +93,12 @@ where
     /// Start a new atomic upload.
     pub fn start_atomic_upload(
         &self,
-        bucket: &str,
-        key: &str,
+        bucket: String,
+        key: String,
     ) -> Result<UploadRequest<Client>, UploadError<Client::ClientError>> {
         let params = UploadRequestParams {
-            bucket: bucket.to_owned(),
-            key: key.to_owned(),
+            bucket,
+            key,
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             storage_class: self.storage_class.clone(),
