@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v1.15.0 (February 27, 2025)
+
 ### New features
 
 * Add a new command-line argument `--negative-metadata-ttl` to independently set the time-to-live (TTL) for cached negative entries.
@@ -9,6 +11,7 @@
 
 * Add support for appending to objects originally uploaded with a CRC64-NVME checksum. ([#1235](https://github.com/awslabs/mountpoint-s3/pull/1235))
 * Add a package for SUSE Linux Enterprise Server (SLES). ([#1278](https://github.com/awslabs/mountpoint-s3/pull/1278))
+* Add retries for the ECS credentials provider. ([aws-c-auth#259](https://github.com/awslabs/aws-c-auth/pull/259/))
 
 ### Breaking changes
 
