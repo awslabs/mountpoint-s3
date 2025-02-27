@@ -261,9 +261,9 @@ class ResourceMonitoring():
             self._stop_resource_monitor(process)
 
         for output_file in self.output_files:
-            self.close_output_file(output_file)
+            self._close_output_file(output_file)
 
-    def close_output_file(self, output_file):
+    def _close_output_file(self, output_file):
         try:
             output_file.close()
         except Exception:
