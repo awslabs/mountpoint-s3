@@ -1,5 +1,5 @@
-# Most of these targets just exist so we can avoid running clippy and rustfmt on the
-# `fuser`'s fork crate (`mountpoint-s3-fuser`). If those tools ever get stabilized `ignore` features, or we stop vendoring, this can
+# Most of these targets just exist so we can avoid running clippy and rustfmt on the vendored
+# moutpoint-s3-fuser crate. If those tools ever get stabilized `ignore` features, or we stop vendoring, this can
 # go away.
 
 CRATES = mountpoint-s3-crt-sys mountpoint-s3-crt mountpoint-s3-client mountpoint-s3

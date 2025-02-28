@@ -1,0 +1,10 @@
+*
+!src/
+!examples/
+!./Cargo.*
+!./rust-toolchain
+!./build.rs
+!./pjdfs.sh
+!./xfstests.sh
+!./mount_tests.sh
+!./simplefs_tests.sh

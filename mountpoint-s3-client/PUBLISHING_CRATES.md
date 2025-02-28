@@ -35,6 +35,7 @@ The next steps should be completed for each crate that is being updated in the f
 - mountpoint-s3-crt-sys
 - mountpoint-s3-crt
 - mountpoint-s3-client
+- mountpoint-s3-fuser
 
 For each crate replacing the crate and version number where applicable:
 
