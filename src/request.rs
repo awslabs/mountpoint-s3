@@ -28,6 +28,8 @@ use crate::reply::ReplyRaw;
 use crate::reply::ReplySender;
 use crate::session::SessionACL;
 use crate::session::SessionEventLoop;
+use crate::session::FilesystemHolder;
+use std::ops::Deref;
 
 /// Request data structure
 #[derive(Debug)]
@@ -57,7 +59,7 @@ impl<'a> RequestWithSender<'a> {
     /// request and sends back the returned reply to the kernel
     pub(crate) fn dispatch<FS: Filesystem, F>(&self, se: &SessionEventLoop<FS, F>)
     where
-        F: std::ops::Deref<Target = crate::session::FilesystemHolder<FS>>,
+        F: Deref<Target = FilesystemHolder<FS>>,
     {
         debug!("{} thread={}", self.request, se.thread_name);
         match self.dispatch_req(se) {
@@ -72,7 +74,7 @@ impl<'a> RequestWithSender<'a> {
         se: &SessionEventLoop<FS, F>,
     ) -> Result<Option<ResponseData>, Errno>
     where
-        F: std::ops::Deref<Target = crate::session::FilesystemHolder<FS>>,
+        F: Deref<Target = FilesystemHolder<FS>>,
     {
         let op = self.request.operation().map_err(|_| Errno::ENOSYS)?;
         // Implement allow_root & access check for auto_unmount

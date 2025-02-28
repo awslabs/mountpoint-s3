@@ -8,6 +8,7 @@
 use std::borrow::Cow;
 use std::fs::File;
 use std::io;
+use std::ops::Deref;
 use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 use std::os::fd::OwnedFd;
@@ -546,7 +547,7 @@ impl SessionUnmounter {
 
 pub(crate) struct SessionEventLoop<FS: Filesystem, F = Arc<FilesystemHolder<FS>>>
 where
-    F: std::ops::Deref<Target = FilesystemHolder<FS>>,
+    F: Deref<Target = FilesystemHolder<FS>>,
 {
     /// Cache thread name for faster `debug!`.
     pub(crate) thread_name: String,
@@ -558,7 +559,7 @@ where
 
 impl<FS: Filesystem, F> SessionEventLoop<FS, F>
 where
-    F: std::ops::Deref<Target = FilesystemHolder<FS>>,
+    F: Deref<Target = FilesystemHolder<FS>>,
 {
     fn event_loop(&self) -> io::Result<()> {
         self.event_loop_with_callbacks(|_| {}, |_| {})
@@ -566,8 +567,8 @@ where
 
     fn event_loop_with_callbacks<FB, FA>(&self, mut before: FB, mut after: FA) -> io::Result<()>
     where
-        FB: FnMut(&crate::Request),
-        FA: FnMut(&crate::Request),
+        FB: FnMut(&Request),
+        FA: FnMut(&Request),
     {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
@@ -584,7 +585,7 @@ where
                             req.reply::<ReplyEmpty>().ok();
                             return Ok(());
                         } else {
-                            let param = crate::Request::ref_cast(req.request.header());
+                            let param = Request::ref_cast(req.request.header());
                             before(param);
                             req.dispatch(self);
                             after(param);

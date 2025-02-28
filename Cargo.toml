@@ -9,20 +9,20 @@ license = "MIT"
 repository = "https://github.com/cberner/fuser"
 
 [package]
-name = "fuser"
-description = "Filesystem in Userspace (FUSE) for Rust"
+name = "mountpoint-s3-fuser"
+description = "A fork of fuser - Filesystem in Userspace (FUSE) for Rust - only for use in Mountpoint for Amazon S3"
 license.workspace = true
-repository.workspace = true
-documentation = "https://docs.rs/fuser"
-homepage = "https://github.com/cberner/fuser"
-version = "0.17.0"
+homepage = "https://github.com/awslabs/mountpoint-s3/tree/fuser/fork"
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 readme = "README.md"
-authors.workspace = true
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "api-bindings", "filesystem", "os::unix-apis"]
 build = "build.rs"
+
+[lib]
+name = "fuser"
 
 [dependencies]
 bitflags = "2.9"
