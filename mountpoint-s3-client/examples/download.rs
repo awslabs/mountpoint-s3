@@ -43,22 +43,6 @@ pub struct CliArgs {
         value_parser = parse_range,
     )]
     pub range: Option<Range<u64>>,
-
-    #[arg(
-        long,
-        help = "Configure S3 client's desired throughput in Gbps",
-        default_value_t = 10.0,
-        visible_alias = "maximum-throughput-gbps",
-        value_name = "GBPS"
-    )]
-    throughput_target_gbps: f64,
-
-    #[clap(
-        long,
-        help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
-        value_name = "NETWORK_INTERFACE"
-    )]
-    pub bind: Option<Vec<String>>,
 }
 
 /// Empty error type, since we don't care too much for an example.
@@ -96,15 +80,8 @@ fn main() {
     let region = &args.region;
     let range = args.range;
 
-    let mut config = S3ClientConfig::new();
-
-    config = config.endpoint_config(EndpointConfig::new(region));
-    config = config.throughput_target_gbps(args.throughput_target_gbps);
-    if let Some(interfaces) = &args.bind {
-        config = config.network_interface_names(interfaces.clone());
-    }
-
-    let client = S3CrtClient::new(config).expect("couldn't create client");
+    let client = S3CrtClient::new(S3ClientConfig::new().endpoint_config(EndpointConfig::new(region)))
+        .expect("couldn't create client");
 
     let last_offset = Arc::new(Mutex::new(None));
     let last_offset_clone = Arc::clone(&last_offset);
