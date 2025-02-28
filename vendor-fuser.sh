@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FUSER_VENDOR_PATH="vendor/fuser"
+FUSER_VENDOR_PATH="mountpoint-s3-fuser"
 BASE_PATH=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FUSER_FULL_PATH="$BASE_PATH/$FUSER_VENDOR_PATH"
 
