@@ -49,7 +49,7 @@ pub struct CliArgs {
 
     #[clap(
         long,
-        help = "Target throughput in gibibits per second",
+        help = "Target throughput in gigabits per second",
         value_name = "N",
         value_parser = value_parser!(u64).range(1..),
         alias = "throughput-target-gbps",
