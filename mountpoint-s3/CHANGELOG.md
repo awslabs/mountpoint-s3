@@ -1,5 +1,8 @@
 ## Unreleased
 
+* Move FUSER fork's code from `vendor/fuser` to `mountpoint-s3-fuser` folder as it was renamed and re-vendor the renamed crate.
+  ([#1295](https://github.com/awslabs/mountpoint-s3/pull/1295))
+
 ## v1.15.0 (February 27, 2025)
 
 ### New features

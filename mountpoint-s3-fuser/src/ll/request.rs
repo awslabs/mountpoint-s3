@@ -427,6 +427,10 @@ mod op {
             #[cfg(target_os = "macos")]
             match self.arg.valid & FATTR_CRTIME {
                 0 => None,
+                // During certain operation, macOS use some helper that send request to the mountpoint with `crtime` set to 0xffffffff83da4f80.
+                // That value correspond to `-2_082_844_800u64` which is the difference between the date 1904-01-01 and 1970-01-01 because macOS epoch start at 1904 and not 1970.
+                // https://github.com/macfuse/macfuse/issues/1042
+                _ if self.arg.crtime == 0xffffffff83da4f80 => None,
                 _ => Some(
                     SystemTime::UNIX_EPOCH + Duration::new(self.arg.crtime, self.arg.crtimensec),
                 ),

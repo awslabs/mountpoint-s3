@@ -16,14 +16,29 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache
+        id: rust-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/toolchains/
+            target/
+          key: ${{ runner.os }}-cargo-compile-v1-${{ matrix.libfuse }}-${{ matrix.features }}-${{ hashFiles('**/Cargo.toml', '.github/workflows/*.yml') }}
+
       - name: Install packages
         run: |
           sudo apt update
           sudo apt install -y ${{ matrix.libfuse }} build-essential
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: x86_64-unknown-linux-musl
+      - name: Install Rust
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: |
+          rustup target add x86_64-unknown-linux-musl
 
       - name: Run tests
         run: |
@@ -36,18 +51,35 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache
+        id: rust-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup/toolchains/
+            target/
+          key: ${{ runner.os }}-cargo-ci-v1-${{ hashFiles('**/Cargo.toml', '.github/workflows/*.yml') }}
+
       - name: Install packages
         run: |
           sudo apt update
           sudo apt install -y libfuse-dev libfuse3-dev build-essential
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install 1.81
+          rustup component add rustfmt
+          rustup component add clippy
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny@0.14
+      - name: Install cargo-deny
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: cargo +1.81 install --force --version 0.16.2 cargo-deny --locked
 
       - name: Run tests
         run: INTERACTIVE="" make pre
