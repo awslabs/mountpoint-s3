@@ -55,7 +55,7 @@ pub struct CliArgs {
         value_parser = value_parser!(u64).range(1..),
         alias = "throughput-target-gbps",
     )]
-    pub maximum_throughput_gbps: Option<f64>,
+    pub maximum_throughput_gbps: Option<u64>,
 
     #[clap(
         long,
@@ -110,7 +110,7 @@ fn main() {
         .read_backpressure(true)
         .initial_read_window(initial_read_window_size);
     if let Some(throughput_target_gbps) = args.maximum_throughput_gbps {
-        config = config.throughput_target_gbps(throughput_target_gbps);
+        config = config.throughput_target_gbps(throughput_target_gbps as f64);
     }
     if let Some(part_size) = args.part_size {
         config = config.part_size(part_size as usize);
