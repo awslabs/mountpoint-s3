@@ -57,7 +57,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
       run: cargo build --release
@@ -141,7 +141,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
       run: cargo build --release
@@ -207,7 +207,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to this currently because `vendor/fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
       run: cargo build --release
