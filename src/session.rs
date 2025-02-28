@@ -566,8 +566,8 @@ where
 
     fn event_loop_with_callbacks<FB, FA>(&self, mut before: FB, mut after: FA) -> io::Result<()>
     where
-        FB: FnMut(&crate::Request),
-        FA: FnMut(&crate::Request),
+        FB: FnMut(&Request),
+        FA: FnMut(&Request),
     {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
@@ -584,7 +584,7 @@ where
                             req.reply::<ReplyEmpty>().ok();
                             return Ok(());
                         } else {
-                            let param = crate::Request::ref_cast(req.request.header());
+                            let param = Request::ref_cast(req.request.header());
                             before(param);
                             req.dispatch(self);
                             after(param);
