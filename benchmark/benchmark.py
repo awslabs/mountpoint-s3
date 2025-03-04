@@ -261,13 +261,10 @@ class ResourceMonitoring():
             self._stop_resource_monitor(process)
 
         for output_file in self.output_files:
-            self._close_output_file(output_file)
-
-    def _close_output_file(self, output_file):
-        try:
-            output_file.close()
-        except Exception:
-            log.error("Error closing {output_file}:", exc_info=True)
+            try:
+                output_file.close()
+            except Exception:
+                log.error("Error closing {output_file}:", exc_info=True)
 
     def _stop_resource_monitor(self, process):
         try:
@@ -285,7 +282,7 @@ class ResourceMonitoring():
         """
         f = open(output_file, 'w')
         self.output_files.append(f)
-        log.debug(f"Starting monitoring tool {''.join(process_args)}")
+        log.debug(f"Starting monitoring tool {' '.join(process_args)}")
         return subprocess.Popen(process_args, stdout=f)
 
     def _start_mpstat(self) -> any:
