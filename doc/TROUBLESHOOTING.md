@@ -26,7 +26,7 @@ In Mountpoint's logs, a warning message will be emitted similar to below:
 
 ```
 WARN write{req=52 ino=49 fh=3 offset=512 length=512 name="out"}:
-mountpoint_s3::fuse: write failed: upload error: out of order write NOT supported by Mountpoint, aborting the upload; expected offset 0 but got 512
+mountpoint_s3_fs::fuse: write failed: upload error: out of order write NOT supported by Mountpoint, aborting the upload; expected offset 0 but got 512
 ```
 
 To work around this, write your file to a temporary location such as `/tmp/`, and copy or move to the mounted directory
@@ -46,12 +46,12 @@ Log entries for overwriting a file looks like one of the following depending on 
 
 ```
 WARN setattr{req=11 ino=2 name="existing-file.txt"}:
-mountpoint_s3::fuse: setattr failed: inode error: inode 2 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
+mountpoint_s3_fs::fuse: setattr failed: inode error: inode 2 (full key "existing-file.txt") is a remote inode and its attributes cannot be modified
 ```
 
 ```
 WARN setattr{req=11 ino=2 name="existing-file.txt"}:
-mountpoint_s3::fuse: setattr failed: file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it
+mountpoint_s3_fs::fuse: setattr failed: file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it
 ```
 
 If you want to overwrite a file using Mountpoint, please use `--allow-overwrite` CLI flag during mounting the bucket on a directory.
@@ -69,7 +69,7 @@ In Mountpoint's logs, a message similar to the one below should be emitted:
 
 ```
 WARN unlink{req=8 parent=1 name="test-file.txt"}:
-mountpoint_s3::fuse: unlink failed: Deletes are disabled. Use '--allow-delete' mount option to enable it.
+mountpoint_s3_fs::fuse: unlink failed: Deletes are disabled. Use '--allow-delete' mount option to enable it.
 ```
 
 In order to delete files using Mountpoint, you must opt-in using the `--allow-delete` CLI flag.
@@ -95,7 +95,7 @@ Mountpoint logs will show an entry like this:
 
 ```
 WARN readdir{req=5 ino=1 fh=2 offset=17}:
-mountpoint_s3::inode::readdir::ordered: file 'a' (full key "a") is omitted because another directory 'a' exist with the same name
+mountpoint_s3_fs::inode::readdir::ordered: file 'a' (full key "a") is omitted because another directory 'a' exist with the same name
 ```
 
 When listing the contents of an S3 Express One Zone directory bucket,
@@ -119,7 +119,7 @@ Mountpoint logs should show the following message:
 
 ```
 rename{req=120 parent=1 name="hello.txt" newparent=1 newname="new_hello.txt"}:
-mountpoint_s3::fuse: rename failed: operation not supported by Mountpoint
+mountpoint_s3_fs::fuse: rename failed: operation not supported by Mountpoint
 ```
 
 ## Accessing Glacier objects
@@ -129,7 +129,7 @@ When trying to access objects in these storage classes, Mountpoint logs will sho
 
 ```
 WARN lookup{req=6 ino=1 name="class_GLACIER"}:
-mountpoint_s3::inode: objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored
+mountpoint_s3_fs::inode: objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored
 ```
 
 To access objects in these storage classes with Mountpoint, restore or copy them to another storage class first.
@@ -149,7 +149,7 @@ Mountpoint logs should contain an error similar to below:
 
 ```
 WARN setattr{req=4 ino=21 name="init.txt"}:
-mountpoint_s3::fuse: setattr failed: inode error: inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
+mountpoint_s3_fs::fuse: setattr failed: inode error: inode 21 (full key "init.txt") is a remote inode and its attributes cannot be modified
 ```
 
 ## Invalid Hostname for DNS resolution
@@ -259,7 +259,7 @@ You should also see an error message in Mountpoint's logs:
 
 ```
 WARN write{req=100 ino=5 fh=2 offset=83886080000 length=1048576 pid=100 name="200GiB-file"}:
-mountpoint_s3::fuse: write failed: upload error: object exceeded maximum upload size of 83886080000 bytes
+mountpoint_s3_fs::fuse: write failed: upload error: object exceeded maximum upload size of 83886080000 bytes
 ```
 
 For workloads uploading files larger than 78GiB, we recommend configuring a larger part size using the `--write-part-size <MiB>` command-line argument.
