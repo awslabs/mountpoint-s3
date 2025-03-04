@@ -130,17 +130,10 @@ where
 
     #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, pid=req.pid(), name=field::Empty))]
     fn open(&self, req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
-        let fs = self.fs.clone();
-        let pid = req.pid();
-        self.executor.spawn_ok(
-            async move {
-                match fs.open(ino, flags.into(), pid).await {
-                    Ok(opened) => reply.opened(opened.fh, opened.flags),
-                    Err(e) => fuse_error!("open", reply, e),
-                }
-            }
-            .in_current_span(),
-        );
+        match block_on(self.fs.open(ino, flags.into(), req.pid()).in_current_span()) {
+            Ok(opened) => reply.opened(opened.fh, opened.flags),
+            Err(e) => fuse_error!("open", reply, e),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size, name=field::Empty))]
@@ -174,16 +167,10 @@ where
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, name=field::Empty))]
     fn opendir(&self, _req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
-        let fs = self.fs.clone();
-        self.executor.spawn_ok(
-            async move {
-                match fs.opendir(parent, flags).await {
-                    Ok(opened) => reply.opened(opened.fh, opened.flags),
-                    Err(e) => fuse_error!("opendir", reply, e),
-                }
-            }
-            .in_current_span(),
-        );
+        match block_on(self.fs.opendir(parent, flags).in_current_span()) {
+            Ok(opened) => reply.opened(opened.fh, opened.flags),
+            Err(e) => fuse_error!("opendir", reply, e),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
@@ -273,31 +260,18 @@ where
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync, name=field::Empty))]
     fn fsync(&self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
-        let fs = self.fs.clone();
-        self.executor.spawn_ok(
-            async move {
-                match fs.fsync(ino, fh, datasync).await {
-                    Ok(()) => reply.ok(),
-                    Err(e) => fuse_error!("fsync", reply, e),
-                }
-            }
-            .in_current_span(),
-        );
+        match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("fsync", reply, e),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, pid=req.pid(), name=field::Empty))]
     fn flush(&self, req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
-        let fs = self.fs.clone();
-        let pid = req.pid();
-        self.executor.spawn_ok(
-            async move {
-                match fs.flush(ino, fh, lock_owner, pid).await {
-                    Ok(()) => reply.ok(),
-                    Err(e) => fuse_error!("flush", reply, e),
-                }
-            }
-            .in_current_span(),
-        );
+        match block_on(self.fs.flush(ino, fh, lock_owner, req.pid()).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("flush", reply, e),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, name=field::Empty))]
@@ -311,30 +285,18 @@ where
         flush: bool,
         reply: ReplyEmpty,
     ) {
-        let fs = self.fs.clone();
-        self.executor.spawn_ok(
-            async move {
-                match fs.release(ino, fh, flags, lock_owner, flush).await {
-                    Ok(()) => reply.ok(),
-                    Err(e) => fuse_error!("release", reply, e),
-                }
-            }
-            .in_current_span(),
-        );
+        match block_on(self.fs.release(ino, fh, flags, lock_owner, flush).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("release", reply, e),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
     fn releasedir(&self, _req: &Request<'_>, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
-        let fs = self.fs.clone();
-        self.executor.spawn_ok(
-            async move {
-                match fs.releasedir(ino, fh, flags).await {
-                    Ok(()) => reply.ok(),
-                    Err(e) => fuse_error!("releasedir", reply, e),
-                }
-            }
-            .in_current_span(),
-        );
+        match block_on(self.fs.releasedir(ino, fh, flags).in_current_span()) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("releasedir", reply, e),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
