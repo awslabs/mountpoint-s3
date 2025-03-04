@@ -2,7 +2,7 @@
 # moutpoint-s3-fuser crate. If those tools ever get stabilized `ignore` features, or we stop vendoring, this can
 # go away.
 
-CRATES = mountpoint-s3-crt-sys mountpoint-s3-crt mountpoint-s3-client mountpoint-s3
+CRATES = mountpoint-s3-crt-sys mountpoint-s3-crt mountpoint-s3-client mountpoint-s3-fs mountpoint-s3
 RUST_FEATURES ?= fuse_tests
 
 .PHONY: all
