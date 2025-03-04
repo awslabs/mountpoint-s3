@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1741087393321,
+  "lastUpdate": 1741087588893,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "smeyer@fastmail.com",
-            "name": "Steven Meyer",
-            "username": "notoriaga"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "5e580a8632e30d7616d392fff30eaf215da22cec",
-          "message": "Add negative metadata cache ttl (#1246)\n\nAdds a new CLI argument `--negative-cache-ttl` that lets you set the TTL\nfor negative metadata entries separately from `--metadata-ttl`. My use\ncase is a write once read many bucket. Objects do not get deleted from\nthis bucket, and new objects are added every few minutes. I'd like to be\nable to set `--metadata-ttl indefinite` and `--negative-cache-ttl 60` to\neffectively utilize the caching while still being able to pick up new\nobjects. There is an open issue for this here -\nhttps://github.com/awslabs/mountpoint-s3/issues/831\n\n### Does this change impact existing behavior?\n\nNo, if `--negative-cache-ttl` is omitted the existing behavior is\nmaintained (use `--metadata-ttl` or the default file_ttl).\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nBecause this is a new feature I believe it would require both.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: notoriaga <smeyer@fastmail.com>\nSigned-off-by: Steven Meyer <smeyer@fastmail.com>\nCo-authored-by: Alessandro Passaro <alessandro.passaro@gmail.com>",
-          "timestamp": "2025-02-11T13:59:57Z",
-          "tree_id": "5c4086bb2ef39374bdfecb966e1ad1ed340ccfad",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5e580a8632e30d7616d392fff30eaf215da22cec"
-        },
-        "date": 1739289807879,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3183.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 329.703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3144.3203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 356.0390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3290.10546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 263.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3354.2578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 219.4375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 23143.6328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 352.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3515.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 366.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3565.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 222.50390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3263.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 3031.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 236.58984375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 237.1796875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49482875+ujinho@users.noreply.github.com",
+            "name": "Eugene Dolgy",
+            "username": "ujinho"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d56190ef82ce45002287f0e8f160c84120393ec",
+          "message": "Rename Mountpoint's fuser fork (#1295)\n\n### Overview\nWe renamed our fuser fork and reset its version info as we're staring to\npublish it to crates.io.\nIn this PR we\n* revert the submodule approach for consuming the fork's crate\n* move the code from `vendor/fuser` to `mountpoint-s3-fuser` folder\n* consume the renamed and synched FUSER Fork  from `fuser/fork`\n* update dependency\n* change `vendor/fuser` to `mountpoint-s3-fuser` in aux scripts and\ndocumentation\n\n### Does this change impact existing behavior?\nThis change does not impact the current behavior it only affects the\nproject's structure.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\nIt does not require neither version change not change log entry.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Evgeny (Zhenia) Dolgii <evdolgy@amazon.com>",
+          "timestamp": "2025-03-04T09:27:06Z",
+          "tree_id": "759c407fe58982ea916eb18c2b45410396467382",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/3d56190ef82ce45002287f0e8f160c84120393ec"
+        },
+        "date": 1741087588844,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3408.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 325.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3434.00390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 343.6953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3420.30078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 260.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3507.68359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 225.39453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 15494.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 343.21875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3345.15234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 372.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3185.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 245.203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3447.71875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3443.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 224.546875,
             "unit": "MiB"
           }
         ]
