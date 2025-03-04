@@ -54,7 +54,7 @@ OPT_PATH = "opt/aws/mountpoint-s3"
 def check_dependencies(args: argparse.Namespace):
     """Check that all the required dependencies are available so we don't fail mid-build."""
 
-    log(f"Checking dependencies")
+    log("Checking dependencies")
 
     deps = ["cargo", "cargo-about", "tar", "whereis"]
     if not args.no_rpm:
@@ -309,9 +309,21 @@ def build_package_archive(metadata: BuildMetadata, package_dir: str) -> str:
     run(["tar", "czvf", archive_path, "-C", package_dir, "."])
     return archive_path
 
+def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
+    # Starting with v1.28, rustup will not install active toolchain by default,
+    # (see https://blog.rust-lang.org/2025/03/02/Rustup-1.28.0.html#whats-new-in-rustup-1280)
+    # and this is needed to install it:
+    try:
+        # Check if active toolchain is installed
+        run(["rustup", "show", "active-toolchain"], cwd=args.root_dir)
+    except subprocess.CalledProcessError:
+        # If that fails, install toolchain
+        run(["rustup", "toolchain", "install"], cwd=args.root_dir)
 
 def build(args: argparse.Namespace) -> str:
     """Top-level build driver."""
+
+    ensure_rustup_toolchain_is_installed(args)
 
     check_dependencies(args)
     metadata = get_build_metadata(args)
