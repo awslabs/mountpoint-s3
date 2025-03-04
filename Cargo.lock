@@ -1619,25 +1619,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
 
 [[package]]
-name = "fuser"
-version = "0.15.0"
-dependencies = [
- "bincode",
- "clap",
- "env_logger",
- "libc",
- "log",
- "memchr",
- "nix",
- "page_size",
- "pkg-config",
- "serde",
- "smallvec",
- "tempfile",
- "zerocopy 0.8.14",
-]
-
-[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2585,7 +2566,6 @@ dependencies = [
  "ctrlc",
  "dashmap",
  "filetime",
- "fuser",
  "futures",
  "hdrhistogram",
  "hex",
@@ -2595,6 +2575,7 @@ dependencies = [
  "linked-hash-map",
  "metrics",
  "mountpoint-s3-client",
+ "mountpoint-s3-fuser",
  "nix",
  "owo-colors 4.1.0",
  "predicates",
@@ -2698,6 +2679,25 @@ dependencies = [
  "libc",
  "rustflags",
  "which",
+]
+
+[[package]]
+name = "mountpoint-s3-fuser"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "env_logger",
+ "libc",
+ "log",
+ "memchr",
+ "nix",
+ "page_size",
+ "pkg-config",
+ "serde",
+ "smallvec",
+ "tempfile",
+ "zerocopy 0.8.14",
 ]
 
 [[package]]
