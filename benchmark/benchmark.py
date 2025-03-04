@@ -13,9 +13,7 @@ import urllib.request
 import hydra
 from omegaconf import DictConfig
 
-logging.basicConfig(
-    level=os.environ.get('LOGLEVEL', 'INFO').upper()
-)
+logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO").upper())
 
 log = logging.getLogger(__name__)
 
@@ -25,8 +23,8 @@ MP_LOGS_DIRECTORY = "mp_logs/"
 
 @contextmanager
 def _mounted_bucket(
-        cfg: DictConfig,
-        ):
+    cfg: DictConfig,
+):
     """
     Mounts the S3 bucket, providing metadata about the successful mount.
 
@@ -42,7 +40,7 @@ def _mounted_bucket(
             log.debug(f"{mount_dir} unmounted")
             os.rmdir(mount_dir)
         except Exception:
-            log.error(f"Error cleaning up Mountpoint at {mount_dir}:",  exc_info=True)
+            log.error(f"Error cleaning up Mountpoint at {mount_dir}:", exc_info=True)
 
 
 class MountError(Exception):
@@ -50,9 +48,9 @@ class MountError(Exception):
 
 
 def _mount_mp(
-        cfg: DictConfig,
-        mount_dir: str,
-        ) -> dict[str, any] | MountError | subprocess.CalledProcessError:
+    cfg: DictConfig,
+    mount_dir: str,
+) -> dict[str, any] | MountError | subprocess.CalledProcessError:
     """
     Mount an S3 bucket using Mountpoint,
     using the configuration to apply Mountpoint arguments.
@@ -75,12 +73,9 @@ def _mount_mp(
 
     bucket = cfg['s3_bucket']
 
-    mountpoint_version_output = subprocess \
-        .check_output([
-            *mountpoint_args,
-            "--version"
-            ]) \
-        .decode("utf-8")
+    mountpoint_version_output = subprocess.check_output(
+        [*mountpoint_args, "--version"]
+    ).decode("utf-8")
     log.info("Mountpoint version: %s", mountpoint_version_output.strip())
 
     subprocess_args = [
@@ -124,12 +119,20 @@ def _mount_mp(
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
     if cfg['mountpoint_max_background'] is not None:
-        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(cfg['mountpoint_max_background'])
+        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(
+            cfg['mountpoint_max_background']
+        )
 
     if cfg['mountpoint_congestion_threshold'] is not None:
-        subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg["mountpoint_congestion_threshold"])
+        subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(
+            cfg["mountpoint_congestion_threshold"]
+        )
 
-    log.info(f"Mounting S3 bucket {bucket} with args: %s; env: %s", subprocess_args, subprocess_env)
+    log.info(
+        f"Mounting S3 bucket {bucket} with args: %s; env: %s",
+        subprocess_args,
+        subprocess_env,
+    )
     try:
         output = subprocess.check_output(subprocess_args, env=subprocess_env)
     except subprocess.CalledProcessError as e:
@@ -201,7 +204,9 @@ def _collect_logs() -> None:
         log.debug(f"No Mountpoint log files in directory {logs_directory}")
         return
 
-    assert len(dir_entries) <= 1, f"Expected no more than one log file in {logs_directory}"
+    assert len(dir_entries) <= 1, (
+        f"Expected no more than one log file in {logs_directory}",
+    )
 
     old_log_dir = path.join(logs_directory, dir_entries[0])
     new_log_path = "mountpoint-s3.log"
@@ -231,7 +236,12 @@ def _get_ec2_instance_id() -> Optional[str]:
         token = token_response.read().decode()
 
     metadata_url = "http://169.254.169.254/latest/meta-data/instance-id"
-    metadata_request = urllib.request.Request(metadata_url, headers={"X-aws-ec2-metadata-token": token})
+    metadata_request = urllib.request.Request(
+        metadata_url,
+        headers={
+            "X-aws-ec2-metadata-token": token,
+        },
+    )
     with urllib.request.urlopen(metadata_request) as metadata_response:
         instance_id = metadata_response.read().decode()
 
