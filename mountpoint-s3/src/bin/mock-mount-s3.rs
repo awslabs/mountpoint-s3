@@ -15,14 +15,14 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use futures::executor::ThreadPool;
 
-use mountpoint_s3::cli::CliArgs;
-use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
 use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_fs::cli::CliArgs;
+use mountpoint_s3_fs::s3::S3Personality;
 
 fn main() -> anyhow::Result<()> {
-    mountpoint_s3::cli::main(create_mock_client)
+    mountpoint_s3_fs::cli::main(create_mock_client)
 }
 
 fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClient>, ThreadPool, S3Personality)> {
