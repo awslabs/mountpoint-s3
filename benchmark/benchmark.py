@@ -13,9 +13,7 @@ import urllib.request
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-logging.basicConfig(
-    level=os.environ.get('LOGLEVEL', 'INFO').upper()
-)
+logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 
 log = logging.getLogger(__name__)
 
@@ -30,8 +28,8 @@ MP_LOGS_DIRECTORY = "mp_logs/"
 
 @contextmanager
 def _mounted_bucket(
-        cfg: DictConfig,
-        ):
+    cfg: DictConfig,
+):
     """
     Mounts the S3 bucket, providing metadata about the successful mount.
 
@@ -47,7 +45,7 @@ def _mounted_bucket(
             log.debug(f"{mount_dir} unmounted")
             os.rmdir(mount_dir)
         except Exception:
-            log.error(f"Error cleaning up Mountpoint at {mount_dir}:",  exc_info=True)
+            log.error(f"Error cleaning up Mountpoint at {mount_dir}:", exc_info=True)
 
 
 class MountError(Exception):
@@ -55,9 +53,9 @@ class MountError(Exception):
 
 
 def _mount_mp(
-        cfg: DictConfig,
-        mount_dir: str,
-        ) -> dict[str, any] | MountError | subprocess.CalledProcessError:
+    cfg: DictConfig,
+    mount_dir: str,
+) -> dict[str, any] | MountError | subprocess.CalledProcessError:
     """
     Mount an S3 bucket using Mountpoint,
     using the configuration to apply Mountpoint arguments.
@@ -80,12 +78,7 @@ def _mount_mp(
 
     bucket = cfg['s3_bucket']
 
-    mountpoint_version_output = subprocess \
-        .check_output([
-            *mountpoint_args,
-            "--version"
-            ]) \
-        .decode("utf-8")
+    mountpoint_version_output = subprocess.check_output([*mountpoint_args, "--version"]).decode("utf-8")
     log.info("Mountpoint version: %s", mountpoint_version_output.strip())
 
     subprocess_args = [

@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import *
+from typing import Optional
 
 
 def log(msg: str):
@@ -42,7 +42,7 @@ class BuildMetadata:
     def artifact_name(self, extension: str):
         return f"mount-s3-{self.version_string}-{self.arch_name}.{extension}"
 
-    def spec_file_name(self, distr: Optional[str]=None):
+    def spec_file_name(self, distr: Optional[str] = None):
         if distr:
             return f"mount-s3-{distr}.spec"
         return "mount-s3.spec"
@@ -119,7 +119,7 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
         version_string=version_string,
         buildroot=buildroot,
         arch=arch,
-        arch_name=arch_name
+        arch_name=arch_name,
     )
     return metadata
 
@@ -205,7 +205,7 @@ def build_package_dir(metadata: BuildMetadata, binary_path: str, attribution_pat
     return package_dir
 
 
-def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str]=None) -> str:
+def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str] = None) -> str:
     """Build an RPM package from the contents of the package directory. Return the path to the
     final RPM package."""
 
@@ -244,7 +244,10 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str]=No
     rpms = os.listdir(arch_dir)
     assert len(rpms) == 1
     rpm_path = os.path.join(arch_dir, rpms[0])
-    final_rpm_path = os.path.join(metadata.output_dir, metadata.artifact_name("{}.rpm".format(distr) if distr else "rpm"))
+    final_rpm_path = os.path.join(
+        metadata.output_dir,
+        metadata.artifact_name("{}.rpm".format(distr) if distr else "rpm"),
+    )
     shutil.copy2(rpm_path, final_rpm_path)
 
     log(f"Built RPM: {final_rpm_path}")
@@ -309,6 +312,7 @@ def build_package_archive(metadata: BuildMetadata, package_dir: str) -> str:
     run(["tar", "czvf", archive_path, "-C", package_dir, "."])
     return archive_path
 
+
 def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
     # Starting with v1.28, rustup will not install active toolchain by default,
     # (see https://blog.rust-lang.org/2025/03/02/Rustup-1.28.0.html#whats-new-in-rustup-1280)
@@ -319,6 +323,7 @@ def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
     except subprocess.CalledProcessError:
         # If that fails, install toolchain
         run(["rustup", "toolchain", "install"], cwd=args.root_dir)
+
 
 def build(args: argparse.Namespace) -> str:
     """Top-level build driver."""

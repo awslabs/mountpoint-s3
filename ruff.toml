@@ -1,0 +1,5 @@
+line-length = 120
+
+[format]
+# TODO: Remove this relaxation later.
+quote-style = 'preserve'

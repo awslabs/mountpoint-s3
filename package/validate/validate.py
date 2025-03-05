@@ -10,10 +10,11 @@ import argparse
 import os
 import subprocess
 
+
 def validate(args: argparse.Namespace) -> str:
     """Top-level driver."""
 
-    package=f"{args.artifact}-{args.os}"
+    package = f"{args.artifact}-{args.os}"
     if package == "deb-ubuntu":
         image = "public.ecr.aws/ubuntu/ubuntu:20.04"
     elif package == "rpm-al2" or package == "gzip-al2":
@@ -21,7 +22,9 @@ def validate(args: argparse.Namespace) -> str:
     elif package == "rpm-suse":
         image = "registry.suse.com/bci/bci-base:15.6"
     else:
-        raise Exception(f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-suse")
+        raise Exception(
+            f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-suse"
+        )
 
     print("Validating Mountpoint Release Package")
     print(f"\tVersion: {args.version}")
@@ -35,18 +38,23 @@ def validate(args: argparse.Namespace) -> str:
     scripts_dir = os.path.dirname(os.path.realpath(__file__))
 
     subprocess.run(["docker", "pull", image])
-    subprocess.run(["docker",
-                    "run",
-                    "--rm",
-                    "--cap-add=SYS_ADMIN",
-                    "--device=/dev/fuse",
-                    f"-v={scripts_dir}:/scripts",
-                    f"--env=ARCH={args.arch}",
-                    f"--env=VERSION={args.version}",
-                    f"--env=BUCKET={args.bucket}",
-                    image,
-                    "/bin/bash",
-                    f"/scripts/{validate_script}"])
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--cap-add=SYS_ADMIN",
+            "--device=/dev/fuse",
+            f"-v={scripts_dir}:/scripts",
+            f"--env=ARCH={args.arch}",
+            f"--env=VERSION={args.version}",
+            f"--env=BUCKET={args.bucket}",
+            image,
+            "/bin/bash",
+            f"/scripts/{validate_script}",
+        ]
+    )
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
