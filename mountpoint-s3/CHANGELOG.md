@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+
+* Reduce memory usage when using the `--prefix` flag. ([#1303](https://github.com/awslabs/mountpoint-s3/pull/1303))
+
 ## v1.15.0 (February 27, 2025)
 
 ### New features
