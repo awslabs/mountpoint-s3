@@ -11,13 +11,18 @@ from typing import Optional
 import urllib.request
 
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'INFO').upper()
 )
 
 log = logging.getLogger(__name__)
+
+OmegaConf.register_new_resolver(
+    "join",
+    lambda separator, elements: separator.join(elements),
+)
 
 MOUNT_DIRECTORY = "s3"
 MP_LOGS_DIRECTORY = "mp_logs/"
