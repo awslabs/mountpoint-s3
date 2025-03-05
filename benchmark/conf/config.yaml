@@ -33,6 +33,9 @@ upload_checksums: !!null
 mountpoint_max_background: !!null
 mountpoint_congestion_threshold: !!null
 
+# For monitoring network bandwidth
+with_bwm: false
+
 iterations: 1
 
 # Define defaults for these columns, but script will run as MULTIRUN by default
