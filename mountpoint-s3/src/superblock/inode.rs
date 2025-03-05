@@ -10,6 +10,7 @@ use mountpoint_s3_client::types::{ETag, RestoreStatus};
 use time::OffsetDateTime;
 use tracing::trace;
 
+use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -34,7 +35,8 @@ struct InodeInner {
     parent: InodeNo,
     name: String,
     // TODO deduplicate keys by string interning or something -- many keys will have common prefixes
-    full_key: String,
+    /// Object key not including the prefix (ends in '/' for directories).
+    key: String,
     kind: InodeKind,
     checksum: Crc32c,
 
@@ -68,8 +70,8 @@ impl Inode {
         self.inner.kind
     }
 
-    pub fn full_key(&self) -> &str {
-        &self.inner.full_key
+    pub fn key(&self) -> &str {
+        &self.inner.key
     }
 
     /// Increment lookup count for [Inode] by 1, returning the new value.
@@ -137,17 +139,18 @@ impl Inode {
         ino: InodeNo,
         parent: InodeNo,
         name: String,
-        full_key: String,
+        key: String,
+        prefix: &Prefix,
         kind: InodeKind,
         state: InodeState,
     ) -> Self {
-        let checksum = Self::compute_checksum(ino, &full_key);
+        let checksum = Self::compute_checksum(ino, prefix, &key);
         let sync = RwLock::new(state);
         let inner = InodeInner {
             ino,
             parent,
             name,
-            full_key,
+            key,
             kind,
             checksum,
             sync,
@@ -156,10 +159,11 @@ impl Inode {
     }
 
     /// Create the root inode.
-    pub(super) fn new_root(prefix: String, mount_time: OffsetDateTime) -> Self {
+    pub(super) fn new_root(prefix: &Prefix, mount_time: OffsetDateTime) -> Self {
         Self::new(
             ROOT_INODE_NO,
             ROOT_INODE_NO,
+            String::new(),
             String::new(),
             prefix,
             InodeKind::Directory,
@@ -176,8 +180,8 @@ impl Inode {
     }
 
     /// Verify [Inode] has the expected inode number and the inode content is valid for its checksum.
-    pub fn verify_inode(&self, expected_ino: InodeNo) -> Result<(), InodeError> {
-        let computed = Self::compute_checksum(self.ino(), self.full_key());
+    pub fn verify_inode(&self, expected_ino: InodeNo, prefix: &Prefix) -> Result<(), InodeError> {
+        let computed = Self::compute_checksum(self.ino(), prefix, self.key());
         if computed == self.inner.checksum && self.ino() == expected_ino {
             Ok(())
         } else {
@@ -187,8 +191,13 @@ impl Inode {
 
     /// Verify [Inode] has the expected inode number, expected parent inode number,
     /// and the inode's content is valid for its checksum.
-    pub fn verify_child(&self, expected_parent: InodeNo, expected_name: &str) -> Result<(), InodeError> {
-        let computed = Self::compute_checksum(self.ino(), self.full_key());
+    pub fn verify_child(
+        &self,
+        expected_parent: InodeNo,
+        expected_name: &str,
+        prefix: &Prefix,
+    ) -> Result<(), InodeError> {
+        let computed = Self::compute_checksum(self.ino(), prefix, self.key());
         if computed == self.inner.checksum && self.parent() == expected_parent && self.name() == expected_name {
             Ok(())
         } else {
@@ -196,10 +205,11 @@ impl Inode {
         }
     }
 
-    fn compute_checksum(ino: InodeNo, full_key: &str) -> Crc32c {
+    fn compute_checksum(ino: InodeNo, prefix: &Prefix, key: &str) -> Crc32c {
         let mut hasher = crc32c::Hasher::new();
         hasher.update(ino.to_be_bytes().as_ref());
-        hasher.update(full_key.as_bytes());
+        hasher.update(prefix.as_str().as_bytes());
+        hasher.update(key.as_bytes());
         hasher.finalize()
     }
 
@@ -228,7 +238,7 @@ pub struct InodeErrorInfo(Inode);
 
 impl Display for InodeErrorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} (full key {:?})", self.0.ino(), self.0.full_key())
+        write!(f, "{} (key {:?})", self.0.ino(), self.0.key())
     }
 }
 
@@ -590,6 +600,7 @@ mod tests {
             ROOT_INODE_NO,
             inode_name.to_owned(),
             inode_name.to_owned(),
+            &superblock.inner.prefix,
             InodeKind::File,
             InodeState {
                 write_status: WriteStatus::Remote,
@@ -721,7 +732,7 @@ mod tests {
                 ino: 42,
                 parent: parent_ino,
                 name: file_name.into(),
-                full_key: file_name.into(),
+                key: file_name.into(),
                 kind: InodeKind::File,
                 checksum: bad_checksum,
                 sync: RwLock::new(InodeState {
@@ -774,6 +785,7 @@ mod tests {
         let inode_name = "made-up-inode";
         let mut hasher = crc32c::Hasher::new();
         hasher.update(ino.to_be_bytes().as_ref());
+        hasher.update(superblock.inner.prefix.as_str().as_bytes());
         hasher.update(inode_name.as_bytes());
         let checksum = hasher.finalize();
         let inode = Inode {
@@ -781,7 +793,7 @@ mod tests {
                 ino,
                 parent: ROOT_INODE_NO,
                 name: inode_name.to_owned(),
-                full_key: inode_name.to_owned(),
+                key: inode_name.to_owned(),
                 kind: InodeKind::File,
                 checksum,
                 sync: RwLock::new(InodeState {
