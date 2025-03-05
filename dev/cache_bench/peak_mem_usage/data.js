@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1741181249011,
+  "lastUpdate": 1741193974029,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "19b706dfc2b51d031d05602a328d4120ce72115b",
-          "message": "Add experimental config to write Mountpoint PID to file (#1261)\n\nWhen investigating performance, we wanted to automate the collection of\nprofiler captures using a tool like `perf`. To do this, we needed the\nprocess ID of Mountpoint. By writing out the PID to a file, scripts\ncould automatically record profiles for the lifetime of Mountpoint by\nproviding its PID to `perf`.\n\nThis change adds the ability to write Mountpoint's PID to a file under\nan experimental/unstable environment variable. Since its unclear if we\nwant to expose this properly such as providing a CLI argument, we are\ntaking the unstable environment variable approach to make clear this\nconfiguration may change or be removed in future.\n\n### Does this change impact existing behavior?\n\nThis change adds a new experimental feature to write Mountpoint's PID to\na file.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nSince this is adding an experimental feature, no changelog entry is\nrequired. No minor version patch is required, as this is not a stable\nfeature addition.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2025-02-11T14:50:57Z",
-          "tree_id": "3e105b172d88ae034d0e91a237a2d0c712cfccca",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/19b706dfc2b51d031d05602a328d4120ce72115b"
-        },
-        "date": 1739292628623,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3417.76953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 331.6796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3044.42578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 349.8359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3080.94921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 258.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3623.88671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 233.4296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 20984.00390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 345.625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3163.59765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 371.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3385.44140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 239.85546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3471.07421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 14838.58203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 224.015625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2179,6 +2070,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 203.70703125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3246e7f6a227895c019a7fc1f5d067fd1f427788",
+          "message": "Add Python lints to CI (#1301)\n\nBefore this change, there is no linting or style checks enforced on\nPython code outside of manual review.\n\nThis change introduces both using [Ruff](https://docs.astral.sh/ruff/),\na linter/checker written by the same organization owning\n[uv](https://docs.astral.sh/uv/) which we use as the package\nmanager/runner in `benchmark/` project.\n\n### Does this change impact existing behavior?\n\nNo change to Mountpoint. No functional changes to the Python scripts.\nTwo new GitHub CI jobs are introduced to add checks on the Python code.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, no impact to Mountpoint itself nor its crates.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2025-03-05T14:59:17Z",
+          "tree_id": "6b695c93d72bfd145ea7304a91eedfee963b9083",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/3246e7f6a227895c019a7fc1f5d067fd1f427788"
+        },
+        "date": 1741193973981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3321.09765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 333.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3312.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 343.85546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3372.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 273.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3277.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 232.8828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 24187.13671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 348.16796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3099.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 365.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3260.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 212.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3369.30078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3373.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 217.234375,
             "unit": "MiB"
           }
         ]
