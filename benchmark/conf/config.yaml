@@ -12,7 +12,8 @@ write_part_size: 16777216 # to allow for uploads of 100GiB
 
 metadata_ttl: "indefinite"
 
-fio_benchmarks: sequential_read  #, random_read, sequential_write
+fio_benchmarks:
+  - sequential_read
 
 # Path to Mountpoint binary. Recommended to use an absolute path.
 mountpoint_binary: !!null
@@ -28,8 +29,8 @@ iterations: 1
 fuse_threads: !!null
 application_workers: 1
 direct_io: false
-fio_benchmark: "sequential_read"
-iteration: 1
+fio_benchmark: "${fio_benchmarks[0]}"
+iteration: 0
 
 hydra:
   help:
@@ -46,5 +47,5 @@ hydra:
       # Configure if application should use Direct IO, skipping the Linux page cache
       'direct_io': false, true
       # Don't touch the params below, they are based on settings above.
-      'fio_benchmark': "${fio_benchmarks}"
+      'fio_benchmark': "${join:',', ${fio_benchmarks}}"
       'iteration': "range(${iterations})"
