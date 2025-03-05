@@ -39,6 +39,7 @@ use tracing::{debug, error, trace, warn};
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
 use crate::logging;
+use crate::manifest::{dummy_manifest, ManifestEntry};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -73,6 +74,7 @@ struct SuperblockInner {
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
     config: SuperblockConfig,
+    manifest: Option<Arc<Vec<ManifestEntry>>>,
 }
 
 /// Configuration for superblock operations
@@ -80,6 +82,7 @@ struct SuperblockInner {
 pub struct SuperblockConfig {
     pub cache_config: CacheConfig,
     pub s3_personality: S3Personality,
+    pub use_manifest: bool,
 }
 
 impl Superblock {
@@ -96,6 +99,12 @@ impl Superblock {
             config.cache_config.negative_cache_ttl,
         );
 
+        let manifest = if config.use_manifest {
+            Some(dummy_manifest())
+        } else {
+            None
+        };
+
         let inner = SuperblockInner {
             bucket: bucket.to_owned(),
             prefix: prefix.clone(),
@@ -104,6 +113,7 @@ impl Superblock {
             next_ino: AtomicU64::new(2),
             mount_time,
             config,
+            manifest,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -602,7 +612,11 @@ impl SuperblockInner {
         let lookup = match lookup {
             Some(lookup) => lookup?,
             None => {
-                let remote = self.remote_lookup(client, parent_ino, name).await?;
+                let remote = if self.config.use_manifest {
+                    self.manifest_lookup(parent_ino, name)?
+                } else {
+                    self.remote_lookup(client, parent_ino, name).await?
+                };
                 self.update_from_remote(parent_ino, name, remote)?
             }
         };
@@ -656,6 +670,55 @@ impl SuperblockInner {
         metrics::counter!("metadata_cache.cache_hit").increment(lookup.is_some().into());
 
         lookup
+    }
+
+    fn manifest_lookup(&self, parent_ino: InodeNo, name: &str) -> Result<Option<RemoteLookup>, InodeError> {
+        let parent = self.get(parent_ino)?;
+        if parent.kind() != InodeKind::Directory {
+            return Err(InodeError::NotADirectory(parent.err()));
+        }
+
+        let mut full_path = parent.full_key().to_owned();
+        assert!(full_path.is_empty() || full_path.ends_with('/'));
+        full_path.push_str(name);
+
+        let mut full_path_suffixed = full_path.clone();
+        full_path_suffixed.push('/');
+
+        // this should be a bin search through a file stored on disk
+        fn search_manifest_entry<'a>(manifest: &'a [ManifestEntry], full_path: &str) -> Option<&'a ManifestEntry> {
+            manifest
+                .binary_search_by(|manifest_entry| manifest_entry.key().cmp(full_path))
+                .map_or(None, |index| Some(&manifest[index]))
+        }
+
+        // search for file entry
+        let mut manifest_entry = search_manifest_entry(self.manifest.as_ref().unwrap(), &full_path);
+
+        // search for dir entry
+        if manifest_entry.is_none() {
+            manifest_entry = search_manifest_entry(self.manifest.as_ref().unwrap(), &full_path_suffixed);
+        }
+
+        // return an inode or error
+        match manifest_entry {
+            Some(ManifestEntry::File { etag, size, .. }) => Ok(Some(RemoteLookup {
+                kind: InodeKind::File,
+                stat: InodeStat::for_file(
+                    *size,
+                    OffsetDateTime::now_utc(),
+                    Some(etag.clone()),
+                    None,
+                    None,
+                    self.config.cache_config.file_ttl,
+                ),
+            })),
+            Some(ManifestEntry::Directory { .. }) => Ok(Some(RemoteLookup {
+                kind: InodeKind::Directory,
+                stat: InodeStat::for_directory(OffsetDateTime::now_utc(), self.config.cache_config.dir_ttl),
+            })),
+            None => Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err())),
+        }
     }
 
     /// Lookup an inode in the parent directory with the given name

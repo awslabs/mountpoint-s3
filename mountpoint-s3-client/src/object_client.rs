@@ -739,7 +739,8 @@ pub enum RestoreStatus {
 /// See [Object](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html) in the *Amazon S3
 /// API Reference* for more details.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
+// TODO: builder pattern? return different type from readdir iter?
+// #[non_exhaustive]
 pub struct ObjectInfo {
     /// Key for this object.
     pub key: String,

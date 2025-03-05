@@ -7,6 +7,7 @@ pub mod data_cache;
 pub mod fs;
 pub mod fuse;
 pub mod logging;
+mod manifest;
 pub mod mem_limiter;
 pub mod metrics;
 pub mod object;
