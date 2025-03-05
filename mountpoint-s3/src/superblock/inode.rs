@@ -35,7 +35,7 @@ struct InodeInner {
     parent: InodeNo,
     name: String,
     // TODO deduplicate keys by string interning or something -- many keys will have common prefixes
-    /// Object key not including the prefix.
+    /// Object key not including the prefix (ends in '/' for directories).
     key: String,
     kind: InodeKind,
     checksum: Crc32c,
