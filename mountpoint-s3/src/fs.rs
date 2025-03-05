@@ -63,8 +63,6 @@ where
     prefetcher: Prefetcher,
     uploader: Uploader<Client>,
     bucket: String,
-    #[allow(unused)]
-    prefix: Prefix,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Prefetcher>>>>,
@@ -186,7 +184,6 @@ where
             prefetcher,
             uploader,
             bucket: bucket.to_string(),
-            prefix: prefix.clone(),
             next_handle: AtomicU64::new(1),
             dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),
