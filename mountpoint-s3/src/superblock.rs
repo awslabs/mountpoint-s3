@@ -303,6 +303,7 @@ impl Superblock {
         let parent_ino = dir.parent();
 
         let dir_key = self.full_key_for_inode(&dir);
+        assert!(dir_key.is_empty() || dir_key.ends_with('/'));
         ReaddirHandle::new(self.inner.clone(), dir_ino, parent_ino, dir_key, page_size)
     }
 
@@ -995,24 +996,16 @@ impl SuperblockInner {
 
         let next_ino = self.next_ino.fetch_add(1, Ordering::SeqCst);
 
-        let mut full_key = parent.key().to_owned();
-        assert!(full_key.is_empty() || full_key.ends_with('/'));
-        full_key.push_str(name);
+        let mut key = parent.key().to_owned();
+        assert!(key.is_empty() || key.ends_with('/'));
+        key.push_str(name);
         if kind == InodeKind::Directory {
-            full_key.push('/');
+            key.push('/');
         }
 
-        trace!(parent=?parent.ino(), ?name, ?kind, new_ino=?next_ino, ?full_key, "creating new inode");
+        trace!(parent=?parent.ino(), ?name, ?kind, new_ino=?next_ino, ?key, "creating new inode");
 
-        let inode = Inode::new(
-            next_ino,
-            parent.ino(),
-            name.to_owned(),
-            full_key,
-            &self.prefix,
-            kind,
-            state,
-        );
+        let inode = Inode::new(next_ino, parent.ino(), name.to_owned(), key, &self.prefix, kind, state);
 
         match &mut parent_locked.kind_data {
             InodeKindData::File {} => {
