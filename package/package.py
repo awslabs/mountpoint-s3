@@ -81,10 +81,7 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
     log(f"Getting Cargo metadata from root dir {args.root_dir}")
 
     # Parse cargo metadata to find cargo root directory and mount-s3 version
-    output = run(
-        ["cargo", "metadata", "--no-deps", "--format-version", "1"],
-        cwd=args.root_dir,
-    )
+    output = run(["cargo", "metadata", "--no-deps", "--format-version", "1"], cwd=args.root_dir)
     output = json.loads(output)
     root_dir = output["workspace_root"]
     version = None
@@ -96,9 +93,7 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
         raise Exception(f"couldn't find mountpoint-s3 in Cargo metadata in {root_dir}")
     if args.expected_version is not None:
         if args.expected_version != version:
-            raise Exception(
-                f"version mismatch: expected {args.expected_version} but found {version} in Cargo metadata",
-            )
+            raise Exception(f"version mismatch: expected {args.expected_version} but found {version} in Cargo metadata")
     version_string = version
     if not args.official:
         version_string += "+unofficial"
@@ -181,26 +176,13 @@ def build_attribution(metadata: BuildMetadata) -> str:
 
     log(f"Building attribution document to {attribution_path}")
 
-    cmd = [
-        "cargo",
-        "about",
-        "generate",
-        "--config",
-        config_path,
-        "--output-file",
-        attribution_path,
-        template_path,
-    ]
+    cmd = ["cargo", "about", "generate", "--config", config_path, "--output-file", attribution_path, template_path]
     run(cmd, cwd=metadata.cargoroot)
 
     return attribution_path
 
 
-def build_package_dir(
-    metadata: BuildMetadata,
-    binary_path: str,
-    attribution_path: str,
-) -> str:
+def build_package_dir(metadata: BuildMetadata, binary_path: str, attribution_path: str) -> str:
     """Assemble the contents of the directory that will eventually become /opt/aws/mountpoint-s3.
     Return the path to the directory."""
 
@@ -223,26 +205,15 @@ def build_package_dir(
     return package_dir
 
 
-def build_rpm(
-    metadata: BuildMetadata,
-    package_dir: str,
-    distr: Optional[str] = None,
-) -> str:
+def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str] = None) -> str:
     """Build an RPM package from the contents of the package directory. Return the path to the
     final RPM package."""
 
-    rpm_buildroot = os.path.join(
-        metadata.buildroot,
-        "rpm-{}".format(distr or "default"),
-    )
+    rpm_buildroot = os.path.join(metadata.buildroot, "rpm-{}".format(distr or "default"))
     os.mkdir(rpm_buildroot)
 
     rpm_topdir = os.path.join(rpm_buildroot, "rpm-topdir")
-    log(
-        "Building RPM in topdir {} for {} Linux distribution".format(
-            rpm_topdir, distr or "default"
-        )
-    )
+    log("Building RPM in topdir {} for {} Linux distribution".format(rpm_topdir, distr or "default"))
 
     # Assemble the contents of the RPM, rooted at /
     rpm_package_dir = os.path.join(rpm_buildroot, "rpm-package")
@@ -256,10 +227,7 @@ def build_rpm(
     run(["tar", "czvf", source_tar_path, "-C", rpm_package_dir, "opt"])
 
     # Build the RPM
-    spec_file = os.path.join(
-        metadata.cargoroot,
-        f"package/{metadata.spec_file_name(distr)}",
-    )
+    spec_file = os.path.join(metadata.cargoroot, f"package/{metadata.spec_file_name(distr)}")
     cmd = [
         "rpmbuild",
         "-bb",
@@ -303,10 +271,7 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
 
     # Construct the package control file (the package metadata). We need to fill in the version
     # number ourselves, unlike RPM.
-    control_file_template = os.path.join(
-        metadata.cargoroot,
-        "package/mount-s3.debian-control",
-    )
+    control_file_template = os.path.join(metadata.cargoroot, "package/mount-s3.debian-control")
     with open(control_file_template) as f:
         control_file = f.read()
     control_file = control_file.replace("__VERSION__", metadata.version_string)
@@ -391,22 +356,11 @@ def build(args: argparse.Namespace) -> str:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--root-dir", help="override the path to the Cargo workspace")
-    p.add_argument(
-        "--expected-version",
-        help="expected version number for the Mountpoint binary",
-    )
+    p.add_argument("--expected-version", help="expected version number for the Mountpoint binary")
     p.add_argument("--no-rpm", action="store_true", help="do not build an RPM")
-    p.add_argument(
-        "--no-suse-rpm",
-        action="store_true",
-        help="do not build an RPM for SUSE",
-    )
+    p.add_argument("--no-suse-rpm", action="store_true", help="do not build an RPM for SUSE")
     p.add_argument("--no-deb", action="store_true", help="do not build a DEB")
-    p.add_argument(
-        "--official",
-        action="store_true",
-        help="build as an official release",
-    )
+    p.add_argument("--official", action="store_true", help="build as an official release")
 
     args = p.parse_args()
 

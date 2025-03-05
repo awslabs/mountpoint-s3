@@ -327,8 +327,7 @@ jobs:
         with:
           python-version-file: "./benchmark/.python-version"
       - name: Format check
-        # TODO: Remove preservation of quote style
-        run: uvx ruff format --diff . --config "format.quote-style='preserve'"
+        run: uvx ruff format --diff .
       - name: Lint check
         run: uvx ruff check --output-format=github .
 

@@ -58,29 +58,10 @@ def validate(args: argparse.Namespace) -> str:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument(
-        "--version",
-        help="the version number for the Mountpoint release",
-        required=True,
-    )
-    p.add_argument(
-        "--arch",
-        help="the architecture to validate",
-        required=True,
-        choices=["x86_64", "arm64"],
-    )
-    p.add_argument(
-        "--artifact",
-        help="the artifact to validate",
-        required=True,
-        choices=["deb", "rpm", "gzip"],
-    )
-    p.add_argument(
-        "--os",
-        help="the OS to validate on",
-        required=True,
-        choices=["ubuntu", "al2", "suse"],
-    )
+    p.add_argument("--version", help="the version number for the Mountpoint release", required=True)
+    p.add_argument("--arch", help="the architecture to validate", required=True, choices=["x86_64", "arm64"])
+    p.add_argument("--artifact", help="the artifact to validate", required=True, choices=["deb", "rpm", "gzip"])
+    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2", "suse"])
     p.add_argument("--bucket", help="the public bucket to mount", required=True)
 
     args = p.parse_args()
