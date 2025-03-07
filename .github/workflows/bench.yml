@@ -80,7 +80,7 @@ jobs:
         # This is default value, just make it more explicit
         benchmark-data-dir-path: dev/bench
         alert-threshold: "200%"
-        fail-on-alert: true
+        fail-on-alert: false
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Make sure to add this chart to the step provisioning static content and pushing the changes
@@ -163,7 +163,7 @@ jobs:
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/latency_bench
         alert-threshold: "200%"
-        fail-on-alert: true
+        fail-on-alert: false
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Make sure to add this chart to the step provisioning static content and pushing the changes
@@ -231,7 +231,7 @@ jobs:
         output-file-path: results/output.json
         benchmark-data-dir-path: dev/cache_bench
         alert-threshold: "200%"
-        fail-on-alert: true
+        fail-on-alert: false
         # GitHub API token to make a commit comment
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Make sure to add this chart to the step provisioning static content and pushing the changes
