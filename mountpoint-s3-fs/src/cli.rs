@@ -1498,4 +1498,14 @@ mod tests {
     fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: fuser::SessionACL) {
         assert_eq!(expected, session_acl_from_mount_options(mount_options));
     }
+
+    #[test_case("test-bucket", S3Personality::Standard; "standard")]
+    #[test_case("bucket-base-name--usw2-az1--x-s3", S3Personality::ExpressOneZone; "directory")]
+    #[test_case("arn:aws:s3:region:111122223333:accesspoint/my-access-point", S3Personality::Standard; "access-point")]
+    #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", S3Personality::Outposts; "outpotsts")]
+    fn test_infer_s3_personality(bucket_name: &str, expected_personality: S3Personality) {
+        let endpoint_config = EndpointConfig::new("PLACEHOLDER");
+        let s3_personality = infer_s3_personality(None, bucket_name, endpoint_config);
+        assert_eq!(s3_personality, expected_personality);
+    }
 }
