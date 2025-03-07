@@ -892,14 +892,14 @@ where
 
     let (client, runtime, s3_personality) = client_builder(&args, &context_params)?;
 
-    if args.incremental_upload && !matches!(s3_personality, S3Personality::ExpressOneZone) {
-        return Err(anyhow!(
-            "--incremental-upload is only supported for S3 Express One Zone buckets"
-        ));
-    }
-
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
+
+    if args.incremental_upload && !s3_personality.supports_append() {
+        return Err(anyhow!(
+            "--incremental-upload is only supported on directory buckets in S3 Express One Zone"
+        ));
+    }
 
     let mut filesystem_config = S3FilesystemConfig::default();
     if let Some(uid) = args.uid {
