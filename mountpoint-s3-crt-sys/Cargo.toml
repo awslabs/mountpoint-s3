@@ -24,7 +24,7 @@ exclude = [
     "crt/aws-lc/**/*test*.py",
     "crt/aws-lc/**/*test*.txt",
     # All the text files in kat/ directory are 'known answer tests'
-    "crt/aws-lc/crypto/ml_dsa/kat/*.txt",
+    "crt/aws-lc/crypto/fipsmodule/ml_dsa/kat/*.txt",
     "crt/aws-lc/crypto/**/*_test.cc",
     "crt/aws-lc/crypto/cipher_extra/test/*",
     "crt/aws-lc/crypto/fipsmodule/bn/test/*",
