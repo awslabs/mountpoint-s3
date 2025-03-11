@@ -1,7 +1,7 @@
 // An example script showing usage of FUSE file descriptor as a mount point.
 //
 // Example usage:
-// $ go build mounthelper.go
+// $ go build ./examples/fuse-fd-mount-point/mounthelper.go
 // $ sudo /sbin/setcap 'cap_sys_admin=ep' ./mounthelper # `mount` syscall requires `CAP_SYS_ADMIN`, alternatively, `mounthelper` can be run as root
 // $ ./mounthelper -mountpoint /tmp/mountpoint -bucket bucketname
 // $ # Mountpoint mounted at /tmp/mountpoint until `mounthelper` is terminated with ctrl+c.
@@ -55,11 +55,11 @@ func main() {
 	}
 
 	// 2. Perform `mount` syscall
-    // These mount options and flags match those typically set when using Mountpoint.
-    // Some are set by the underlying FUSE library.
-    // Mountpoint sets (correct at the time of authoring this comment):
-    // * `noatime` to avoid unsupported access time updates.
-    // * `default_permissions` to tell the Kernel to evaluate permissions itself, since Mountpoint does not currently provide any handler for FUSE `access`.
+	// These mount options and flags match those typically set when using Mountpoint.
+	// Some are set by the underlying FUSE library.
+	// Mountpoint sets (correct at the time of authoring this comment):
+	// * `noatime` to avoid unsupported access time updates.
+	// * `default_permissions` to tell the Kernel to evaluate permissions itself, since Mountpoint does not currently provide any handler for FUSE `access`.
 	options := []string{
 		fmt.Sprintf("fd=%d", fd),
 		fmt.Sprintf("rootmode=%o", stat.Mode),
@@ -79,7 +79,7 @@ func main() {
 		if err != nil {
 			log.Printf("Failed to unmount %s: %v\n", *mountPoint, err)
 		} else {
-			log.Printf("Succesfully unmounted %s\n", *mountPoint)
+			log.Printf("Successfully unmounted %s\n", *mountPoint)
 		}
 	}()
 
@@ -88,12 +88,16 @@ func main() {
 		*bucket,
 		fmt.Sprintf("/dev/fd/%d", fd),
 		// Other mount options can be added here
+		"--foreground",
 		"--prefix=some_s3_prefix/",
 		"--allow-delete",
+		// Enable verbose logs for debugging
+		// "--debug",
+		// "--debug-crt",
 	)
 	mountpointCmd.Stdout = os.Stdout
 	mountpointCmd.Stderr = os.Stderr
-	err = mountpointCmd.Run()
+	err = mountpointCmd.Start()
 	if err != nil {
 		log.Panicf("Failed to start Mountpoint: %v\n", err)
 	}
@@ -103,7 +107,7 @@ func main() {
 	if err != nil {
 		log.Panicf("Failed to close fd on parent: %v\n", err)
 	}
-	// As we expliclity closed it, no need for `defer`red close to happen.
+	// As we explicitly closed it, no need for `defer`red close to happen.
 	closeFd = false
 
 	done := make(chan os.Signal, 1)
@@ -113,4 +117,5 @@ func main() {
 	<-done
 
 	// 5. Unmounting will happen here due to `defer` in step 3.
+	mountpointCmd.Wait()
 }
