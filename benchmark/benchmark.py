@@ -236,7 +236,8 @@ def _get_ec2_instance_id() -> Optional[str]:
 
     return instance_id
 
-class ResourceMonitoring():
+
+class ResourceMonitoring:
     def __init__(self, with_bwm: bool):
         """Resource monitoring setup.
 
@@ -284,21 +285,20 @@ class ResourceMonitoring():
         return subprocess.Popen(process_args, stdout=f)
 
     def _start_mpstat(self) -> any:
+        # fmt: off
         return self._start_monitor_with_builtin_repeat([
                 "/usr/bin/mpstat",
                 "-P", "ALL", # cores
                 "-o", "JSON",
                 "1", # interval
             ], 'mpstat.json')
+        # fmt: on
 
     def _start_bwm_ng(self) -> any:
         """Starts bwm-ng, which probably needs to be installed.
 
         https://www.gropp.org/?id=projects&sub=bwm-ng"""
-        return self._start_monitor_with_builtin_repeat([
-            '/usr/local/bin/bwm-ng',
-            '-o', 'csv'
-            ], 'bwm-ng.csv')
+        return self._start_monitor_with_builtin_repeat(['/usr/local/bin/bwm-ng', '-o', 'csv'], 'bwm-ng.csv')
 
     @contextmanager
     def managed(with_bwm=False):
@@ -308,6 +308,7 @@ class ResourceMonitoring():
             yield resource
         finally:
             resource._close()
+
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run_experiment(cfg: DictConfig) -> None:
