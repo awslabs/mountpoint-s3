@@ -38,12 +38,12 @@ use tracing::{debug, error, trace, warn};
 
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
-use crate::logging;
-use crate::manifest::{dummy_manifest, ManifestEntry};
+use crate::manifest::{Manifest, ManifestEntry};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
+use crate::{logging, manifest};
 
 mod expiry;
 use expiry::Expiry;
@@ -74,7 +74,7 @@ struct SuperblockInner {
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
     config: SuperblockConfig,
-    manifest: Option<Arc<Vec<ManifestEntry>>>,
+    manifest: Option<Manifest>,
 }
 
 /// Configuration for superblock operations
@@ -100,7 +100,7 @@ impl Superblock {
         );
 
         let manifest = if config.use_manifest {
-            Some(dummy_manifest())
+            Some(Manifest::new())
         } else {
             None
         };
@@ -612,10 +612,8 @@ impl SuperblockInner {
         let lookup = match lookup {
             Some(lookup) => lookup?,
             None => {
-                let remote = if self.config.use_manifest {
-                    let parent = self.get(parent_ino)?;
-                    let parent_full_path = self.full_key_for_inode(&parent);
-                    self.manifest_lookup(parent, parent_full_path, name)?
+                let remote = if let Some(manifest) = &self.manifest {
+                    self.manifest_lookup(manifest, parent_ino, name)?
                 } else {
                     self.remote_lookup(client, parent_ino, name).await?
                 };
@@ -674,57 +672,34 @@ impl SuperblockInner {
         lookup
     }
 
+    /// Lookup in the [Manifest] and convert the entry to [RemoteLookup]
     fn manifest_lookup(
         &self,
-        parent: Inode,
-        parent_full_path: String,
+        manifest: &Manifest,
+        parent_ino: InodeNo,
         name: &str,
     ) -> Result<Option<RemoteLookup>, InodeError> {
-        if parent.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(parent.err()));
-        }
-
-        let mut full_path = parent_full_path;
-        assert!(full_path.is_empty() || full_path.ends_with('/'));
-        full_path.push_str(name);
-
-        let mut full_path_suffixed = full_path.clone();
-        full_path_suffixed.push('/');
-
-        // this should be a bin search through a file stored on disk
-        fn search_manifest_entry<'a>(manifest: &'a [ManifestEntry], full_path: &str) -> Option<&'a ManifestEntry> {
-            manifest
-                .binary_search_by(|manifest_entry| manifest_entry.key().cmp(full_path))
-                .map_or(None, |index| Some(&manifest[index]))
-        }
-
-        // search for file entry
-        let mut manifest_entry = search_manifest_entry(self.manifest.as_ref().unwrap(), &full_path);
-
-        // search for dir entry
-        if manifest_entry.is_none() {
-            manifest_entry = search_manifest_entry(self.manifest.as_ref().unwrap(), &full_path_suffixed);
-        }
-
-        // return an inode or error
-        match manifest_entry {
-            Some(ManifestEntry::File { etag, size, .. }) => Ok(Some(RemoteLookup {
+        let parent = self.get(parent_ino)?;
+        let parent_full_path = self.full_key_for_inode(&parent);
+        let mount_time = OffsetDateTime::now_utc(); // todo: mount time
+        let remote_lookup = match manifest.manifest_lookup(parent, parent_full_path, name)? {
+            ManifestEntry::File { etag, size, .. } => RemoteLookup {
                 kind: InodeKind::File,
                 stat: InodeStat::for_file(
-                    *size,
-                    OffsetDateTime::now_utc(),
-                    Some(etag.clone()),
+                    size,
+                    mount_time,
+                    Some(etag),
                     None,
                     None,
                     self.config.cache_config.file_ttl,
                 ),
-            })),
-            Some(ManifestEntry::Directory { .. }) => Ok(Some(RemoteLookup {
+            },
+            ManifestEntry::Directory { .. } => RemoteLookup {
                 kind: InodeKind::Directory,
-                stat: InodeStat::for_directory(OffsetDateTime::now_utc(), self.config.cache_config.dir_ttl),
-            })),
-            None => Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err())),
-        }
+                stat: InodeStat::for_directory(mount_time, self.config.cache_config.dir_ttl),
+            },
+        };
+        Ok(Some(remote_lookup))
     }
 
     /// Lookup an inode in the parent directory with the given name

@@ -44,7 +44,7 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use crate::manifest::ManifestEntry;
+use crate::manifest::{Manifest, ManifestEntry};
 use mountpoint_s3_client::types::ObjectInfo;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{error, trace, warn};
@@ -310,8 +310,11 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
-    fn manifest(manifest: Arc<Vec<ManifestEntry>>, bucket: &str, full_path: &str) -> Result<Self, InodeError> {
-        Ok(Self::Manifest(manifest::ReaddirIter::new(manifest, bucket, full_path)?))
+    fn manifest(manifest: Manifest, bucket: &str, full_path: &str) -> Result<Self, InodeError> {
+        Ok(Self::Manifest(manifest::ReaddirIter::new(
+            manifest.iter(bucket, full_path)?,
+            full_path.len(),
+        )))
     }
 
     async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
@@ -592,92 +595,49 @@ mod unordered {
 mod manifest {
     use time::OffsetDateTime;
 
+    use crate::manifest::ManifestIter;
+
     use super::*;
 
+    /// Adaptor for [ManifestIter], converts [ManifestEntry] to [ReaddirEntry]
     #[derive(Debug)]
     pub struct ReaddirIter {
-        manifest: Arc<Vec<ManifestEntry>>,
-        bucket: String,
-        full_path: String,
-        idx: usize,
-        end_idx: usize,
+        manifest_iter: ManifestIter,
+        full_path_len: usize,
     }
 
     impl ReaddirIter {
-        /// Locate the index of the directory in the manifest and create an iterator
-        pub(super) fn new(
-            manifest: Arc<Vec<ManifestEntry>>,
-            bucket: &str,
-            full_path: &str,
-        ) -> Result<Self, InodeError> {
-            let full_path = if full_path.starts_with("/") {
-                full_path.to_owned()
-            } else {
-                format!("/{full_path}")
-            };
-            trace!("searching for an entry in manifest: {}", full_path);
-            let idx = manifest
-                .binary_search_by(|manifest_entry| manifest_entry.key().cmp(&full_path))
-                .inspect_err(|_| error!("entry not found in the manifest: {}", full_path))
-                .map_err(|_| InodeError::InodeDoesNotExist(0))?; // TODO: add InodeError::BadManifest
-            trace!("found an entry in manifest: {}", full_path);
-            let end_idx = match manifest[idx] {
-                ManifestEntry::Directory { total_entries, .. } => Ok(idx + total_entries),
-                _ => {
-                    error!("manifest entry is not a directory: {}", full_path);
-                    Err(InodeError::InodeDoesNotExist(0)) // TODO: add InodeError::BadManifest
-                }
-            }?;
-            trace!("initializing readdir iter with indices: {}, {}", idx + 1, end_idx);
-
-            Ok(Self {
-                manifest,
-                bucket: bucket.to_owned(),
-                full_path,
-                idx: idx + 1, // skip the directory entry itself
-                end_idx,
-            })
+        pub(super) fn new(manifest_iter: ManifestIter, full_path_len: usize) -> Self {
+            Self {
+                manifest_iter,
+                full_path_len,
+            }
         }
 
-        /// Iterate over the manifest entries, skipping subdirectories
+        /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
+        /// `Ok(None)`.
         pub(super) fn next(&mut self) -> Result<Option<ReaddirEntry>, InodeError> {
-            if self.idx >= self.end_idx {
-                trace!("readdir iter exhausted: {}, {}", self.idx, self.end_idx);
-                return Ok(None);
-            }
-
-            let readdir_entry = match &self.manifest[self.idx] {
-                ManifestEntry::File { full_key, etag, size } => {
-                    trace!("found a file entry in the manifest: {}", full_key);
-                    self.idx = self.idx + 1;
-                    let name = full_key[self.full_path.len()..full_key.len()].to_owned();
+            let readdir_entry = match self.manifest_iter.next()? {
+                Some(ManifestEntry::File { full_key, etag, size }) => {
+                    let name = full_key[self.full_path_len..].to_owned();
                     let object_info = ObjectInfo {
                         key: full_key.clone(),
-                        size: *size as u64,
+                        size: size as u64,
                         last_modified: OffsetDateTime::now_utc(),
                         storage_class: None,
                         restore_status: None,
                         etag: etag.clone(),
                         checksum_algorithms: Default::default(), // TODO: what are the implications?
                     };
-                    ReaddirEntry::RemoteObject { name, object_info }
+                    Some(ReaddirEntry::RemoteObject { name, object_info })
                 }
-                ManifestEntry::Directory {
-                    full_key,
-                    total_entries,
-                } => {
-                    trace!(
-                        "found a directory entry in the manifest: {}, {}",
-                        full_key,
-                        total_entries
-                    );
-                    self.idx = self.idx + total_entries;
-                    let name = full_key[self.full_path.len()..full_key.len() - 1].to_owned();
-                    ReaddirEntry::RemotePrefix { name }
+                Some(ManifestEntry::Directory { full_key, .. }) => {
+                    let name = full_key[self.full_path_len..full_key.len() - 1].to_owned();
+                    Some(ReaddirEntry::RemotePrefix { name })
                 }
+                None => None,
             };
-
-            Ok(Some(readdir_entry))
+            Ok(readdir_entry)
         }
     }
 }
