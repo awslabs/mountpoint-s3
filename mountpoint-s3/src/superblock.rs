@@ -613,7 +613,9 @@ impl SuperblockInner {
             Some(lookup) => lookup?,
             None => {
                 let remote = if self.config.use_manifest {
-                    self.manifest_lookup(parent_ino, name)?
+                    let parent = self.get(parent_ino)?;
+                    let parent_full_path = self.full_key_for_inode(&parent);
+                    self.manifest_lookup(parent, parent_full_path, name)?
                 } else {
                     self.remote_lookup(client, parent_ino, name).await?
                 };
@@ -672,13 +674,17 @@ impl SuperblockInner {
         lookup
     }
 
-    fn manifest_lookup(&self, parent_ino: InodeNo, name: &str) -> Result<Option<RemoteLookup>, InodeError> {
-        let parent = self.get(parent_ino)?;
+    fn manifest_lookup(
+        &self,
+        parent: Inode,
+        parent_full_path: String,
+        name: &str,
+    ) -> Result<Option<RemoteLookup>, InodeError> {
         if parent.kind() != InodeKind::Directory {
             return Err(InodeError::NotADirectory(parent.err()));
         }
 
-        let mut full_path = parent.full_key().to_owned();
+        let mut full_path = parent_full_path;
         assert!(full_path.is_empty() || full_path.ends_with('/'));
         full_path.push_str(name);
 
