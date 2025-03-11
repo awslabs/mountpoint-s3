@@ -89,6 +89,12 @@ enum Client {
         key: String,
         #[arg(long, help = "AWS region", default_value = "us-east-1")]
         region: String,
+        #[clap(
+            long,
+            help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
+            value_name = "NETWORK_INTERFACE"
+        )]
+        bind: Option<Vec<String>>,
     },
     #[command(about = "Download a key from a mock S3 server")]
     Mock {
@@ -101,7 +107,12 @@ enum Client {
 struct CliArgs {
     #[command(subcommand)]
     client: Client,
-    #[arg(long, help = "Desired throughput in Gbps", default_value = "10.0")]
+    #[arg(
+        long,
+        help = "Desired throughput in Gbps",
+        default_value_t = 10.0,
+        visible_alias = "maximum-throughput-gbps"
+    )]
     throughput_target_gbps: f64,
     #[arg(long, help = "Part size for multi-part GET", default_value = "8388608")]
     part_size: usize,
@@ -117,9 +128,17 @@ fn main() {
     let args = CliArgs::parse();
 
     match args.client {
-        Client::Real { bucket, key, region } => {
+        Client::Real {
+            bucket,
+            key,
+            region,
+            bind,
+        } => {
             let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&region));
             config = config.throughput_target_gbps(args.throughput_target_gbps);
+            if let Some(interfaces) = &bind {
+                config = config.network_interface_names(interfaces.clone());
+            }
             config = config.part_size(args.part_size);
             let client = S3CrtClient::new(config).expect("couldn't create client");
 
