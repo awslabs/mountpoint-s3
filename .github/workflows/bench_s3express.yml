@@ -62,7 +62,7 @@ jobs:
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
-      run: mountpoint-s3-fs/scripts/fs_bench.sh
+      run: mountpoint-s3/scripts/fs_bench.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix
       run: .github/actions/scripts/save-benchmark-results.sh

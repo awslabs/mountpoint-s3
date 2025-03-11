@@ -62,7 +62,7 @@ jobs:
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
-      run: mountpoint-s3-fs/scripts/fs_bench.sh
+      run: mountpoint-s3/scripts/fs_bench.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix
       run: .github/actions/scripts/save-benchmark-results.sh
@@ -146,7 +146,7 @@ jobs:
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
-      run: mountpoint-s3-fs/scripts/fs_latency_bench.sh
+      run: mountpoint-s3/scripts/fs_latency_bench.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix
       run: .github/actions/scripts/save-benchmark-results.sh
@@ -214,7 +214,7 @@ jobs:
     - name: Run Benchmark
       env:
         S3_MOUNT_LOCAL_STORAGE: yes
-      run: mountpoint-s3-fs/scripts/fs_cache_bench.sh
+      run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix
       run: .github/actions/scripts/save-benchmark-results.sh
