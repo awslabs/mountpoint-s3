@@ -1,5 +1,6 @@
 // These tests all run the main binary and so expect to be able to reach S3
 #![cfg(feature = "s3_tests")]
+#![cfg(feature = "fuse_tests")]
 
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
@@ -18,15 +19,17 @@ use std::{path::PathBuf, process::Command};
 use tempfile::NamedTempFile;
 use test_case::test_case;
 
-use crate::common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
-use crate::common::fuse::{mount_for_passing_fuse_fd, read_dir_to_entry_names};
-use crate::common::s3::{
+mod common;
+
+use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
+use common::fuse::{mount_for_passing_fuse_fd, read_dir_to_entry_names};
+use common::s3::{
     create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_endpoint_url, get_test_region,
     get_test_sdk_client,
 };
-use crate::common::tokio_block_on;
+use common::tokio_block_on;
 #[cfg(not(feature = "s3express_tests"))]
-use crate::common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
+use common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
 
 const MOUNT_OPTION_READ_ONLY: &str = "--read-only";
 const MOUNT_OPTION_AUTO_UNMOUNT: &str = "--auto-unmount";

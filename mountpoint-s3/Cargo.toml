@@ -21,12 +21,21 @@ regex = "1.11.1"
 
 [dev-dependencies]
 mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
+mountpoint-s3-fuser = { path = "../mountpoint-s3-fuser" }
 assert_cmd = "2.0.16"
 assert_fs = "1.1.2"
+aws-config = "1.5.15"
+aws-credential-types = "1.2.1"
+aws-sdk-s3 = "1.71.0"
 futures = { version = "0.3.31", features = ["thread-pool"] }
+nix = { version = "0.29.0" }
 predicates = "3.1.3"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
 serde = { version = "1.0.217", features = ["derive"] }
 test-case = "3.3.1"
+tempfile = "3.15.0"
+tokio = { version = "1.43.0" }
 tracing = { version = "0.1.41", features = ["log"] }
 
 [build-dependencies]
