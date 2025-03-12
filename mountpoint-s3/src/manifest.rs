@@ -1,5 +1,7 @@
-use std::sync::Arc;
+use crate::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use rusqlite::Connection;
 use tracing::{error, trace};
 
 use crate::superblock::{Inode, InodeError, InodeKind};
@@ -14,7 +16,6 @@ pub enum ManifestEntry {
     },
     Directory {
         full_key: String, // let's assume it always ends with '/'
-        total_entries: usize,
     },
 }
 
@@ -30,14 +31,16 @@ impl ManifestEntry {
 /// Manifest of all available objects in the bucket
 #[derive(Debug, Clone)]
 pub struct Manifest {
-    inner: Arc<Vec<ManifestEntry>>,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl Manifest {
-    pub fn new() -> Self {
-        Self {
-            inner: dummy_manifest(),
-        }
+    pub fn new() -> Result<Self, rusqlite::Error> {
+        let db_path = "./s3_objects.db3";
+        let conn = Connection::open(db_path)?; // TODO: ManifestError::DbError
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)), // TODO: no mutex? serialized mode of sqlite?
+        })
     }
 
     /// Lookup an entry in the manifest, the result may be a file or a directory
@@ -56,24 +59,13 @@ impl Manifest {
         let mut full_path = parent_full_path;
         full_path.push_str(name);
 
-        let mut full_path_suffixed = full_path.clone();
-        full_path_suffixed.push('/');
-
-        // this should be a bin search through a file stored on disk
-        fn search_manifest_entry<'a>(manifest: &'a [ManifestEntry], full_path: &str) -> Option<&'a ManifestEntry> {
-            trace!("searching for {}", full_path);
-            manifest
-                .binary_search_by(|manifest_entry| manifest_entry.key().cmp(full_path))
-                .map_or(None, |index| Some(&manifest[index]))
-        }
-
-        // search for file entry
-        let mut manifest_entry = search_manifest_entry(&self.inner, &full_path);
-
-        // search for dir entry
-        if manifest_entry.is_none() {
-            manifest_entry = search_manifest_entry(&self.inner, &full_path_suffixed);
-        }
+        // search for an entry
+        let start = Instant::now();
+        let manifest_entry = self
+            .search_manifest_entry(&full_path)
+            .inspect_err(|err| error!("failed to query the database: {}", err))
+            .map_err(|_| InodeError::InodeDoesNotExist(0))?; // TODO: ManifestError::DbError
+        trace!("db search completed in {:?}", start.elapsed());
 
         // return an inode or error
         match manifest_entry {
@@ -86,110 +78,66 @@ impl Manifest {
     pub fn iter(&self, bucket: &str, directory_full_path: &str) -> Result<ManifestIter, InodeError> {
         ManifestIter::new(self.clone(), bucket, directory_full_path)
     }
+
+    fn search_manifest_entry(&self, full_path: &str) -> Result<Option<ManifestEntry>, rusqlite::Error> {
+        let dir_search_start = format!("{full_path}/");
+        let dir_search_end = format!("{full_path}0"); // any child of [full_path] directory will have a key which is "less" than this
+        let file_search = full_path;
+
+        let query = "SELECT key, etag, size FROM s3_objects where (key >= ?1 and key < ?2) or key = ?3 LIMIT 1";
+        let conn = self.conn.lock().expect("lock must succeed");
+        let mut stmt = conn.prepare(query)?;
+        let manifest_entry = stmt
+            .query_map((dir_search_start, dir_search_end, file_search), |row| {
+                let found_key: String = row.get(0)?;
+                trace!(
+                    "found entry in the manifest: {}, searched for: {}",
+                    found_key,
+                    full_path
+                );
+
+                let entry = if found_key == full_path {
+                    // exact match means this is a file
+                    ManifestEntry::File {
+                        full_key: found_key,
+                        etag: row.get(1)?,
+                        size: row.get(2)?,
+                    }
+                } else if found_key.starts_with(full_path) {
+                    // partial match means this is a directory
+                    ManifestEntry::Directory { full_key: found_key }
+                } else {
+                    panic!("got non-matching row: {}, searched: {}", found_key, full_path);
+                };
+
+                Ok(entry)
+            })?
+            .next();
+
+        manifest_entry.map_or(Ok(None), |v| v.map(Some))
+    }
 }
 
 #[derive(Debug)]
 pub struct ManifestIter {
     manifest: Manifest,
-    bucket: String,
-    idx: usize,
-    end_idx: usize,
+    search_from_key: String,
 }
 
 impl ManifestIter {
     /// Locate the index of the directory in the manifest and create an iterator
-    fn new(manifest: Manifest, bucket: &str, full_path: &str) -> Result<Self, InodeError> {
-        let full_path = full_path.to_owned();
-        trace!("searching for an entry in manifest: {}", full_path);
-        let idx = manifest
-            .inner
-            .binary_search_by(|manifest_entry| manifest_entry.key().cmp(&full_path))
-            .inspect_err(|_| error!("entry not found in the manifest: {}", full_path))
-            .map_err(|_| InodeError::InodeDoesNotExist(0))?; // TODO: add InodeError::BadManifest
-        trace!("found an entry in manifest: {}", full_path);
-        let end_idx = match manifest.inner[idx] {
-            ManifestEntry::Directory { total_entries, .. } => Ok(idx + total_entries),
-            _ => {
-                error!("manifest entry is not a directory: {}", full_path);
-                Err(InodeError::InodeDoesNotExist(0)) // TODO: add InodeError::BadManifest
-            }
-        }?;
-        trace!("initializing readdir iter with indices: {}, {}", idx + 1, end_idx);
+    fn new(manifest: Manifest, bucket: &str, full_key: &str) -> Result<Self, InodeError> {
+        let full_key = full_key.to_owned();
+        trace!("searching for an entry in the manifest starting with: {}", full_key);
 
         Ok(Self {
             manifest,
-            bucket: bucket.to_owned(),
-            idx: idx + 1, // skip the directory entry itself
-            end_idx,
+            search_from_key: full_key,
         })
     }
 
     /// Iterate over the manifest entries, skipping subdirectories
     pub fn next(&mut self) -> Result<Option<ManifestEntry>, InodeError> {
-        if self.idx >= self.end_idx {
-            trace!("readdir iter exhausted: {}, {}", self.idx, self.end_idx);
-            return Ok(None);
-        }
-
-        match &self.manifest.inner[self.idx] {
-            entry @ ManifestEntry::File { full_key, .. } => {
-                trace!("found a file entry in the manifest: {}", full_key);
-                self.idx = self.idx + 1;
-                Ok(Some(entry.clone()))
-            }
-            entry @ ManifestEntry::Directory {
-                full_key,
-                total_entries,
-            } => {
-                trace!(
-                    "found a directory entry in the manifest: {}, {}",
-                    full_key,
-                    total_entries
-                );
-                self.idx = self.idx + total_entries;
-                Ok(Some(entry.clone()))
-            }
-        }
+        Ok(None)
     }
-}
-
-pub fn dummy_manifest() -> Arc<Vec<ManifestEntry>> {
-    // contract:
-    // - all directory entries [apart from the root] should end with '/'
-    // - file entries never end with '/'
-    // - directories are followed by files and subdirectories contained in them (matches lexicographical order?)
-    // - directory entries have a counter of total (calculated recursively) number of entries contained in them
-    Arc::new(vec![
-        ManifestEntry::Directory {
-            full_key: "".to_owned(),
-            total_entries: 7,
-        },
-        ManifestEntry::Directory {
-            full_key: "1.9.1/".to_owned(),
-            total_entries: 6,
-        },
-        ManifestEntry::Directory {
-            full_key: "1.9.1/arm64/".to_owned(),
-            total_entries: 2,
-        },
-        ManifestEntry::File {
-            full_key: "1.9.1/arm64/mount-s3-1.9.1-arm64.rpm".to_owned(),
-            etag: "\"f7183d9e02960286692ea6521665aa89\"".to_owned(),
-            size: 11844684,
-        },
-        ManifestEntry::File {
-            full_key: "1.9.1/checksum-1.9.1".to_owned(),
-            etag: "\"f423fc83d1fda1fdd2887c7e2122ad05\"".to_owned(),
-            size: 10,
-        },
-        ManifestEntry::Directory {
-            full_key: "1.9.1/x86_64/".to_owned(),
-            total_entries: 2,
-        },
-        ManifestEntry::File {
-            full_key: "1.9.1/x86_64/mount-s3-1.9.1-x86_64.deb".to_owned(),
-            etag: "\"e4930b1bfe7e10de29c863d1b69f444e\"".to_owned(),
-            size: 10944866,
-        },
-    ])
 }

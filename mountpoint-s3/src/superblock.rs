@@ -100,7 +100,7 @@ impl Superblock {
         );
 
         let manifest = if config.use_manifest {
-            Some(Manifest::new())
+            Some(Manifest::new().expect("manifest must be created"))
         } else {
             None
         };

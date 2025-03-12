@@ -46,6 +46,7 @@ time = { version = "0.3.37", features = ["macros", "formatting"] }
 tracing = { version = "0.1.41", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+rusqlite = { version = "0.34.0", features = ["bundled"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.17.0", default-features = false }
