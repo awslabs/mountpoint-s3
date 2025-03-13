@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsStr;
 use std::fmt::{Debug, Display};
-use std::os::unix::ffi::OsStrExt as _;
 use std::time::{Duration, SystemTime};
 
 use fuser::FileType;
@@ -14,6 +12,7 @@ use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use super::path::ValidKey;
 use super::{Expiry, InodeError, SuperblockInner};
 
 pub type InodeNo = u64;
@@ -33,11 +32,7 @@ struct InodeInner {
     // Immutable inode state -- any changes to these requires a new inode
     ino: InodeNo,
     parent: InodeNo,
-    name: String,
-    // TODO deduplicate keys by string interning or something -- many keys will have common prefixes
-    /// Object key not including the prefix (ends in '/' for directories).
-    key: String,
-    kind: InodeKind,
+    valid_key: ValidKey,
     checksum: Crc32c,
 
     /// Mutable inode state. This lock should also be held to serialize operations on an inode (like
@@ -63,15 +58,19 @@ impl Inode {
     }
 
     pub fn name(&self) -> &str {
-        &self.inner.name
+        self.inner.valid_key.name()
     }
 
     pub fn kind(&self) -> InodeKind {
-        self.inner.kind
+        self.inner.valid_key.kind()
     }
 
     pub fn key(&self) -> &str {
-        &self.inner.key
+        self.inner.valid_key.as_ref()
+    }
+
+    pub fn valid_key(&self) -> &ValidKey {
+        &self.inner.valid_key
     }
 
     /// Increment lookup count for [Inode] by 1, returning the new value.
@@ -135,23 +134,13 @@ impl Inode {
     }
 
     /// Create a new inode.
-    pub(super) fn new(
-        ino: InodeNo,
-        parent: InodeNo,
-        name: String,
-        key: String,
-        prefix: &Prefix,
-        kind: InodeKind,
-        state: InodeState,
-    ) -> Self {
-        let checksum = Self::compute_checksum(ino, prefix, &key);
+    pub(super) fn new(ino: InodeNo, parent: InodeNo, key: ValidKey, prefix: &Prefix, state: InodeState) -> Self {
+        let checksum = Self::compute_checksum(ino, prefix, key.as_ref());
         let sync = RwLock::new(state);
         let inner = InodeInner {
             ino,
             parent,
-            name,
-            key,
-            kind,
+            valid_key: key,
             checksum,
             sync,
         };
@@ -163,10 +152,8 @@ impl Inode {
         Self::new(
             ROOT_INODE_NO,
             ROOT_INODE_NO,
-            String::new(),
-            String::new(),
+            ValidKey::root(),
             prefix,
-            InodeKind::Directory,
             InodeState {
                 // The root inode never expires because there's no remote to consult for its
                 // metadata, and it always exists.
@@ -217,19 +204,6 @@ impl Inode {
     pub fn err(&self) -> InodeErrorInfo {
         InodeErrorInfo(self.clone())
     }
-}
-
-pub fn valid_inode_name<T: AsRef<OsStr>>(name: T) -> bool {
-    let name = name.as_ref();
-    // Names cannot be empty
-    !name.is_empty() &&
-    // "." and ".." are reserved names (presented by the filesystem layer)
-    name != "." &&
-    name != ".." &&
-    // The delimiter / can never appear in a name
-    !name.as_bytes().contains(&b'/') &&
-    // NUL is invalid in POSIX names
-    !name.as_bytes().contains(&b'\0')
 }
 
 /// A wrapper that prints useful customer-facing error messages for inodes by including the object
@@ -598,10 +572,10 @@ mod tests {
         let inode = Inode::new(
             ino,
             ROOT_INODE_NO,
-            inode_name.to_owned(),
-            inode_name.to_owned(),
+            ValidKey::root()
+                .new_child(inode_name.try_into().unwrap(), InodeKind::File)
+                .unwrap(),
             &superblock.inner.prefix,
-            InodeKind::File,
             InodeState {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
@@ -731,9 +705,9 @@ mod tests {
             inner: Arc::new(InodeInner {
                 ino: 42,
                 parent: parent_ino,
-                name: file_name.into(),
-                key: file_name.into(),
-                kind: InodeKind::File,
+                valid_key: ValidKey::root()
+                    .new_child(file_name.try_into().unwrap(), InodeKind::File)
+                    .unwrap(),
                 checksum: bad_checksum,
                 sync: RwLock::new(InodeState {
                     stat: InodeStat::for_file(
@@ -792,9 +766,9 @@ mod tests {
             inner: Arc::new(InodeInner {
                 ino,
                 parent: ROOT_INODE_NO,
-                name: inode_name.to_owned(),
-                key: inode_name.to_owned(),
-                kind: InodeKind::File,
+                valid_key: ValidKey::root()
+                    .new_child(inode_name.try_into().unwrap(), InodeKind::File)
+                    .unwrap(),
                 checksum,
                 sync: RwLock::new(InodeState {
                     write_status: WriteStatus::LocalOpen,

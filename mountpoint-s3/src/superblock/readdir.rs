@@ -50,10 +50,7 @@ use tracing::{error, trace, warn};
 
 use crate::sync::{Arc, AsyncMutex, Mutex};
 
-use super::{
-    inode::valid_inode_name, InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, RemoteLookup,
-    SuperblockInner,
-};
+use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, RemoteLookup, SuperblockInner};
 
 /// Handle for an inflight directory listing
 #[derive(Debug)]
@@ -131,13 +128,14 @@ impl ReaddirHandle {
             };
 
             if let Some(next) = next {
-                // Short-circuit the update if we know it'll fail because the name is invalid
-                if !valid_inode_name(next.name()) {
+                let Ok(name) = next.name().try_into() else {
+                    // Short-circuit the update if we know it'll fail because the name is invalid
                     warn!("{} has an invalid name and will be unavailable", next.description());
-                } else {
-                    let lookup = self.instantiate_remote_inode(next)?;
-                    return Ok(Some(lookup));
-                }
+                    continue;
+                };
+                let remote_lookup = self.remote_lookup_from_entry(&next);
+                let lookup = self.inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
+                return Ok(Some(lookup));
             } else {
                 return Ok(None);
             }
@@ -161,9 +159,9 @@ impl ReaddirHandle {
         self.parent_ino
     }
 
-    /// Create or update an inode for the given ReaddirEntry.
-    fn instantiate_remote_inode(&self, entry: ReaddirEntry) -> Result<LookedUp, InodeError> {
-        let remote_lookup = match &entry {
+    /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
+    fn remote_lookup_from_entry(&self, entry: &ReaddirEntry) -> Option<RemoteLookup> {
+        match entry {
             // If we made it this far with a local inode, we know there's nothing on the remote with
             // the same name, because [LocalInode] is last in the ordering and so otherwise would
             // have been deduplicated by now.
@@ -189,8 +187,7 @@ impl ReaddirHandle {
                     kind: InodeKind::File,
                 })
             }
-        };
-        self.inner.update_from_remote(self.dir_ino, entry.name(), remote_lookup)
+        }
     }
 
     #[cfg(test)]
