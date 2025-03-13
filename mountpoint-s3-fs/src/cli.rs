@@ -151,7 +151,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Enable incremental uploads and support for appending to existing objects",
+        help = "Enable incremental uploads and support for appending to existing objects. This is only supported on directory buckets in S3 Express One Zone.",
         help_heading = MOUNT_OPTIONS_HEADER,
     )]
     pub incremental_upload: bool,
