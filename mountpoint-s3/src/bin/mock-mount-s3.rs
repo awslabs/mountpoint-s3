@@ -13,19 +13,27 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use clap::Parser;
 use futures::executor::ThreadPool;
 
-use mountpoint_s3::cli::CliArgs;
-use mountpoint_s3::s3::S3Personality;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
 use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_fs::cli::{CliArgs, ContextParams};
+use mountpoint_s3_fs::s3::S3Personality;
 
 fn main() -> anyhow::Result<()> {
-    mountpoint_s3::cli::main(create_mock_client)
+    let args = mountpoint_s3::AppCliArgs::parse();
+    let context = mountpoint_s3_fs::cli::ContextParams {
+        full_version: mountpoint_s3::build_info::FULL_VERSION.to_string(),
+    };
+    mountpoint_s3_fs::cli::main(create_mock_client, args.cli_args, context)
 }
 
-fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClient>, ThreadPool, S3Personality)> {
+fn create_mock_client(
+    args: &CliArgs,
+    _context_params: &ContextParams,
+) -> anyhow::Result<(Arc<ThroughputMockClient>, ThreadPool, S3Personality)> {
     // An extra little safety thing to make sure we can distinguish the real mount-s3 binary and
     // this one. Buckets starting with "sthree-" are always invalid against real S3:
     // https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
