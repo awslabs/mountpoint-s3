@@ -38,7 +38,7 @@ impl ValidKey {
         let mut key = self.as_ref().to_owned();
         let name_offset = key.len();
         key.push_str(&name);
-        if kind == InodeKind::Directory && !key.is_empty() {
+        if kind == InodeKind::Directory {
             key.push('/');
         }
         Ok(Self { name_offset, key })
