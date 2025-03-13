@@ -38,12 +38,12 @@ use tracing::{debug, error, trace, warn};
 
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
+use crate::logging;
 use crate::manifest::{Manifest, ManifestEntry};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
-use crate::{logging, manifest};
 
 mod expiry;
 use expiry::Expiry;

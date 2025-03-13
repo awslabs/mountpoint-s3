@@ -103,7 +103,7 @@ impl ReaddirHandle {
         let iter = if inner.config.use_manifest {
             trace!("using manifest readdir iter");
             ReaddirIter::manifest(
-                inner.manifest.clone().expect("manifest should be set"),
+                inner.manifest.as_ref().expect("manifest should be set"),
                 &inner.bucket,
                 &full_path,
             )?
@@ -310,7 +310,7 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
-    fn manifest(manifest: Manifest, bucket: &str, full_path: &str) -> Result<Self, InodeError> {
+    fn manifest(manifest: &Manifest, bucket: &str, full_path: &str) -> Result<Self, InodeError> {
         Ok(Self::Manifest(manifest::ReaddirIter::new(
             manifest.iter(bucket, full_path)?,
             full_path.len(),
