@@ -5,7 +5,7 @@
 ///
 /// This enum intentionally doesn't implement PartialEq/Eq. You shouldn't test it directly. Instead,
 /// use its methods like `is_list_ordered` to check the actual behavior you're looking for.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum S3Personality {
     #[default]
     Standard,
@@ -25,6 +25,14 @@ impl S3Personality {
     pub fn supports_additional_checksums(&self) -> bool {
         match self {
             S3Personality::Standard => true,
+            S3Personality::ExpressOneZone => true,
+            S3Personality::Outposts => false,
+        }
+    }
+
+    pub fn supports_append(&self) -> bool {
+        match self {
+            S3Personality::Standard => false,
             S3Personality::ExpressOneZone => true,
             S3Personality::Outposts => false,
         }
