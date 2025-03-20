@@ -452,6 +452,13 @@ where
             size
         );
 
+        if option_env!("MOUNTPOINT_BUILD_STUB_FS_HANDLER").is_some() {
+            // This compile-time configuration allows us to return simply zeroes to FUSE,
+            // allowing us to remove Mountpoint's logic from the loop and compare performance
+            // with and without the rest of Mountpoint's logic (such as file handle interaction, prefetcher, etc.).
+            return Ok(vec![0u8; size as usize].into());
+        }
+
         let handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
