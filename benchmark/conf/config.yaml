@@ -37,7 +37,7 @@ mountpoint_congestion_threshold: !!null
 with_bwm: false
 
 # Works automatically ONLY where this script manages compilation. It has no effect if `mountpoint_binary` is set.
-stub_mode: "off" # fs_handler
+stub_mode: "off" # fs_handler, s3_client
 
 iterations: 1
 
