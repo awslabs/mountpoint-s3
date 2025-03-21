@@ -1,8 +1,7 @@
 //! A version of `mount-s3` that targets an in-memory mock S3 backend rather than the real service.
 //!
-//! The mock S3 backend supports simulating a target network throughput. The
-//! --maximum-throughput-gbps command-line argument can be used to set the target throughput, which
-//! defaults to 10Gbps.
+//! The mock S3 backend supports simulating a target network throughput.
+//! The `--maximum-throughput-gbps` command-line argument can be used to optionally limit download throughput.
 //!
 //! As a safety measure, this binary works only if the bucket name begins with "sthree-". This makes
 //! sure we can't accidentally confuse this binary with a real `mount-s3` in any of our testing or
@@ -12,7 +11,6 @@
 
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use clap::Parser;
 use futures::executor::ThreadPool;
 
@@ -44,21 +42,31 @@ fn create_mock_client(
 
     tracing::warn!("using mock client");
 
-    let Some(max_throughput_gbps) = args.maximum_throughput_gbps else {
-        return Err(anyhow!(
-            "must set --maximum-throughput-gbps when using mock-mount-s3 binary"
-        ));
+    let part_size = {
+        // TODO: Actually update the mock client to support different part sizes
+        let values = [Some(args.part_size), args.read_part_size, args.write_part_size];
+        values
+            .iter()
+            .copied()
+            .flatten()
+            .max()
+            .expect("always at least one value given part_size is not optional")
     };
-    tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
 
     let config = MockClientConfig {
         bucket: args.bucket_name.clone(),
-        part_size: args.part_size as usize,
+        part_size: part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,
         initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
     };
-    let client = ThroughputMockClient::new(config, max_throughput_gbps as f64);
+
+    let client = if let Some(max_throughput_gbps) = args.maximum_throughput_gbps {
+        tracing::info!("mock client limited to {max_throughput_gbps} Gb/s download throughput");
+        ThroughputMockClient::new(config, max_throughput_gbps as f64)
+    } else {
+        ThroughputMockClient::new_unlimited_throughput(config)
+    };
 
     let runtime = ThreadPool::builder().name_prefix("runtime").create()?;
 
@@ -83,6 +91,13 @@ fn create_mock_client(
             format!("test-{}B", size)
         };
         client.add_object(&key, MockObject::ramp(0x11, size as usize, ETag::for_tests()));
+    }
+    // Some objects that are useful for benchmarking
+    for job_num in 0..1024 {
+        let size_gib = 100;
+        let size_bytes = size_gib * 1024u64.pow(3);
+        let key = format!("j{job_num}_{size_gib}GiB.bin");
+        client.add_object(&key, MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()));
     }
     client.add_object("hello.txt", MockObject::from_bytes(b"hello world", ETag::for_tests()));
     client.add_object("empty", MockObject::from_bytes(b"", ETag::for_tests()));
