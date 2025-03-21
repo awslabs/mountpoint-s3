@@ -1,8 +1,7 @@
 //! A version of `mount-s3` that targets an in-memory mock S3 backend rather than the real service.
 //!
-//! The mock S3 backend supports simulating a target network throughput. The
-//! --maximum-throughput-gbps command-line argument can be used to set the target throughput, which
-//! defaults to 10Gbps.
+//! The mock S3 backend supports simulating a target network throughput.
+//! The `--maximum-throughput-gbps` command-line argument can be used to optionally limit download throughput.
 //!
 //! As a safety measure, this binary works only if the bucket name begins with "sthree-". This makes
 //! sure we can't accidentally confuse this binary with a real `mount-s3` in any of our testing or
@@ -12,7 +11,6 @@
 
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use clap::Parser;
 use futures::executor::ThreadPool;
 
@@ -45,13 +43,6 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
 
     tracing::warn!("using mock client");
 
-    let Some(max_throughput_gbps) = args.maximum_throughput_gbps else {
-        return Err(anyhow!(
-            "must set --maximum-throughput-gbps when using mock-mount-s3 binary"
-        ));
-    };
-    tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
-
     let config = MockClientConfig {
         bucket: bucket_name,
         part_size: args.part_size as usize,
@@ -59,7 +50,13 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         enable_backpressure: true,
         initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
     };
-    let client = ThroughputMockClient::new(config, max_throughput_gbps as f64);
+
+    let client = if let Some(max_throughput_gbps) = args.maximum_throughput_gbps {
+        tracing::info!("mock client limited to {max_throughput_gbps} Gb/s download throughput");
+        ThroughputMockClient::new(config, max_throughput_gbps as f64)
+    } else {
+        ThroughputMockClient::new_unlimited_throughput(config)
+    };
 
     let runtime = Runtime::new(ThreadPool::builder().name_prefix("runtime").create()?);
 
