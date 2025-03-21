@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
@@ -8,26 +7,27 @@ use std::task::{Context, Poll};
 
 use async_trait::async_trait;
 use futures::channel::mpsc::UnboundedReceiver;
-use futures::future::FusedFuture;
-use futures::{select_biased, Stream};
+use futures::stream::FusedStream;
+use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
-use pin_project::pin_project;
+use pin_project::{pin_project, pinned_drop};
 use thiserror::Error;
+use tracing::trace;
 
 use crate::object_client::{
     Checksum, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
     ObjectClientResult, ObjectMetadata,
 };
 use crate::s3_crt_client::{
-    parse_checksum, GetObjectResponse, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Operation, S3RequestError,
+    parse_checksum, GetObjectResponse, S3CrtClient, S3CrtClientInner, S3Operation, S3RequestError,
 };
 use crate::types::ChecksumMode;
 
 use super::ObjectChecksumError;
 
 impl S3CrtClient {
-    /// Create and begin a new GetObject request. The returned [GetObjectRequest] is a [Stream] of
+    /// Create and begin a new GetObject request. The returned [S3GetObjectResponse] is a [Stream] of
     /// body parts of the object, which will be delivered in order.
     pub(super) async fn get_object(
         &self,
@@ -37,11 +37,8 @@ impl S3CrtClient {
     ) -> Result<S3GetObjectResponse, ObjectClientError<GetObjectError, S3RequestError>> {
         let requested_checksums = params.checksum_mode.as_ref() == Some(&ChecksumMode::Enabled);
         let next_offset = params.range.as_ref().map(|r| r.start).unwrap_or(0);
-
-        let (part_sender, part_receiver) = futures::channel::mpsc::unbounded();
-        let (headers_sender, mut headers_receiver) = futures::channel::oneshot::channel();
-
-        let mut request = {
+        let (event_sender, mut event_receiver) = futures::channel::mpsc::unbounded();
+        let meta_request = {
             let span =
                 request_span!(self.inner, "get_object", bucket, key, range=?params.range, if_match=?params.if_match);
 
@@ -85,69 +82,74 @@ impl S3CrtClient {
             let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
             options.part_size(self.inner.read_part_size as u64);
 
-            let mut headers_sender = Some(headers_sender);
-
+            let mut headers_sender = Some(event_sender.clone());
+            let part_sender = event_sender.clone();
             self.inner.make_meta_request_from_options(
                 options,
                 span,
                 |_| (),
                 move |headers, status| {
-                    // Headers can be returned multiple times, but the metadata/checksums don't change.
-                    // Explicitly ignore the case where we've already set object metadata.
-
-                    // Only set headers if we have a 2xx status code. If we only get other status codes,
-                    // then on_finish sets an error.
+                    // Only send headers if we have a 2xx status code. If we only get other status codes,
+                    // then on_meta_request_result will send an error.
                     if (200..300).contains(&status) {
-                        if let Some(sender) = headers_sender.take() {
-                            // Only send the headers once.
-                            _ = sender.send(headers.clone());
+                        // Headers can be returned multiple times, but the metadata/checksums don't change.
+                        // We only send the first occurence to the channel.
+                        if let Some(headers_sender) = headers_sender.take() {
+                            _ = headers_sender.unbounded_send(S3GetObjectEvent::Headers(headers.clone()));
                         }
                     }
                 },
                 move |offset, data| {
-                    let _ = part_sender.unbounded_send((offset, data.into()));
+                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(offset, data.into()));
                 },
+                parse_get_object_error,
                 move |result| {
-                    if result.is_err() {
-                        Err(parse_get_object_error(result).map(ObjectClientError::ServiceError))
-                    } else {
-                        Ok(())
+                    if let Err(e) = result {
+                        _ = event_sender.unbounded_send(S3GetObjectEvent::Error(e));
                     }
+                    event_sender.close_channel();
                 },
             )?
         };
 
-        let headers = select_biased! {
-            headers = headers_receiver => headers.unwrap(),
-            result = request => {
+        let headers = match event_receiver.next().await {
+            Some(S3GetObjectEvent::Headers(headers)) => headers,
+            Some(S3GetObjectEvent::Error(e)) => {
+                return Err(e);
+            }
+            event => {
                 // If we did not received the headers first, the request must have failed.
-                result?;
+                trace!(?event, "unexpected GetObject event while waiting for headers");
                 return Err(S3RequestError::internal_failure(ObjectHeadersError::MissingHeaders).into());
             }
         };
-
-        // Guaranteed when select_biased! executes the headers branch.
-        assert!(!request.is_terminated());
 
         let backpressure_handle = if self.inner.enable_backpressure {
             let read_window_end_offset =
                 Arc::new(AtomicU64::new(next_offset + self.inner.initial_read_window_size as u64));
             Some(S3BackpressureHandle {
                 read_window_end_offset,
-                meta_request: request.meta_request.clone(),
+                meta_request: meta_request.clone(),
             })
         } else {
             None
         };
         Ok(S3GetObjectResponse {
-            request,
-            part_receiver,
+            meta_request,
+            event_receiver,
             requested_checksums,
             backpressure_handle,
             headers,
             next_offset,
         })
     }
+}
+
+#[derive(Debug)]
+enum S3GetObjectEvent {
+    Headers(Headers),
+    BodyPart(u64, Box<[u8]>),
+    Error(ObjectClientError<GetObjectError, S3RequestError>),
 }
 
 /// Failure retrieving headers
@@ -187,12 +189,11 @@ impl ClientBackpressureHandle for S3BackpressureHandle {
 /// Each item of the stream is a part of the object body together with the part's offset within the
 /// object.
 #[derive(Debug)]
-#[pin_project]
+#[pin_project(PinnedDrop)]
 pub struct S3GetObjectResponse {
+    meta_request: MetaRequest,
     #[pin]
-    request: S3HttpRequest<(), GetObjectError>,
-    #[pin]
-    part_receiver: UnboundedReceiver<GetBodyPart>,
+    event_receiver: UnboundedReceiver<S3GetObjectEvent>,
     requested_checksums: bool,
     backpressure_handle: Option<S3BackpressureHandle>,
     headers: Headers,
@@ -229,29 +230,37 @@ impl GetObjectResponse for S3GetObjectResponse {
     }
 }
 
+#[pinned_drop]
+impl PinnedDrop for S3GetObjectResponse {
+    fn drop(self: Pin<&mut Self>) {
+        self.meta_request.cancel();
+    }
+}
+
 impl Stream for S3GetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, S3RequestError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        if self.request.is_terminated() {
+        if self.event_receiver.is_terminated() {
             return Poll::Ready(None);
         }
 
         let this = self.project();
-
-        if let Poll::Ready(Some(item)) = this.part_receiver.poll_next(cx) {
-            *this.next_offset = item.0 + item.1.len() as u64;
-            return Poll::Ready(Some(Ok(item)));
-        }
-
-        match this.request.poll(cx) {
-            Poll::Ready(Ok(_)) => Poll::Ready(None),
-            Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
+        match this.event_receiver.poll_next(cx) {
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(Some(S3GetObjectEvent::BodyPart(offset, part))) => {
+                *this.next_offset = offset + part.len() as u64;
+                Poll::Ready(Some(Ok((offset, part))))
+            }
+            Poll::Ready(Some(S3GetObjectEvent::Headers(_))) => {
+                unreachable!("headers are only sent once and received before returning the stream")
+            }
+            Poll::Ready(Some(S3GetObjectEvent::Error(e))) => Poll::Ready(Some(Err(e))),
             Poll::Pending => {
                 // If the request is still not finished but the read window is not enough to poll
                 // the next chunk we want to return error instead of keeping the request blocked.
                 // This prevents a risk of deadlock from using the [S3CrtClient], users must implement
-                // their own logic to block the request if they really want to block a [GetObjectRequest].
+                // their own logic to block the request if they really want to block a [S3GetObjectResponse].
                 if let Some(handle) = &this.backpressure_handle {
                     if *this.next_offset >= handle.read_window_end_offset() {
                         return Poll::Ready(Some(Err(ObjectClientError::ClientError(
