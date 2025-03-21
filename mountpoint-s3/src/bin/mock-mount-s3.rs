@@ -43,9 +43,20 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
 
     tracing::warn!("using mock client");
 
+    let part_size = {
+        // TODO: Actually update the mock client to support different part sizes
+        let values = [Some(args.part_size), args.read_part_size, args.write_part_size];
+        values
+            .iter()
+            .copied()
+            .flatten()
+            .max()
+            .expect("always at least one value given part_size is not optional")
+    };
+
     let config = MockClientConfig {
         bucket: bucket_name,
-        part_size: args.part_size as usize,
+        part_size: part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,
         initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
