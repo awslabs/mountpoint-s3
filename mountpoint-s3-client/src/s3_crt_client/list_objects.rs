@@ -13,7 +13,8 @@ use crate::object_client::{
     ChecksumAlgorithm, ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo,
     RestoreStatus,
 };
-use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+
+use super::{S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -211,8 +212,11 @@ impl S3CrtClient {
                 prefix
             );
 
-            self.inner
-                .make_simple_http_request(message, S3Operation::ListObjects, span, parse_list_objects_error)?
+            self.inner.meta_request_with_body_payload(
+                message.into_options(S3Operation::ListObjects),
+                span,
+                parse_list_objects_error,
+            )?
         };
 
         let body = body.await?;
