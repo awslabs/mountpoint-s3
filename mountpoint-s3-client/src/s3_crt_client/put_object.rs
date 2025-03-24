@@ -5,8 +5,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use futures::channel::oneshot::{self, Receiver};
-use futures::future::FusedFuture as _;
-use futures::select_biased;
+use futures::FutureExt;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
@@ -36,10 +35,10 @@ impl S3CrtClient {
     ) -> ObjectClientResult<S3PutObjectRequest, PutObjectError, S3RequestError> {
         let review_callback = ReviewCallbackBox::default();
         let (on_headers, response_headers) = response_headers_handler();
+        let (tx, rx) = oneshot::channel::<ObjectClientResult<(), PutObjectError, S3RequestError>>();
         // Before the first write, we need to await for the multi-part upload to be created, so we can report errors.
-        let (mpu_created_sender, mut mpu_created) = oneshot::channel();
-
-        let mut request = {
+        let (mpu_created_sender, mpu_created) = oneshot::channel();
+        let meta_request = {
             let span = request_span!(self.inner, "put_object", bucket, key);
             let mut message = self.new_put_request(
                 bucket,
@@ -75,36 +74,44 @@ impl S3CrtClient {
             options.on_upload_review(move |review| callback.invoke(review));
             options.part_size(self.inner.write_part_size as u64);
 
-            let on_mpu_created_sender = Mutex::new(Some(mpu_created_sender));
-
-            self.inner.make_meta_request(
+            let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
+            let on_failure_sender = on_mpu_created_sender.clone();
+            self.inner.make_meta_request_with_callbacks(
                 options,
                 span,
                 move |metrics| {
                     if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
-                        // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
                         if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
-                            _ = sender.send(());
+                            _ = sender.send(Ok(()));
                         }
                     }
                 },
-                |_| None,
                 on_headers,
+                |_, _| {},
+                |_| None,
+                move |result| {
+                    if let Some(sender) = on_failure_sender.lock().unwrap().take() {
+                        // If the MPU was not created, the request must have failed.
+                        _ = sender.send(result.and_then(|_| {
+                            Err(
+                                S3RequestError::internal_failure(S3PutObjectRequestError::CreateMultipartUploadFailed)
+                                    .into(),
+                            )
+                        }));
+                    } else {
+                        _ = tx.send(result);
+                    }
+                },
             )?
         };
 
-        select_biased! {
-            mpu = mpu_created => mpu.unwrap(),
-            result = request => {
-                // If the MPU was not created, the request must have failed.
-                result?;
-                return Err(S3RequestError::internal_failure(S3PutObjectRequestError::CreateMultipartUploadFailed).into());
-            }
+        // Wait for CreateMultipartUpload to complete, or return error.
+        mpu_created.await.unwrap()?;
+
+        let request = S3MetaRequest {
+            receiver: rx.fuse(),
+            meta_request,
         };
-
-        // Guaranteed when select_biased! executes the CreateMPU branch.
-        assert!(!request.is_terminated());
-
         Ok(S3PutObjectRequest {
             request,
             review_callback,
