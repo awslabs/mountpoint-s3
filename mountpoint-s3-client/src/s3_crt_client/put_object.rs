@@ -3,9 +3,6 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-};
 use async_trait::async_trait;
 use futures::channel::oneshot::{self, Receiver};
 use futures::future::FusedFuture as _;
@@ -17,9 +14,13 @@ use thiserror::Error;
 use tracing::error;
 use xmltree::Element;
 
+use crate::object_client::{
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+};
+
 use super::{
-    emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
-    S3Operation, S3RequestError,
+    emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3Message, S3MetaRequest, S3Operation,
+    S3RequestError,
 };
 
 const ETAG_HEADER_NAME: &str = "ETag";
@@ -69,14 +70,14 @@ impl S3CrtClient {
 
             let callback = review_callback.clone();
 
-            let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
+            let mut options = message.into_options(S3Operation::PutObject);
             options.send_using_async_writes(true);
             options.on_upload_review(move |review| callback.invoke(review));
             options.part_size(self.inner.write_part_size as u64);
 
             let on_mpu_created_sender = Mutex::new(Some(mpu_created_sender));
 
-            self.inner.make_simple_http_request_from_options(
+            self.inner.make_meta_request(
                 options,
                 span,
                 move |metrics| {
@@ -127,7 +128,7 @@ impl S3CrtClient {
         let (on_headers, response_headers) = response_headers_handler();
         let slice = contents.as_ref();
         let content_length = slice.len();
-        let body = {
+        let request = {
             let mut message = self.new_put_request(
                 bucket,
                 key,
@@ -169,9 +170,8 @@ impl S3CrtClient {
                 InputStream::new_from_slice(&self.inner.allocator, slice).map_err(S3RequestError::CrtError)?;
             message.set_body_stream(Some(body_input_stream));
 
-            let options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObjectSingle);
-            self.inner.make_simple_http_request_from_options(
-                options,
+            self.inner.make_meta_request(
+                message.into_options(S3Operation::PutObjectSingle),
                 span,
                 |_| {},
                 parse_put_object_single_error,
@@ -179,7 +179,7 @@ impl S3CrtClient {
             )?
         };
 
-        body.await?;
+        request.await?;
 
         let elapsed = start_time.elapsed();
         emit_throughput_metric(content_length as u64, elapsed, "put_object_single");
@@ -267,7 +267,7 @@ impl ReviewCallbackBox {
 /// object.
 #[derive(Debug)]
 pub struct S3PutObjectRequest {
-    request: S3HttpRequest<Vec<u8>, PutObjectError>,
+    request: S3MetaRequest<(), PutObjectError>,
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
@@ -429,7 +429,7 @@ impl PutObjectRequest for S3PutObjectRequest {
             .map_err(S3RequestError::CrtError)?;
 
         // Now wait for the request to finish.
-        let _ = self.request.await?;
+        self.request.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
