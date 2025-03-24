@@ -13,6 +13,7 @@ use bytes::Bytes;
 use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
+use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
     Checksum, ChecksumMode, ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse,
@@ -525,4 +526,64 @@ async fn test_get_object_checksum_checksums_disabled() {
     result
         .get_object_checksum()
         .expect_err("should not return a checksum object as not requested");
+}
+
+#[ignore = "Stress-test to run many concurrent GetObjects. To be run manually."]
+#[tokio::test(flavor = "multi_thread", worker_threads = 100)]
+async fn stress_test_get_object() {
+    let size: usize = 10 * 1024;
+
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("stress_test_get_object");
+
+    let key = format!("{prefix}/test");
+    let body = vec![0x42; size];
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(body.clone()))
+        .send()
+        .await
+        .unwrap();
+
+    let client: S3CrtClient = S3CrtClient::new(
+        S3ClientConfig::new()
+            .endpoint_config(get_test_endpoint_config())
+            .event_loop_threads(100),
+    )
+    .expect("could not create test client");
+    assert!(client.read_part_size().unwrap() > size);
+
+    let mut tasks = tokio::task::JoinSet::new();
+    for t in 0..10000 {
+        let client = client.clone();
+        let bucket = bucket.clone();
+        let key = key.clone();
+        tasks.spawn(async move {
+            let result = client
+                .get_object(&bucket, &key, &GetObjectParams::new())
+                .await
+                .expect("get_object should succeed");
+
+            pin_mut!(result);
+            let mut count = 0;
+            while let Some(r) = result.next().await {
+                let (offset, body) = r.expect("get_object body part failed");
+                assert_eq!(offset, 0);
+                assert_eq!(body.len(), size);
+                count += 1;
+            }
+            (t + 1, count)
+        });
+    }
+
+    let mut count = 0;
+    while let Some(task) = tasks.join_next().await {
+        let (i, part_count) = task.unwrap();
+        assert_eq!(part_count, 1, "1 part should have been returned for task {i}");
+        tracing::info!("Completed {}", i);
+        count += 1;
+    }
+    tracing::info!(count, "Done");
 }
