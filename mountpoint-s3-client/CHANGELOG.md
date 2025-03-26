@@ -1,5 +1,8 @@
 ## Unreleased
 
+* Fix race condition in GetObject that could result in empty responses.
+  ([#1334](https://github.com/awslabs/mountpoint-s3/pull/1334))
+
 ## v0.13.1 (March 14, 2025)
 
 * Update to latest CRT dependencies.
