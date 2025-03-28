@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1742503292583,
+  "lastUpdate": 1743176307236,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "241d1195588ffed40c3fe508eede2befd80ce27f",
-          "message": "Remove function pointer comparison in EventLoopGroup initialization (#1287)\n\nTrying to run `clippy` with Rust 1.85 fails with the following error:\n```\nerror: function pointer comparisons do not produce meaningful results since their addresses are not guaranteed to be unique\n  --> mountpoint-s3-crt/src/common/ref_count.rs:30:13\n   |\n30 |     assert!(callback.shutdown_callback_fn == Some(shutdown_callback));\n   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n   |\n   = note: the address of the same function can vary between different codegen units\n   = note: furthermore, different functions could have the same address after being merged together\n   = note: for more information visit <https://doc.rust-lang.org/nightly/core/ptr/fn.fn_addr_eq.html>\n   = note: `-D unpredictable-function-pointer-comparisons` implied by `-D warnings`\n   = help: to override `-D warnings` add `#[allow(unpredictable_function_pointer_comparisons)]`\n```\n\nThis change reworks the affected code by inlining the shutdown callback\nfunctions into `EventLoopGroup::new_default` (the only caller), which\nmakes the assertion redundant.\n\n### Does this change impact existing behavior?\n\nNo changes.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-02-26T14:12:12Z",
-          "tree_id": "eabe649b5d5eb0ad848fb82651238fdcf5c6b2f8",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/241d1195588ffed40c3fe508eede2befd80ce27f"
-        },
-        "date": 1740587364308,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 14809.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 22199.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 32512.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 91.86328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 360.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 92.015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 362.375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 75.23828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 305.0078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 77.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 318.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 34083.84375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 387.61328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 36339.4921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 391.3515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 8693.1171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 262.73046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 11262.828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 13354.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 254.66796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 738.53515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 500.26171875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2679,6 +2545,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 707.0546875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evdolgy@amazon.com",
+            "name": "Eugene Dolgy",
+            "username": "ujinho"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "31a7f6b98915b7fce7dacf6703c2a363073484f0",
+          "message": "Update the changelog for mountpoint-s3 (#1319)\n\nAs a follow-up for this\n[PR](https://github.com/awslabs/mountpoint-s3/pull/1304#pullrequestreview-2682411235)\nwe add a new entry in the `mountpoint-s3` change log.\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChange log was updated. No version change requred.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Evgeny (Zhenia) Dolgii <evdolgy@amazon.com>",
+          "timestamp": "2025-03-28T13:21:37Z",
+          "tree_id": "52fc13f9da26c7fa8752cb1d6fb0cfd72cf087b3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/31a7f6b98915b7fce7dacf6703c2a363073484f0"
+        },
+        "date": 1743176307187,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 12774.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 22557.55078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 36416.55078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 93.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 354.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 86.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 359.5234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 74.58984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 299.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 73.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 307.01171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 31461.36328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 391.01171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 33239.52734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 393.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 10941.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 266.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 10849.26171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10995.38671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 258.59375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 872.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 583.40234375,
             "unit": "MiB"
           }
         ]
