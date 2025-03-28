@@ -5,6 +5,10 @@
 * Reduce memory usage when using the `--prefix` flag. ([#1303](https://github.com/awslabs/mountpoint-s3/pull/1303))
 * Add support for endpoint override in credential providers. ([aws-c-auth#263](https://github.com/awslabs/aws-c-auth/pull/263/))
 
+### Breaking changes
+
+* The logging target used by a significant amount of Mountpoint code has changed. Some logs originally written under the `mountpoint_s3` target are now written under `mountpoint_s3_fs`. You may need to update any code configuring or filtering logging. ([#1304](https://github.com/awslabs/mountpoint-s3/pull/1304))
+
 ## v1.15.0 (February 27, 2025)
 
 ### New features
