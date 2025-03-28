@@ -966,6 +966,7 @@ impl<'a> S3Message<'a> {
 
 #[derive(Debug)]
 #[pin_project(PinnedDrop)]
+#[must_use]
 struct S3MetaRequest<T, E> {
     /// Receiver for the result of meta-request.
     #[pin]
