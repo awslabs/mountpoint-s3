@@ -9,12 +9,9 @@ use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::object_client::{
-    HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
-};
-use crate::s3_crt_client::{parse_checksum, S3CrtClient, S3Operation, S3RequestError};
+use crate::object_client::{HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult, RestoreStatus};
 
-use super::ChecksumMode;
+use super::{parse_checksum, ChecksumMode, S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -132,20 +129,13 @@ impl S3CrtClient {
             let span = request_span!(self.inner, "head_object", bucket, key);
 
             self.inner.make_meta_request(
-                message,
-                S3Operation::HeadObject,
+                message.into_options(S3Operation::HeadObject),
                 span,
+                |_| {},
+                parse_head_object_error,
                 move |headers, _status| {
                     let mut header = header1.lock().unwrap();
                     *header = Some(HeadObjectResult::parse_from_hdr(headers));
-                },
-                |_, _| (),
-                move |result| {
-                    if result.is_err() {
-                        Err(parse_head_object_error(result).map(ObjectClientError::ServiceError))
-                    } else {
-                        Ok(())
-                    }
                 },
             )?
         };
@@ -153,7 +143,7 @@ impl S3CrtClient {
         request.await?;
 
         let headers = header.lock().unwrap().take().unwrap();
-        headers.map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+        headers.map_err(|e| S3RequestError::internal_failure(e).into())
     }
 }
 
