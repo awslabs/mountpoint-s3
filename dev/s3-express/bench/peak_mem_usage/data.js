@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1743176231117,
+  "lastUpdate": 1743444048141,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a5147a158407b8ed26a8953eabd218d3d79cfcc1",
-          "message": "Add EC2 instance ID to benchmark output metadata (#1281)\n\nWe want to include the instance type in the metadata for a given\nbenchmark run.\n\nThis change adds a check into IMDS to query this data and add the EC2\ninstance type if available.\n\n### Does this change impact existing behavior?\n\nIt adds a new field to the benchmark output metadata file.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, no change to Mountpoint itself.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2025-02-24T13:10:39Z",
-          "tree_id": "e59b936e6f9b45b485f1e843ece5451832ba5e6b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a5147a158407b8ed26a8953eabd218d3d79cfcc1"
-        },
-        "date": 1740410747876,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 16382.0859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 24983.4765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 40975.46484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 150.0625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 393.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 169.47265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 419.6484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 86.66015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 326.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 88.546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 322.03125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 40875.84375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 403.79296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 39260.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 399.53125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 13941.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 263.0234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 14569.90234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 8885.57421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 257.8671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 374.73828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 239.16796875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -2679,6 +2545,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 236.05859375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3909e08d7ce8f8dafb89ccef3ece7b6b401e0f7",
+          "message": "Fix race condition in GetObject that could result in empty responses (#1334)\n\nAddress an issue in the `Stream` implementation for\n`S3GetObjectResponse` that could immediately return `None` (i.e.\nterminate the stream) when detecting that the meta request had\ncompleted, before returning previously received parts. Reported in\n#1331.\n\nThe fix changes the mechanism used to extract the response body parts\nand the request completion from the meta request callbacks. Instead of\nmultiple independent channels, it introduces a single channel that\nsupports multiple `S3GetObjectEvent`s. The events in the new channel\nmatch the order in which the callbacks are invoked, which is guaranteed\nby the CRT. The events channel also includes the `Headers` event,\navoiding the need of a separate channel to await for the headers to be\nreturned.\n\nWhen using Mountpoint, an occurrence of this issue would result in a\nread request failing with an `Input/output error`, with a warning entry\nin the logs containing this message:\n```\nmountpoint_s3_fs::fuse: read failed with errno 5: get request failed: get request terminated unexpectedly\n``` \nNote however that we were not able to trigger the issue in our tests.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nBug fix entry and increase patch version.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-03-31T15:44:37Z",
+          "tree_id": "26c3587bda193c32134ff46bf374ee38adc39d1c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/a3909e08d7ce8f8dafb89ccef3ece7b6b401e0f7"
+        },
+        "date": 1743444048091,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 17044.9296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 30041.1171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 37335.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 154.15234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 408.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 1380.7109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 439.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 85.51171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 286.8359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 962.27734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 300.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 36827.8515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 384.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 40043.79296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 376.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 15109.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 261.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12154.84765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10820.71875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 262.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 404.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 254.66796875,
             "unit": "MiB"
           }
         ]
