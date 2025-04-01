@@ -375,7 +375,7 @@ if __name__ == "__main__":
         type=str,
         nargs='+',
         help="list of package extensions to be built",
-        default=["rpm", "suse.rpm", "deb", "tar.gz"]
+        default=["rpm", "suse.rpm", "deb", "tar.gz"],
     )
 
     args = p.parse_args()
