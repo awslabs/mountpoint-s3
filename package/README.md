@@ -32,8 +32,8 @@ Then install the depdencies:
 
     sudo yum install fuse fuse-devel make cmake3 clang git pkg-config dpkg fakeroot rpmdevtools tar python3
 
-If you don't want to compile a DEB, you can skip `dpkg` and `fakeroot`, and pass the `--no-deb` flag to the build script.
-If you don't want to compile an RPM, you can skip `rpmdevtools`, and pass the `--no-rpm` flag to the build script.
+If you don't want to compile a DEB, you can skip `dpkg` and `fakeroot`, and use `--pkg-extensions` flag of the build script to specify which package to build.
+If you don't want to compile an RPM, you can skip `rpmdevtools`, and use `--pkg-extensions` flag of the build script to specify which package to build.
 
 You'll also need Rust, and the [cargo-about] tool to generate third-party attribution documents:
 
