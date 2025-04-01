@@ -1,5 +1,9 @@
 ## Unreleased
 
+### New features
+
+* Mountpoint for Amazon S3 adds support for S3 Access Points for directory buckets in AWS Dedicated Local Zones. ([aws-c-s3#502](https://github.com/awslabs/aws-c-s3/pull/502/))
+
 ### Other changes
 
 * Reduce memory usage when using the `--prefix` flag. ([#1303](https://github.com/awslabs/mountpoint-s3/pull/1303))
