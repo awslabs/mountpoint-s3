@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Optional, Tuple
+from typing import Tuple
 
 
 def log(msg: str):
@@ -44,7 +44,7 @@ class BuildMetadata:
 
     def spec_file_name(self, ext: str):
         if "suse" in ext:
-            return f"mount-s3-suse.spec"
+            return "mount-s3-suse.spec"
         return "mount-s3.spec"
 
 
