@@ -2,6 +2,10 @@
 
 * Fix race condition in GetObject that could result in empty responses.
   ([#1334](https://github.com/awslabs/mountpoint-s3/pull/1334))
+* Update endpoints.
+  ([awslabs/aws-c-s3#502](https://github.com/awslabs/aws-c-s3/pull/502))
+* Bump Default Memory Limit for Higher Target Throughput.
+  ([awslabs/aws-c-s3#499](https://github.com/awslabs/aws-c-s3/pull/499))
 
 ## v0.13.1 (March 14, 2025)
 

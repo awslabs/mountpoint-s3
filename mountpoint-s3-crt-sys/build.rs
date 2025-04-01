@@ -283,6 +283,7 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
     if target_os == "macos" {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Security");
+        println!("cargo:rustc-link-lib=framework=Network");
     }
 
     // Statically link all the compiled CRT libraries
