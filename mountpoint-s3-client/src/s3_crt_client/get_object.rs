@@ -12,19 +12,17 @@ use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::{pin_project, pinned_drop};
-use thiserror::Error;
 use tracing::trace;
 
 use crate::object_client::{
-    Checksum, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
+    Checksum, ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
     ObjectClientResult, ObjectMetadata,
 };
-use crate::s3_crt_client::{
-    parse_checksum, GetObjectResponse, S3CrtClient, S3CrtClientInner, S3Operation, S3RequestError,
-};
-use crate::types::ChecksumMode;
 
-use super::ObjectChecksumError;
+use super::{
+    parse_checksum, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient, S3Operation,
+    S3RequestError,
+};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [S3GetObjectResponse] is a [Stream] of
@@ -79,12 +77,12 @@ impl S3CrtClient {
                 .set_request_path(key)
                 .map_err(S3RequestError::construction_failure)?;
 
-            let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::GetObject);
+            let mut options = message.into_options(S3Operation::GetObject);
             options.part_size(self.inner.read_part_size as u64);
 
             let mut headers_sender = Some(event_sender.clone());
             let part_sender = event_sender.clone();
-            self.inner.make_meta_request_from_options(
+            self.inner.meta_request_with_callbacks(
                 options,
                 span,
                 |_| (),
@@ -120,7 +118,7 @@ impl S3CrtClient {
             event => {
                 // If we did not received the headers first, the request must have failed.
                 trace!(?event, "unexpected GetObject event while waiting for headers");
-                return Err(S3RequestError::internal_failure(ObjectHeadersError::MissingHeaders).into());
+                return Err(S3RequestError::internal_failure(ResponseHeadersError::MissingHeaders).into());
             }
         };
 
@@ -150,13 +148,6 @@ enum S3GetObjectEvent {
     Headers(Headers),
     BodyPart(u64, Box<[u8]>),
     Error(ObjectClientError<GetObjectError, S3RequestError>),
-}
-
-/// Failure retrieving headers
-#[derive(Debug, Error)]
-enum ObjectHeadersError {
-    #[error("response headers are missing")]
-    MissingHeaders,
 }
 
 #[derive(Clone, Debug)]

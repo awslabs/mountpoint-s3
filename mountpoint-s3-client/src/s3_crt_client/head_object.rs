@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::LazyLock;
 
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
@@ -9,12 +9,9 @@ use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
 use tracing::error;
 
-use crate::object_client::{
-    HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientError, ObjectClientResult, RestoreStatus,
-};
-use crate::s3_crt_client::{parse_checksum, S3CrtClient, S3Operation, S3RequestError};
+use crate::object_client::{HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult, RestoreStatus};
 
-use super::ChecksumMode;
+use super::{parse_checksum, ChecksumMode, S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -100,11 +97,6 @@ impl S3CrtClient {
         key: &str,
         params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
-        // Stash the response from the head_object in this lock during the on_headers
-        // callback, and pull them out once the request is done.
-        let header: Arc<Mutex<Option<Result<HeadObjectResult, ParseError>>>> = Default::default();
-        let header1 = header.clone();
-
         let request = {
             let mut message = self
                 .inner
@@ -131,23 +123,15 @@ impl S3CrtClient {
 
             let span = request_span!(self.inner, "head_object", bucket, key);
 
-            self.inner.make_meta_request(
-                message,
-                S3Operation::HeadObject,
+            self.inner.meta_request_with_headers_payload(
+                message.into_options(S3Operation::HeadObject),
                 span,
-                move |headers, _status| {
-                    let mut header = header1.lock().unwrap();
-                    *header = Some(HeadObjectResult::parse_from_hdr(headers));
-                },
-                |_, _| (),
                 parse_head_object_error,
             )?
         };
 
-        request.await?;
-
-        let headers = header.lock().unwrap().take().unwrap();
-        headers.map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(e))))
+        let headers = request.await?;
+        HeadObjectResult::parse_from_hdr(&headers).map_err(|e| S3RequestError::internal_failure(e).into())
     }
 }
 

@@ -4,7 +4,8 @@ use std::os::unix::prelude::OsStrExt;
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 
 use crate::object_client::{DeleteObjectError, DeleteObjectResult, ObjectClientResult};
-use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+
+use super::{S3CrtClient, S3Operation, S3RequestError};
 
 impl S3CrtClient {
     /// Create and begin a new DeleteObject request.
@@ -25,11 +26,14 @@ impl S3CrtClient {
                 .set_request_path(format!("/{key}"))
                 .map_err(S3RequestError::construction_failure)?;
 
-            self.inner
-                .make_simple_http_request(message, S3Operation::DeleteObject, span, parse_delete_object_error)?
+            self.inner.meta_request_without_payload(
+                message.into_options(S3Operation::DeleteObject),
+                span,
+                parse_delete_object_error,
+            )?
         };
 
-        let _body = request.await?;
+        request.await?;
 
         Ok(DeleteObjectResult {})
     }

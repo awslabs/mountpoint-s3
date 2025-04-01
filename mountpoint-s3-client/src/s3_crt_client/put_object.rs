@@ -3,13 +3,9 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::object_client::{
-    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-};
 use async_trait::async_trait;
 use futures::channel::oneshot::{self, Receiver};
-use futures::future::FusedFuture as _;
-use futures::select_biased;
+use futures::FutureExt;
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
@@ -17,9 +13,13 @@ use thiserror::Error;
 use tracing::error;
 use xmltree::Element;
 
+use crate::object_client::{
+    ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+};
+
 use super::{
-    emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3CrtClientInner, S3HttpRequest, S3Message,
-    S3Operation, S3RequestError,
+    emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3Message, S3MetaRequest, S3Operation,
+    S3RequestError,
 };
 
 const ETAG_HEADER_NAME: &str = "ETag";
@@ -35,10 +35,10 @@ impl S3CrtClient {
     ) -> ObjectClientResult<S3PutObjectRequest, PutObjectError, S3RequestError> {
         let review_callback = ReviewCallbackBox::default();
         let (on_headers, response_headers) = response_headers_handler();
+        let (tx, rx) = oneshot::channel::<ObjectClientResult<(), PutObjectError, S3RequestError>>();
         // Before the first write, we need to await for the multi-part upload to be created, so we can report errors.
-        let (mpu_created_sender, mut mpu_created) = oneshot::channel();
-
-        let mut request = {
+        let (mpu_created_sender, mpu_created) = oneshot::channel();
+        let meta_request = {
             let span = request_span!(self.inner, "put_object", bucket, key);
             let mut message = self.new_put_request(
                 bucket,
@@ -69,41 +69,49 @@ impl S3CrtClient {
 
             let callback = review_callback.clone();
 
-            let mut options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObject);
+            let mut options = message.into_options(S3Operation::PutObject);
             options.send_using_async_writes(true);
             options.on_upload_review(move |review| callback.invoke(review));
             options.part_size(self.inner.write_part_size as u64);
 
-            let on_mpu_created_sender = Mutex::new(Some(mpu_created_sender));
-
-            self.inner.make_simple_http_request_from_options(
+            let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
+            let on_failure_sender = on_mpu_created_sender.clone();
+            self.inner.meta_request_with_callbacks(
                 options,
                 span,
                 move |metrics| {
                     if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
-                        // Signal that a CreateMultipartUpload completed successfully (unless the meta-request had already failed).
                         if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
-                            _ = sender.send(());
+                            _ = sender.send(Ok(()));
                         }
                     }
                 },
-                |_| None,
                 on_headers,
+                |_, _| {},
+                |_| None,
+                move |result| {
+                    if let Some(sender) = on_failure_sender.lock().unwrap().take() {
+                        // If the MPU was not created, the request must have failed.
+                        _ = sender.send(result.and_then(|_| {
+                            Err(
+                                S3RequestError::internal_failure(S3PutObjectRequestError::CreateMultipartUploadFailed)
+                                    .into(),
+                            )
+                        }));
+                    } else {
+                        _ = tx.send(result);
+                    }
+                },
             )?
         };
 
-        select_biased! {
-            mpu = mpu_created => mpu.unwrap(),
-            result = request => {
-                // If the MPU was not created, the request must have failed.
-                result?;
-                return Err(S3RequestError::internal_failure(S3PutObjectRequestError::CreateMultipartUploadFailed).into());
-            }
+        // Wait for CreateMultipartUpload to complete, or return error.
+        mpu_created.await.unwrap()?;
+
+        let request = S3MetaRequest {
+            receiver: rx.fuse(),
+            meta_request,
         };
-
-        // Guaranteed when select_biased! executes the CreateMPU branch.
-        assert!(!request.is_terminated());
-
         Ok(S3PutObjectRequest {
             request,
             review_callback,
@@ -124,10 +132,9 @@ impl S3CrtClient {
         let span = request_span!(self.inner, "put_object_single", bucket, key);
         let start_time = Instant::now();
 
-        let (on_headers, response_headers) = response_headers_handler();
         let slice = contents.as_ref();
         let content_length = slice.len();
-        let body = {
+        let request = {
             let mut message = self.new_put_request(
                 bucket,
                 key,
@@ -169,24 +176,19 @@ impl S3CrtClient {
                 InputStream::new_from_slice(&self.inner.allocator, slice).map_err(S3RequestError::CrtError)?;
             message.set_body_stream(Some(body_input_stream));
 
-            let options = S3CrtClientInner::new_meta_request_options(message, S3Operation::PutObjectSingle);
-            self.inner.make_simple_http_request_from_options(
-                options,
+            self.inner.meta_request_with_headers_payload(
+                message.into_options(S3Operation::PutObjectSingle),
                 span,
-                |_| {},
                 parse_put_object_single_error,
-                on_headers,
             )?
         };
 
-        body.await?;
+        let headers = request.await?;
 
         let elapsed = start_time.elapsed();
         emit_throughput_metric(content_length as u64, elapsed, "put_object_single");
 
-        Ok(extract_result(response_headers.await.expect(
-            "headers should be available since the request completed successfully",
-        ))?)
+        Ok(extract_result(headers)?)
     }
 
     fn new_put_request(
@@ -267,7 +269,7 @@ impl ReviewCallbackBox {
 /// object.
 #[derive(Debug)]
 pub struct S3PutObjectRequest {
-    request: S3HttpRequest<Vec<u8>, PutObjectError>,
+    request: S3MetaRequest<(), PutObjectError>,
     review_callback: ReviewCallbackBox,
     start_time: Instant,
     total_bytes: u64,
@@ -361,8 +363,7 @@ fn extract_result(response_headers: Headers) -> Result<PutObjectResult, S3Reques
 fn response_headers_handler() -> (impl FnMut(&Headers, i32), Receiver<Headers>) {
     let (response_headers_sender, response_headers) = oneshot::channel();
     // The callback signature (`FnMut`) allows for it to be invoked multiple times,
-    // but for PUT requests it will only be called once (on CompleteMultipartUpload
-    // or on PutObject).
+    // but for PUT requests it will only be called once on CompleteMultipartUpload.
     // Wrapping the `oneshot::Sender` in an `Option` allows it to be consumed
     // on the first (and only!) invocation.
     let mut response_headers_sender = Some(response_headers_sender);
@@ -429,7 +430,7 @@ impl PutObjectRequest for S3PutObjectRequest {
             .map_err(S3RequestError::CrtError)?;
 
         // Now wait for the request to finish.
-        let _ = self.request.await?;
+        self.request.await?;
 
         let elapsed = self.start_time.elapsed();
         emit_throughput_metric(self.total_bytes, elapsed, "put_object");
