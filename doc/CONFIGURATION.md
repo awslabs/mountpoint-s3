@@ -139,13 +139,15 @@ Mountpoint uses [instance metadata (IMDS)](https://docs.aws.amazon.com/AWSEC2/la
 
 [Amazon S3 access points](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-points.html) are network endpoints attached to buckets that you can use to perform S3 object operations. Each access point has distinct permissions and network controls that S3 applies for any request that is made through that access point.
 
-You can use an access point with Mountpoint by specifying either the [access point ARN](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-access-points.html) or the [access point bucket-style alias](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-points-usage-examples.html) as the bucket argument to `mount-s3`. For example, if your access point has the following ARN and alias:
+You can use an access point to S3 Standard bucket with Mountpoint by specifying either the [access point ARN](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-access-points.html) or the [access point bucket-style alias](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-points-usage-examples.html) as the bucket argument to `mount-s3`. For example, if your access point has the following ARN and alias:
 * ARN: `arn:aws:s3:region:account-id:accesspoint/my-access-point`
 * Access point alias: `my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias`
 
 then you can mount your S3 bucket to the `/path/to/mount` directory with either of the following commands:
 * `mount-s3 arn:aws:s3:region:account-id:accesspoint/my-access-point /path/to/mount`
 * `mount-s3 my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias /path/to/mount`
+
+You can use an access point to S3 directory bucket with Mountpoint by specifying name of the access point as the bucket argument to `mount-s3`.
 
 #### Multi-Region Access Points
 
@@ -335,7 +337,7 @@ It can be set to a positive numerical value in seconds, or to one of the pre-con
 > See the [consistency and concurrency section of the semantics documentaton](./SEMANTICS.md#consistency-and-concurrency) for more details.
 
 The `--metadata-ttl` flag is used to control how long Mountpoint considers it's file system metadata (file existence, size, object etag, etc) accurate before re-fetching from S3.
-When configured, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports 
+When configured, on its own or in conjunction with local cache or shared cache, Mountpoint will typically perform fewer requests to the mounted S3 bucket, but will not guarantee that the information it reports
 is up to date with the content of the mounted S3 bucket.
 When configured with a local cache or shared cache, the stored data is considered accurate until the metadata TTL expires.
 After this period, Mountpoint revalidates if the cached data is still accurate by verifying the object's etag hasn't changed.
