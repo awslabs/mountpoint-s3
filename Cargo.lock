@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
