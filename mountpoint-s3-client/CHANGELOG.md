@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.13.2 (April 1, 2025)
+
 * Fix race condition in GetObject that could result in empty responses.
   ([#1334](https://github.com/awslabs/mountpoint-s3/pull/1334))
 * Update endpoints.
