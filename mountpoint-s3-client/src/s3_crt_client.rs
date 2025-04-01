@@ -758,7 +758,12 @@ impl S3CrtClientInner {
             parse_meta_request_error,
             move |result| {
                 // On success, extract the headers.
-                _ = tx.send(result.map(|_| on_result.lock().unwrap().take().unwrap()))
+                _ =
+                    tx.send(result.and_then(|_| {
+                        on_result.lock().unwrap().take().ok_or_else(|| {
+                            S3RequestError::internal_failure(ResponseHeadersError::MissingHeaders).into()
+                        })
+                    }))
             },
         )?;
         Ok(S3MetaRequest {
@@ -829,6 +834,13 @@ impl S3CrtClientInner {
     fn next_request_counter(&self) -> u64 {
         self.next_request_counter.fetch_add(1, Ordering::SeqCst)
     }
+}
+
+/// Failure retrieving headers
+#[derive(Debug, Error)]
+enum ResponseHeadersError {
+    #[error("response headers are missing")]
+    MissingHeaders,
 }
 
 /// S3 operation supported by this client.

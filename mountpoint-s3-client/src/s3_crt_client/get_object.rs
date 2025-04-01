@@ -12,7 +12,6 @@ use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::{pin_project, pinned_drop};
-use thiserror::Error;
 use tracing::trace;
 
 use crate::object_client::{
@@ -20,7 +19,10 @@ use crate::object_client::{
     ObjectClientResult, ObjectMetadata,
 };
 
-use super::{parse_checksum, GetObjectResponse, ObjectChecksumError, S3CrtClient, S3Operation, S3RequestError};
+use super::{
+    parse_checksum, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient, S3Operation,
+    S3RequestError,
+};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [S3GetObjectResponse] is a [Stream] of
@@ -116,7 +118,7 @@ impl S3CrtClient {
             event => {
                 // If we did not received the headers first, the request must have failed.
                 trace!(?event, "unexpected GetObject event while waiting for headers");
-                return Err(S3RequestError::internal_failure(ObjectHeadersError::MissingHeaders).into());
+                return Err(S3RequestError::internal_failure(ResponseHeadersError::MissingHeaders).into());
             }
         };
 
@@ -146,13 +148,6 @@ enum S3GetObjectEvent {
     Headers(Headers),
     BodyPart(u64, Box<[u8]>),
     Error(ObjectClientError<GetObjectError, S3RequestError>),
-}
-
-/// Failure retrieving headers
-#[derive(Debug, Error)]
-enum ObjectHeadersError {
-    #[error("response headers are missing")]
-    MissingHeaders,
 }
 
 #[derive(Clone, Debug)]
