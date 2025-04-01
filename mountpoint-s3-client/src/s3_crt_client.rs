@@ -757,13 +757,14 @@ impl S3CrtClientInner {
             |_, _| {},
             parse_meta_request_error,
             move |result| {
-                // On success, extract the headers.
-                _ =
-                    tx.send(result.and_then(|_| {
+                // Return the headers on success, otherwise propagate the error.
+                let headers =
+                    result.and_then(|_| {
                         on_result.lock().unwrap().take().ok_or_else(|| {
                             S3RequestError::internal_failure(ResponseHeadersError::MissingHeaders).into()
                         })
-                    }))
+                    });
+                _ = tx.send(headers);
             },
         )?;
         Ok(S3MetaRequest {
