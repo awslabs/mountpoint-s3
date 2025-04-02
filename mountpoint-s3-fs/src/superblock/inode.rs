@@ -317,7 +317,7 @@ pub struct InodeStat {
     /// Time of last access
     pub atime: OffsetDateTime,
     /// Etag for the file (object)
-    pub etag: Option<String>,
+    pub etag: Option<Box<str>>,
     /// Inodes corresponding to S3 objects with GLACIER or DEEP_ARCHIVE storage classes
     /// are only readable after restoration. For objects with other storage classes
     /// this field should be always `true`.
@@ -344,9 +344,9 @@ impl InodeStat {
     /// restored, and so we override their permissions to 000 and reject reads to them. We also warn
     /// the first time we see an object like this, because FUSE enforces the 000 permissions on our
     /// behalf so we might not see an attempted `open` call.
-    fn is_readable(storage_class: Option<String>, restore_status: Option<RestoreStatus>) -> bool {
+    fn is_readable(storage_class: Option<&str>, restore_status: Option<RestoreStatus>) -> bool {
         static HAS_SENT_WARNING: AtomicBool = AtomicBool::new(false);
-        match storage_class.as_deref() {
+        match storage_class {
             Some("GLACIER") | Some("DEEP_ARCHIVE") => {
                 let restored =
                     matches!(restore_status, Some(RestoreStatus::Restored { expiry }) if expiry > SystemTime::now());
@@ -365,8 +365,8 @@ impl InodeStat {
     pub fn for_file(
         size: usize,
         datetime: OffsetDateTime,
-        etag: Option<String>,
-        storage_class: Option<String>,
+        etag: Option<Box<str>>,
+        storage_class: Option<&str>,
         restore_status: Option<RestoreStatus>,
         validity: Duration,
     ) -> InodeStat {
@@ -500,7 +500,7 @@ impl WriteHandle {
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
-                state.stat.etag = etag.map(|e| e.into_inner());
+                state.stat.etag = etag.map(|e| e.into_inner().into_boxed_str());
 
                 // Invalidate the inode's stats so we refresh them from S3 when next queried
                 state.stat.update_validity(Duration::from_secs(0));
@@ -713,7 +713,7 @@ mod tests {
                     stat: InodeStat::for_file(
                         0,
                         OffsetDateTime::now_utc(),
-                        Some(ETag::for_tests().as_str().to_owned()),
+                        Some(ETag::for_tests().into_inner().into_boxed_str()),
                         None,
                         None,
                         NEVER_EXPIRE_TTL,

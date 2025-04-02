@@ -177,8 +177,8 @@ impl ReaddirHandle {
                 let stat = InodeStat::for_file(
                     object_info.size as usize,
                     object_info.last_modified,
-                    Some(object_info.etag.clone()),
-                    object_info.storage_class.clone(),
+                    Some(object_info.etag.as_str().into()),
+                    object_info.storage_class.as_deref(),
                     object_info.restore_status,
                     self.inner.config.cache_config.file_ttl,
                 );
