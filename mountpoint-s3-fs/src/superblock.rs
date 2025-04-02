@@ -999,7 +999,7 @@ impl SuperblockInner {
                 writing_children,
                 ..
             } => {
-                let existing_inode = children.insert(name.to_string(), inode.clone());
+                let existing_inode = children.insert(name.as_ref().into(), inode.clone());
                 if is_new_file {
                     writing_children.insert(next_ino);
                 }

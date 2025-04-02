@@ -278,7 +278,7 @@ pub(super) enum InodeKindData {
         ///
         /// The existence of a child or lack thereof does not imply the object does not exist,
         /// nor that it currently exists in S3 in that state.
-        children: HashMap<String, Inode>,
+        children: HashMap<Box<str>, Inode>,
 
         /// A set of inode numbers that have been opened for write but not completed yet.
         /// This should be a subset of the [children](Self::Directory::children) field.
