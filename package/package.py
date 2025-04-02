@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Tuple
 
 
 def log(msg: str):
@@ -338,26 +337,16 @@ def build(args: argparse.Namespace) -> str:
 
     package_dir = build_package_dir(metadata, binary_path, attribution_path)
 
-    def infer_package_type(extension: str) -> Tuple[str, str]:
-        package_types = {
-            "rpm",
-            "deb",
-            "tar.gz",
-        }
-        for pkg_type in package_types:
-            if extension.endswith(pkg_type):
-                return pkg_type
-        raise Exception(f"unable to infer package type from extension {ext}")
-
     artifacts = []
     for ext in args.pkg_extensions:
-        pkg_type = infer_package_type(ext)
-        if pkg_type == "rpm":
+        if ext.endswith("rpm"):
             artifacts.append(build_rpm(metadata, package_dir, ext))
-        elif pkg_type == "deb":
+        elif ext.endswith("deb"):
             artifacts.append(build_deb(metadata, package_dir))
-        elif pkg_type == "tar.gz":
+        elif ext.endswith("tar.gz"):
             artifacts.append(build_package_archive(metadata, package_dir))
+        else:
+            raise Exception(f"unable to infer package type from extension {ext}")
 
     for path in artifacts:
         os.chmod(path, 0o755)
