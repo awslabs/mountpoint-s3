@@ -151,7 +151,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Enable incremental uploads and support for appending to existing objects",
+        help = "Enable incremental uploads and support for appending to existing objects. This is only supported on directory buckets in S3 Express One Zone.",
         help_heading = MOUNT_OPTIONS_HEADER,
     )]
     pub incremental_upload: bool,
@@ -895,6 +895,12 @@ where
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
+    if args.incremental_upload && !s3_personality.supports_append() {
+        return Err(anyhow!(
+            "--incremental-upload is only supported on directory buckets in S3 Express One Zone"
+        ));
+    }
+
     let mut filesystem_config = S3FilesystemConfig::default();
     if let Some(uid) = args.uid {
         filesystem_config.uid = uid;
@@ -1491,5 +1497,15 @@ mod tests {
     #[test_case(&[MountOption::AllowOther, MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "allows root and other")]
     fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: fuser::SessionACL) {
         assert_eq!(expected, session_acl_from_mount_options(mount_options));
+    }
+
+    #[test_case("test-bucket", S3Personality::Standard; "standard")]
+    #[test_case("bucket-base-name--usw2-az1--x-s3", S3Personality::ExpressOneZone; "directory")]
+    #[test_case("arn:aws:s3:region:111122223333:accesspoint/my-access-point", S3Personality::Standard; "access-point")]
+    #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", S3Personality::Outposts; "outpotsts")]
+    fn test_infer_s3_personality(bucket_name: &str, expected_personality: S3Personality) {
+        let endpoint_config = EndpointConfig::new("PLACEHOLDER");
+        let s3_personality = infer_s3_personality(None, bucket_name, endpoint_config);
+        assert_eq!(s3_personality, expected_personality);
     }
 }

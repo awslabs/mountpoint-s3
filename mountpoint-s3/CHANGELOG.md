@@ -16,6 +16,10 @@
 
 * The logging target used by a significant amount of Mountpoint code has changed. Some logs originally written under the `mountpoint_s3` target are now written under `mountpoint_s3_fs`. You may need to update any code configuring or filtering logging. ([#1304](https://github.com/awslabs/mountpoint-s3/pull/1304))
 
+### Breaking changes
+
+* Disallow the usage of `--incremental-upload` command-line argument on non S3 Express buckets. ([#1297](https://github.com/awslabs/mountpoint-s3/pull/1297))
+
 ## v1.15.0 (February 27, 2025)
 
 ### New features
