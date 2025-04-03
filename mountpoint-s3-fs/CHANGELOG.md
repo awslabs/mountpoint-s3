@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.1.2 (April 3, 2025)
+
 * Reduce memory usage for strings in inode metadata.
   ([#1346](https://github.com/awslabs/mountpoint-s3/pull/1346))
 
