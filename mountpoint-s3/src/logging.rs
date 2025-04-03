@@ -221,7 +221,7 @@ fn setup_reloadable_filter<S: Subscriber>(
         EnvFilter::new(format!("{level},{AWSCRT_LOG_TARGET}={crt_level}"))
     }
 
-    let mut signals = Signals::new(&[SIGUSR2])?;
+    let mut signals = Signals::new([SIGUSR2])?;
     let signals_handle = signals.handle();
 
     let thread_handle = thread::spawn(move || {
