@@ -1,5 +1,8 @@
 ## Unreleased
 
+* Reduce memory usage for strings in inode metadata.
+  ([#1346](https://github.com/awslabs/mountpoint-s3/pull/1346))
+
 ## v0.1.1 (April 1, 2025)
 
 * Address an issue in GetObject requests that could result in read operations to fail.
