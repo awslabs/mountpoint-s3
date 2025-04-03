@@ -125,8 +125,6 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
 
     env = {
         "PATH": os.environ["PATH"],
-        # Keep enough debug info to give line numbers. We can always `strip` in the future if we want to.
-        "RUSTFLAGS": "-C debuginfo=line-tables-only",
     }
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir

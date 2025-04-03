@@ -10,3 +10,4 @@ resolver = "2"
 
 [profile.release]
 debug = 2
+split-debuginfo = "off" # keep the debug info in the binary
