@@ -10,7 +10,7 @@ use super::{InodeError, InodeKind};
 /// Does not include the [Prefix](super::Prefix). Guaranteed to end in '/' for directories.
 #[derive(Debug)]
 pub struct ValidKey {
-    key: String,
+    key: Box<str>,
     name_offset: usize,
 }
 
@@ -24,7 +24,7 @@ impl ValidKey {
     /// Create the root key.
     pub fn root() -> Self {
         Self {
-            key: String::new(),
+            key: Default::default(),
             name_offset: 0,
         }
     }
@@ -35,12 +35,19 @@ impl ValidKey {
             return Err(ValidKeyError::NotADirectory);
         };
 
-        let mut key = self.as_ref().to_owned();
-        let name_offset = key.len();
+        let name_offset = self.key.len();
+        // Allocate the new string with the correct capacity.
+        let mut key =
+            String::with_capacity(name_offset + name.len() + if kind == InodeKind::Directory { 1 } else { 0 });
+        key.push_str(&self.key);
         key.push_str(&name);
         if kind == InodeKind::Directory {
             key.push('/');
         }
+
+        // No re-allocation required.
+        debug_assert_eq!(key.len(), key.capacity());
+        let key = key.into_boxed_str();
         Ok(Self { name_offset, key })
     }
 

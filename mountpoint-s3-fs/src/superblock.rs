@@ -703,8 +703,8 @@ impl SuperblockInner {
             select_biased! {
                 result = file_lookup => {
                     match result {
-                        Ok(HeadObjectResult { size, last_modified, restore_status ,etag, storage_class, .. }) => {
-                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.as_str().to_string()), storage_class, restore_status, self.config.cache_config.file_ttl);
+                        Ok(HeadObjectResult { size, last_modified, restore_status, etag, storage_class, .. }) => {
+                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.into_inner().into_boxed_str()), storage_class.as_deref(), restore_status, self.config.cache_config.file_ttl);
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -999,7 +999,7 @@ impl SuperblockInner {
                 writing_children,
                 ..
             } => {
-                let existing_inode = children.insert(name.to_string(), inode.clone());
+                let existing_inode = children.insert(name.as_ref().into(), inode.clone());
                 if is_new_file {
                     writing_children.insert(next_ino);
                 }

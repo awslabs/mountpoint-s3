@@ -1,8 +1,11 @@
 ## Unreleased
 
+* Reduce memory usage for strings in inode metadata. ([#1346](https://github.com/awslabs/mountpoint-s3/pull/1346))
+
 ## v1.16.0 (April 1, 2025)
 
 ### New features
+
 * Mountpoint for Amazon S3 adds support for S3 Access Points for directory buckets in AWS Dedicated Local Zones. ([aws-c-s3#502](https://github.com/awslabs/aws-c-s3/pull/502/))
 
 ### Other changes
