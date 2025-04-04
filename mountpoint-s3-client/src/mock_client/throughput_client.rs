@@ -95,7 +95,7 @@ impl Stream for ThroughputGetObjectResponse {
             next.map(|item| {
                 item.inspect(|body_part| {
                     // Acquire enough tokens for the number of bytes we want to deliver
-                    block_on(this.rate_limiter.acquire(body_part.1.len() as u32));
+                    block_on(this.rate_limiter.acquire(body_part.data.len() as u32));
                 })
             })
         })
@@ -251,7 +251,7 @@ mod tests {
                         .await
                         .unwrap();
                     while let Some(part) = get.next().await {
-                        let (_offset, part) = part.unwrap();
+                        let part = part.unwrap().data;
                         num_bytes += part.len();
                     }
                     num_bytes

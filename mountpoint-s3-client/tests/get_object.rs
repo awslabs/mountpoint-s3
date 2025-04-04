@@ -16,7 +16,7 @@ use futures::stream::StreamExt;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
-    Checksum, ChecksumMode, ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse,
+    Checksum, ChecksumMode, ClientBackpressureHandle, ETag, GetBodyPart, GetObjectParams, GetObjectResponse,
 };
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
@@ -125,7 +125,7 @@ async fn verify_backpressure_get_object() {
 
     // Verify that we can receive some data since the window size is more than 0
     let first_part = get_request.next().await.expect("result should not be empty");
-    let (offset, body) = first_part.unwrap();
+    let GetBodyPart { offset, data: body } = first_part.unwrap();
     assert_eq!(offset, 0, "wrong body part offset");
 
     // The CRT always return at least a part even if the window is smaller than that
@@ -169,7 +169,7 @@ async fn test_mutated_during_get_object_backpressure() {
 
     // Verify that we can receive the first part successfully
     let first_part = get_request.next().await.expect("result should not be empty");
-    let (offset, body) = first_part.unwrap();
+    let GetBodyPart { offset, data: body } = first_part.unwrap();
     assert_eq!(offset, 0, "wrong body part offset");
 
     let expected_range = range.start as usize..part_size;
@@ -327,8 +327,8 @@ async fn test_get_object_cancel(read: bool) {
     if read {
         let mut bytes = 0;
         while let Some(next) = request.next().await {
-            let (_offset, body) = next.expect("part download should succeed");
-            bytes += body.len();
+            let part = next.expect("part download should succeed");
+            bytes += part.data.len();
         }
         assert_eq!(bytes, OBJECT_SIZE);
     } else {
@@ -569,9 +569,9 @@ async fn stress_test_get_object() {
             pin_mut!(result);
             let mut count = 0;
             while let Some(r) = result.next().await {
-                let (offset, body) = r.expect("get_object body part failed");
-                assert_eq!(offset, 0);
-                assert_eq!(body.len(), size);
+                let part = r.expect("get_object body part failed");
+                assert_eq!(part.offset, 0);
+                assert_eq!(part.data.len(), size);
                 count += 1;
             }
             (t + 1, count)

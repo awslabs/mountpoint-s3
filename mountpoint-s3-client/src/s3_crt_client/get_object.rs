@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt};
@@ -98,7 +99,10 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
-                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(offset, data.into()));
+                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
+                        offset,
+                        data: Bytes::copy_from_slice(data),
+                    }));
                 },
                 parse_get_object_error,
                 move |result| {
@@ -146,7 +150,7 @@ impl S3CrtClient {
 #[derive(Debug)]
 enum S3GetObjectEvent {
     Headers(Headers),
-    BodyPart(u64, Box<[u8]>),
+    BodyPart(GetBodyPart),
     Error(ObjectClientError<GetObjectError, S3RequestError>),
 }
 
@@ -239,9 +243,9 @@ impl Stream for S3GetObjectResponse {
         let this = self.project();
         match this.event_receiver.poll_next(cx) {
             Poll::Ready(None) => Poll::Ready(None),
-            Poll::Ready(Some(S3GetObjectEvent::BodyPart(offset, part))) => {
-                *this.next_offset = offset + part.len() as u64;
-                Poll::Ready(Some(Ok((offset, part))))
+            Poll::Ready(Some(S3GetObjectEvent::BodyPart(part))) => {
+                *this.next_offset = part.offset + part.data.len() as u64;
+                Poll::Ready(Some(Ok(part)))
             }
             Poll::Ready(Some(S3GetObjectEvent::Headers(_))) => {
                 unreachable!("headers are only sent once and received before returning the stream")

@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Breaking changes
+
+* `GetObjectResponse` returns part content as `Bytes` rather than `Box<[u8]>`.
+  ([#1348](https://github.com/awslabs/mountpoint-s3/pull/1348))
+
+### Other changes
+
 ## v0.13.2 (April 1, 2025)
 
 * Fix race condition in GetObject that could result in empty responses.

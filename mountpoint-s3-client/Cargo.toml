@@ -1,7 +1,7 @@
 [package]
 name = "mountpoint-s3-client"
 # See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.13.2"
+version = "0.14.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
@@ -13,6 +13,7 @@ mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.12.2" }
 async-trait = "0.1.85"
 auto_impl = "1.2.1"
 base64ct = { version = "1.6.0", features = ["std"] }
+bytes = "1.10.1"
 const_format = "0.2.34"
 futures = "0.3.31"
 metrics = "0.24.1"
@@ -39,7 +40,6 @@ aws-config = "1.5.15"
 aws-credential-types = "1.2.1"
 aws-sdk-s3 = "1.71.0"
 aws-smithy-runtime-api = "1.7.3"
-bytes = "1.9.0"
 clap = { version = "4.5.27", features = ["derive"] }
 ctor = "0.2.9"
 proptest = "1.6.0"
