@@ -416,10 +416,9 @@ where
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let inode = lookup.inode.clone();
-        let full_key = self.superblock.full_key_for_inode(&inode);
+        let full_key = self.superblock.full_key_for_inode(&lookup.inode);
         let handle = FileHandle {
-            inode,
+            ino,
             full_key,
             open_pid: pid,
             state: AsyncMutex::new(state),
@@ -465,10 +464,10 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(handle.inode.name());
+        logging::record_name(handle.file_name());
         let mut state = handle.state.lock().await;
         let request = match &mut *state {
-            FileHandleState::Read { request, .. } => request,
+            FileHandleState::Read(request) => request,
             FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
@@ -548,7 +547,7 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(handle.inode.name());
+        logging::record_name(handle.file_name());
 
         let len = {
             let mut state = handle.state.lock().await;
@@ -557,7 +556,7 @@ where
                 FileHandleState::Write(request) => request,
             };
 
-            request.write(offset, data, &handle.full_key).await?
+            request.write(self, &handle, offset, data).await?
         };
         Ok(len)
     }
@@ -769,13 +768,13 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(file_handle.inode.name());
+        logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         let write_state = match &mut *state {
             FileHandleState::Read { .. } => return Ok(()),
             FileHandleState::Write(write_state) => write_state,
         };
-        match write_state.commit(&file_handle.full_key, self).await {
+        match write_state.commit(self, &file_handle).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -804,13 +803,13 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(file_handle.inode.name());
+        logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { .. } => Ok(()),
             FileHandleState::Write(write_state) => {
                 write_state
-                    .complete(&file_handle.full_key, pid, file_handle.open_pid, self)
+                    .complete(self, &file_handle, pid, file_handle.open_pid)
                     .await
             }
         }
@@ -831,7 +830,7 @@ where
                 .remove(&fh)
                 .ok_or_else(|| err!(libc::EBADF, "invalid file handle"))?
         };
-        logging::record_name(file_handle.inode.name());
+        logging::record_name(file_handle.file_name());
 
         // Unwrap the atomic reference to have full ownership.
         // The kernel should make a release call when there is no more references to the file handle,
@@ -845,15 +844,17 @@ where
         };
 
         let write_state = match file_handle.state.into_inner() {
-            FileHandleState::Read { handle, .. } => {
+            FileHandleState::Read(_) => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                handle.finish()?;
+                self.superblock.finish_reading(file_handle.ino)?;
                 return Ok(());
             }
             FileHandleState::Write(write_state) => write_state,
         };
 
-        let complete_result = write_state.complete_if_in_progress(&file_handle.full_key).await;
+        let complete_result = write_state
+            .complete_if_in_progress(self, file_handle.ino, &file_handle.full_key)
+            .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {
