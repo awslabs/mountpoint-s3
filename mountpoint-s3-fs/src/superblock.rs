@@ -21,7 +21,7 @@
 //! Some cached state is dependent on the inode kind; that state is hidden behind a [InodeStatKind]
 //! enum.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::time::Duration;
@@ -30,14 +30,14 @@ use anyhow::anyhow;
 use futures::{select_biased, FutureExt};
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
-use mountpoint_s3_client::types::{HeadObjectParams, HeadObjectResult};
+use mountpoint_s3_client::types::{ETag, HeadObjectParams, HeadObjectResult};
 use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use crate::fs::CacheConfig;
+use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
 #[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
@@ -50,14 +50,14 @@ mod expiry;
 use expiry::Expiry;
 
 mod inode;
-pub use inode::{Inode, InodeKind, InodeNo, ReadHandle, WriteHandle, WriteMode};
+pub use inode::{Inode, InodeKind, InodeNo, WriteMode};
 use inode::{InodeErrorInfo, InodeKindData, InodeStat, InodeState, WriteStatus};
 
 mod negative_cache;
 use negative_cache::NegativeCache;
 
 pub mod path;
-use path::ValidName;
+use path::{ValidKey, ValidName};
 
 mod readdir;
 pub use readdir::ReaddirHandle;
@@ -222,7 +222,7 @@ impl Superblock {
             .await?;
         if lookup.inode.ino() != ino {
             Err(InodeError::StaleInode {
-                remote_key: self.full_key_for_inode(&lookup.inode),
+                remote_key: self.full_key_for_inode(&lookup.inode).into(),
                 old_inode: inode.err(),
                 new_inode: lookup.inode.err(),
             })
@@ -267,27 +267,128 @@ impl Superblock {
         Ok(LookedUp { inode, stat })
     }
 
-    /// Create a new handle for a file being written. The handle can be used to update the state of
-    /// the inflight write and commit it once finished.
-    pub async fn write<OC: ObjectClient>(
-        &self,
-        _client: &OC,
-        ino: InodeNo,
-        mode: &WriteMode,
-        is_truncate: bool,
-    ) -> Result<WriteHandle, InodeError> {
+    /// Prepare an inode to start writing.
+    pub async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
-        WriteHandle::new(self.inner.clone(), inode, mode, is_truncate)
+        let mut state = inode.get_mut_inode_state()?;
+        if state.reader_count > 0 {
+            return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
+        }
+        match state.write_status {
+            WriteStatus::LocalUnopened => {
+                state.write_status = WriteStatus::LocalOpen;
+                state.stat.size = 0;
+            }
+            WriteStatus::LocalOpen => return Err(InodeError::InodeAlreadyWriting(inode.err())),
+            WriteStatus::Remote => {
+                if !mode.is_inode_writable(is_truncate) {
+                    return Err(InodeError::InodeNotWritable(inode.err()));
+                }
+
+                if is_truncate {
+                    state.stat.size = 0;
+                }
+
+                state.write_status = WriteStatus::LocalOpen;
+            }
+        }
+        drop(state);
+        Ok(())
     }
 
-    /// Create a new handle for a file being read. The handle can be used to update the state of
-    /// the inflight read and commit it once finished.
-    pub async fn read<OC: ObjectClient>(&self, _client: &OC, ino: InodeNo) -> Result<ReadHandle, InodeError> {
+    /// Increase the size of a file open for writing.
+    pub fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
+        let inode = self.inner.get(ino)?;
+        let mut state = inode.get_mut_inode_state()?;
+        if !matches!(state.write_status, WriteStatus::LocalOpen) {
+            debug!(?inode, "Error trying to increase file size on write");
+            return Err(InodeError::InodeInvalidWriteStatus(inode.err()));
+        }
+        state.stat.size += len;
+        Ok(state.stat.size)
+    }
+
+    /// Update status of the inode and of containing "local" directories.
+    pub fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError> {
+        let inode = self.inner.get(ino)?;
+
+        // Collect ancestor inodes that may need updating,
+        // from parent to first remote ancestor.
+        let ancestors = {
+            let mut ancestors = Vec::new();
+            let mut ancestor_ino = inode.parent();
+            let mut visited = HashSet::new();
+            loop {
+                assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
+                let ancestor = self.inner.get(ancestor_ino)?;
+                ancestors.push(ancestor.clone());
+                if ancestor.ino() == FUSE_ROOT_INODE || ancestor.get_inode_state()?.write_status == WriteStatus::Remote
+                {
+                    break;
+                }
+                ancestor_ino = ancestor.parent();
+            }
+            ancestors
+        };
+
+        // Acquire locks on ancestors in descending order to avoid deadlocks.
+        let mut ancestors_states = ancestors
+            .iter()
+            .rev()
+            .map(|inode| inode.get_mut_inode_state())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut state = inode.get_mut_inode_state()?;
+        match state.write_status {
+            WriteStatus::LocalOpen => {
+                state.write_status = WriteStatus::Remote;
+                state.stat.etag = etag.map(|e| e.into_inner().into_boxed_str());
+
+                // Invalidate the inode's stats so we refresh them from S3 when next queried
+                state.stat.update_validity(Duration::from_secs(0));
+
+                // Walk up the ancestors from parent to first remote ancestor to transition
+                // the inode and all "local" containing directories to "remote".
+                let children_inos = std::iter::once(inode.ino()).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
+                for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
+                    match &mut ancestor_state.kind_data {
+                        InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
+                        InodeKindData::Directory { writing_children, .. } => {
+                            writing_children.remove(&child_ino);
+                        }
+                    }
+                    ancestor_state.write_status = WriteStatus::Remote;
+                }
+
+                Ok(())
+            }
+            _ => Err(InodeError::InodeInvalidWriteStatus(inode.err())),
+        }
+    }
+
+    /// Prepare an inode to start reading.
+    pub async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
-        ReadHandle::new(inode)
+        let mut state = inode.get_mut_inode_state()?;
+        if state.write_status != WriteStatus::Remote {
+            return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
+        }
+        state.reader_count += 1;
+        drop(state);
+        Ok(())
+    }
+
+    /// Update status of the inode to reflect the read being finished
+    pub fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
+        let inode = self.inner.get(ino)?;
+
+        // Decrease reader count for the inode
+        let mut state = inode.get_mut_inode_state()?;
+        state.reader_count -= 1;
+        Ok(())
     }
 
     /// Start a readdir stream for the given directory inode
@@ -309,8 +410,8 @@ impl Superblock {
         let parent_ino = dir.parent();
 
         let dir_key = self.full_key_for_inode(&dir);
-        assert!(dir_key.is_empty() || dir_key.ends_with('/'));
-        ReaddirHandle::new(self.inner.clone(), dir_ino, parent_ino, dir_key, page_size)
+        assert_eq!(dir_key.kind(), InodeKind::Directory);
+        ReaddirHandle::new(self.inner.clone(), dir_ino, parent_ino, dir_key.into(), page_size)
     }
 
     /// Create a new regular file or directory inode ready to be opened in write-only mode
@@ -538,7 +639,7 @@ impl Superblock {
         Ok(())
     }
 
-    pub fn full_key_for_inode(&self, inode: &Inode) -> String {
+    pub fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
         self.inner.full_key_for_inode(inode)
     }
 }
@@ -560,8 +661,8 @@ impl SuperblockInner {
         Ok(inode)
     }
 
-    fn full_key_for_inode(&self, inode: &Inode) -> String {
-        format!("{}{}", self.prefix, inode.key())
+    fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
+        inode.valid_key().full_key(&self.prefix)
     }
 
     /// Increase the lookup count of the given inode and
@@ -602,7 +703,7 @@ impl SuperblockInner {
                 let remote = if let Some(manifest) = &self.config.manifest {
                     self.manifest_lookup(manifest, parent_ino, &name)?
                 } else {
-                    self.remote_lookup(client, parent_ino, &name).await?
+                    self.remote_lookup(client, parent_ino, name).await?
                 };
                 #[cfg(not(feature = "manifest"))]
                 let remote = self.remote_lookup(client, parent_ino, &name).await?;
@@ -675,7 +776,7 @@ impl SuperblockInner {
         }
 
         let parent_full_path = self.full_key_for_inode(&parent);
-        let Some(manifest_entry) = manifest.manifest_lookup(parent_full_path, name)? else {
+        let Some(manifest_entry) = manifest.manifest_lookup(parent_full_path.to_string(), name)? else {
             return Ok(None);
         };
 
@@ -707,15 +808,14 @@ impl SuperblockInner {
         &self,
         client: &OC,
         parent_ino: InodeNo,
-        name: &str,
+        name: ValidName<'_>,
     ) -> Result<Option<RemoteLookup>, InodeError> {
         let parent = self.get(parent_ino)?;
-        if parent.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(parent.err()));
-        }
-        let mut full_path = self.full_key_for_inode(&parent);
-        full_path.push_str(name);
-        full_path.push('/');
+        let full_path: String = self
+            .full_key_for_inode(&parent)
+            .new_child(name, InodeKind::Directory)
+            .map_err(|_| InodeError::NotADirectory(parent.err()))?
+            .into();
 
         let object_key = &full_path[..(full_path.len() - 1)];
         let directory_prefix = &full_path[..];
@@ -1272,14 +1372,20 @@ mod tests {
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir0, InodeKind::Directory, ts, 0);
-            assert_eq!(superblock.full_key_for_inode(&dir0.inode), format!("{prefix}dir0/"));
+            assert_eq!(
+                superblock.full_key_for_inode(&dir0.inode).to_string(),
+                format!("{prefix}dir0/")
+            );
 
             let dir1 = superblock
                 .lookup(&client, FUSE_ROOT_INODE, &OsString::from("dir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir1, InodeKind::Directory, ts, 0);
-            assert_eq!(superblock.full_key_for_inode(&dir1.inode), format!("{prefix}dir1/"));
+            assert_eq!(
+                superblock.full_key_for_inode(&dir1.inode).to_string(),
+                format!("{prefix}dir1/")
+            );
 
             let sdir0 = superblock
                 .lookup(&client, dir0.inode.ino(), &OsString::from("sdir0"))
@@ -1287,7 +1393,7 @@ mod tests {
                 .expect("should exist");
             assert_inode_stat!(sdir0, InodeKind::Directory, ts, 0);
             assert_eq!(
-                superblock.full_key_for_inode(&sdir0.inode),
+                superblock.full_key_for_inode(&sdir0.inode).to_string(),
                 format!("{prefix}dir0/sdir0/")
             );
 
@@ -1297,7 +1403,7 @@ mod tests {
                 .expect("should exist");
             assert_inode_stat!(sdir1, InodeKind::Directory, ts, 0);
             assert_eq!(
-                superblock.full_key_for_inode(&sdir1.inode),
+                superblock.full_key_for_inode(&sdir1.inode).to_string(),
                 format!("{prefix}dir0/sdir1/")
             );
 
@@ -1307,7 +1413,7 @@ mod tests {
                 .expect("should exist");
             assert_inode_stat!(sdir2, InodeKind::Directory, ts, 0);
             assert_eq!(
-                superblock.full_key_for_inode(&sdir2.inode),
+                superblock.full_key_for_inode(&sdir2.inode).to_string(),
                 format!("{prefix}dir1/sdir2/")
             );
 
@@ -1317,7 +1423,7 @@ mod tests {
                 .expect("should exist");
             assert_inode_stat!(sdir3, InodeKind::Directory, ts, 0);
             assert_eq!(
-                superblock.full_key_for_inode(&sdir3.inode),
+                superblock.full_key_for_inode(&sdir3.inode).to_string(),
                 format!("{prefix}dir1/sdir3/")
             );
 
@@ -1340,7 +1446,7 @@ mod tests {
                         .expect("object should exist")
                         .last_modified;
                     assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
-                    assert_eq!(full_key, format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
+                    assert_eq!(full_key.to_string(), format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
                 }
             }
         }
@@ -1572,7 +1678,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+                .start_writing(new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename);
@@ -1624,7 +1730,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+                .start_writing(new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename);
@@ -1778,7 +1884,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+                .start_writing(new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
         }
@@ -2007,14 +2113,14 @@ mod tests {
             .await
             .unwrap();
 
-        let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+        superblock
+            .start_writing(new_inode.inode.ino(), &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        writehandle.finish(None).unwrap();
+        superblock.finish_writing(new_inode.inode.ino(), None).unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -2094,7 +2200,7 @@ mod tests {
             .lookup(&client, FUSE_ROOT_INODE, "dir".as_ref())
             .await
             .unwrap();
-        assert_eq!(&superblock.full_key_for_inode(&dir.inode), "dir/");
+        assert_eq!(superblock.full_key_for_inode(&dir.inode).as_ref(), "dir/");
     }
 
     #[tokio::test]
@@ -2173,8 +2279,8 @@ mod tests {
             .await
             .unwrap();
 
-        let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+        superblock
+            .start_writing(new_inode.inode.ino(), &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 
@@ -2199,7 +2305,9 @@ mod tests {
         assert_eq!(stat.mtime, mtime);
 
         // Invoke [finish_writing] to make the file remote
-        writehandle.finish(Some(ETag::for_tests())).unwrap();
+        superblock
+            .finish_writing(new_inode.inode.ino(), Some(ETag::for_tests()))
+            .unwrap();
 
         // Should get an error back when calling setattr
         let result = superblock
