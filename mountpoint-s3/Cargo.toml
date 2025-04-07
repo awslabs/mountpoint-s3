@@ -35,7 +35,7 @@ rand_chacha = "0.3.1"
 serde = { version = "1.0.217", features = ["derive"] }
 test-case = "3.3.1"
 tempfile = "3.15.0"
-tokio = { version = "1.43.0" }
+tokio = { version = "1.44.2" }
 tracing = { version = "0.1.41", features = ["log"] }
 
 [build-dependencies]
