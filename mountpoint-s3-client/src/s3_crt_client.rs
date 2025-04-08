@@ -2,8 +2,8 @@ use std::cmp;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::num::NonZeroUsize;
-use std::ops::Deref;
 use std::ops::Range;
+use std::ops::{Deref, DerefMut};
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -34,7 +34,7 @@ use mountpoint_s3_crt::s3::client::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use pin_project::{pin_project, pinned_drop};
+use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
@@ -525,7 +525,7 @@ impl S3CrtClientInner {
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
         parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_meta_request_result: impl FnOnce(ObjectClientResult<(), E, S3RequestError>) + Send + 'static,
-    ) -> Result<MetaRequest, S3RequestError> {
+    ) -> Result<CancellingMetaRequest, S3RequestError> {
         let span_telemetry = request_span.clone();
         let span_body = request_span.clone();
         let span_finish = request_span;
@@ -684,7 +684,7 @@ impl S3CrtClientInner {
         // Issue the HTTP request using the CRT's S3 meta request API
         let meta_request = self.s3_client.make_meta_request(options)?;
         Self::poll_client_metrics(&self.s3_client);
-        Ok(meta_request)
+        Ok(CancellingMetaRequest::wrap(meta_request))
     }
 
     /// Make a meta-request using this S3 client that returns the response body on success or
@@ -1019,13 +1019,13 @@ impl<'a> S3Message<'a> {
 }
 
 #[derive(Debug)]
-#[pin_project(PinnedDrop)]
+#[pin_project]
 #[must_use]
 struct S3MetaRequest<T, E> {
     /// Receiver for the result of meta-request.
     #[pin]
     receiver: Fuse<oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>>,
-    meta_request: MetaRequest,
+    meta_request: CancellingMetaRequest,
 }
 
 impl<T: Send, E: Send> Future for S3MetaRequest<T, E> {
@@ -1039,16 +1039,43 @@ impl<T: Send, E: Send> Future for S3MetaRequest<T, E> {
     }
 }
 
-#[pinned_drop]
-impl<T, E> PinnedDrop for S3MetaRequest<T, E> {
-    fn drop(self: Pin<&mut Self>) {
-        self.meta_request.cancel();
-    }
-}
-
 impl<T: Send, E: Send> FusedFuture for S3MetaRequest<T, E> {
     fn is_terminated(&self) -> bool {
         self.receiver.is_terminated()
+    }
+}
+
+/// Wrapper for a [MetaRequest] that cancels it on drop.
+///
+/// Note that if the request has already completed, cancelling it has no effect.
+#[derive(Debug)]
+struct CancellingMetaRequest {
+    inner: MetaRequest,
+}
+
+impl CancellingMetaRequest {
+    fn wrap(meta_request: MetaRequest) -> Self {
+        Self { inner: meta_request }
+    }
+}
+
+impl Drop for CancellingMetaRequest {
+    fn drop(&mut self) {
+        self.inner.cancel();
+    }
+}
+
+impl Deref for CancellingMetaRequest {
+    type Target = MetaRequest;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for CancellingMetaRequest {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 
