@@ -622,9 +622,10 @@ unsafe extern "C" fn meta_request_upload_review_callback(
 }
 
 /// An in-progress request to S3.
+///
+/// A dropped [MetaRequest] will still progress. See [MetaRequest::cancel()].
 #[derive(Debug)]
 pub struct MetaRequest {
-    #[allow(unused)]
     inner: NonNull<aws_s3_meta_request>,
 }
 
