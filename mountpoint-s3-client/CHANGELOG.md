@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.14.0 (April 9, 2025)
+
 ### Breaking changes
 
 * `GetObjectResponse` returns part content as `Bytes` rather than `Box<[u8]>`.

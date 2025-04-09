@@ -1,5 +1,11 @@
 ## Unreleased
 
+## v0.1.3 (April 9, 2025)
+
+* Address an issue introduced in v0.1.1 that could affect throughput and memory usage in
+  workloads with many concurrent random read operations.
+  ([#1355](https://github.com/awslabs/mountpoint-s3/pull/1355))
+
 ## v0.1.2 (April 3, 2025)
 
 * Reduce memory usage for strings in inode metadata.
