@@ -237,6 +237,11 @@ impl<Client: ObjectClient> Stream for FailureGetResponse<Client> {
         *this.poll_count += 1;
 
         match this.failure_mode {
+            Some(GetObjectFailureMode::StreamShortCircuit(pos)) => {
+                if this.poll_count >= pos {
+                    return Poll::Ready(None);
+                }
+            }
             Some(GetObjectFailureMode::StreamPositionError(pos, _)) => {
                 if this.poll_count >= pos {
                     let GetObjectFailureMode::StreamPositionError(_, err) = this.failure_mode.take().unwrap() else {
@@ -300,6 +305,9 @@ pub enum GetObjectFailureMode<ClientError> {
     /// Returns an error at the nth poll (starting from 1) on the returned stream from `get_object` operation,
     /// up to that, reads from the underlying stream.
     StreamPositionError(usize, ObjectClientError<GetObjectError, ClientError>),
+    /// Short cicuits at the nth poll (starting from 1) on the returned stream from `get_object` operation,
+    /// up to that, reads from the underlying stream.
+    StreamShortCircuit(usize),
 }
 
 pub type RequestFailureMap<ClientError, RequestError> =
