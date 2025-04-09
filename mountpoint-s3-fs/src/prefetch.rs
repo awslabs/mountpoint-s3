@@ -565,8 +565,9 @@ mod tests {
     use super::caching_stream::CachingPartStream;
     use super::*;
     use futures::executor::{block_on, ThreadPool};
-    use mountpoint_s3_client::error::GetObjectError;
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig, RequestFailureMap};
+    use mountpoint_s3_client::failure_client::{
+        countdown_failure_client, CountdownFailureConfig, GetObjectFailureMode,
+    };
     use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use mountpoint_s3_client::types::ETag;
     use proptest::proptest;
@@ -800,7 +801,7 @@ mod tests {
         size: u64,
         read_size: usize,
         test_config: TestConfig,
-        get_failures: RequestFailureMap<MockClientError, GetObjectError>,
+        get_failures: HashMap<usize, GetObjectFailureMode<MockClientError>>,
     ) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -874,7 +875,7 @@ mod tests {
         let mut get_failures = HashMap::new();
         get_failures.insert(
             2,
-            Err(ObjectClientError::ClientError(MockClientError(
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
                 err_value.to_owned().into(),
             ))),
         );
@@ -1112,14 +1113,16 @@ mod tests {
         let mut get_failures = HashMap::new();
         get_failures.insert(
             1,
-            Ok((
+            GetObjectFailureMode::StreamPositionError(
                 2,
-                MockClientError("error in the second chunk of the first request".into()),
-            )),
+                ObjectClientError::ClientError(MockClientError(
+                    "error in the second chunk of the first request".into(),
+                )),
+            ),
         );
         get_failures.insert(
             2,
-            Err(ObjectClientError::ClientError(MockClientError(
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
                 "error in second request".into(),
             ))),
         );

@@ -31,15 +31,8 @@ pub struct FailureRequestWrapper<ClientError, RequestWrapperState> {
 pub struct FailureClient<Client: ObjectClient, State, RequestWrapperState> {
     pub client: Client,
     pub state: Mutex<State>,
-    pub get_object_cb: fn(
-        &mut State,
-        &str,
-        &str,
-        &GetObjectParams,
-    ) -> Result<
-        FailureRequestWrapper<Client::ClientError, RequestWrapperState>,
-        ObjectClientError<GetObjectError, Client::ClientError>,
-    >,
+    pub get_object_cb:
+        fn(&mut State, &str, &str, &GetObjectParams) -> Option<GetObjectFailureMode<Client::ClientError>>,
     pub head_object_cb:
         fn(&mut State, &str, &str) -> Result<(), ObjectClientError<HeadObjectError, Client::ClientError>>,
     pub list_objects_cb: fn(
@@ -75,7 +68,7 @@ where
     State: Send + Sync + 'static,
     GetWrapperState: Send + Sync + 'static,
 {
-    type GetObjectResponse = FailureGetResponse<Client, GetWrapperState>;
+    type GetObjectResponse = FailureGetResponse<Client>;
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
 
@@ -123,12 +116,16 @@ where
         key: &str,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
-        let wrapper = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, params)?;
+        let failure_mode = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, params);
+        if let Some(GetObjectFailureMode::OperationError(err)) = failure_mode {
+            return Err(err);
+        }
+
         let request = self.client.get_object(bucket, key, params).await?;
         Ok(FailureGetResponse {
-            state: wrapper.state,
-            result_fn: wrapper.result_fn,
             request,
+            poll_count: 0,
+            failure_mode,
         })
     }
 
@@ -206,17 +203,15 @@ where
 }
 
 #[pin_project]
-pub struct FailureGetResponse<Client: ObjectClient, GetWrapperState> {
-    state: GetWrapperState,
-    result_fn: fn(&mut GetWrapperState) -> Result<(), Client::ClientError>,
+pub struct FailureGetResponse<Client: ObjectClient> {
     #[pin]
     request: Client::GetObjectResponse,
+    poll_count: usize,
+    failure_mode: Option<GetObjectFailureMode<Client::ClientError>>,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
-impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectResponse
-    for FailureGetResponse<Client, FailState>
-{
+impl<Client: ObjectClient + Send + Sync> GetObjectResponse for FailureGetResponse<Client> {
     type BackpressureHandle = <<Client as ObjectClient>::GetObjectResponse as GetObjectResponse>::BackpressureHandle;
     type ClientError = Client::ClientError;
 
@@ -233,12 +228,27 @@ impl<Client: ObjectClient + Send + Sync, FailState: Send + Sync> GetObjectRespon
     }
 }
 
-impl<Client: ObjectClient, FailState> Stream for FailureGetResponse<Client, FailState> {
+impl<Client: ObjectClient> Stream for FailureGetResponse<Client> {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, Client::ClientError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        (this.result_fn)(this.state)?;
+
+        *this.poll_count += 1;
+
+        match this.failure_mode {
+            Some(GetObjectFailureMode::StreamPositionError(pos, _)) => {
+                if this.poll_count >= pos {
+                    let GetObjectFailureMode::StreamPositionError(_, err) = this.failure_mode.take().unwrap() else {
+                        unreachable!()
+                    };
+                    return Poll::Ready(Some(Err(err)));
+                }
+            }
+            Some(GetObjectFailureMode::OperationError(_)) => unreachable!(),
+            None => {}
+        }
+
         this.request.poll_next(cx)
     }
 }
@@ -283,6 +293,15 @@ pub type CountdownFailureClient<Client> = FailureClient<
     CountdownFailureRequestState<<Client as ObjectClient>::ClientError>,
 >;
 
+/// Failure mode of `GetObject`.
+pub enum GetObjectFailureMode<ClientError> {
+    /// Returns an error to `get_object` operation.
+    OperationError(ObjectClientError<GetObjectError, ClientError>),
+    /// Returns an error at the nth poll (starting from 1) on the returned stream from `get_object` operation,
+    /// up to that, reads from the underlying stream.
+    StreamPositionError(usize, ObjectClientError<GetObjectError, ClientError>),
+}
+
 pub type RequestFailureMap<ClientError, RequestError> =
     HashMap<usize, Result<(usize, ClientError), ObjectClientError<RequestError, ClientError>>>;
 
@@ -290,12 +309,10 @@ pub type RequestFailureMap<ClientError, RequestError> =
 #[derive(Default)]
 pub struct CountdownFailureConfig<ClientError> {
     /// For GET, map entries are interpreted as follows (operations are numbered starting at 1):
-    ///   (k -> Err(E) means return error E on the k'th GET
-    ///   (k -> Ok((n, E))) means return a stream object on the k'th get that
-    ///       returns error E on the n'th read request from that stream, otherwise reads from the underlying stream
+    ///   (k -> GetObjectFailureMode(E)) means fail according to the [GetObjectFailureMode] on the k'th GET
     /// (Note: we could also define a failure client that tracks offsets, and returns an error when the offset
     /// reaches a specified threshold.)
-    pub get_failures: RequestFailureMap<ClientError, GetObjectError>,
+    pub get_failures: HashMap<usize, GetObjectFailureMode<ClientError>>,
     /// For HEAD, map entries are interpreted as follows:
     ///   (k -> E) means inject error E on the k'th call to that operation
     pub head_failures: HashMap<usize, ObjectClientError<HeadObjectError, ClientError>>,
@@ -316,7 +333,7 @@ pub struct CountdownFailureConfig<ClientError> {
 #[derive(Default)]
 pub struct CountdownFailureClientState<ClientError> {
     get_count: usize,
-    get_failures: RequestFailureMap<ClientError, GetObjectError>,
+    get_failures: HashMap<usize, GetObjectFailureMode<ClientError>>,
     head_count: usize,
     head_failures: HashMap<usize, ObjectClientError<HeadObjectError, ClientError>>,
     list_count: usize,
@@ -356,27 +373,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
         state,
         get_object_cb: |state, _bucket, _key, _get_object_params| {
             state.get_count += 1;
-            let (fail_count, error) = if let Some(result) = state.get_failures.remove(&state.get_count) {
-                let (fail_count, error) = result?;
-                (fail_count, Some(error))
-            } else {
-                (usize::MAX, None)
-            };
-            Ok(FailureRequestWrapper {
-                state: CountdownFailureRequestState {
-                    count: 0,
-                    fail_count,
-                    error,
-                },
-                result_fn: |state| {
-                    state.count += 1;
-                    if state.count >= state.fail_count {
-                        Err(state.error.take().unwrap())
-                    } else {
-                        Ok(())
-                    }
-                },
-            })
+            state.get_failures.remove(&state.get_count)
         },
         head_object_cb: |state, _bucket, _key| {
             state.head_count += 1;
@@ -454,17 +451,21 @@ mod tests {
         let mut get_failures = HashMap::new();
         get_failures.insert(
             2,
-            Err(ObjectClientError::ClientError(MockClientError(
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
                 "invalid range, length=3".into(),
             ))),
         );
         get_failures.insert(
             4,
-            Err(ObjectClientError::ClientError(MockClientError("no such object".into()))),
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
+                "no such object".into(),
+            ))),
         );
         get_failures.insert(
             5,
-            Err(ObjectClientError::ClientError(MockClientError("no such bucket".into()))),
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
+                "no such bucket".into(),
+            ))),
         );
 
         let fail_client = countdown_failure_client(
