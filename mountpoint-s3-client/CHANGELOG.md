@@ -5,7 +5,7 @@
 * `GetObjectResponse` returns part content as `Bytes` rather than `Box<[u8]>`.
   ([#1348](https://github.com/awslabs/mountpoint-s3/pull/1348))
 
-### Other changes
+## v0.13.3 (April 9, 2025)
 
 * Fix an issue where GetObject requests may not be cancelled.
   ([#1355](https://github.com/awslabs/mountpoint-s3/pull/1355))
