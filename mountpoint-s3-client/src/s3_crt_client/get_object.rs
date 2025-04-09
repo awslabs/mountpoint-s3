@@ -12,7 +12,7 @@ use futures::stream::FusedStream;
 use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
-use pin_project::{pin_project, pinned_drop};
+use pin_project::pin_project;
 use tracing::trace;
 
 use crate::object_client::{
@@ -21,8 +21,8 @@ use crate::object_client::{
 };
 
 use super::{
-    parse_checksum, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient, S3Operation,
-    S3RequestError,
+    parse_checksum, CancellingMetaRequest, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient,
+    S3Operation, S3RequestError,
 };
 
 impl S3CrtClient {
@@ -184,9 +184,9 @@ impl ClientBackpressureHandle for S3BackpressureHandle {
 /// Each item of the stream is a part of the object body together with the part's offset within the
 /// object.
 #[derive(Debug)]
-#[pin_project(PinnedDrop)]
+#[pin_project]
 pub struct S3GetObjectResponse {
-    meta_request: MetaRequest,
+    meta_request: CancellingMetaRequest,
     #[pin]
     event_receiver: UnboundedReceiver<S3GetObjectEvent>,
     requested_checksums: bool,
@@ -222,13 +222,6 @@ impl GetObjectResponse for S3GetObjectResponse {
         }
 
         parse_checksum(&self.headers).map_err(|e| ObjectChecksumError::HeadersError(Box::new(e)))
-    }
-}
-
-#[pinned_drop]
-impl PinnedDrop for S3GetObjectResponse {
-    fn drop(self: Pin<&mut Self>) {
-        self.meta_request.cancel();
     }
 }
 

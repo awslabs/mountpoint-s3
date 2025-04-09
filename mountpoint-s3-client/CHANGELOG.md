@@ -7,6 +7,9 @@
 
 ### Other changes
 
+* Fix an issue where GetObject requests may not be cancelled.
+  ([#1355](https://github.com/awslabs/mountpoint-s3/pull/1355))
+
 ## v0.13.2 (April 1, 2025)
 
 * Fix race condition in GetObject that could result in empty responses.
