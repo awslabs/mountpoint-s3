@@ -41,17 +41,33 @@ use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::{autoconfigure, metrics, S3Filesystem, S3FilesystemConfig};
 
-const CLIENT_OPTIONS_HEADER: &str = "Client options";
-const MOUNT_OPTIONS_HEADER: &str = "Mount options";
-const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
-const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
-const LOGGING_OPTIONS_HEADER: &str = "Logging options";
-const CACHING_OPTIONS_HEADER: &str = "Caching options";
-const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
+pub const CLIENT_OPTIONS_HEADER: &str = "Client options";
+pub const MOUNT_OPTIONS_HEADER: &str = "Mount options";
+pub const BUCKET_OPTIONS_HEADER: &str = "Bucket options";
+pub const AWS_CREDENTIALS_OPTIONS_HEADER: &str = "AWS credentials options";
+pub const LOGGING_OPTIONS_HEADER: &str = "Logging options";
+pub const CACHING_OPTIONS_HEADER: &str = "Caching options";
+pub const ADVANCED_OPTIONS_HEADER: &str = "Advanced options";
 
 #[derive(Parser, Debug)]
 pub struct ContextParams {
     pub full_version: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct CliArgs {
+    #[clap(flatten)]
+    pub base: CliArgsBase,
+
+    #[clap(
+        long,
+        help = "Mount file system in read-only mode",
+        help_heading = MOUNT_OPTIONS_HEADER
+    )]
+    pub read_only: bool,
+
+    #[clap(short, long, help = "Run as foreground process")]
+    pub foreground: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -61,7 +77,7 @@ pub struct ContextParams {
             .multiple(true),
     ),
 )]
-pub struct CliArgs {
+pub struct CliArgsBase {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
     pub bucket_name: String,
 
@@ -124,13 +140,6 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS_OPTIONS_HEADER)]
     pub profile: Option<String>,
-
-    #[clap(
-        long,
-        help = "Mount file system in read-only mode",
-        help_heading = MOUNT_OPTIONS_HEADER
-    )]
-    pub read_only: bool,
 
     #[clap(long, help = "Set the storage class for new objects", help_heading = BUCKET_OPTIONS_HEADER)]
     pub storage_class: Option<String>,
@@ -261,9 +270,6 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help_heading = MOUNT_OPTIONS_HEADER
     )]
     pub file_mode: Option<u16>,
-
-    #[clap(short, long, help = "Run as foreground process")]
-    pub foreground: bool,
 
     #[clap(
         long,
@@ -446,7 +452,7 @@ impl ValueEnum for UploadChecksums {
 
 impl CliArgs {
     fn addressing_style(&self) -> AddressingStyle {
-        if self.force_path_style {
+        if self.base.force_path_style {
             AddressingStyle::Path
         } else {
             AddressingStyle::Automatic
@@ -454,19 +460,19 @@ impl CliArgs {
     }
 
     fn prefix(&self) -> Prefix {
-        self.prefix.as_ref().cloned().unwrap_or_default()
+        self.base.prefix.as_ref().cloned().unwrap_or_default()
     }
 
     fn cache_block_size_in_bytes(&self) -> u64 {
         #[cfg(feature = "block_size")]
-        if let Some(kib) = self.cache_block_size {
+        if let Some(kib) = self.base.cache_block_size {
             return kib * 1024;
         }
         1024 * 1024 // 1 MiB block size - default for disk cache and for express cache
     }
 
     fn cache_express_bucket_name(&self) -> Option<&str> {
-        if let Some(bucket_name) = &self.cache_xz {
+        if let Some(bucket_name) = &self.base.cache_xz {
             return Some(bucket_name);
         }
         None
@@ -476,17 +482,17 @@ impl CliArgs {
         let express_bucket_name = self.cache_express_bucket_name()?;
         let config = ExpressDataCacheConfig {
             block_size: self.cache_block_size_in_bytes(),
-            sse: ServerSideEncryption::new(self.sse.clone(), self.sse_kms_key_id.clone()),
+            sse: ServerSideEncryption::new(self.base.sse.clone(), self.base.sse_kms_key_id.clone()),
             ..Default::default()
         };
 
-        Some((config, &self.bucket_name, express_bucket_name))
+        Some((config, &self.base.bucket_name, express_bucket_name))
     }
 
     fn disk_data_cache_config(&self) -> Option<(DiskDataCacheConfig, &Path)> {
-        match self.cache.as_ref() {
+        match self.base.cache.as_ref() {
             Some(path) => {
-                let cache_limit = match self.max_cache_size {
+                let cache_limit = match self.base.max_cache_size {
                     // Fallback to no data cache.
                     Some(0) => return None,
                     Some(max_size_in_mib) => CacheLimit::TotalSize {
@@ -509,23 +515,23 @@ impl CliArgs {
     /// This includes random string generation which can change with each invocation,
     /// so once created the [LoggingConfig] should be cloned if another owned copy is required.
     fn make_logging_config(&self) -> LoggingConfig {
-        let default_filter = if self.no_log {
+        let default_filter = if self.base.no_log {
             String::from("off")
         } else {
-            let mut filter = if self.debug {
+            let mut filter = if self.base.debug {
                 String::from("debug")
             } else {
                 String::from("warn")
             };
-            let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
+            let crt_verbosity = if self.base.debug_crt { "debug" } else { "off" };
             filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
-            if self.log_metrics {
+            if self.base.log_metrics {
                 filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
             }
             filter
         };
 
-        let log_file = self.log_directory.as_ref().map(|dir| prepare_log_file_name(dir));
+        let log_file = self.base.log_directory.as_ref().map(|dir| prepare_log_file_name(dir));
 
         LoggingConfig {
             log_file,
@@ -536,15 +542,15 @@ impl CliArgs {
 
     /// Human-readable description of the bucket being mounted
     fn bucket_description(&self) -> String {
-        if let Some(prefix) = self.prefix.as_ref() {
-            format!("prefix {} of bucket {}", prefix, self.bucket_name)
+        if let Some(prefix) = self.base.prefix.as_ref() {
+            format!("prefix {} of bucket {}", prefix, self.base.bucket_name)
         } else {
-            format!("bucket {}", self.bucket_name)
+            format!("bucket {}", self.base.bucket_name)
         }
     }
 
     fn fuse_session_config(&self) -> anyhow::Result<FuseSessionConfig> {
-        let mount_point = MountPoint::new(&self.mount_point).context("Failed to create mount point")?;
+        let mount_point = MountPoint::new(&self.base.mount_point).context("Failed to create mount point")?;
         let fs_name = String::from("mountpoint-s3");
         let mut options = vec![
             MountOption::DefaultPermissions,
@@ -554,23 +560,26 @@ impl CliArgs {
         if self.read_only {
             options.push(MountOption::RO);
         }
-        if self.auto_unmount {
+        if self.base.auto_unmount {
             options.push(MountOption::AutoUnmount);
         }
-        if self.allow_root {
+        if self.base.allow_root {
             options.push(MountOption::AllowRoot);
         }
-        if self.allow_other {
+        if self.base.allow_other {
             options.push(MountOption::AllowOther);
         }
 
         #[cfg(target_os = "linux")]
         if matches!(mount_point, MountPoint::FileDescriptor(_)) {
-            let passed_mount_options = &[(self.read_only, "--read-only"), (self.auto_unmount, "--auto-unmount")]
-                .iter()
-                .filter(|o| o.0)
-                .map(|o| o.1)
-                .collect::<Vec<_>>();
+            let passed_mount_options = &[
+                (self.read_only, "--read-only"),
+                (self.base.auto_unmount, "--auto-unmount"),
+            ]
+            .iter()
+            .filter(|o| o.0)
+            .map(|o| o.1)
+            .collect::<Vec<_>>();
 
             if !passed_mount_options.is_empty() {
                 return Err(anyhow!(
@@ -581,7 +590,7 @@ impl CliArgs {
             }
         }
 
-        let max_threads = self.max_threads as usize;
+        let max_threads = self.base.max_threads as usize;
         Ok(FuseSessionConfig {
             mount_point,
             options,
@@ -603,7 +612,7 @@ where
     let successful_mount_msg = format!(
         "{} is mounted at {}",
         args.bucket_description(),
-        args.mount_point.display()
+        args.base.mount_point.display()
     );
 
     if args.foreground {
@@ -754,11 +763,11 @@ pub fn create_s3_client(
     // Placeholder region will be filled in by [create_client_for_bucket]
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
         .addressing_style(args.addressing_style())
-        .use_accelerate(args.transfer_acceleration)
-        .use_dual_stack(args.dual_stack);
+        .use_accelerate(args.base.transfer_acceleration)
+        .use_dual_stack(args.base.dual_stack);
 
     let instance_info = InstanceInfo::new();
-    let throughput_target_gbps = args.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
+    let throughput_target_gbps = args.base.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
         match autoconfigure::network_throughput(&instance_info) {
             Ok(throughput) => throughput,
             Err(e) => {
@@ -772,9 +781,9 @@ pub fn create_s3_client(
     });
     tracing::info!("target network throughput {throughput_target_gbps} Gbps");
 
-    let auth_config = if args.no_sign_request {
+    let auth_config = if args.base.no_sign_request {
         S3ClientAuthConfig::NoSigning
-    } else if let Some(profile_name) = &args.profile {
+    } else if let Some(profile_name) = &args.base.profile {
         S3ClientAuthConfig::Profile(profile_name.to_owned())
     } else {
         S3ClientAuthConfig::Default
@@ -783,7 +792,7 @@ pub fn create_s3_client(
     // We keep this logic here until we decouple config layer from FS implementation
     // Once we do that, we can move this logic into a hosting app as it will know the full context
     // and remove the contextParams struct
-    let user_agent_prefix = if let Some(custom_prefix) = &args.user_agent_prefix {
+    let user_agent_prefix = if let Some(custom_prefix) = &args.base.user_agent_prefix {
         format!("{} mountpoint-s3/{}", custom_prefix, context_params.full_version)
     } else {
         format!("mountpoint-s3/{}", context_params.full_version)
@@ -793,7 +802,7 @@ pub fn create_s3_client(
         user_agent.value("mp-readonly");
     }
 
-    match (&args.cache, args.cache_express_bucket_name()) {
+    match (&args.base.cache, args.cache_express_bucket_name()) {
         (None, None) => (),
         (None, Some(_)) => {
             user_agent.key_value("mp-cache", "shared");
@@ -805,10 +814,10 @@ pub fn create_s3_client(
             user_agent.key_values("mp-cache", &["shared", "local"]);
         }
     }
-    if let Some(ttl) = args.metadata_ttl {
+    if let Some(ttl) = args.base.metadata_ttl {
         user_agent.key_value("mp-cache-ttl", &ttl.to_string());
     }
-    if let Some(interfaces) = &args.bind {
+    if let Some(interfaces) = &args.base.bind {
         user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
     }
 
@@ -827,18 +836,18 @@ pub fn create_s3_client(
     let mut client_config = S3ClientConfig::new()
         .auth_config(auth_config)
         .throughput_target_gbps(throughput_target_gbps)
-        .read_part_size(args.read_part_size.unwrap_or(args.part_size) as usize)
-        .write_part_size(args.write_part_size.unwrap_or(args.part_size) as usize)
+        .read_part_size(args.base.read_part_size.unwrap_or(args.base.part_size) as usize)
+        .write_part_size(args.base.write_part_size.unwrap_or(args.base.part_size) as usize)
         .read_backpressure(true)
         .initial_read_window(initial_read_window_size)
         .user_agent(user_agent);
-    if let Some(interfaces) = &args.bind {
+    if let Some(interfaces) = &args.base.bind {
         client_config = client_config.network_interface_names(interfaces.clone());
     }
-    if args.requester_pays {
+    if args.base.requester_pays {
         client_config = client_config.request_payer("requester");
     }
-    if let Some(owner) = &args.expected_bucket_owner {
+    if let Some(owner) = &args.base.expected_bucket_owner {
         client_config = client_config.bucket_owner(owner);
     }
     // Transient errors are really bad for file systems (applications don't usually expect them), so
@@ -847,17 +856,21 @@ pub fn create_s3_client(
     client_config = client_config.max_attempts(NonZeroUsize::new(10).unwrap());
 
     let client = create_client_for_bucket(
-        &args.bucket_name,
+        &args.base.bucket_name,
         &args.prefix(),
-        args.region.clone(),
-        args.endpoint_url.clone(),
+        args.base.region.clone(),
+        args.base.endpoint_url.clone(),
         endpoint_config,
         client_config,
         &instance_info,
     )
     .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
-    let s3_personality = infer_s3_personality(args.bucket_type.clone(), &args.bucket_name, client.endpoint_config());
+    let s3_personality = infer_s3_personality(
+        args.base.bucket_type.clone(),
+        &args.base.bucket_name,
+        client.endpoint_config(),
+    );
 
     Ok((client, runtime, s3_personality))
 }
@@ -888,7 +901,7 @@ where
 
     let fuse_config = args.fuse_session_config()?;
 
-    validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
+    validate_sse_args(args.base.sse.as_deref(), args.base.sse_kms_key_id.as_deref())?;
 
     let (client, runtime, s3_personality) = client_builder(&args, &context_params)?;
 
@@ -896,48 +909,49 @@ where
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
     let mut filesystem_config = S3FilesystemConfig::default();
-    if let Some(uid) = args.uid {
+    if let Some(uid) = args.base.uid {
         filesystem_config.uid = uid;
     }
-    if let Some(gid) = args.gid {
+    if let Some(gid) = args.base.gid {
         filesystem_config.gid = gid;
     }
-    if let Some(dir_mode) = args.dir_mode {
+    if let Some(dir_mode) = args.base.dir_mode {
         filesystem_config.dir_mode = dir_mode;
     }
-    if let Some(file_mode) = args.file_mode {
+    if let Some(file_mode) = args.base.file_mode {
         filesystem_config.file_mode = file_mode;
     }
-    filesystem_config.storage_class = args.storage_class.clone();
-    filesystem_config.allow_delete = args.allow_delete;
-    filesystem_config.allow_overwrite = args.allow_overwrite;
-    filesystem_config.incremental_upload = args.incremental_upload;
+    filesystem_config.storage_class = args.base.storage_class.clone();
+    filesystem_config.allow_delete = args.base.allow_delete;
+    filesystem_config.allow_overwrite = args.base.allow_overwrite;
+    filesystem_config.incremental_upload = args.base.incremental_upload;
     filesystem_config.s3_personality = s3_personality;
-    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
+    filesystem_config.server_side_encryption =
+        ServerSideEncryption::new(args.base.sse.clone(), args.base.sse_kms_key_id.clone());
 
     let sys = System::new_with_specifics(RefreshKind::everything());
     let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
     filesystem_config.mem_limit = default_mem_target.max(MINIMUM_MEM_LIMIT);
 
     #[cfg(feature = "mem_limiter")]
-    if let Some(max_mem_target) = args.max_memory_target {
+    if let Some(max_mem_target) = args.base.max_memory_target {
         filesystem_config.mem_limit = max_mem_target * 1024 * 1024;
     }
 
     // Written in this awkward way to force us to update it if we add new checksum types
-    filesystem_config.use_upload_checksums = match args.upload_checksums {
+    filesystem_config.use_upload_checksums = match args.base.upload_checksums {
         Some(UploadChecksums::Crc32c) | None => true,
         Some(UploadChecksums::Off) => false,
     };
-    if !s3_personality.supports_additional_checksums() && args.upload_checksums.is_none() {
+    if !s3_personality.supports_additional_checksums() && args.base.upload_checksums.is_none() {
         tracing::info!("disabling upload checksums because target S3 personality does not support them");
         filesystem_config.use_upload_checksums = false;
     }
 
     let prefetcher_config = Default::default();
 
-    let mut metadata_cache_ttl = args.metadata_ttl.unwrap_or_else(|| {
-        if args.cache.is_some() || args.cache_express_bucket_name().is_some() {
+    let mut metadata_cache_ttl = args.base.metadata_ttl.unwrap_or_else(|| {
+        if args.base.cache.is_some() || args.cache_express_bucket_name().is_some() {
             // When the data cache is enabled, use 1min as metadata-ttl.
             TimeToLive::Duration(Duration::from_secs(60))
         } else {
@@ -960,7 +974,7 @@ where
     }
     tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
     filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
-    if let Some(negative_cache_ttl) = args.negative_metadata_ttl {
+    if let Some(negative_cache_ttl) = args.base.negative_metadata_ttl {
         filesystem_config.cache_config = filesystem_config
             .cache_config
             .with_negative_metadata_ttl(negative_cache_ttl);
@@ -978,8 +992,8 @@ where
                 client,
                 prefetcher,
                 runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
+                &args.base.bucket_name,
+                &args.base.prefix.unwrap_or_default(),
                 filesystem_config,
             );
             create_fuse_session(fs, fuse_config, &bucket_description)
@@ -993,8 +1007,8 @@ where
                 client,
                 prefetcher,
                 runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
+                &args.base.bucket_name,
+                &args.base.prefix.unwrap_or_default(),
                 filesystem_config,
             );
             let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
@@ -1016,8 +1030,8 @@ where
                 client,
                 prefetcher,
                 runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
+                &args.base.bucket_name,
+                &args.base.prefix.unwrap_or_default(),
                 filesystem_config,
             );
             let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
@@ -1033,8 +1047,8 @@ where
                 client,
                 prefetcher,
                 runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
+                &args.base.bucket_name,
+                &args.base.prefix.unwrap_or_default(),
                 filesystem_config,
             );
             create_fuse_session(fs, fuse_config, &bucket_description)

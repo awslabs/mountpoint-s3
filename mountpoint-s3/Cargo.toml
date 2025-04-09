@@ -18,6 +18,7 @@ serde = "1.0.217"
 tracing = "0.1.41"
 serde_json = "1.0.137"
 regex = "1.11.1"
+proptest = "1.6.0"
 
 [dev-dependencies]
 mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
