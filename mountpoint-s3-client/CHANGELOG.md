@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Other changes
+* The memory limit for CRT Client can now be configured with the `S3ClientConfig::memory_limit_in_bytes` method.
+  ([#1363](https://github.com/awslabs/mountpoint-s3/pull/1363))
+
 ## v0.14.0 (April 9, 2025)
 
 ### Breaking changes

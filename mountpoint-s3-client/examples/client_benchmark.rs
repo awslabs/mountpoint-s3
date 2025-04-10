@@ -115,6 +115,13 @@ struct CliArgs {
         visible_alias = "maximum-throughput-gbps"
     )]
     throughput_target_gbps: f64,
+    #[arg(
+        long,
+        help = "CRT Memory limit in GB",
+        default_value = "0",
+        visible_alias = "memory-limit-gb"
+    )]
+    crt_memory_limit_gb: u64,
     #[arg(long, help = "Part size for multi-part GET", default_value = "8388608")]
     part_size: usize,
     #[arg(long, help = "Number of benchmark iterations", default_value = "1")]
@@ -137,6 +144,7 @@ fn main() {
         } => {
             let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&region));
             config = config.throughput_target_gbps(args.throughput_target_gbps);
+            config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
             if let Some(interfaces) = &bind {
                 config = config.network_interface_names(interfaces.clone());
             }
