@@ -302,7 +302,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
         let first_req_range = range.trim_end(first_read_window_end_offset);
-        let mut first_req_bytes_read = 0;
+        let mut current_offset = first_req_range.start();
         if !first_req_range.is_empty() {
             let first_request_stream = read_from_request(
                 backpressure_limiter,
@@ -314,7 +314,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
             pin_mut!(first_request_stream);
             while let Some(next) = first_request_stream.next().await {
                 let next = next?;
-                first_req_bytes_read += next.data.len();
+                current_offset = next.offset + next.data.len() as u64;
                 yield(next);
             }
         }
@@ -323,17 +323,17 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
         // but only if there is something left to be fetched.
         let range = range.trim_start(first_read_window_end_offset);
         if !range.is_empty() {
-            if !first_req_range.is_empty() && first_req_range.len() > first_req_bytes_read {
+            if current_offset < range.start() {
                 // We got less data than we requested. We assume the consumer will consume
-                // all the data up to `first_read_window_end_offset` and will increase the
-                // read window, thus the next line `wait_for_read_window_increment(range.start()).await?`.
-                // However, if we get less data then we expected, the consumer wouldn't consume
+                // all the data up to `range.start()` and will increase the read window,
+                // thus, the next line, `wait_for_read_window_increment(range.start())` will eventually be satisfied.
+                // However, if we get less data than we expected, the consumer wouldn't consume
                 // enough data and wouldn't increase the read window, and the next await would block forever
                 // as there is no one to increase the read window.
                 //
                 // This is an runtime error instead of an `assert!` because the prefetcher resets the
                 // prefetch to the offset again in case of an error, and that would cause a new `read_from_client_stream`
-                // to be created and which in turn would succeed in next try if this was a transient error.
+                // to be created which in turn would succeed in the next try if this was a transient issue.
                 Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)?;
             }
 
