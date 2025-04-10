@@ -1,6 +1,8 @@
 ## Unreleased (v0.3.0)
 
 * Improve safety checks when reading disk cache blocks. ([#1427](https://github.com/awslabs/mountpoint-s3/pull/1427))
+* `S3Path` now accepts s3:// formatted bucket names. If given a `bucket_name` with a prefix, the `prefix` parameter must be empty. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
+* `S3Path::new` now returns `Result<S3Path, S3PathError>` ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
 
 ## v0.2.0 (May 9, 2025)
 

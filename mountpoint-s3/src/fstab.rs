@@ -1,10 +1,8 @@
-use std::env;
-
+use crate::cli::CliArgs;
 use anyhow::anyhow;
 use clap::error::ErrorKind;
 use clap::{Command, CommandFactory, Parser};
-
-use crate::cli::CliArgs;
+use std::{env, fmt};
 
 #[derive(Parser, Debug)]
 #[clap(name = "mount-s3", disable_help_flag = true)]
@@ -77,33 +75,34 @@ impl FsTabCliArgs {
 
     fn validate_options(options: &[String]) -> Result<(), clap::Error> {
         if options.iter().any(|x| x.starts_with("-")) {
-            return Err(Command::error(
-                &mut Self::command(),
+            return Err(Self::command_error(
                 ErrorKind::InvalidValue,
                 "Cannot prefix arguments with `--` when using fstab style arguments.",
             ));
         }
         if options.iter().any(|x| x == "ro") && options.iter().any(|x| x == "rw") {
-            return Err(Command::error(
-                &mut Self::command(),
+            return Err(Self::command_error(
                 ErrorKind::ArgumentConflict,
                 "Cannot use 'ro' flag combined with 'rw' flag.",
             ));
         }
-        if let Some(disallowed_option) = options
-            .iter()
-            .find(|x| ["foreground", "read-only"].contains(&x.as_str()))
-        {
-            return Err(Command::error(
-                &mut Self::command(),
+        if options.iter().any(|x| x == "foreground") {
+            return Err(Self::command_error(
                 ErrorKind::InvalidValue,
-                format!(
-                    "Cannot use '{}' flag when using fstab style arguments.",
-                    disallowed_option
-                ),
+                "Cannot use 'foreground' flag when using fstab style arguments.",
+            ));
+        }
+        if options.iter().any(|x| x == "read-only") {
+            return Err(Self::command_error(
+                ErrorKind::InvalidValue,
+                "Cannot use 'read-only' flag when using fstab style arguments. Use 'ro' instead",
             ));
         }
         Ok(())
+    }
+
+    fn command_error(error_kind: ErrorKind, message: impl fmt::Display) -> clap::Error {
+        Command::error(&mut Self::command(), error_kind, message)
     }
 }
 
@@ -157,6 +156,8 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mountpoint_s3_fs::prefix::PrefixError;
+    use mountpoint_s3_fs::s3::config::S3PathError;
     use proptest::{prop_assert_eq, proptest};
     use proptest_derive::Arbitrary;
     use test_case::test_case;
@@ -180,26 +181,59 @@ mod tests {
         );
     }
 
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", ""].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "_netdev"].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "ro"].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "rw"].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "uid=2,gid=4,debug"].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "prefix=foo/bar\\,baz/"].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "--uid=2"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "ro,rw"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "foreground"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "read-only"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "typo"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "\\"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "\\a"].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "cache=\\\"foo\\\""].to_vec(), true)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "cache=\""].to_vec(), false)]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "-f"].to_vec(), false)]
-    fn test_fstab_cli_args_parses(args: Vec<&str>, should_parse: bool) {
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", ""].to_vec(),                      true,  Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "_netdev"].to_vec(),               true,  Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "ro"].to_vec(),                    true,  Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "rw"].to_vec(),                    true,  Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "uid=2,gid=4,debug"].to_vec(),     true,  Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "prefix=foo/bar\\,baz/"].to_vec(), true,  Ok("foo/bar,baz/".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "--uid=2"].to_vec(),               false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "ro,rw"].to_vec(),                 false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "foreground"].to_vec(),            false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "read-only"].to_vec(),             false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "typo"].to_vec(),                  false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "\\"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "\\a"].to_vec(),                   false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "cache=\\\"foo\\\""].to_vec(),     true,  Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "cache=\""].to_vec(),              false, Ok("".to_string()))]
+    #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "-f"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "##############",                                                "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::InvalidBucketName)))]
+    #[test_case(["_", "s3://demo_s3_bucket/prefix/",                                   "/mnt/test", "-o", "ro"].to_vec(),                    true,  Ok("prefix/".to_string()))]
+    #[test_case(["_", "s3://demo_s3_bucket/",                                          "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err(Err("explicit prefix option not allowed with S3 URI".to_string())))]
+    #[test_case(["_", "s3://demo_s3_bucket2",                                          "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err(Err("explicit prefix option not allowed with S3 URI".to_string())))]
+    #[test_case(["_", "s3://demo_s3_bucket/prefix",                                    "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
+    #[test_case(["_", "s3://demo_s3_bucket/prefix/",                                   "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err(Err("explicit prefix option not allowed with S3 URI".to_string())))]
+    #[test_case(["_", "s3://arn:aws:s3:::demo_s3_bucket",                              "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::InvalidBucketNameS3URI)))]
+    #[test_case(["_", "s3://arn:aws:s3:::demo_s3_bucket/prefix",                       "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
+    #[test_case(["_", "s3://arn:aws:s3:region:account-id:accesspoint/my-access-point", "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
+    #[test_case(["_", "s3://arn:aws:s3::123456789012:accesspoint/mfzwi23gnjvgw.mrap",  "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
+    #[test_case(["_", "s3://sm",                                                       "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::InvalidBucketLength)))]
+    fn test_fstab_cli_args_parses(
+        args: Vec<&str>,
+        should_parse: bool,
+        expected_prefix: Result<String, Result<S3PathError, String>>,
+    ) {
         let res: Result<CliArgs, clap::Error> =
             FsTabCliArgs::try_parse_from(&args).and_then(|fstab_cli_args| fstab_cli_args.try_into());
         assert_eq!(res.is_ok(), should_parse, "args={:?}\n res={:?}", args, res);
+
+        if let Ok(cli_args) = res {
+            match expected_prefix {
+                Ok(prefix) => {
+                    let s3_path = cli_args.s3_path().unwrap();
+                    assert_eq!(s3_path.bucket_name, "demo_s3_bucket");
+                    assert_eq!(s3_path.prefix.as_str(), prefix.as_str());
+                }
+                Err(expected_err) => {
+                    let actual_err: Result<S3PathError, String> = cli_args
+                        .s3_path()
+                        .expect_err("should get error getting s3 path")
+                        .downcast()
+                        .map_err(|e| e.root_cause().to_string());
+                    assert_eq!(expected_err, actual_err)
+                }
+            }
+        }
     }
 
     #[test]
@@ -214,14 +248,31 @@ mod tests {
         .to_vec();
         let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
         let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
+        let s3_path = cli_args.s3_path().unwrap();
 
         assert!(!cli_args.foreground);
         assert_eq!(cli_args.mount_point.to_str(), Some("/mnt/test"));
-        assert_eq!(cli_args.bucket_name, "demo_s3_bucket");
-        assert_eq!(cli_args.prefix.unwrap().as_str(), "foo/bar,baz/");
+        assert_eq!(s3_path.bucket_name, "demo_s3_bucket");
+        assert_eq!(s3_path.prefix.as_str(), "foo/bar,baz/");
         assert_eq!(cli_args.uid, Some(2));
         assert_eq!(cli_args.gid, None);
         assert!(cli_args.read_only);
+    }
+
+    #[test]
+    fn test_fstab_cli_args_fails_multiple_prefixes() {
+        let args = ["_", "s3://demo_s3_bucket/prefix/", "/mnt/test", "-o", "prefix=foo/"].to_vec();
+        let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
+        let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
+
+        let err = cli_args
+            .s3_path()
+            .expect_err("CliArgs should not produce a valid s3 path");
+        assert!(
+            format!("{:#}", err).contains("explicit prefix option not allowed with S3 URI"),
+            "{:#}",
+            err
+        )
     }
 
     proptest! {
@@ -279,7 +330,7 @@ mod tests {
     impl From<CliArgs> for FstabCompatibleCliArgs {
         fn from(cli: CliArgs) -> Self {
             FstabCompatibleCliArgs {
-                bucket_name: cli.bucket_name,
+                bucket_name: cli.s3_path().unwrap().bucket_name,
                 mount_point: cli.mount_point.to_string_lossy().into_owned(),
                 uid: cli.uid.unwrap_or_default(),
                 allow_delete: cli.allow_delete,

@@ -127,7 +127,13 @@ Mountpoint for Amazon S3 also supports [access points](#access-points) and [obje
 
 You can use Mountpoint to access only a prefix of your S3 bucket rather than the entire bucket. This allows you to isolate multiple users, applications, or workloads from each other within a single bucket. Use the `--prefix` command-line argument to specify a prefix of your S3 bucket, which must end with the `/` character. With this argument, only objects in your bucket that begin with the given prefix will be visible with Mountpoint.
 
-When constructing the directory structure for your mount, Mountpoint removes the prefix you specify with `--prefix` from object keys. For example, if your bucket has a key `2023/Files/data.json`, and you specify the `--prefix 2023/` command-line argument, the mounted directory will contain a single sub-directory `Files` with a file `data.json` inside it. If you specify the `--prefix 2023/Files/` command-line argument, the mounted directory will contain only a file `data.json` at its root.
+Alternatively, you can mount using an S3 URI including a prefix. Note that using an S3 URI prevents usage of ARNs to identify the bucket name.
+
+```
+mount-s3 s3://amzn-s3-demo-bucket/my/prefix/here/ /path/to/mount
+```
+
+When constructing the directory structure for your mount, Mountpoint removes any prefix you specify from object keys. For example, if your bucket has a key `2023/Files/data.json`, and you specify the `--prefix 2023/` command-line argument, the mounted directory will contain a single sub-directory `Files` with a file `data.json` inside it. If you specify the `--prefix 2023/Files/` command-line argument, the mounted directory will contain only a file `data.json` at its root.
 
 ### Region detection
 

@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum PrefixError {
     #[error("prefix must end in '/'")]
     MissingFinalDelimiter,
@@ -24,6 +24,10 @@ impl Prefix {
                 path: prefix.to_owned(),
             })
         }
+    }
+
+    pub fn empty() -> Self {
+        Self::new("").unwrap()
     }
 
     pub fn as_str(&self) -> &str {
