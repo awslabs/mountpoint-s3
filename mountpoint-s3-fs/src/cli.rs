@@ -1094,7 +1094,7 @@ fn parse_bucket_name(bucket_name: &str) -> anyhow::Result<String> {
     // A simple check for AWS ARN
     if !bucket_regex.is_match(bucket_name) && !bucket_name.starts_with("arn:") {
         return Err(anyhow!(
-            "bucket argument should be a valid bucket name(only letters, numbers, . and -) or a valid ARN"
+            "bucket argument should be a valid bucket name (only letters, numbers, . and -) or a valid ARN"
         ));
     }
 
