@@ -1,5 +1,9 @@
 ## Unreleased
 
+### New features
+
+* Allow passing in s3:// URIs as the first argument to Mountpoint. The `--prefix` option is not allowed if a prefix is passed in as part of the S3 URI.
+
 ## v1.17.0 (May 12, 2025)
 
 ### New features

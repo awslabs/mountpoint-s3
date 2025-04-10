@@ -11,7 +11,7 @@ echo "Mountpoint path: $MOUNTPOINT_PATH"
 
 FSTAB_CONTENT="
 ${MOUNTPOINT_PATH}#${S3_BUCKET_NAME} /mnt/mountpoint_ro fuse allow-other,_netdev,nosuid,nodev,prefix=${S3_BUCKET_TEST_PREFIX},ro 0 0
-${MOUNTPOINT_PATH}#${S3_BUCKET_NAME} /mnt/mountpoint_rw fuse allow-other,_netdev,nosuid,nodev,prefix=${S3_BUCKET_TEST_PREFIX},rw 0 0
+${MOUNTPOINT_PATH}#s3://${S3_BUCKET_NAME}/${S3_BUCKET_TEST_PREFIX} /mnt/mountpoint_rw fuse allow-other,_netdev,nosuid,nodev,rw 0 0
 "
 
 spawn_mounts "$FSTAB_CONTENT"

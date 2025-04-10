@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum PrefixError {
     #[error("prefix must end in '/'")]
     MissingFinalDelimiter,
