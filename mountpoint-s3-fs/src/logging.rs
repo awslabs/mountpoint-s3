@@ -14,10 +14,9 @@ use time::format_description::FormatItem;
 use time::macros;
 use time::OffsetDateTime;
 use tracing::Span;
-use tracing_subscriber::filter::{EnvFilter, Filtered, LevelFilter};
+use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{Layer, Registry};
 
 mod syslog;
 use self::syslog::SyslogLayer;
@@ -102,14 +101,10 @@ fn install_panic_hook() {
 }
 
 fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
-    /// Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
-    /// if that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
-    /// need a copy of the filter for each [Layer].
-    fn create_env_filter(filter: &str) -> EnvFilter {
-        EnvFilter::try_from_env("MOUNTPOINT_LOG").unwrap_or_else(|_| EnvFilter::new(filter))
-    }
-
-    let env_filter = create_env_filter(&config.default_filter);
+    // Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
+    // if that variable is unset.
+    let env_filter =
+        EnvFilter::try_from_env("MOUNTPOINT_LOG").unwrap_or_else(|_| EnvFilter::new(&config.default_filter));
     // Don't create the files or subscribers if we'll never emit any logs
     if env_filter.max_level_hint() == Some(LevelFilter::OFF) {
         return Ok(());
@@ -129,41 +124,32 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         }
         let file = file_options.open(log_file_path).context("failed to create log file")?;
 
-        let file_layer = tracing_subscriber::fmt::layer()
-            .with_ansi(false)
-            .with_writer(file)
-            .with_filter(env_filter);
+        let file_layer = tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file);
         Some(file_layer)
     } else {
         None
     };
 
-    let syslog_layer: Option<Filtered<_, _, Registry>> = if config.log_file.is_none() {
-        // TODO decide how to configure the filter for syslog
-        let env_filter = create_env_filter(&config.default_filter);
+    let syslog_layer: Option<SyslogLayer> = if config.log_file.is_none() {
         // Don't fail if syslog isn't available on the system, since it's a default
-        let syslog_layer = SyslogLayer::new().ok();
-        syslog_layer.map(|l| l.with_filter(env_filter))
+        SyslogLayer::new().ok()
     } else {
         None
     };
 
     let console_layer = if config.log_to_stdout {
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
-            .with_filter(create_env_filter(&config.default_filter));
-        Some(fmt_layer)
+        Some(tracing_subscriber::fmt::layer().with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some()))
     } else {
         None
     };
 
-    let registry = tracing_subscriber::registry()
+    tracing_subscriber::registry()
+        .with(env_filter)
         .with(syslog_layer)
         .with(file_layer)
         .with(console_layer)
-        .with(metrics_tracing_span_layer());
-
-    registry.init();
+        .with(metrics_tracing_span_layer())
+        .init();
 
     Ok(())
 }
