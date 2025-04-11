@@ -23,7 +23,7 @@
 //! let client = S3CrtClient::new(Default::default()).expect("client construction failed");
 //!
 //! let response = client.get_object("my-bucket", "my-key", &GetObjectParams::new()).await.expect("get_object failed");
-//! let body = response.map_ok(|(offset, body)| body.to_vec()).try_concat().await.expect("body streaming failed");
+//! let body = response.map_ok(|part| part.data.to_vec()).try_concat().await.expect("body streaming failed");
 //! # }
 //! ```
 //!

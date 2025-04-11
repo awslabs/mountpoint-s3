@@ -1,11 +1,8 @@
 use async_stream::try_stream;
-use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::{
-    types::{ClientBackpressureHandle, GetObjectParams, GetObjectResponse},
-    ObjectClient,
-};
+use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
+use mountpoint_s3_client::ObjectClient;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
@@ -178,7 +175,7 @@ where
     }
 }
 
-pub type RequestReaderOutput<E> = Result<(u64, Box<[u8]>), PrefetchReadError<E>>;
+pub type RequestReaderOutput<E> = Result<GetBodyPart, PrefetchReadError<E>>;
 
 impl<Runtime> ObjectPartStream for ClientPartStream<Runtime>
 where
@@ -266,10 +263,9 @@ where
     ) -> Result<(), PrefetchReadError<E>> {
         pin_mut!(request_stream);
         while let Some(next) = request_stream.next().await {
-            let (offset, body) = next?;
+            let GetBodyPart { offset, data: mut body } = next?;
             // pre-split the body into multiple parts as suggested by preferred part size
             // in order to avoid validating checksum on large parts at read.
-            let mut body: Bytes = body.into();
             let mut curr_offset = offset;
             let alignment = self.preferred_part_size;
             while !body.is_empty() {
@@ -375,16 +371,17 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
 
         pin_mut!(request);
         while let Some(next) = request.next().await {
-            let (offset, body) = next
+            let part = next
                 .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
                 .map_err(PrefetchReadError::GetRequestFailed)?;
 
-            let length = body.len() as u64;
-            trace!(offset, length, "received GetObject part");
-            metrics::counter!("s3.client.total_bytes", "type" => "read").increment(body.len() as u64);
-            yield(offset, body);
+            let length = part.data.len() as u64;
+            trace!(offset=part.offset, length, "received GetObject part");
+            metrics::counter!("s3.client.total_bytes", "type" => "read").increment(length);
 
-            let next_offset = offset + length;
+            let next_offset = part.offset + length;
+            yield part;
+
             // We are reaching the end so don't have to wait for more read window
             if next_offset == request_range.end {
                 break;

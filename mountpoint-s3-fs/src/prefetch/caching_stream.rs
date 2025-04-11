@@ -1,9 +1,9 @@
 use std::time::Instant;
 use std::{ops::Range, sync::Arc};
 
-use bytes::Bytes;
 use futures::task::{Spawn, SpawnExt};
 use futures::{pin_mut, Stream, StreamExt};
+use mountpoint_s3_client::types::GetBodyPart;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, warn, Instrument};
 
@@ -289,7 +289,7 @@ where
                 buffer.len() < block_size as usize,
                 "buffer should be flushed when we get a full block"
             );
-            let (offset, body) = next?;
+            let GetBodyPart { offset, data: mut body } = next?;
             let expected_offset = self.block_offset + buffer.len() as u64;
             if offset != expected_offset {
                 warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
@@ -300,7 +300,6 @@ where
             }
 
             // Split the body into blocks.
-            let mut body: Bytes = body.into();
             let mut offset = offset;
             while !body.is_empty() {
                 let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());

@@ -11,7 +11,8 @@ use futures::{pin_mut, StreamExt};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
-    ChecksumMode, ClientBackpressureHandle, GetObjectParams, GetObjectResponse, PutObjectSingleParams, UploadChecksum,
+    ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse, PutObjectSingleParams,
+    UploadChecksum,
 };
 use mountpoint_s3_client::ObjectClient;
 use sha2::{Digest, Sha256};
@@ -186,13 +187,13 @@ where
         pin_mut!(result);
         while let Some(chunk) = result.next().await {
             match chunk {
-                Ok((offset, body)) => {
+                Ok(GetBodyPart { offset, data: body }) => {
                     if offset != buffer.len() as u64 {
                         return Err(DataCacheError::InvalidBlockOffset);
                     }
 
                     buffer = if buffer.is_empty() {
-                        Bytes::from(body)
+                        body
                     } else {
                         // Unlikely: we expect `get_object` to return a single chunk.
                         let mut buffer = BytesMut::from(buffer);

@@ -21,6 +21,8 @@ def validate(args: argparse.Namespace) -> str:
         image = "public.ecr.aws/amazonlinux/amazonlinux:2"
     elif package == "rpm-suse":
         image = "registry.suse.com/bci/bci-base:15.6"
+    elif package == "rpm-centos8":
+        image = "public.ecr.aws/docker/library/centos:8"
     else:
         raise Exception(
             f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-suse"
@@ -49,6 +51,7 @@ def validate(args: argparse.Namespace) -> str:
             f"--env=ARCH={args.arch}",
             f"--env=VERSION={args.version}",
             f"--env=BUCKET={args.bucket}",
+            f"--env=PKG_SUFFIX={args.pkg_suffix}",
             image,
             "/bin/bash",
             f"/scripts/{validate_script}",
@@ -61,8 +64,9 @@ if __name__ == "__main__":
     p.add_argument("--version", help="the version number for the Mountpoint release", required=True)
     p.add_argument("--arch", help="the architecture to validate", required=True, choices=["x86_64", "arm64"])
     p.add_argument("--artifact", help="the artifact to validate", required=True, choices=["deb", "rpm", "gzip"])
-    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2", "suse"])
+    p.add_argument("--os", help="the OS to validate on", required=True, choices=["ubuntu", "al2", "suse", "centos8"])
     p.add_argument("--bucket", help="the public bucket to mount", required=True)
+    p.add_argument("--pkg-suffix", help="the suffix to add to the package name")
 
     args = p.parse_args()
 

@@ -1,5 +1,30 @@
 ## Unreleased
 
+### Other changes
+* The memory limit for CRT Client can now be configured with the `S3ClientConfig::memory_limit_in_bytes` method.
+  ([#1363](https://github.com/awslabs/mountpoint-s3/pull/1363))
+
+## v0.14.0 (April 9, 2025)
+
+### Breaking changes
+
+* `GetObjectResponse` returns part content as `Bytes` rather than `Box<[u8]>`.
+  ([#1348](https://github.com/awslabs/mountpoint-s3/pull/1348))
+
+## v0.13.3 (April 9, 2025)
+
+* Fix an issue where GetObject requests may not be cancelled.
+  ([#1355](https://github.com/awslabs/mountpoint-s3/pull/1355))
+
+## v0.13.2 (April 1, 2025)
+
+* Fix race condition in GetObject that could result in empty responses.
+  ([#1334](https://github.com/awslabs/mountpoint-s3/pull/1334))
+* Update endpoints.
+  ([awslabs/aws-c-s3#502](https://github.com/awslabs/aws-c-s3/pull/502))
+* Bump Default Memory Limit for Higher Target Throughput.
+  ([awslabs/aws-c-s3#499](https://github.com/awslabs/aws-c-s3/pull/499))
+
 ## v0.13.1 (March 14, 2025)
 
 * Update to latest CRT dependencies.

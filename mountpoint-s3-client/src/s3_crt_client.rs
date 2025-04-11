@@ -2,8 +2,8 @@ use std::cmp;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::num::NonZeroUsize;
-use std::ops::Deref;
 use std::ops::Range;
+use std::ops::{Deref, DerefMut};
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -34,7 +34,7 @@ use mountpoint_s3_crt::s3::client::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use pin_project::{pin_project, pinned_drop};
+use pin_project::pin_project;
 use thiserror::Error;
 use tracing::{debug, error, trace, Span};
 
@@ -92,6 +92,7 @@ macro_rules! event {
 pub struct S3ClientConfig {
     auth_config: S3ClientAuthConfig,
     throughput_target_gbps: f64,
+    memory_limit_in_bytes: u64,
     read_part_size: usize,
     write_part_size: usize,
     endpoint_config: EndpointConfig,
@@ -112,6 +113,7 @@ impl Default for S3ClientConfig {
         Self {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
+            memory_limit_in_bytes: 0,
             read_part_size: DEFAULT_PART_SIZE,
             write_part_size: DEFAULT_PART_SIZE,
             endpoint_config: EndpointConfig::new("us-east-1"),
@@ -166,6 +168,13 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn throughput_target_gbps(mut self, throughput_target_gbps: f64) -> Self {
         self.throughput_target_gbps = throughput_target_gbps;
+        self
+    }
+
+    /// Set the memory limit in bytes for the S3 client
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn memory_limit_in_bytes(mut self, memory_limit_in_bytes: u64) -> Self {
+        self.memory_limit_in_bytes = memory_limit_in_bytes;
         self
     }
 
@@ -404,6 +413,7 @@ impl S3CrtClientInner {
             .retry_strategy(retry_strategy);
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
+        client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);
 
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
         let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
@@ -509,61 +519,23 @@ impl S3CrtClientInner {
         })
     }
 
-    fn new_meta_request_options(message: S3Message, operation: S3Operation) -> MetaRequestOptions {
-        let mut options = MetaRequestOptions::new();
-        if let Some(checksum_config) = message.checksum_config {
-            options.checksum_config(checksum_config);
-        }
-        if let Some(signing_config) = message.signing_config {
-            options.signing_config(signing_config);
-        }
-        options
-            .message(message.inner)
-            .endpoint(message.uri)
-            .request_type(operation.meta_request_type());
-        if let Some(operation_name) = operation.operation_name() {
-            options.operation_name(operation_name);
-        }
-        options
-    }
-
-    /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
+    /// Make a meta-request using this S3 client that invokes the given callbacks as the request
     /// makes progress.
     ///
-    /// The `on_finish` callback is invoked on both successful and failed requests; it should call
-    /// `.is_err()` on the [MetaRequestResult] to decide whether the underlying meta request
-    /// succeeded. This callback should return `Err(None)` if it considers the request to have
-    /// failed but doesn't have a request-specific failure reason. The client will apply some
-    /// generic error parsing in this case (e.g. for permissions errors).
-    fn make_meta_request<T: Send + 'static, E: std::error::Error + Send + 'static>(
-        &self,
-        message: S3Message,
-        operation: S3Operation,
-        request_span: Span,
-        on_headers: impl FnMut(&Headers, i32) + Send + 'static,
-        on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
-            + Send
-            + 'static,
-    ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
-        let options = Self::new_meta_request_options(message, operation);
-        self.make_meta_request_from_options(options, request_span, |_| {}, on_headers, on_body, on_finish)
-    }
-    /// Make an HTTP request using this S3 client that invokes the given callbacks as the request
-    /// makes progress. See [make_meta_request] for arguments.
-    fn make_meta_request_from_options<T: Send + 'static, E: std::error::Error + Send + 'static>(
+    /// The `parse_meta_request_error` callback is invoked on failed requests. It should return `None`
+    /// if it doesn't have a request-specific failure reason. The client will apply some generic error
+    /// parsing in this case (e.g. for permissions errors).
+    #[allow(clippy::too_many_arguments)]
+    fn meta_request_with_callbacks<E: std::error::Error + Send + 'static>(
         &self,
         mut options: MetaRequestOptions,
         request_span: Span,
         on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
         mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
-        on_meta_request_finish: impl FnOnce(&MetaRequestResult) -> Result<T, Option<ObjectClientError<E, S3RequestError>>>
-            + Send
-            + 'static,
-    ) -> Result<S3HttpRequest<T, E>, S3RequestError> {
-        let (tx, rx) = oneshot::channel::<ObjectClientResult<T, E, S3RequestError>>();
-
+        parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
+        on_meta_request_result: impl FnOnce(ObjectClientResult<(), E, S3RequestError>) + Send + 'static,
+    ) -> Result<CancellingMetaRequest, S3RequestError> {
         let span_telemetry = request_span.clone();
         let span_body = request_span.clone();
         let span_finish = request_span;
@@ -669,17 +641,16 @@ impl S3CrtClientInner {
                     tracing::Level::WARN
                 };
 
-                // The `on_finish` callback has a choice of whether to give us an error or not. If
-                // not, fall back to generic error parsing (e.g. for permissions errors), or just no
-                // error if that fails too.
-                let result = on_meta_request_finish(&request_result);
-                let result = result.map_err(|e| e.or_else(|| try_parse_generic_error(&request_result).map(ObjectClientError::ClientError)));
-                let result = match result {
-                    Ok(t) => {
+                let result =
+                    if !request_result.is_err() {
                         event!(log_level, ?duration, "meta request finished");
-                        Ok(t)
-                    }
-                    Err(maybe_err) => {
+                        Ok(())
+                    } else {
+                        // The `parse_meta_request_error` callback has a choice of whether to give us an error or not.
+                        // If not, fall back to generic error parsing (e.g. for permissions errors), or just no error if that fails too.
+                        let error = parse_meta_request_error(&request_result).map(ObjectClientError::ServiceError);
+                        let maybe_err = error.or_else(|| try_parse_generic_error(&request_result).map(ObjectClientError::ClientError));
+
                         // Try to parse request header out of the failure. We can't just use the
                         // telemetry callback because there might be multiple requests per meta
                         // request, but these headers are known to be from the failed request.
@@ -715,72 +686,129 @@ impl S3CrtClientInner {
 
                         // Fill in a generic error if we weren't able to parse one
                         Err(maybe_err.unwrap_or_else(|| ObjectClientError::ClientError(S3RequestError::ResponseError(request_result))))
-                    }
-                };
+                    };
 
-                let _ = tx.send(result);
+                on_meta_request_result(result);
             });
 
         // Issue the HTTP request using the CRT's S3 meta request API
         let meta_request = self.s3_client.make_meta_request(options)?;
         Self::poll_client_metrics(&self.s3_client);
-
-        Ok(S3HttpRequest {
-            receiver: rx.fuse(),
-            meta_request,
-        })
+        Ok(CancellingMetaRequest::wrap(meta_request))
     }
 
-    /// Make an HTTP request using this S3 client that returns the body on success or invokes the
-    /// given callback to generate an error on failure.
+    /// Make a meta-request using this S3 client that returns the response body on success or
+    /// invokes the given callback on failure.
     ///
-    /// The `on_error` callback can assume that `result.is_err()` is true for the result it
-    /// receives. It can return `None` if it considers the request to have failed but doesn't
-    /// have a request-specific failure reason; the client will apply some generic error parsing in
-    /// this case (e.g. for permissions errors).
-    fn make_simple_http_request<E: std::error::Error + Send + 'static>(
-        &self,
-        message: S3Message,
-        operation: S3Operation,
-        request_span: Span,
-        on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
-    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
-        let options = Self::new_meta_request_options(message, operation);
-        self.make_simple_http_request_from_options(options, request_span, |_| {}, on_error, |_, _| ())
-    }
-
-    /// Make an HTTP request using this S3 client that returns the body on success or invokes the
-    /// given callback on failure. See [make_simple_http_request] for arguments.
-    fn make_simple_http_request_from_options<E: std::error::Error + Send + 'static>(
+    /// The `parse_meta_request_error` callback is invoked on failed requests. It should return `None`
+    /// if it doesn't have a request-specific failure reason. The client will apply some generic error
+    /// parsing in this case (e.g. for permissions errors).
+    fn meta_request_with_body_payload<E: std::error::Error + Send + 'static>(
         &self,
         options: MetaRequestOptions,
         request_span: Span,
-        on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
-        on_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
-        on_headers: impl FnMut(&Headers, i32) + Send + 'static,
-    ) -> Result<S3HttpRequest<Vec<u8>, E>, S3RequestError> {
+        parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
+    ) -> Result<S3MetaRequest<Vec<u8>, E>, S3RequestError> {
+        let (tx, rx) = oneshot::channel::<ObjectClientResult<Vec<u8>, E, S3RequestError>>();
+
         // Accumulate the body of the response into this Vec<u8>
         let body: Arc<Mutex<Vec<u8>>> = Default::default();
         let body_clone = Arc::clone(&body);
 
-        self.make_meta_request_from_options(
+        let meta_request = self.meta_request_with_callbacks(
             options,
             request_span,
-            on_request_finish,
-            on_headers,
+            |_| {},
+            |_, _| {},
             move |offset, data| {
                 let mut body = body_clone.lock().unwrap();
                 assert_eq!(offset as usize, body.len());
                 body.extend_from_slice(data);
             },
-            move |result| {
-                if result.is_err() {
-                    Err(on_error(result).map(ObjectClientError::ServiceError))
-                } else {
-                    Ok(std::mem::take(&mut *body.lock().unwrap()))
+            parse_meta_request_error,
+            move |result| _ = tx.send(result.map(|_| std::mem::take(&mut *body.lock().unwrap()))),
+        )?;
+        Ok(S3MetaRequest {
+            receiver: rx.fuse(),
+            meta_request,
+        })
+    }
+
+    /// Make a meta-request using this S3 client that returns the response headers on success or
+    /// invokes the given callback on failure.
+    ///
+    /// The `parse_meta_request_error` callback is invoked on failed requests. It should return `None`
+    /// if it doesn't have a request-specific failure reason. The client will apply some generic error
+    /// parsing in this case (e.g. for permissions errors).
+    fn meta_request_with_headers_payload<E: std::error::Error + Send + 'static>(
+        &self,
+        options: MetaRequestOptions,
+        request_span: Span,
+        parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
+    ) -> Result<S3MetaRequest<Headers, E>, S3RequestError> {
+        let (tx, rx) = oneshot::channel::<ObjectClientResult<Headers, E, S3RequestError>>();
+
+        // On success, stash the headers in this lock during the on_headers callback,
+        // and pull them out during the on_meta_request_result callback.
+        let on_headers: Arc<Mutex<Option<Headers>>> = Default::default();
+        let on_result = on_headers.clone();
+
+        let meta_request = self.meta_request_with_callbacks(
+            options,
+            request_span,
+            |_| {},
+            move |headers, status| {
+                // Only store headers if we have a 2xx status code. If we only get other status codes,
+                // then on_meta_request_result will send an error.
+                if (200..300).contains(&status) {
+                    *on_headers.lock().unwrap() = Some(headers.clone());
                 }
             },
-        )
+            |_, _| {},
+            parse_meta_request_error,
+            move |result| {
+                // Return the headers on success, otherwise propagate the error.
+                let headers =
+                    result.and_then(|_| {
+                        on_result.lock().unwrap().take().ok_or_else(|| {
+                            S3RequestError::internal_failure(ResponseHeadersError::MissingHeaders).into()
+                        })
+                    });
+                _ = tx.send(headers);
+            },
+        )?;
+        Ok(S3MetaRequest {
+            receiver: rx.fuse(),
+            meta_request,
+        })
+    }
+
+    /// Make a meta-request using this S3 client that invokes the given callback on failure.
+    ///
+    /// The `parse_meta_request_error` callback is invoked on failed requests. It should return `None`
+    /// if it doesn't have a request-specific failure reason. The client will apply some generic error
+    /// parsing in this case (e.g. for permissions errors).
+    fn meta_request_without_payload<E: std::error::Error + Send + 'static>(
+        &self,
+        options: MetaRequestOptions,
+        request_span: Span,
+        parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
+    ) -> Result<S3MetaRequest<(), E>, S3RequestError> {
+        let (tx, rx) = oneshot::channel::<ObjectClientResult<(), E, S3RequestError>>();
+
+        let meta_request = self.meta_request_with_callbacks(
+            options,
+            request_span,
+            |_| {},
+            |_, _| {},
+            |_, _| {},
+            parse_meta_request_error,
+            move |result| _ = tx.send(result),
+        )?;
+        Ok(S3MetaRequest {
+            receiver: rx.fuse(),
+            meta_request,
+        })
     }
 
     fn poll_client_metrics(s3_client: &Client) {
@@ -817,6 +845,13 @@ impl S3CrtClientInner {
     fn next_request_counter(&self) -> u64 {
         self.next_request_counter.fetch_add(1, Ordering::SeqCst)
     }
+}
+
+/// Failure retrieving headers
+#[derive(Debug, Error)]
+enum ResponseHeadersError {
+    #[error("response headers are missing")]
+    MissingHeaders,
 }
 
 /// S3 operation supported by this client.
@@ -973,42 +1008,84 @@ impl<'a> S3Message<'a> {
         };
         self.inner.set_header(&header)
     }
+
+    fn into_options(self, operation: S3Operation) -> MetaRequestOptions<'a> {
+        let mut options = MetaRequestOptions::new();
+        if let Some(checksum_config) = self.checksum_config {
+            options.checksum_config(checksum_config);
+        }
+        if let Some(signing_config) = self.signing_config {
+            options.signing_config(signing_config);
+        }
+        options
+            .message(self.inner)
+            .endpoint(self.uri)
+            .request_type(operation.meta_request_type());
+        if let Some(operation_name) = operation.operation_name() {
+            options.operation_name(operation_name);
+        }
+        options
+    }
 }
 
 #[derive(Debug)]
-#[pin_project(PinnedDrop)]
-struct S3HttpRequest<T, E> {
-    /// Receiver for the result of the `on_finish` callback.
+#[pin_project]
+#[must_use]
+struct S3MetaRequest<T, E> {
+    /// Receiver for the result of meta-request.
     #[pin]
     receiver: Fuse<oneshot::Receiver<ObjectClientResult<T, E, S3RequestError>>>,
-    meta_request: MetaRequest,
+    meta_request: CancellingMetaRequest,
 }
 
-impl<T: Send, E: Send> Future for S3HttpRequest<T, E> {
+impl<T: Send, E: Send> Future for S3MetaRequest<T, E> {
     type Output = ObjectClientResult<T, E, S3RequestError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        this.receiver.poll(cx).map(|result| {
-            result.unwrap_or_else(|err| {
-                Err(ObjectClientError::ClientError(S3RequestError::InternalError(Box::new(
-                    err,
-                ))))
-            })
-        })
+        this.receiver
+            .poll(cx)
+            .map(|result| result.unwrap_or_else(|err| Err(S3RequestError::internal_failure(err).into())))
     }
 }
 
-#[pinned_drop]
-impl<T, E> PinnedDrop for S3HttpRequest<T, E> {
-    fn drop(self: Pin<&mut Self>) {
-        self.meta_request.cancel();
-    }
-}
-
-impl<T: Send, E: Send> FusedFuture for S3HttpRequest<T, E> {
+impl<T: Send, E: Send> FusedFuture for S3MetaRequest<T, E> {
     fn is_terminated(&self) -> bool {
         self.receiver.is_terminated()
+    }
+}
+
+/// Wrapper for a [MetaRequest] that cancels it on drop.
+///
+/// Note that if the request has already completed, cancelling it has no effect.
+#[derive(Debug)]
+struct CancellingMetaRequest {
+    inner: MetaRequest,
+}
+
+impl CancellingMetaRequest {
+    fn wrap(meta_request: MetaRequest) -> Self {
+        Self { inner: meta_request }
+    }
+}
+
+impl Drop for CancellingMetaRequest {
+    fn drop(&mut self) {
+        self.inner.cancel();
+    }
+}
+
+impl Deref for CancellingMetaRequest {
+    type Target = MetaRequest;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for CancellingMetaRequest {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 

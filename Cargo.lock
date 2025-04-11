@@ -2753,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3"
-version = "1.15.1"
+version = "1.16.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2783,7 +2783,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-client"
-version = "0.13.1"
+version = "0.14.1"
 dependencies = [
  "async-io",
  "async-lock",
@@ -2826,7 +2826,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
@@ -2860,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-fs"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4384,9 +4384,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.44.0"
+version = "1.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9975ea0f48b5aa3972bf2d888c238182458437cc2a19374b81b25cdf1023fb3a"
+checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
 dependencies = [
  "backtrace",
  "bytes",

@@ -10,7 +10,7 @@ use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
-use mountpoint_s3_client::types::{ClientBackpressureHandle, GetObjectResponse};
+use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectResponse};
 use mountpoint_s3_client::{OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
@@ -210,7 +210,7 @@ pub async fn get_mpu_count_for_key(
 
 /// Check the result of a GET against expected bytes.
 pub async fn check_get_result<E: std::fmt::Debug>(
-    result: impl Stream<Item = Result<(u64, Box<[u8]>), E>>,
+    result: impl Stream<Item = Result<GetBodyPart, E>>,
     range: Option<Range<u64>>,
     expected: &[u8],
 ) {
@@ -218,7 +218,7 @@ pub async fn check_get_result<E: std::fmt::Debug>(
     let mut next_offset = range.map(|r| r.start).unwrap_or(0);
     pin_mut!(result);
     while let Some(r) = result.next().await {
-        let (offset, body) = r.expect("get_object body part failed");
+        let GetBodyPart { offset, data: body } = r.expect("get_object body part failed");
         assert_eq!(offset, next_offset, "wrong body part offset");
         next_offset += body.len() as u64;
         accum.extend_from_slice(&body[..]);
@@ -241,7 +241,7 @@ pub async fn check_backpressure_get_result(
         .expect("should be able to get a backpressure handle");
     pin_mut!(response);
     while let Some(r) = response.next().await {
-        let (offset, body) = r.expect("get_object body part failed");
+        let GetBodyPart { offset, data: body } = r.expect("get_object body part failed");
         assert_eq!(offset, next_offset, "wrong body part offset");
         next_offset += body.len() as u64;
         accum.extend_from_slice(&body[..]);

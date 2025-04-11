@@ -7,9 +7,10 @@ use thiserror::Error;
 
 use crate::object_client::{
     Checksum, GetObjectAttributesError, GetObjectAttributesParts, GetObjectAttributesResult, ObjectAttribute,
-    ObjectClientError, ObjectClientResult, ObjectPart,
+    ObjectClientResult, ObjectPart,
 };
-use crate::s3_crt_client::{S3CrtClient, S3Operation, S3RequestError};
+
+use super::{S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -149,9 +150,8 @@ impl S3CrtClient {
                 ?object_attributes
             );
 
-            self.inner.make_simple_http_request(
-                message,
-                S3Operation::GetObjectAttributes,
+            self.inner.meta_request_with_body_payload(
+                message.into_options(S3Operation::GetObjectAttributes),
                 span,
                 parse_get_object_attributes_error,
             )?
@@ -159,8 +159,7 @@ impl S3CrtClient {
 
         let body = body.await?;
 
-        GetObjectAttributesResult::parse_from_bytes(&body)
-            .map_err(|e| ObjectClientError::ClientError(S3RequestError::InternalError(e.into())))
+        GetObjectAttributesResult::parse_from_bytes(&body).map_err(|e| S3RequestError::internal_failure(e).into())
     }
 }
 

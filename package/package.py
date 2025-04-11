@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Optional
 
 
 def log(msg: str):
@@ -42,9 +41,9 @@ class BuildMetadata:
     def artifact_name(self, extension: str):
         return f"mount-s3-{self.version_string}-{self.arch_name}.{extension}"
 
-    def spec_file_name(self, distr: Optional[str] = None):
-        if distr:
-            return f"mount-s3-{distr}.spec"
+    def spec_file_name(self, ext: str):
+        if "suse" in ext:
+            return "mount-s3-suse.spec"
         return "mount-s3.spec"
 
 
@@ -57,9 +56,9 @@ def check_dependencies(args: argparse.Namespace):
     log("Checking dependencies")
 
     deps = ["cargo", "cargo-about", "tar", "whereis"]
-    if not args.no_rpm:
+    if any(map(lambda ext: ext.endswith("rpm"), args.pkg_extensions)):
         deps.extend(["rpm", "rpmbuild"])
-    if not args.no_deb:
+    if any(map(lambda ext: ext.endswith("deb"), args.pkg_extensions)):
         deps.extend(["fakeroot", "dpkg-deb"])
 
     for dep in deps:
@@ -205,15 +204,15 @@ def build_package_dir(metadata: BuildMetadata, binary_path: str, attribution_pat
     return package_dir
 
 
-def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str] = None) -> str:
+def build_rpm(metadata: BuildMetadata, package_dir: str, ext: str) -> str:
     """Build an RPM package from the contents of the package directory. Return the path to the
     final RPM package."""
 
-    rpm_buildroot = os.path.join(metadata.buildroot, "rpm-{}".format(distr or "default"))
+    rpm_buildroot = os.path.join(metadata.buildroot, ext)
     os.mkdir(rpm_buildroot)
 
     rpm_topdir = os.path.join(rpm_buildroot, "rpm-topdir")
-    log("Building RPM in topdir {} for {} Linux distribution".format(rpm_topdir, distr or "default"))
+    log(f"Building RPM in topdir {rpm_topdir} with {ext} extension")
 
     # Assemble the contents of the RPM, rooted at /
     rpm_package_dir = os.path.join(rpm_buildroot, "rpm-package")
@@ -227,7 +226,7 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str] = 
     run(["tar", "czvf", source_tar_path, "-C", rpm_package_dir, "opt"])
 
     # Build the RPM
-    spec_file = os.path.join(metadata.cargoroot, f"package/{metadata.spec_file_name(distr)}")
+    spec_file = os.path.join(metadata.cargoroot, f"package/{metadata.spec_file_name(ext)}")
     cmd = [
         "rpmbuild",
         "-bb",
@@ -246,7 +245,7 @@ def build_rpm(metadata: BuildMetadata, package_dir: str, distr: Optional[str] = 
     rpm_path = os.path.join(arch_dir, rpms[0])
     final_rpm_path = os.path.join(
         metadata.output_dir,
-        metadata.artifact_name("{}.rpm".format(distr) if distr else "rpm"),
+        metadata.artifact_name(ext),
     )
     shutil.copy2(rpm_path, final_rpm_path)
 
@@ -339,13 +338,15 @@ def build(args: argparse.Namespace) -> str:
     package_dir = build_package_dir(metadata, binary_path, attribution_path)
 
     artifacts = []
-    if not args.no_rpm:
-        artifacts.append(build_rpm(metadata, package_dir))
-    if not args.no_suse_rpm:
-        artifacts.append(build_rpm(metadata, package_dir, "suse"))
-    if not args.no_deb:
-        artifacts.append(build_deb(metadata, package_dir))
-    artifacts.append(build_package_archive(metadata, package_dir))
+    for ext in args.pkg_extensions:
+        if ext.endswith("rpm"):
+            artifacts.append(build_rpm(metadata, package_dir, ext))
+        elif ext.endswith("deb"):
+            artifacts.append(build_deb(metadata, package_dir))
+        elif ext.endswith("tar.gz"):
+            artifacts.append(build_package_archive(metadata, package_dir))
+        else:
+            raise Exception(f"unable to infer package type from extension {ext}")
 
     for path in artifacts:
         os.chmod(path, 0o755)
@@ -357,10 +358,14 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--root-dir", help="override the path to the Cargo workspace")
     p.add_argument("--expected-version", help="expected version number for the Mountpoint binary")
-    p.add_argument("--no-rpm", action="store_true", help="do not build an RPM")
-    p.add_argument("--no-suse-rpm", action="store_true", help="do not build an RPM for SUSE")
-    p.add_argument("--no-deb", action="store_true", help="do not build a DEB")
     p.add_argument("--official", action="store_true", help="build as an official release")
+    p.add_argument(
+        "--pkg-extensions",
+        type=str,
+        nargs='+',
+        help="list of package extensions to be built",
+        default=["rpm", "suse.rpm", "deb", "tar.gz"],
+    )
 
     args = p.parse_args()
 

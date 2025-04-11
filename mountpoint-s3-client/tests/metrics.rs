@@ -177,7 +177,7 @@ async fn test_get_object_metrics() {
         .await
         .expect("get_object should succeed");
     let result = result
-        .map_ok(|(_offset, bytes)| bytes.len())
+        .map_ok(|part| part.data.len())
         .try_fold(0, |a, b| async move { Ok(a + b) })
         .await
         .expect("get_object should succeed");
@@ -323,7 +323,7 @@ async fn test_custom_telemetry_callback() {
         .await
         .expect("get_object should succeed");
     let result = result
-        .map_ok(|(_offset, bytes)| bytes.len())
+        .map_ok(|part| part.data.len())
         .try_fold(0, |a, b| async move { Ok(a + b) })
         .await
         .expect("get_object should succeed");

@@ -200,6 +200,14 @@ impl ClientConfig {
         self
     }
 
+    /// Memory limit in bytes the client can use.
+    ///
+    /// When not set, the client will determine this value based on throughput_target_gbps.
+    pub fn memory_limit_in_bytes(&mut self, memory_limit_in_bytes: u64) -> &mut Self {
+        self.inner.memory_limit_in_bytes = memory_limit_in_bytes;
+        self
+    }
+
     /// When set, this will cap the number of active connections. Otherwise, the client will
     /// determine this value based on throughput_target_gbps. (Recommended)
     pub fn max_active_connections_override(&mut self, max_active_connections_override: u32) -> &mut Self {
@@ -622,9 +630,10 @@ unsafe extern "C" fn meta_request_upload_review_callback(
 }
 
 /// An in-progress request to S3.
+///
+/// A dropped [MetaRequest] will still progress. See [MetaRequest::cancel()].
 #[derive(Debug)]
 pub struct MetaRequest {
-    #[allow(unused)]
     inner: NonNull<aws_s3_meta_request>,
 }
 

@@ -706,10 +706,10 @@ impl MockGetObjectResponse {
     pub async fn collect(mut self) -> ObjectClientResult<Box<[u8]>, GetObjectError, MockClientError> {
         let mut next_offset = None;
         let mut body = vec![];
-        while let Some((offset, part)) = self.next().await.transpose()? {
+        while let Some(GetBodyPart { offset, data }) = self.next().await.transpose()? {
             assert!(next_offset.as_ref().map(|no| offset == *no).unwrap_or(true));
-            body.extend_from_slice(&part);
-            next_offset = Some(offset + part.len() as u64);
+            body.extend_from_slice(&data);
+            next_offset = Some(offset + data.len() as u64);
         }
         Ok(body.into_boxed_slice())
     }
@@ -753,7 +753,10 @@ impl Stream for MockGetObjectResponse {
         }
         let next_part = self.object.read(self.next_offset, next_read_size);
 
-        let result = (self.next_offset, next_part);
+        let result = GetBodyPart {
+            offset: self.next_offset,
+            data: next_part.into(),
+        };
         self.next_offset += next_read_size as u64;
         self.length -= next_read_size;
         Poll::Ready(Some(Ok(result)))
@@ -1277,7 +1280,7 @@ mod tests {
         let mut accum = vec![];
         let mut next_offset = range.as_ref().map(|r| r.start).unwrap_or(0);
         while let Some(r) = get_request.next().await {
-            let (offset, body) = r.expect("get_object body part failed");
+            let GetBodyPart { offset, data: body } = r.expect("get_object body part failed");
             assert_eq!(offset, next_offset, "wrong body part offset");
             next_offset += body.len() as u64;
             accum.extend_from_slice(&body[..]);
@@ -1335,7 +1338,7 @@ mod tests {
         let mut accum = vec![];
         let mut next_offset = range.as_ref().map(|r| r.start).unwrap_or(0);
         while let Some(r) = get_request.next().await {
-            let (offset, body) = r.expect("get_object body part failed");
+            let GetBodyPart { offset, data: body } = r.expect("get_object body part failed");
             assert_eq!(offset, next_offset, "wrong body part offset");
             next_offset += body.len() as u64;
             accum.extend_from_slice(&body[..]);
@@ -1445,7 +1448,7 @@ mod tests {
 
         // Verify that we can receive some data since the window size is more than 0
         let first_part = get_request.next().await.expect("result should not be empty");
-        let (offset, body) = first_part.unwrap();
+        let GetBodyPart { offset, data: body } = first_part.unwrap();
         assert_eq!(offset, 0, "wrong body part offset");
 
         // The CRT always return at least a part even if the window is smaller than that
@@ -1909,10 +1912,10 @@ mod tests {
         // Check that the result of get_object is correct.
         let mut next_offset = 0;
         while let Some(r) = get_request.next().await {
-            let (offset, body) = r.expect("get_object body part failed");
+            let GetBodyPart { offset, data: body } = r.expect("get_object body part failed");
             assert_eq!(offset, next_offset, "wrong body part offset");
             next_offset += body.len() as u64;
-            assert_eq!(body, obj.read(offset, body.len()));
+            assert_eq!(*body, *obj.read(offset, body.len()));
         }
         assert_eq!(object_metadata, get_request.object.object_metadata);
     }

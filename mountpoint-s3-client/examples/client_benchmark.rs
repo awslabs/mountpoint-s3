@@ -23,6 +23,7 @@ fn init_tracing_subscriber() {
     let subscriber = Subscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
+        .with_ansi(false)
         .finish();
 
     subscriber.try_init().expect("unable to install global subscriber");
@@ -52,8 +53,8 @@ fn run_benchmark(
                         let mut request = pin!(request);
                         loop {
                             match request.next().await {
-                                Some(Ok((_offset, body))) => {
-                                    received_size_clone.fetch_add(body.len() as u64, Ordering::SeqCst);
+                                Some(Ok(part)) => {
+                                    received_size_clone.fetch_add(part.data.len() as u64, Ordering::SeqCst);
                                 }
                                 Some(Err(e)) => {
                                     tracing::error!(error = ?e, "request failed");
@@ -70,11 +71,11 @@ fn run_benchmark(
         let elapsed = start.elapsed();
         let received_size = received_size.load(Ordering::SeqCst);
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2}MiB/s",
+            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
             i,
             received_size,
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024) as f64
+            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
     }
 }
@@ -114,6 +115,13 @@ struct CliArgs {
         visible_alias = "maximum-throughput-gbps"
     )]
     throughput_target_gbps: f64,
+    #[arg(
+        long,
+        help = "CRT Memory limit in GB",
+        default_value = "0",
+        visible_alias = "memory-limit-gb"
+    )]
+    crt_memory_limit_gb: u64,
     #[arg(long, help = "Part size for multi-part GET", default_value = "8388608")]
     part_size: usize,
     #[arg(long, help = "Number of benchmark iterations", default_value = "1")]
@@ -136,6 +144,7 @@ fn main() {
         } => {
             let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&region));
             config = config.throughput_target_gbps(args.throughput_target_gbps);
+            config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
             if let Some(interfaces) = &bind {
                 config = config.network_interface_names(interfaces.clone());
             }

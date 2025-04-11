@@ -1,9 +1,31 @@
 ## Unreleased
 
+## v1.16.2 (April 9, 2025)
+
+* Address an issue introduced in v1.16.0 that could affect throughput and memory usage in
+  workloads with many concurrent random read operations.
+  ([#1355](https://github.com/awslabs/mountpoint-s3/pull/1355))
+
+## v1.16.1 (April 3, 2025)
+
+* Reduce memory usage for strings in inode metadata. ([#1346](https://github.com/awslabs/mountpoint-s3/pull/1346))
+
+## v1.16.0 (April 1, 2025)
+
+### New features
+
+* Mountpoint for Amazon S3 adds support for S3 Access Points for directory buckets in AWS Dedicated Local Zones. ([aws-c-s3#502](https://github.com/awslabs/aws-c-s3/pull/502/))
+
 ### Other changes
 
 * Reduce memory usage when using the `--prefix` flag. ([#1303](https://github.com/awslabs/mountpoint-s3/pull/1303))
 * Add support for endpoint override in credential providers. ([aws-c-auth#263](https://github.com/awslabs/aws-c-auth/pull/263/))
+* Address an issue in GetObject requests that could result in read operations to fail.
+  ([#1334](https://github.com/awslabs/mountpoint-s3/pull/1334))
+
+### Breaking changes
+
+* The logging target used by a significant amount of Mountpoint code has changed. Some logs originally written under the `mountpoint_s3` target are now written under `mountpoint_s3_fs`. You may need to update any code configuring or filtering logging. ([#1304](https://github.com/awslabs/mountpoint-s3/pull/1304))
 
 ## v1.15.0 (February 27, 2025)
 
