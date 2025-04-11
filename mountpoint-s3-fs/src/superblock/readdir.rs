@@ -44,8 +44,9 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use mountpoint_s3_client::types::ObjectInfo;
+use mountpoint_s3_client::types::{ObjectInfo, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
+use time::OffsetDateTime;
 use tracing::{error, trace, warn};
 
 use crate::sync::{Arc, AsyncMutex, Mutex};
@@ -200,13 +201,63 @@ impl ReaddirHandle {
     }
 }
 
+/// Metadata about a single S3 object.
+///
+/// Compared to source type [ObjectInfo], this type may be constructed outside of `mountpoint-s3-client` crate,
+/// for example from data stored on disk.
+///
+/// Compared to destination type [InodeStat], this type doesn't yet have `expiry` since this is meant to be set
+/// later on inode creation in [ReaddirHandle::remote_lookup_from_entry] (see point 4. in the comment at the top of this file).
+#[derive(Debug, Clone)]
+struct ReaddirObjectInfo {
+    /// Key for this object.
+    pub key: String,
+
+    /// Size of this object in bytes.
+    pub size: u64,
+
+    /// The time this object was last modified.
+    pub last_modified: OffsetDateTime,
+
+    /// Storage class for this object. Optional because this information may not be available when
+    /// [ReaddirObjectInfo] is loaded from disk.
+    pub storage_class: Option<String>,
+
+    /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
+    /// accessible after restoration.
+    pub restore_status: Option<RestoreStatus>,
+
+    /// Entity tag of this object.
+    pub etag: String,
+}
+
+impl ReaddirObjectInfo {
+    fn from(client_object_info: ObjectInfo) -> Self {
+        Self {
+            key: client_object_info.key,
+            size: client_object_info.size,
+            last_modified: client_object_info.last_modified,
+            storage_class: client_object_info.storage_class,
+            restore_status: client_object_info.restore_status,
+            etag: client_object_info.etag,
+        }
+    }
+}
+
 /// A single entry in a readdir stream. Remote entries have not yet been converted to inodes -- that
 /// should be done lazily by the consumer of the entry.
 #[derive(Debug, Clone)]
 enum ReaddirEntry {
-    RemotePrefix { name: String },
-    RemoteObject { name: String, object_info: ObjectInfo },
-    LocalInode { lookup: LookedUp },
+    RemotePrefix {
+        name: String,
+    },
+    RemoteObject {
+        name: String,
+        object_info: ReaddirObjectInfo,
+    },
+    LocalInode {
+        lookup: LookedUp,
+    },
 }
 
 // This looks a little silly but makes the [Ord] implementation for [ReaddirEntry] a bunch clearer
@@ -385,7 +436,7 @@ impl RemoteIter {
                 .into_iter()
                 .map(|object_info| ReaddirEntry::RemoteObject {
                     name: object_info.key[self.full_path.len()..].to_owned(),
-                    object_info,
+                    object_info: ReaddirObjectInfo::from(object_info),
                 });
 
             if self.ordered {
