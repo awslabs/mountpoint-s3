@@ -42,6 +42,17 @@ To enable more verbose logging for the AWS Common Runtime that Mountpoint uses t
 
 For finer-grained control over log verbosity, Mountpoint uses the `MOUNTPOINT_LOG` environment variable, which overrides the verbosity options above. The `MOUNTPOINT_LOG` environment variable uses the [`tracing-subscriber` directive syntax](https://docs.rs/tracing-subscriber/0.3.17/tracing_subscriber/filter/struct.EnvFilter.html), and can be used to control log verbosity on a per-subject basis. For example, setting `MOUNTPOINT_LOG` to `trace` enables all trace-level logs, while `trace,awscrt=warn` enables trace-level logs for all log subjects except `awscrt`, which has only warning-level logging enabled.
 
+#### Changing logging verbosity on runtime
+
+Mountpoint allows changing logging verbosity dynamically on runtime using `USR2` Unix signal, e.g., `kill -USR2 <mount-s3-pid>`.
+
+Mountpoint toggles between the following verbosity levels each time it receives a `USR2` signal:
+  1. Default logging verbosity
+  2. Debug logging for all except CRT (i.e., `debug,awscrt=off`)
+  3. Debug logging for all (i.e., `debug,awscrt=debug`)
+  4. Trace logging for all except CRT (i.e., `trace,awscrt=off`)
+  5. Trace logging for all (i.e., `trace,awscrt=trace`)
+
 ## Metrics
 
 Mountpoint optionally collects metrics measuring various values across different components.
