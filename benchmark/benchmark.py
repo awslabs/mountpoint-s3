@@ -76,9 +76,11 @@ def _mount_mp(
         ]
 
         if stub_mode == "s3_client":
+            # `mock-mount-s3` requires bucket to be prefixed with `sthree-` to verify we're not actually reaching S3
             logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")
-            mountpoint_args.append("--bin=mock-mount-s3")
             bucket = f"sthree-{cfg['s3_bucket']}"
+
+            mountpoint_args.append("--bin=mock-mount-s3")
 
         # End Cargo command, begin passing arguments to Mountpoint
         mountpoint_args.append("--")
