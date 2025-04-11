@@ -92,6 +92,7 @@ macro_rules! event {
 pub struct S3ClientConfig {
     auth_config: S3ClientAuthConfig,
     throughput_target_gbps: f64,
+    memory_limit_in_bytes: u64,
     read_part_size: usize,
     write_part_size: usize,
     endpoint_config: EndpointConfig,
@@ -112,6 +113,7 @@ impl Default for S3ClientConfig {
         Self {
             auth_config: Default::default(),
             throughput_target_gbps: 10.0,
+            memory_limit_in_bytes: 0,
             read_part_size: DEFAULT_PART_SIZE,
             write_part_size: DEFAULT_PART_SIZE,
             endpoint_config: EndpointConfig::new("us-east-1"),
@@ -166,6 +168,13 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn throughput_target_gbps(mut self, throughput_target_gbps: f64) -> Self {
         self.throughput_target_gbps = throughput_target_gbps;
+        self
+    }
+
+    /// Set the memory limit in bytes for the S3 client
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn memory_limit_in_bytes(mut self, memory_limit_in_bytes: u64) -> Self {
+        self.memory_limit_in_bytes = memory_limit_in_bytes;
         self
     }
 
@@ -404,6 +413,7 @@ impl S3CrtClientInner {
             .retry_strategy(retry_strategy);
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
+        client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);
 
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
         let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
