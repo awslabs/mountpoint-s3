@@ -334,6 +334,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 // This is an runtime error instead of an `assert!` because the prefetcher resets the
                 // prefetch to the offset again in case of an error, and that would cause a new `read_from_client_stream`
                 // to be created which in turn would succeed in the next try if this was a transient issue.
+                error!(key=object_id.key(), current_range=?range, current_offset, "Previous GetObject request terminated unexpectedly");
                 Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)?;
             }
 

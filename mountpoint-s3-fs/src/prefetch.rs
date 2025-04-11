@@ -1222,7 +1222,7 @@ mod tests {
                 PrefetchReadError::GetRequestTerminatedUnexpectedly,
             ));
 
-            // Second read will return first part, ben then terminate early before returning the remaining parts
+            // Second read will return first part, but then terminate early before returning the remaining parts
             let bytes = request.read(0, PART_SIZE).await.unwrap();
             let expected = ramp_bytes(0xaa, PART_SIZE);
             assert_eq!(bytes.into_bytes().unwrap()[..], expected[..]);
