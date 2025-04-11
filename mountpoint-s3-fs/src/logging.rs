@@ -18,6 +18,11 @@ use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+#[cfg(test)]
+mod testing;
+
+mod envfilter;
+
 mod syslog;
 use self::syslog::SyslogLayer;
 
