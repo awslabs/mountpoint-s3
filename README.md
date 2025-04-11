@@ -74,7 +74,7 @@ brew install macfuse
 #### To install using Nix
 
 ``` sh
-nix-env -iA nixos.osxfuse
+nix-env -iA nixos.macfuse-stubs
 ```
 
 And `pkg-config` (required for building):
