@@ -565,8 +565,9 @@ mod tests {
     use super::caching_stream::CachingPartStream;
     use super::*;
     use futures::executor::{block_on, ThreadPool};
-    use mountpoint_s3_client::error::GetObjectError;
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig, RequestFailureMap};
+    use mountpoint_s3_client::failure_client::{
+        countdown_failure_client, CountdownFailureConfig, GetObjectFailureMode,
+    };
     use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
     use mountpoint_s3_client::types::ETag;
     use proptest::proptest;
@@ -800,7 +801,7 @@ mod tests {
         size: u64,
         read_size: usize,
         test_config: TestConfig,
-        get_failures: RequestFailureMap<MockClientError, GetObjectError>,
+        get_failures: HashMap<usize, GetObjectFailureMode<MockClientError>>,
     ) {
         let config = MockClientConfig {
             bucket: "test-bucket".to_string(),
@@ -874,7 +875,7 @@ mod tests {
         let mut get_failures = HashMap::new();
         get_failures.insert(
             2,
-            Err(ObjectClientError::ClientError(MockClientError(
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
                 err_value.to_owned().into(),
             ))),
         );
@@ -1112,14 +1113,16 @@ mod tests {
         let mut get_failures = HashMap::new();
         get_failures.insert(
             1,
-            Ok((
+            GetObjectFailureMode::StreamPositionError(
                 2,
-                MockClientError("error in the second chunk of the first request".into()),
-            )),
+                ObjectClientError::ClientError(MockClientError(
+                    "error in the second chunk of the first request".into(),
+                )),
+            ),
         );
         get_failures.insert(
             2,
-            Err(ObjectClientError::ClientError(MockClientError(
+            GetObjectFailureMode::OperationError(ObjectClientError::ClientError(MockClientError(
                 "error in second request".into(),
             ))),
         );
@@ -1165,6 +1168,78 @@ mod tests {
                 .expect("second retry should succeed");
             let expected = ramp_bytes(0xaa + offset, 1);
             assert_eq!(byte.into_bytes().unwrap()[..], expected[..]);
+        });
+    }
+
+    #[test_case(default_stream())]
+    #[test_case(caching_stream(8192))]
+    fn test_short_read_failure<Stream: ObjectPartStream + Send + Sync + 'static>(part_stream: Stream) {
+        const PART_SIZE: usize = 8192;
+        const OBJECT_SIZE: usize = 2 * PART_SIZE;
+
+        let config = MockClientConfig {
+            bucket: "test-bucket".to_string(),
+            part_size: PART_SIZE,
+            enable_backpressure: true,
+            initial_read_window_size: PART_SIZE,
+            ..Default::default()
+        };
+        let client = MockClient::new(config);
+        let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
+        let etag = object.etag();
+        client.add_object("hello", object);
+
+        let mut get_failures = HashMap::new();
+        // On first request, terminate the stream without producing any data
+        get_failures.insert(1, GetObjectFailureMode::StreamShortCircuit(1));
+        // On third request (second request of second prefetcher),
+        // terminate the stream early without producing all the requested data
+        get_failures.insert(3, GetObjectFailureMode::StreamShortCircuit(1));
+
+        let client = Arc::new(countdown_failure_client(
+            client,
+            CountdownFailureConfig {
+                get_failures,
+                ..Default::default()
+            },
+        ));
+        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+        let prefetcher = Prefetcher::new(part_stream, Default::default());
+
+        block_on(async {
+            let object_id = ObjectId::new("hello".to_owned(), etag.clone());
+            let mut request = prefetcher.prefetch(
+                client,
+                mem_limiter,
+                "test-bucket".to_owned(),
+                object_id,
+                OBJECT_SIZE as u64,
+            );
+
+            // First read will terminate early
+            assert!(matches!(
+                request.read(0, 10).await.expect_err("read should fail"),
+                PrefetchReadError::GetRequestTerminatedUnexpectedly,
+            ));
+
+            // Second read will return first part, but then terminate early before returning the remaining parts
+            let bytes = request.read(0, PART_SIZE).await.unwrap();
+            let expected = ramp_bytes(0xaa, PART_SIZE);
+            assert_eq!(bytes.into_bytes().unwrap()[..], expected[..]);
+            _ = request
+                .read(PART_SIZE as u64, PART_SIZE)
+                .await
+                .expect_err("read should fail");
+
+            // There are no more failures injected, since the prefetcher will reset on failure, now we should be able to read the whole data.
+            let bytes = request.read(0, OBJECT_SIZE).await.unwrap();
+            let expected = ramp_bytes(0xaa, OBJECT_SIZE);
+            assert_eq!(bytes.into_bytes().unwrap()[..], expected[..]);
+
+            // Shouldn't fail if the short read is due to object size not due to the stream terminating early
+            let bytes = request.read(PART_SIZE as u64, OBJECT_SIZE).await.unwrap();
+            let expected = ramp_bytes(0xaa + PART_SIZE, PART_SIZE);
+            assert_eq!(bytes.into_bytes().unwrap()[..], expected[..]);
         });
     }
 
