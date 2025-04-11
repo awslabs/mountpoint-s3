@@ -308,7 +308,7 @@ fn fstab_rw_conflicts_with_ro() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("ro,rw");
-    let error_message = "the argument '--ro' cannot be used with '--rw'";
+    let error_message = "Cannot use 'read-only' flag combined with 'read-write' flag";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -319,8 +319,8 @@ fn fstab_cannot_use_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
-    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("-f");
-    let error_message = "unexpected argument '-f' found";
+    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("foreground");
+    let error_message = "Cannot use 'foreground' flag when using fstab style arguments";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -333,30 +333,6 @@ fn fstab_no_options() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("--");
     let error_message = "a value is required for '-o <OPTIONS>' but none was supplied";
-    cmd.assert().failure().stderr(predicate::str::contains(error_message));
-
-    Ok(())
-}
-
-#[test]
-fn fstab_no_long_read_only() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
-
-    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("read-only");
-    let error_message = "unexpected argument '--read-only' found";
-    cmd.assert().failure().stderr(predicate::str::contains(error_message));
-
-    Ok(())
-}
-
-#[test]
-fn fstab_no_help() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
-
-    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("help");
-    let error_message = "unexpected argument '--help' found";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())

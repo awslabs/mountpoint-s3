@@ -13,7 +13,6 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use clap::Parser;
 use futures::executor::ThreadPool;
 
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
@@ -23,11 +22,11 @@ use mountpoint_s3_fs::cli::{CliArgs, ContextParams};
 use mountpoint_s3_fs::s3::S3Personality;
 
 fn main() -> anyhow::Result<()> {
-    let args = mountpoint_s3::cli::AppCliArgs::parse();
+    let cli_args = mountpoint_s3::cli::get_cli_args()?;
     let context = ContextParams {
         full_version: mountpoint_s3::build_info::FULL_VERSION.to_string(),
     };
-    mountpoint_s3_fs::cli::main(create_mock_client, args.cli_args, context)
+    mountpoint_s3_fs::cli::main(create_mock_client, cli_args, context)
 }
 
 fn create_mock_client(
@@ -38,13 +37,13 @@ fn create_mock_client(
     // this one. Buckets starting with "sthree-" are always invalid against real S3:
     // https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
     anyhow::ensure!(
-        args.base.bucket_name.starts_with("sthree-"),
+        args.bucket_name.starts_with("sthree-"),
         "mock-mount-s3 bucket names must start with `sthree-`"
     );
 
     tracing::warn!("using mock client");
 
-    let Some(max_throughput_gbps) = args.base.maximum_throughput_gbps else {
+    let Some(max_throughput_gbps) = args.maximum_throughput_gbps else {
         return Err(anyhow!(
             "must set --maximum-throughput-gbps when using mock-mount-s3 binary"
         ));
@@ -52,8 +51,8 @@ fn create_mock_client(
     tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
 
     let config = MockClientConfig {
-        bucket: args.base.bucket_name.clone(),
-        part_size: args.base.part_size as usize,
+        bucket: args.bucket_name.clone(),
+        part_size: args.part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,
         initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
@@ -62,7 +61,7 @@ fn create_mock_client(
 
     let runtime = ThreadPool::builder().name_prefix("runtime").create()?;
 
-    let s3_personality = if let Some(bucket_type) = &args.base.bucket_type {
+    let s3_personality = if let Some(bucket_type) = &args.bucket_type {
         bucket_type.to_personality()
     } else {
         S3Personality::Standard
