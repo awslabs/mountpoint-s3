@@ -44,7 +44,7 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use mountpoint_s3_client::types::{ObjectInfo, RestoreStatus};
+use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::ObjectClient;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
@@ -174,13 +174,20 @@ impl ReaddirHandle {
                     kind: InodeKind::Directory,
                 })
             }
-            ReaddirEntry::RemoteObject { object_info, .. } => {
+            ReaddirEntry::RemoteObject {
+                size,
+                last_modified,
+                etag,
+                storage_class,
+                restore_status,
+                ..
+            } => {
                 let stat = InodeStat::for_file(
-                    object_info.size as usize,
-                    object_info.last_modified,
-                    Some(object_info.etag.as_str().into()),
-                    object_info.storage_class.as_deref(),
-                    object_info.restore_status,
+                    *size as usize,
+                    *last_modified,
+                    Some(etag.as_str().into()),
+                    storage_class.as_deref(),
+                    *restore_status,
                     self.inner.config.cache_config.file_ttl,
                 );
                 Some(RemoteLookup {
@@ -201,49 +208,6 @@ impl ReaddirHandle {
     }
 }
 
-/// Metadata about a single S3 object.
-///
-/// Compared to source type [ObjectInfo], this type may be constructed outside of `mountpoint-s3-client` crate,
-/// for example from data stored on disk.
-///
-/// Compared to destination type [InodeStat], this type doesn't yet have `expiry` since this is meant to be set
-/// later on inode creation in [ReaddirHandle::remote_lookup_from_entry] (see point 4. in the comment at the top of this file).
-#[derive(Debug, Clone)]
-struct ReaddirObjectInfo {
-    /// Key for this object.
-    pub key: String,
-
-    /// Size of this object in bytes.
-    pub size: u64,
-
-    /// The time this object was last modified.
-    pub last_modified: OffsetDateTime,
-
-    /// Storage class for this object. Optional because this information may not be available when
-    /// [ReaddirObjectInfo] is loaded from disk.
-    pub storage_class: Option<String>,
-
-    /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
-    /// accessible after restoration.
-    pub restore_status: Option<RestoreStatus>,
-
-    /// Entity tag of this object.
-    pub etag: String,
-}
-
-impl ReaddirObjectInfo {
-    fn from(client_object_info: ObjectInfo) -> Self {
-        Self {
-            key: client_object_info.key,
-            size: client_object_info.size,
-            last_modified: client_object_info.last_modified,
-            storage_class: client_object_info.storage_class,
-            restore_status: client_object_info.restore_status,
-            etag: client_object_info.etag,
-        }
-    }
-}
-
 /// A single entry in a readdir stream. Remote entries have not yet been converted to inodes -- that
 /// should be done lazily by the consumer of the entry.
 #[derive(Debug, Clone)]
@@ -252,8 +216,22 @@ enum ReaddirEntry {
         name: String,
     },
     RemoteObject {
+        /// Last component of the S3 Key.
         name: String,
-        object_info: ReaddirObjectInfo,
+        /// S3 Key for this object.
+        full_key: String,
+        /// Size of this object in bytes.
+        size: u64,
+        /// The time this object was last modified.
+        last_modified: OffsetDateTime,
+        /// Storage class for this object. Optional because this information may not be available when
+        /// [ReaddirEntry] is loaded from disk.
+        storage_class: Option<String>,
+        /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
+        /// accessible after restoration.
+        restore_status: Option<RestoreStatus>,
+        /// Entity tag of this object.
+        etag: String,
     },
     LocalInode {
         lookup: LookedUp,
@@ -291,8 +269,8 @@ impl ReaddirEntry {
             Self::RemotePrefix { name } => {
                 format!("directory '{name}'")
             }
-            Self::RemoteObject { name, object_info } => {
-                format!("file '{}' (full key {:?})", name, object_info.key)
+            Self::RemoteObject { name, full_key, .. } => {
+                format!("file '{}' (full key {:?})", name, full_key)
             }
             Self::LocalInode { lookup } => {
                 let kind = match lookup.inode.kind() {
@@ -436,7 +414,12 @@ impl RemoteIter {
                 .into_iter()
                 .map(|object_info| ReaddirEntry::RemoteObject {
                     name: object_info.key[self.full_path.len()..].to_owned(),
-                    object_info: ReaddirObjectInfo::from(object_info),
+                    full_key: object_info.key,
+                    size: object_info.size,
+                    last_modified: object_info.last_modified,
+                    storage_class: object_info.storage_class,
+                    restore_status: object_info.restore_status,
+                    etag: object_info.etag,
                 });
 
             if self.ordered {
