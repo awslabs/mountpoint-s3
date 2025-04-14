@@ -30,7 +30,8 @@ impl FsTabCliArgs {
     /// Parse the args we've been given into an iterator of options to pass to the main CliArgs parser
     /// Filters out arguments that aren't meant for Mountpoint, and add `--` to any argument that's not prefixed with `-`.
     fn into_cli_arg_list(self) -> anyhow::Result<impl Iterator<Item = OsString>> {
-        let mut options: Vec<String> = self.options
+        let mut options: Vec<String> = self
+            .options
             .into_iter()
             .filter(|option| !Self::filter_option(option))
             .map(|option| {
@@ -56,7 +57,6 @@ impl FsTabCliArgs {
 
         Ok(cli_arg_list)
     }
-
 
     /// Remove options that are for systemd/the fstab parser
     /// The hard-coded options listed aren't relevant to Mountpoint, but means we can't add them in the future.
@@ -85,7 +85,6 @@ impl FsTabCliArgs {
     }
 }
 
-
 /// Split a string by commas, but allowing escapes with backslash.
 /// We're implementing this as fstab doesn't have a standard for escaping commas, and backslash
 /// escapes are fairly common in programming.
@@ -106,10 +105,10 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
                 }
                 _ => {
                     return Err(anyhow!(
-                            "Unexpected character after backslash escape - found {} at index {}",
-                            char,
-                            idx
-                        ));
+                        "Unexpected character after backslash escape - found {} at index {}",
+                        char,
+                        idx
+                    ));
                 }
             }
         } else if char == ',' {
@@ -119,9 +118,9 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
             prev_idx = idx + 1;
         } else if char == '"' {
             return Err(anyhow!(
-                    "Unexpected '\"' found at index {} - perhaps you meant to escape it with \\",
-                    idx
-                ));
+                "Unexpected '\"' found at index {} - perhaps you meant to escape it with \\",
+                idx
+            ));
         }
         last_was_backslash = !last_was_backslash && char == '\\';
     }
