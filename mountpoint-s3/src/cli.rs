@@ -23,6 +23,7 @@ pub fn get_cli_args() -> anyhow::Result<CliArgs> {
     let is_fstab = env::args_os().len() == 5 && env::args_os().nth(3) == Some(OsString::from("-o"));
 
     if is_fstab {
+        println!("Using 'fstab' CLI argument parser as detected use of `-o` argument.");
         let args = FsTabCliArgs::parse();
         args.try_to_cli_args()
     } else {
