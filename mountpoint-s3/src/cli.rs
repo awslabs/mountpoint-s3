@@ -25,7 +25,7 @@ pub fn get_cli_args() -> anyhow::Result<CliArgs> {
     if is_fstab {
         println!("Using 'fstab' CLI argument parser as detected use of `-o` argument.");
         let args = FsTabCliArgs::parse();
-        args.try_to_cli_args()
+        args.try_into()
     } else {
         let args = AppCliArgs::parse();
         Ok(args.cli_args)
