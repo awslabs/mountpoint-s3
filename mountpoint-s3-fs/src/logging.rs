@@ -209,9 +209,13 @@ fn toggle_filter_on_signals<S: 'static>(
 
     let thread_handle = thread::spawn(move || {
         for _ in &mut signals.forever() {
-            warn!("Changing log verbosity");
-            if let Err(err) = toggle_handle.next() {
-                warn!("Failed to change log verbosity: {err}");
+            match toggle_handle.next() {
+                Ok(desc) => {
+                    warn!("Changed log verbosity to {desc}");
+                }
+                Err(err) => {
+                    warn!("Failed to change log verbosity: {err}");
+                }
             }
         }
     });

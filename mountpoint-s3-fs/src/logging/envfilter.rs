@@ -16,12 +16,13 @@ pub struct ToggleableHandle<S> {
 }
 
 impl<S> ToggleableHandle<S> {
-    /// Switches to next [EnvFilter].
-    pub fn next(&mut self) -> Result<()> {
+    /// Switches to the next [EnvFilter] and returns a description of the next [EnvFilter].
+    pub fn next(&mut self) -> Result<String> {
         self.index = (self.index + 1) % self.filters.len();
         let next_filter = self.filters[self.index]();
+        let next_filter_desc = format!("{next_filter}");
         self.handle.modify(|filter| *filter = next_filter)?;
-        Ok(())
+        Ok(next_filter_desc)
     }
 }
 
@@ -69,15 +70,15 @@ mod tests {
             tracing::error!(target: "test", "error log 1");
             tracing::debug!(target: "test", "debug log 1");
 
-            handle.next().unwrap(); // Will toggle to `DEBUG` level
+            assert_eq!(handle.next().unwrap(), "debug"); // Will toggle to `DEBUG` level
             tracing::trace!(target: "test", "trace log 1");
             tracing::debug!(target: "test", "debug log 2");
 
-            handle.next().unwrap(); // Will toggle to `INFO` level
+            assert_eq!(handle.next().unwrap(), "info"); // Will toggle to `INFO` level
             tracing::debug!(target: "test", "debug log 3");
             tracing::info!(target: "test", "info log 1");
 
-            handle.next().unwrap(); // Will reset back to `ERROR` level
+            assert_eq!(handle.next().unwrap(), "error"); // Will reset back to `ERROR` level
             tracing::info!(target: "test", "info log 2");
             tracing::error!(target: "test", "error log 2");
         });
