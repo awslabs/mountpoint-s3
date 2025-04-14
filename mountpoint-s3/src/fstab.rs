@@ -9,12 +9,13 @@ pub struct FsTabCliArgs {
     pub bucket_name: String,
     #[clap(value_name = "DIRECTORY")]
     pub mount_point: String,
-    #[clap(short = 'o')]
-    pub options: String,
+    // Needs to be boxed because of https://github.com/clap-rs/clap/issues/4808
+    #[clap(short = 'o', value_parser = split_commas)]
+    pub options: Box<Vec<String>>,
 }
 
 impl FsTabCliArgs {
-    pub fn try_to_cli_args(self) -> anyhow::Result<CliArgs> {
+    pub fn try_to_cli_args(&self) -> anyhow::Result<CliArgs> {
         let cli_arg_list = self.build_cli_arg_list()?;
         Self::build_cli_args(cli_arg_list)
     }
@@ -22,12 +23,12 @@ impl FsTabCliArgs {
     /// Parse the args we've been given into an iterator of options to pass to the main CliArgs parser
     /// Filters out arguments that aren't meant for Mountpoint, and add `--` to any argument that's not prefixed with `-`.
     fn build_cli_arg_list(&self) -> anyhow::Result<impl Iterator<Item = OsString>> {
-        let mut options: Vec<String> = Self::split_commas(&self.options)?
-            .into_iter()
+        let mut options: Vec<String> = self.options
+            .iter()
             .filter(|option| !Self::filter_option(option))
             .map(|option| {
                 if option.starts_with("-") {
-                    option
+                    option.clone()
                 } else {
                     format!("--{}", option)
                 }
@@ -80,53 +81,54 @@ impl FsTabCliArgs {
         }
         Ok(())
     }
+}
 
-    /// Split a string by commas, but allowing escapes with backslash.
-    /// We're implementing this as fstab doesn't have a standard for escaping commas, and backslash
-    /// escapes are fairly common in programming.
-    /// overlayfs uses this approach to allow escapes.
-    /// We disallow usage of double quotes to allow us to introduce quotes as another potential way to escape in the future.
-    fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
-        let mut unescaped = Vec::new();
-        let mut current_arg = String::new();
 
-        let mut last_was_backslash = false;
-        let mut prev_idx = 0usize;
-        for (idx, char) in string.char_indices() {
-            if last_was_backslash {
-                match char {
-                    ',' | '"' | '\\' => {
-                        current_arg.push_str(&string[prev_idx..idx - 1]);
-                        prev_idx = idx;
-                    }
-                    _ => {
-                        return Err(anyhow!(
+/// Split a string by commas, but allowing escapes with backslash.
+/// We're implementing this as fstab doesn't have a standard for escaping commas, and backslash
+/// escapes are fairly common in programming.
+/// overlayfs uses this approach to allow escapes.
+/// We disallow usage of double quotes to allow us to introduce quotes as another potential way to escape in the future.
+fn split_commas(string: &str) -> anyhow::Result<Box<Vec<String>>> {
+    let mut unescaped = Vec::new();
+    let mut current_arg = String::new();
+
+    let mut last_was_backslash = false;
+    let mut prev_idx = 0usize;
+    for (idx, char) in string.char_indices() {
+        if last_was_backslash {
+            match char {
+                ',' | '"' | '\\' => {
+                    current_arg.push_str(&string[prev_idx..idx - 1]);
+                    prev_idx = idx;
+                }
+                _ => {
+                    return Err(anyhow!(
                             "Unexpected character after backslash escape - found {} at index {}",
                             char,
                             idx
                         ));
-                    }
                 }
-            } else if char == ',' {
-                current_arg.push_str(&string[prev_idx..idx]);
-                unescaped.push(current_arg);
-                current_arg = String::new();
-                prev_idx = idx + 1;
-            } else if char == '"' {
-                return Err(anyhow!(
+            }
+        } else if char == ',' {
+            current_arg.push_str(&string[prev_idx..idx]);
+            unescaped.push(current_arg);
+            current_arg = String::new();
+            prev_idx = idx + 1;
+        } else if char == '"' {
+            return Err(anyhow!(
                     "Unexpected '\"' found at index {} - perhaps you meant to escape it with \\",
                     idx
                 ));
-            }
-            last_was_backslash = !last_was_backslash && char == '\\';
         }
-        if last_was_backslash {
-            return Err(anyhow!("Unexpected end of string after '\\'"));
-        }
-        current_arg.push_str(&string[prev_idx..]);
-        unescaped.push(current_arg);
-        Ok(unescaped)
+        last_was_backslash = !last_was_backslash && char == '\\';
     }
+    if last_was_backslash {
+        return Err(anyhow!("Unexpected end of string after '\\'"));
+    }
+    current_arg.push_str(&string[prev_idx..]);
+    unescaped.push(current_arg);
+    Ok(Box::new(unescaped))
 }
 
 #[cfg(test)]
@@ -149,7 +151,7 @@ mod tests {
     #[test_case("\\e\\scaped,\\w\\rong", None)]
     fn test_split_commas(string: &str, expected: Option<Vec<&str>>) {
         assert_eq!(
-            FsTabCliArgs::split_commas(string).ok(),
+            split_commas(string).ok(),
             expected.map(|v| v.iter().map(|&x| x.into()).collect())
         );
     }
@@ -204,7 +206,7 @@ mod tests {
             }).1;
 
             let should_err_ends_with_unescaped_backslash = (string.len() - string.trim_end_matches("\\").len()) % 2 == 1;
-            let maybe_split = FsTabCliArgs::split_commas(&string);
+            let maybe_split = split_commas(&string);
 
             prop_assert_eq!(
                 maybe_split.is_err(),
