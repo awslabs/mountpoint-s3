@@ -180,9 +180,7 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
         "SIZE_GIB": "100",
         "DIRECT": "1" if cfg['direct_io'] else "0",
         "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
-        # TODO: Confirm assumption that `libaio` should make direct IO go faster.
-        # TODO: Review if we should use sync or psync. We use `sync` in other benchmarks.
-        "IO_ENGINE": "libaio" if cfg['direct_io'] else "psync",
+        "IO_ENGINE": cfg['fio_io_engine'],
     }
     log.info("Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
 
