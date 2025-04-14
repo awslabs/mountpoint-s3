@@ -9,26 +9,33 @@ pub struct FsTabCliArgs {
     pub bucket_name: String,
     #[clap(value_name = "DIRECTORY")]
     pub mount_point: String,
-    // Needs to be boxed because of https://github.com/clap-rs/clap/issues/4808
+    // Needs to be explicit full name because of https://github.com/clap-rs/clap/issues/4808
     #[clap(short = 'o', value_parser = split_commas)]
-    pub options: Box<Vec<String>>,
+    pub options: std::vec::Vec<String>,
+}
+
+impl TryFrom<FsTabCliArgs> for CliArgs {
+    type Error = anyhow::Error;
+
+    fn try_from(fstab_cli_args: FsTabCliArgs) -> Result<Self, Self::Error> {
+        let cli_arg_list = fstab_cli_args.into_cli_arg_list()?;
+
+        let mut cli_args = CliArgs::try_parse_from(cli_arg_list).map_err(|e| anyhow!(e))?;
+        cli_args.foreground = true;
+        Ok(cli_args)
+    }
 }
 
 impl FsTabCliArgs {
-    pub fn try_to_cli_args(&self) -> anyhow::Result<CliArgs> {
-        let cli_arg_list = self.build_cli_arg_list()?;
-        Self::build_cli_args(cli_arg_list)
-    }
-
     /// Parse the args we've been given into an iterator of options to pass to the main CliArgs parser
     /// Filters out arguments that aren't meant for Mountpoint, and add `--` to any argument that's not prefixed with `-`.
-    fn build_cli_arg_list(&self) -> anyhow::Result<impl Iterator<Item = OsString>> {
+    fn into_cli_arg_list(self) -> anyhow::Result<impl Iterator<Item = OsString>> {
         let mut options: Vec<String> = self.options
-            .iter()
+            .into_iter()
             .filter(|option| !Self::filter_option(option))
             .map(|option| {
                 if option.starts_with("-") {
-                    option.clone()
+                    option
                 } else {
                     format!("--{}", option)
                 }
@@ -41,8 +48,8 @@ impl FsTabCliArgs {
 
         let cli_arg_list = [
             env::args_os().nth(0).unwrap_or("mount-s3".into()),
-            (&self.bucket_name).into(),
-            (&self.mount_point).into(),
+            self.bucket_name.into(),
+            self.mount_point.into(),
         ]
         .into_iter()
         .chain(options.into_iter().map(|s| s.into()));
@@ -50,11 +57,6 @@ impl FsTabCliArgs {
         Ok(cli_arg_list)
     }
 
-    fn build_cli_args(cli_arg_list: impl Iterator<Item = OsString>) -> anyhow::Result<CliArgs> {
-        let mut cli_args = CliArgs::try_parse_from(cli_arg_list).map_err(|e| anyhow!(e))?;
-        cli_args.foreground = true;
-        Ok(cli_args)
-    }
 
     /// Remove options that are for systemd/the fstab parser
     /// The hard-coded options listed aren't relevant to Mountpoint, but means we can't add them in the future.
@@ -89,7 +91,7 @@ impl FsTabCliArgs {
 /// escapes are fairly common in programming.
 /// overlayfs uses this approach to allow escapes.
 /// We disallow usage of double quotes to allow us to introduce quotes as another potential way to escape in the future.
-fn split_commas(string: &str) -> anyhow::Result<Box<Vec<String>>> {
+fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
     let mut unescaped = Vec::new();
     let mut current_arg = String::new();
 
@@ -128,7 +130,7 @@ fn split_commas(string: &str) -> anyhow::Result<Box<Vec<String>>> {
     }
     current_arg.push_str(&string[prev_idx..]);
     unescaped.push(current_arg);
-    Ok(Box::new(unescaped))
+    Ok(unescaped)
 }
 
 #[cfg(test)]
@@ -164,7 +166,7 @@ mod tests {
     #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "prefix=foo/bar\\,baz/"].to_vec())]
     fn test_fstab_cli_args_parses(args: Vec<&str>) {
         let fstab_cli_args = FsTabCliArgs::try_parse_from(&args).unwrap();
-        let _ = fstab_cli_args.try_to_cli_args().unwrap();
+        let _: CliArgs = fstab_cli_args.try_into().unwrap();
     }
 
     #[test]
@@ -178,7 +180,7 @@ mod tests {
         ]
         .to_vec();
         let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
-        let cli_args = fstab_cli_args.try_to_cli_args().unwrap();
+        let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
 
         assert!(cli_args.foreground);
         assert_eq!(cli_args.mount_point.to_str(), Some("/mnt/test"));
