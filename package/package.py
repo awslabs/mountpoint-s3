@@ -8,6 +8,7 @@ directory in the root of the Mountpoint repository.
 """
 
 import argparse
+from typing import List
 from dataclasses import dataclass
 import json
 import os
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 
+OPT_PATH = "opt/aws/mountpoint-s3"
 
 def log(msg: str):
     print(f"*** {msg}")
@@ -46,9 +48,10 @@ class BuildMetadata:
             return "mount-s3-suse.spec"
         return "mount-s3.spec"
 
-
-OPT_PATH = "opt/aws/mountpoint-s3"
-
+@dataclass
+class MountpointArtifact:
+    binary_path: str
+    debug_info_path: str
 
 def check_dependencies(args: argparse.Namespace):
     """Check that all the required dependencies are available so we don't fail mid-build."""
@@ -123,14 +126,14 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
     return metadata
 
 
-def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -> str:
-    """Compile the Mountpoint binary and make sure it has works/has the right version number.
-    Return the path to the binary."""
+def build_mountpoint(metadata: BuildMetadata, args: argparse.Namespace) -> MountpointArtifact:
+    """Compile the Mountpoint binary with debug info and make sure it has works/has the right version number.
+    Return the path to the binary and to the debug info."""
 
     env = {
         "PATH": os.environ["PATH"],
-        # Keep enough debug info to give line numbers. We can always `strip` in the future if we want to.
-        "RUSTFLAGS": "-C debuginfo=line-tables-only",
+        # Keep full debug info as a separate artifact
+        "RUSTFLAGS": "-Cdebuginfo=full -Csplit-debuginfo=packed",
     }
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir
@@ -161,9 +164,13 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
         if not output.startswith(f"mount-s3 {metadata.version}-unofficial"):
             raise Exception(f"unexpected compiled version {output}")
 
-    log(f"Built binary for {output} at {binary_path}")
+    debug_info_path = os.path.join(target_dir, "release/mount-s3.dwp")
+    if not os.path.exists(debug_info_path):
+        raise Exception(f"debug info wasn't found at path {debug_info_path}")
 
-    return binary_path
+    log(f"Built binary for {output} at {binary_path} (debug info {debug_info_path})")
+
+    return MountpointArtifact(binary_path=binary_path, debug_info_path=debug_info_path)
 
 
 def build_attribution(metadata: BuildMetadata) -> str:
@@ -280,7 +287,7 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     elif metadata.arch == "aarch64":
         deb_arch = "arm64"
     else:
-        raise Exception(f"unknown architecture {metadata.args} for DEB package")
+        raise Exception(f"unknown architecture {metadata.arch} for DEB package")
     control_file = control_file.replace("__ARCH__", deb_arch)
     control_file_path = os.path.join(deb_DEBIAN_dir, "control")
     with open(control_file_path, "w") as f:
@@ -312,6 +319,21 @@ def build_package_archive(metadata: BuildMetadata, package_dir: str) -> str:
     return archive_path
 
 
+def build_debug_package_archive(metadata: BuildMetadata, package_dir: str, mountpoint_artifact: MountpointArtifact) -> str:
+    """Build a debug.tar.gz archive from the contents of the package directory including the debug information.
+    Return the path to the final debug.tar.gz archive."""
+
+    archive_path = os.path.join(metadata.output_dir, metadata.artifact_name("debug.tar.gz"))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging = os.path.join(tmpdir, "staging")
+        shutil.copytree(package_dir, staging)
+        shutil.copy2(mountpoint_artifact.debug_info_path, os.path.join(staging, "bin"))
+        run(["tar", "czvf", archive_path, "-C", staging, "."])
+
+    return archive_path
+
+
 def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
     # Starting with v1.28, rustup will not install active toolchain by default,
     # (see https://blog.rust-lang.org/2025/03/02/Rustup-1.28.0.html#whats-new-in-rustup-1280)
@@ -324,7 +346,7 @@ def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
         run(["rustup", "toolchain", "install"], cwd=args.root_dir)
 
 
-def build(args: argparse.Namespace) -> str:
+def build(args: argparse.Namespace) -> List[str]:
     """Top-level build driver."""
 
     ensure_rustup_toolchain_is_installed(args)
@@ -332,10 +354,10 @@ def build(args: argparse.Namespace) -> str:
     check_dependencies(args)
     metadata = get_build_metadata(args)
 
-    binary_path = build_mountpoint_binary(metadata, args)
+    mountpoint_artifact = build_mountpoint(metadata, args)
     attribution_path = build_attribution(metadata)
 
-    package_dir = build_package_dir(metadata, binary_path, attribution_path)
+    package_dir = build_package_dir(metadata, mountpoint_artifact.binary_path, attribution_path)
 
     artifacts = []
     for ext in args.pkg_extensions:
@@ -343,6 +365,8 @@ def build(args: argparse.Namespace) -> str:
             artifacts.append(build_rpm(metadata, package_dir, ext))
         elif ext.endswith("deb"):
             artifacts.append(build_deb(metadata, package_dir))
+        elif ext.endswith("debug.tar.gz"):
+            artifacts.append(build_debug_package_archive(metadata, package_dir, mountpoint_artifact))
         elif ext.endswith("tar.gz"):
             artifacts.append(build_package_archive(metadata, package_dir))
         else:
@@ -364,7 +388,7 @@ if __name__ == "__main__":
         type=str,
         nargs='+',
         help="list of package extensions to be built",
-        default=["rpm", "suse.rpm", "deb", "tar.gz"],
+        default=["rpm", "suse.rpm", "deb", "tar.gz", "debug.tar.gz"],
     )
 
     args = p.parse_args()

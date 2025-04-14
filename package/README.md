@@ -28,7 +28,7 @@ On Amazon Linux 2, some dependencies come from EPEL, so you'll need to set that 
 
     sudo amazon-linux-extras install epel
 
-Then install the depdencies:
+Then install the dependencies:
 
     sudo yum install fuse fuse-devel make cmake3 clang git pkg-config dpkg fakeroot rpmdevtools tar python3
 
