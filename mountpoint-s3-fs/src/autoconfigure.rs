@@ -13,19 +13,14 @@ pub fn network_throughput(instance_info: &InstanceInfo) -> anyhow::Result<f64> {
     Ok(throughput)
 }
 
-fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
-    const INSTANCE_THROUGHPUT: &str = "instance_throughput";
-    const NETWORK_PERFORMANCE_JSON: &str = include_str!("../scripts/network_performance.json");
-
-    let data: serde_json::Value =
-        serde_json::from_str(NETWORK_PERFORMANCE_JSON).context("failed to parse network_performance.json")?;
-    let instance_throughput = data
-        .get(INSTANCE_THROUGHPUT)
-        .context("instance throughput missing from json")?;
-    instance_throughput
-        .get(ec2_instance_type)
-        .and_then(|t| t.as_f64())
-        .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
+include! {"../scripts/instance_throughput.rs"}
+pub fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
+    get_instance_throughput(ec2_instance_type).ok_or_else(|| {
+        anyhow!(
+            "no throughput configuration for EC2 instance type {}",
+            ec2_instance_type
+        )
+    })
 }
 
 #[cfg(test)]
