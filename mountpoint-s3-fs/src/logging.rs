@@ -4,20 +4,23 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::prelude::OpenOptionsExt;
 use std::panic::{self, PanicHookInfo};
 use std::path::{Path, PathBuf};
-use std::thread;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::thread::{self, JoinHandle};
 
 use crate::metrics::metrics_tracing_span_layer;
 use anyhow::Context;
-use mountpoint_s3_client::config::RustLogAdapter;
+use mountpoint_s3_client::config::{RustLogAdapter, AWSCRT_LOG_TARGET};
 use rand::Rng;
+use signal_hook::consts::SIGUSR2;
+use signal_hook::iterator::{Handle as SignalsHandle, Signals};
 use time::format_description::FormatItem;
 use time::macros;
 use time::OffsetDateTime;
-use tracing::Span;
+use tracing::{warn, Span, Subscriber};
 use tracing_subscriber::filter::{EnvFilter, Filtered, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{Layer, Registry};
+use tracing_subscriber::{reload, Layer, Registry};
 
 mod syslog;
 use self::syslog::SyslogLayer;
@@ -36,16 +39,21 @@ pub struct LoggingConfig {
     pub default_filter: String,
 }
 
+#[derive(Default)]
+pub struct LoggingHandle {
+    _reloadable_filter_handle: Option<ReloadableFilterHandle>,
+}
+
 /// Set up all our logging infrastructure.
 ///
 /// This method:
 /// - initializes the `tracing` subscriber for capturing log output
 /// - sets up the logging adapters for the CRT and for metrics
 /// - installs a panic hook to capture panics and log them with `tracing`
-pub fn init_logging(config: LoggingConfig) -> anyhow::Result<()> {
-    init_tracing_subscriber(config)?;
+pub fn init_logging(config: LoggingConfig) -> anyhow::Result<LoggingHandle> {
+    let handle = init_tracing_subscriber(config)?;
     install_panic_hook();
-    Ok(())
+    Ok(handle)
 }
 
 /// For a given log directory, prepare a file name for this Mountpoint.
@@ -101,7 +109,7 @@ fn install_panic_hook() {
     }))
 }
 
-fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
+fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<LoggingHandle> {
     /// Create the logging config from the MOUNTPOINT_LOG environment variable or the default config
     /// if that variable is unset. We do this in a function because [EnvFilter] isn't [Clone] and we
     /// need a copy of the filter for each [Layer].
@@ -112,7 +120,7 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
     let env_filter = create_env_filter(&config.default_filter);
     // Don't create the files or subscribers if we'll never emit any logs
     if env_filter.max_level_hint() == Some(LevelFilter::OFF) {
-        return Ok(());
+        return Ok(LoggingHandle::default());
     }
 
     RustLogAdapter::try_init().context("failed to initialize CRT logger")?;
@@ -138,9 +146,14 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
         None
     };
 
+    let mut reloadable_filter_handle = None;
+
     let syslog_layer: Option<Filtered<_, _, Registry>> = if config.log_file.is_none() {
         // TODO decide how to configure the filter for syslog
         let env_filter = create_env_filter(&config.default_filter);
+        let (env_filter, handle) = setup_reloadable_filter(env_filter, config.default_filter.to_string())?;
+        reloadable_filter_handle = Some(handle);
+
         // Don't fail if syslog isn't available on the system, since it's a default
         let syslog_layer = SyslogLayer::new().ok();
         syslog_layer.map(|l| l.with_filter(env_filter))
@@ -165,9 +178,98 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<()> {
 
     registry.init();
 
-    Ok(())
+    Ok(LoggingHandle {
+        _reloadable_filter_handle: reloadable_filter_handle,
+    })
 }
 
 pub fn record_name(name: &str) {
     Span::current().record("name", name);
+}
+
+struct ReloadableFilterHandle {
+    signals_handle: SignalsHandle,
+    thread_handle: Option<JoinHandle<()>>,
+}
+
+impl Drop for ReloadableFilterHandle {
+    fn drop(&mut self) {
+        if !self.signals_handle.is_closed() {
+            self.signals_handle.close();
+        }
+        if let Some(handle) = self.thread_handle.take() {
+            _ = handle.join();
+        }
+    }
+}
+
+fn setup_reloadable_filter<S: Subscriber>(
+    inner: EnvFilter,
+    default_filter: String,
+) -> anyhow::Result<(reload::Layer<EnvFilter, S>, ReloadableFilterHandle)> {
+    let (filter, reload_handle) = reload::Layer::new(inner);
+
+    // Log levels.
+    const DEFAULT: u8 = 0;
+    const DEBUG: u8 = 1;
+    const DEBUG_CRT: u8 = 2;
+    const TRACE: u8 = 3;
+    const TRACE_CRT: u8 = 4;
+    let current_level = AtomicU8::new(DEFAULT);
+
+    fn create_filter(level: LevelFilter, crt_level: LevelFilter) -> EnvFilter {
+        EnvFilter::new(format!("{level},{AWSCRT_LOG_TARGET}={crt_level}"))
+    }
+
+    let mut signals = Signals::new([SIGUSR2])?;
+    let signals_handle = signals.handle();
+
+    let thread_handle = thread::spawn(move || {
+        for signal in &mut signals.forever() {
+            match signal {
+                SIGUSR2 => {
+                    let current = current_level.fetch_add(1, Ordering::SeqCst) + 1;
+                    match current % 5 {
+                        DEFAULT => {
+                            warn!("Changing log verbosity to default level: {}", &default_filter);
+                            _ = reload_handle.modify(|layer| *layer = EnvFilter::new(&default_filter));
+                        }
+                        DEBUG => {
+                            warn!("Changing log verbosity to debug level");
+                            _ = reload_handle
+                                .modify(|layer| *layer = create_filter(LevelFilter::DEBUG, LevelFilter::OFF));
+                        }
+                        DEBUG_CRT => {
+                            warn!("Changing log verbosity to debug level including CRT");
+                            _ = reload_handle
+                                .modify(|layer| *layer = create_filter(LevelFilter::DEBUG, LevelFilter::DEBUG));
+                        }
+                        TRACE => {
+                            warn!("Changing log verbosity to trace level");
+                            _ = reload_handle
+                                .modify(|layer| *layer = create_filter(LevelFilter::TRACE, LevelFilter::OFF));
+                        }
+                        TRACE_CRT => {
+                            warn!("Changing log verbosity to trace level including CRT");
+                            _ = reload_handle.modify(|layer| {
+                                *layer = create_filter(LevelFilter::TRACE, LevelFilter::TRACE);
+                            });
+                        }
+                        level => {
+                            warn!("Ignoring incorrect level: {}", level);
+                        }
+                    };
+                }
+                signal => warn!("Ignoring unexpected signal: {}", signal),
+            }
+        }
+    });
+
+    Ok((
+        filter,
+        ReloadableFilterHandle {
+            signals_handle,
+            thread_handle: Some(thread_handle),
+        },
+    ))
 }
