@@ -48,7 +48,7 @@ class BuildMetadata:
             return "mount-s3-suse.spec"
         return "mount-s3.spec"
 
-@dataclass
+@dataclass(frozen=True)
 class MountpointArtifact:
     binary_path: str
     debug_info_path: str
