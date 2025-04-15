@@ -2,16 +2,15 @@ use anyhow::anyhow;
 use clap::Parser;
 use mountpoint_s3_fs::cli::CliArgs;
 use std::env;
-use std::ffi::OsString;
 
 #[derive(Parser, Debug)]
-pub struct FsTabCliArgs {
-    pub bucket_name: String,
+pub(crate) struct FsTabCliArgs {
+    bucket_name: String,
     #[clap(value_name = "DIRECTORY")]
-    pub mount_point: String,
-    // Needs to be explicit full name because of https://github.com/clap-rs/clap/issues/4808
+    mount_point: String,
+    // Needs to be explicit `std::vec::Vec` because of https://github.com/clap-rs/clap/issues/4808
     #[clap(short = 'o', value_parser = split_commas)]
-    pub options: std::vec::Vec<String>,
+    options: std::vec::Vec<String>,
 }
 
 impl TryFrom<FsTabCliArgs> for CliArgs {
@@ -29,7 +28,7 @@ impl TryFrom<FsTabCliArgs> for CliArgs {
 impl FsTabCliArgs {
     /// Parse the args we've been given into an iterator of options to pass to the main CliArgs parser
     /// Filters out arguments that aren't meant for Mountpoint, and add `--` to any argument that's not prefixed with `-`.
-    fn into_cli_arg_list(self) -> anyhow::Result<impl Iterator<Item = OsString>> {
+    fn into_cli_arg_list(self) -> anyhow::Result<Vec<String>> {
         let mut options: Vec<String> = self
             .options
             .into_iter()
@@ -47,13 +46,12 @@ impl FsTabCliArgs {
         Self::validate_options(&options)?;
         options.retain(|x| x != "--read-write");
 
-        let cli_arg_list = [
-            env::args_os().nth(0).unwrap_or("mount-s3".into()),
-            self.bucket_name.into(),
-            self.mount_point.into(),
-        ]
-        .into_iter()
-        .chain(options.into_iter().map(|s| s.into()));
+        let mut cli_arg_list = vec![
+            env::args_os().nth(0).map(|s| s.into_string().unwrap()).unwrap_or("mount-s3".to_string()),
+            self.bucket_name,
+            self.mount_point,
+        ];
+        cli_arg_list.append(&mut options);
 
         Ok(cli_arg_list)
     }
