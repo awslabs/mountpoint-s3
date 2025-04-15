@@ -1,6 +1,6 @@
 // Generated from AWS EC2 API
-// Region: us-east-1
-// Timestamp: 2025-04-14T15:24:57Z
+// Regions: ap-south-1 eu-north-1 eu-west-3 eu-west-2 eu-west-1 ap-northeast-3 ap-northeast-2 ap-northeast-1 ca-central-1 sa-east-1 ap-southeast-1 ap-southeast-2 eu-central-1 us-east-1 us-east-2 us-west-1 us-west-2
+// Timestamp: 2025-04-15T08:16:30Z
 // Version: 0.0.3
 
 pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
@@ -215,6 +215,7 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "d3en.8xlarge" => Some(50.00),
         "d3en.xlarge" => Some(25.00),
         "dl1.24xlarge" => Some(400.00),
+        "dl2q.24xlarge" => Some(100.00),
         "f1.16xlarge" => Some(25.00),
         "f1.2xlarge" => Some(10.00),
         "f1.4xlarge" => Some(10.00),
@@ -269,6 +270,12 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "h1.2xlarge" => Some(10.00),
         "h1.4xlarge" => Some(10.00),
         "h1.8xlarge" => Some(10.00),
+        "hpc6a.48xlarge" => Some(100.00),
+        "hpc6id.32xlarge" => Some(200.00),
+        "hpc7a.12xlarge" => Some(300.00),
+        "hpc7a.24xlarge" => Some(300.00),
+        "hpc7a.48xlarge" => Some(300.00),
+        "hpc7a.96xlarge" => Some(300.00),
         "hpc7g.16xlarge" => Some(200.00),
         "hpc7g.4xlarge" => Some(200.00),
         "hpc7g.8xlarge" => Some(200.00),
@@ -564,6 +571,7 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "p3dn.24xlarge" => Some(100.00),
         "p4d.24xlarge" => Some(400.00),
         "p5.48xlarge" => Some(3200.00),
+        "p5e.48xlarge" => Some(3200.00),
         "p5en.48xlarge" => Some(3200.00),
         "r3.2xlarge" => None,
         "r3.4xlarge" => None,
@@ -801,6 +809,7 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "trn1.2xlarge" => Some(12.50),
         "trn1.32xlarge" => Some(800.00),
         "trn1n.32xlarge" => Some(1600.00),
+        "trn2.48xlarge" => Some(32000.00),
         "u-12tb1.112xlarge" => Some(100.00),
         "u-18tb1.112xlarge" => Some(100.00),
         "u-24tb1.112xlarge" => Some(100.00),
