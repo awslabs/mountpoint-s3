@@ -79,6 +79,7 @@ walkdir = "2.5.0"
 # Unreleased feature flags
 block_size = []
 event_log = []
+fstab = []
 mem_limiter = []
 # Features for choosing tests
 fips_tests = []
