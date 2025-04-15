@@ -19,6 +19,7 @@ import tempfile
 
 OPT_PATH = "opt/aws/mountpoint-s3"
 
+
 def log(msg: str):
     print(f"*** {msg}")
     sys.stdout.flush()
@@ -48,10 +49,12 @@ class BuildMetadata:
             return "mount-s3-suse.spec"
         return "mount-s3.spec"
 
+
 @dataclass(frozen=True)
 class MountpointArtifact:
     binary_path: str
     debug_info_path: str
+
 
 def check_dependencies(args: argparse.Namespace):
     """Check that all the required dependencies are available so we don't fail mid-build."""
@@ -319,7 +322,9 @@ def build_package_archive(metadata: BuildMetadata, package_dir: str) -> str:
     return archive_path
 
 
-def build_debug_package_archive(metadata: BuildMetadata, package_dir: str, mountpoint_artifact: MountpointArtifact) -> str:
+def build_debug_package_archive(
+    metadata: BuildMetadata, package_dir: str, mountpoint_artifact: MountpointArtifact
+) -> str:
     """Build a debug.tar.gz archive from the contents of the package directory including the debug information.
     Return the path to the final debug.tar.gz archive."""
 
