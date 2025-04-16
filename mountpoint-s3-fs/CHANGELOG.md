@@ -2,6 +2,7 @@
 
 * Updated `network_performance.sh` to set maximum throughput correctly for newer instances (i.e. `trn2.48xlarge`, `i7ie.6xlarge`).
   ([#1369](https://github.com/awslabs/mountpoint-s3/pull/1369))
+
 ## v0.1.3 (April 9, 2025)
 
 * Address an issue introduced in v0.1.1 that could affect throughput and memory usage in
