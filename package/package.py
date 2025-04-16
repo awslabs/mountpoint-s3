@@ -320,22 +320,11 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     return final_deb_path
 
 
-def build_package_archive(metadata: BuildMetadata, package_dir: str) -> str:
-    """Build a .tar.gz archive from the contents of the package directory. Return the path to the
-    final .tar.gz archive."""
+def build_package_archive(metadata: BuildMetadata, package_dir: str, mountpoint_artifact: MountpointArtifact) -> str:
+    """Build a .tar.gz archive from the contents of the package directory including the debug info.
+    Return the path to the final .tar.gz archive."""
 
     archive_path = os.path.join(metadata.output_dir, metadata.artifact_name("tar.gz"))
-    run(["tar", "czvf", archive_path, "-C", package_dir, "."])
-    return archive_path
-
-
-def build_debug_package_archive(
-    metadata: BuildMetadata, package_dir: str, mountpoint_artifact: MountpointArtifact
-) -> str:
-    """Build a debug.tar.gz archive from the contents of the package directory including the debug information.
-    Return the path to the final debug.tar.gz archive."""
-
-    archive_path = os.path.join(metadata.output_dir, metadata.artifact_name("debug.tar.gz"))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         staging = os.path.join(tmpdir, "staging")
@@ -344,7 +333,6 @@ def build_debug_package_archive(
         run(["tar", "czvf", archive_path, "-C", staging, "."])
 
     return archive_path
-
 
 def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
     # Starting with v1.28, rustup will not install active toolchain by default,
@@ -377,10 +365,8 @@ def build(args: argparse.Namespace) -> List[str]:
             artifacts.append(build_rpm(metadata, package_dir, ext))
         elif ext.endswith("deb"):
             artifacts.append(build_deb(metadata, package_dir))
-        elif ext.endswith("debug.tar.gz"):
-            artifacts.append(build_debug_package_archive(metadata, package_dir, mountpoint_artifact))
         elif ext.endswith("tar.gz"):
-            artifacts.append(build_package_archive(metadata, package_dir))
+            artifacts.append(build_package_archive(metadata, package_dir, mountpoint_artifact))
         else:
             raise Exception(f"unable to infer package type from extension {ext}")
 
@@ -400,7 +386,7 @@ if __name__ == "__main__":
         type=str,
         nargs='+',
         help="list of package extensions to be built",
-        default=["rpm", "suse.rpm", "deb", "tar.gz", "debug.tar.gz"],
+        default=["rpm", "suse.rpm", "deb", "tar.gz"],
     )
 
     args = p.parse_args()

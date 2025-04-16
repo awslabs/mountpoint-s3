@@ -17,10 +17,8 @@ jobs:
       matrix:
         runner:
         - name: x86_64
-          arch: x86_64
           tags: [ubuntu-22.04] # GitHub-hosted
         - name: aarch64
-          arch: arm64
           tags: [self-hosted, linux, arm64]
 
     steps:
@@ -42,7 +40,7 @@ jobs:
       - name: Package an unofficial release
         run: docker run --mount type=bind,source=$(pwd),target=/mountpoint mountpoint-builder
       - name: Check release binary
-        run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*-${{ matrix.runner.arch }}.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
+        run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
       - name: Upload unofficial packages
         uses: actions/upload-artifact@v4
         with:
