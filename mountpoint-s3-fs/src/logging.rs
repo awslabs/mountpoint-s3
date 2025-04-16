@@ -19,8 +19,9 @@ use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::metrics::metrics_tracing_span_layer;
 use mountpoint_s3_client::config::{RustLogAdapter, AWSCRT_LOG_TARGET};
+
+use crate::metrics::metrics_tracing_span_layer;
 
 #[cfg(test)]
 mod testing;
