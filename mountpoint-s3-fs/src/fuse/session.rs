@@ -2,6 +2,8 @@ use std::io;
 
 use anyhow::Context;
 use const_format::formatcp;
+#[cfg(target_os = "linux")]
+use fuser::MountOption;
 use fuser::{Filesystem, Session, SessionUnmounter};
 use tracing::{debug, error, trace, warn};
 
@@ -9,6 +11,8 @@ use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
 use crate::sync::thread::{self, JoinHandle};
 use crate::sync::Arc;
+
+use super::config::{FuseSessionConfig, MountPoint};
 
 /// A multi-threaded FUSE session that can be joined to wait for the FUSE filesystem to unmount or
 /// this process to be interrupted.
@@ -23,8 +27,27 @@ pub struct FuseSession {
 type OnClose = Box<dyn FnOnce()>;
 
 impl FuseSession {
-    /// Create worker threads to dispatch requests for a FUSE session.
+    /// Create a new multi-threaded FUSE session.
     pub fn new<FS: Filesystem + Send + Sync + 'static>(
+        fuse_fs: FS,
+        fuse_session_config: FuseSessionConfig,
+    ) -> anyhow::Result<FuseSession> {
+        let session = match fuse_session_config.mount_point {
+            MountPoint::Directory(path) => {
+                Session::new(fuse_fs, path, &fuse_session_config.options).context("Failed to create FUSE session")?
+            }
+            #[cfg(target_os = "linux")]
+            MountPoint::FileDescriptor(fd) => Session::from_fd(
+                fuse_fs,
+                fd,
+                session_acl_from_mount_options(&fuse_session_config.options),
+            ),
+        };
+        Self::from_session(session, fuse_session_config.max_threads).context("Failed to start FUSE session")
+    }
+
+    /// Create worker threads to dispatch requests for a FUSE session.
+    fn from_session<FS: Filesystem + Send + Sync + 'static>(
         mut session: Session<FS>,
         max_worker_threads: usize,
     ) -> anyhow::Result<Self> {
@@ -109,6 +132,19 @@ impl FuseSession {
 
         trace!("unmounting filesystem");
         self.unmounter.unmount().context("failed to unmount FUSE session")
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// Determines "SessionACL" to use from given mount options.
+/// The logic is same as what fuser's "Mount" does.
+fn session_acl_from_mount_options(options: &[MountOption]) -> fuser::SessionACL {
+    if options.contains(&MountOption::AllowRoot) {
+        fuser::SessionACL::RootAndOwner
+    } else if options.contains(&MountOption::AllowOther) {
+        fuser::SessionACL::All
+    } else {
+        fuser::SessionACL::Owner
     }
 }
 
@@ -482,5 +518,14 @@ mod tests {
             check_random(test_helper, 10000);
             check_pct(test_helper, 10000, 3);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test_case(&[], fuser::SessionACL::Owner; "empty options")]
+    #[test_case(&[MountOption::AllowOther], fuser::SessionACL::All; "only allows other")]
+    #[test_case(&[MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "only allows root")]
+    #[test_case(&[MountOption::AllowOther, MountOption::AllowRoot], fuser::SessionACL::RootAndOwner; "allows root and other")]
+    fn test_creating_session_acl_from_mount_options(mount_options: &[MountOption], expected: fuser::SessionACL) {
+        assert_eq!(expected, session_acl_from_mount_options(mount_options));
     }
 }

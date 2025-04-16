@@ -17,6 +17,7 @@ use fuser::{
     ReplyLock, ReplyLseek, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
+pub mod config;
 pub mod session;
 
 /// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
