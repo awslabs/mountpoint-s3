@@ -164,10 +164,15 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<LoggingHandl
     };
 
     let (filter, filter_handle) = toggleable(vec![
+        // Default logging verbosity (i.e., the one configured using `--debug`, `--debug-crt`, or `MOUNTPOINT_LOG` environment variable)
         make_default_filter(config.default_filter),
+        // Debug logging for all except CRT (i.e., `debug,awscrt=off`)
         make_filter(LevelFilter::DEBUG, LevelFilter::OFF),
+        // Debug logging for all (i.e., `debug,awscrt=debug`)
         make_filter(LevelFilter::DEBUG, LevelFilter::DEBUG),
+        // Trace logging for all except CRT (i.e., `trace,awscrt=off`)
         make_filter(LevelFilter::TRACE, LevelFilter::OFF),
+        // Trace logging for all (i.e., `trace,awscrt=trace`)
         make_filter(LevelFilter::TRACE, LevelFilter::TRACE),
     ]);
 
