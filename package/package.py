@@ -158,11 +158,12 @@ def build_mountpoint(metadata: BuildMetadata, args: argparse.Namespace) -> Mount
     # Strip the debug info
     debug_info_path = f"{binary_path}.debug"
     debug_info_name = os.path.basename(debug_info_path)
+    binary_dir = os.path.dirname(binary_path)
     log(f"Stripping debug info from {binary_path} into {debug_info_path}")
     # Copy only the debug info from "mount-s3" into "mount-s3.debug"
-    run(["objcopy", "--only-keep-debug", binary_path, debug_info_path], cwd=metadata.cargoroot, env=env)
+    run(["objcopy", "--only-keep-debug", binary_path, debug_info_path], cwd=binary_dir, env=env)
     # Now strip the debug info copied into "mount-s3.debug" from "mount-s3", and also add a debug link to "mount-s3.debug"
-    run(["objcopy", "--strip-debug", f"--add-gnu-debuglink={debug_info_name}", binary_path], cwd=metadata.cargoroot, env=env)
+    run(["objcopy", "--strip-debug", f"--add-gnu-debuglink={debug_info_name}", binary_path], cwd=binary_dir, env=env)
     if not os.path.exists(debug_info_path):
         raise Exception(f"debug info wasn't found at path {debug_info_path}")
 
