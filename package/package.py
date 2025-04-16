@@ -335,6 +335,7 @@ def build_package_archive(metadata: BuildMetadata, package_dir: str, mountpoint_
 
     return archive_path
 
+
 def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
     # Starting with v1.28, rustup will not install active toolchain by default,
     # (see https://blog.rust-lang.org/2025/03/02/Rustup-1.28.0.html#whats-new-in-rustup-1280)
