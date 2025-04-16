@@ -135,8 +135,8 @@ def build_mountpoint(metadata: BuildMetadata, args: argparse.Namespace) -> Mount
 
     env = {
         "PATH": os.environ["PATH"],
-        # Keep full debug info as a separate artifact
-        "RUSTFLAGS": "-Cdebuginfo=full -Csplit-debuginfo=packed",
+        # Keep full debug info in the binary without stripping anything, we'll strip debug info in the next step
+        "RUSTFLAGS": "-Cdebuginfo=full -Cstrip=none",
     }
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir
@@ -155,6 +155,17 @@ def build_mountpoint(metadata: BuildMetadata, args: argparse.Namespace) -> Mount
     if not os.path.exists(binary_path):
         raise Exception(f"binary wasn't found at path {binary_path}")
 
+    # Strip the debug info
+    debug_info_path = f"{binary_path}.debug"
+    debug_info_name = os.path.basename(debug_info_path)
+    log(f"Stripping debug info from {binary_path} into {debug_info_path}")
+    # Copy only the debug info from "mount-s3" into "mount-s3.debug"
+    run(["objcopy", "--only-keep-debug", binary_path, debug_info_path], cwd=metadata.cargoroot, env=env)
+    # Now strip the debug info copied into "mount-s3.debug" from "mount-s3", and also add a debug link to "mount-s3.debug"
+    run(["objcopy", "--strip-debug", f"--add-gnu-debuglink={debug_info_name}", binary_path], cwd=metadata.cargoroot, env=env)
+    if not os.path.exists(debug_info_path):
+        raise Exception(f"debug info wasn't found at path {debug_info_path}")
+
     # Validate the binary runs and is the right version
     log(f"Validating binary at {binary_path}")
     output = run([binary_path, "-V"])
@@ -166,10 +177,6 @@ def build_mountpoint(metadata: BuildMetadata, args: argparse.Namespace) -> Mount
         # Might not have a known Git hash available, so just check for the 'unofficial' part
         if not output.startswith(f"mount-s3 {metadata.version}-unofficial"):
             raise Exception(f"unexpected compiled version {output}")
-
-    debug_info_path = os.path.join(target_dir, "release/mount-s3.dwp")
-    if not os.path.exists(debug_info_path):
-        raise Exception(f"debug info wasn't found at path {debug_info_path}")
 
     log(f"Built binary for {output} at {binary_path} (debug info {debug_info_path})")
 
