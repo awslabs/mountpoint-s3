@@ -1,8 +1,13 @@
-mod instance_throughput;
+use std::env;
 
 use anyhow::{anyhow, Context};
-use instance_throughput::get_instance_throughput;
 use mountpoint_s3_client::instance_info::InstanceInfo;
+
+use crate::s3::config::Region;
+
+mod instance_throughput;
+use instance_throughput::get_instance_throughput;
+
 /// Determine the maximum network throughput for the current instance using IMDS. Returns an error
 /// if the instance type either cannot be retrieved using the IMDS client or does not have a known
 /// network throughput.
@@ -21,6 +26,40 @@ pub fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result
             ec2_instance_type
         )
     })
+}
+
+/// Determine the region using the following sources (in order):
+///  * `--region` flag (user-provided),
+///  * `AWS_REGION` environment variable (user-provided),
+///  * EC2 instance region (using the IMDS client),
+///  * default region (us-east-1).
+pub fn get_region(instance_info: &InstanceInfo, args_region: Option<String>) -> Region {
+    const DEFAULT_REGION: &str = "us-east-1";
+
+    // Use --region (user-provided).
+    if let Some(region) = args_region {
+        return Region::new_user_specified(region);
+    }
+
+    // Use AWS_REGION (user-provided).
+    if let Some(region) = env_region() {
+        tracing::debug!("using AWS_REGION: {region}");
+        return Region::new_user_specified(region);
+    }
+
+    // Use instance region, if available.
+    if let Ok(region) = instance_info.region() {
+        tracing::debug!("using instance region {}", region);
+        return Region::new_inferred(region.to_owned());
+    }
+
+    // Use default region.
+    tracing::debug!("using default region {}", DEFAULT_REGION);
+    Region::new_inferred(DEFAULT_REGION.to_owned())
+}
+
+fn env_region() -> Option<String> {
+    env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
 }
 
 #[cfg(test)]

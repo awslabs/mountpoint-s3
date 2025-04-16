@@ -3,7 +3,6 @@ use std::ffi::OsString;
 use std::fmt::Debug;
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::num::NonZeroUsize;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,14 +12,10 @@ use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser, ValueEnum};
 use futures::executor::block_on;
 use futures::task::Spawn;
-use mountpoint_s3_client::config::{
-    AddressingStyle, Allocator, EndpointConfig, EventLoopGroup, S3ClientAuthConfig, S3ClientConfig, SigningAlgorithm,
-    Uri, AWSCRT_LOG_TARGET,
-};
-use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::config::{AddressingStyle, EventLoopGroup, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 use regex::Regex;
@@ -38,6 +33,7 @@ use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
+use crate::s3::config::{Channel, ClientConfig, PartConfig};
 use crate::s3::S3Personality;
 use crate::{autoconfigure, metrics, S3Filesystem, S3FilesystemConfig};
 
@@ -397,7 +393,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     pub bind: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum BucketType {
     GeneralPurpose,
     Directory,
@@ -455,6 +451,10 @@ impl CliArgs {
 
     fn prefix(&self) -> Prefix {
         self.prefix.as_ref().cloned().unwrap_or_default()
+    }
+
+    fn channel(&self) -> Channel {
+        Channel::new(self.bucket_name.to_owned(), self.prefix())
     }
 
     fn cache_block_size_in_bytes(&self) -> u64 {
@@ -593,6 +593,99 @@ impl CliArgs {
             allow_other: self.allow_other,
         };
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads as usize)
+    }
+
+    fn user_agent(&self, instance_info: &InstanceInfo, version: String) -> UserAgent {
+        let user_agent_prefix = if let Some(custom_prefix) = &self.user_agent_prefix {
+            format!("{} mountpoint-s3/{}", custom_prefix, version)
+        } else {
+            format!("mountpoint-s3/{}", version)
+        };
+        let mut user_agent = UserAgent::new_with_instance_info(Some(user_agent_prefix), instance_info);
+        if self.read_only {
+            user_agent.value("mp-readonly");
+        }
+        match (&self.cache, self.cache_express_bucket_name()) {
+            (None, None) => (),
+            (None, Some(_)) => {
+                user_agent.key_value("mp-cache", "shared");
+            }
+            (Some(_), None) => {
+                user_agent.key_value("mp-cache", "local");
+            }
+            (Some(_), Some(_)) => {
+                user_agent.key_values("mp-cache", &["shared", "local"]);
+            }
+        }
+        if let Some(ttl) = self.metadata_ttl {
+            user_agent.key_value("mp-cache-ttl", &ttl.to_string());
+        }
+        if let Some(interfaces) = &self.bind {
+            user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
+        }
+        user_agent
+    }
+
+    fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> f64 {
+        const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
+
+        let throughput_target_gbps = self.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
+            match autoconfigure::network_throughput(instance_info) {
+                Ok(throughput) => throughput,
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to detect network throughput. Using {DEFAULT_TARGET_THROUGHPUT} gbps as throughput. \
+                        Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {e:?}",
+                        );
+                    DEFAULT_TARGET_THROUGHPUT
+                }
+            }
+        });
+        tracing::info!("target network throughput {throughput_target_gbps} Gbps");
+        throughput_target_gbps
+    }
+
+    fn personality(&self) -> Option<S3Personality> {
+        self.bucket_type.map(|bucket_type| bucket_type.to_personality())
+    }
+
+    fn part_config(&self) -> PartConfig {
+        PartConfig::with_read_write_sizes(
+            self.read_part_size.unwrap_or(self.part_size) as usize,
+            self.write_part_size.unwrap_or(self.part_size) as usize,
+        )
+    }
+
+    fn auth_config(&self) -> S3ClientAuthConfig {
+        if self.no_sign_request {
+            S3ClientAuthConfig::NoSigning
+        } else if let Some(profile_name) = self.profile.clone() {
+            S3ClientAuthConfig::Profile(profile_name)
+        } else {
+            S3ClientAuthConfig::Default
+        }
+    }
+
+    fn client_config(&self, version: String) -> ClientConfig {
+        let instance_info = InstanceInfo::new();
+        let user_agent = self.user_agent(&instance_info, version);
+        let throughput_target_gbps = self.throughput_target_gbps(&instance_info);
+        let region = autoconfigure::get_region(&instance_info, self.region.clone());
+
+        ClientConfig {
+            region,
+            endpoint_url: self.endpoint_url.clone(),
+            addressing_style: self.addressing_style(),
+            dual_stack: self.dual_stack,
+            transfer_acceleration: self.transfer_acceleration,
+            auth_config: self.auth_config(),
+            requester_pays: self.requester_pays,
+            expected_bucket_owner: self.expected_bucket_owner.clone(),
+            throughput_target_gbps,
+            bind: self.bind.clone(),
+            part_config: self.part_config(),
+            user_agent,
+        }
     }
 }
 
@@ -755,115 +848,21 @@ pub fn create_s3_client(
     args: &CliArgs,
     context_params: &ContextParams,
 ) -> anyhow::Result<(S3CrtClient, EventLoopGroup, S3Personality)> {
-    const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
-
-    // Placeholder region will be filled in by [create_client_for_bucket]
-    let endpoint_config = EndpointConfig::new("PLACEHOLDER")
-        .addressing_style(args.addressing_style())
-        .use_accelerate(args.transfer_acceleration)
-        .use_dual_stack(args.dual_stack);
-
-    let instance_info = InstanceInfo::new();
-    let throughput_target_gbps = args.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
-        match autoconfigure::network_throughput(&instance_info) {
-            Ok(throughput) => throughput,
-            Err(e) => {
-                tracing::warn!(
-                    "failed to detect network throughput. Using {DEFAULT_TARGET_THROUGHPUT} gbps as throughput. \
-                    Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {e:?}",
-                    );
-                DEFAULT_TARGET_THROUGHPUT
-            }
-        }
-    });
-    tracing::info!("target network throughput {throughput_target_gbps} Gbps");
-
-    let auth_config = if args.no_sign_request {
-        S3ClientAuthConfig::NoSigning
-    } else if let Some(profile_name) = &args.profile {
-        S3ClientAuthConfig::Profile(profile_name.to_owned())
-    } else {
-        S3ClientAuthConfig::Default
-    };
-
     // We keep this logic here until we decouple config layer from FS implementation
     // Once we do that, we can move this logic into a hosting app as it will know the full context
     // and remove the contextParams struct
-    let user_agent_prefix = if let Some(custom_prefix) = &args.user_agent_prefix {
-        format!("{} mountpoint-s3/{}", custom_prefix, context_params.full_version)
-    } else {
-        format!("mountpoint-s3/{}", context_params.full_version)
-    };
-    let mut user_agent = UserAgent::new_with_instance_info(Some(user_agent_prefix), &instance_info);
-    if args.read_only {
-        user_agent.value("mp-readonly");
-    }
+    let version = context_params.full_version.to_owned();
+    let client_config = args.client_config(version);
 
-    match (&args.cache, args.cache_express_bucket_name()) {
-        (None, None) => (),
-        (None, Some(_)) => {
-            user_agent.key_value("mp-cache", "shared");
-        }
-        (Some(_), None) => {
-            user_agent.key_value("mp-cache", "local");
-        }
-        (Some(_), Some(_)) => {
-            user_agent.key_values("mp-cache", &["shared", "local"]);
-        }
-    }
-    if let Some(ttl) = args.metadata_ttl {
-        user_agent.key_value("mp-cache-ttl", &ttl.to_string());
-    }
-    if let Some(interfaces) = &args.bind {
-        user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
-    }
+    let channel = args.channel();
+    let client = client_config
+        .create_client(Some(&channel))
+        .context("Failed to create S3 client")?;
 
-    // This is a weird looking number! We really want our first request size to be 1MiB,
-    // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
-    // top of a 1MiB read, which we'd have to wait for a second request to service. Because
-    // FUSE doesn't know the difference between regular reads and readahead reads, it will
-    // send us a READ request for that 128k, so we'll have to block waiting for it even if
-    // the application doesn't want it. This is all in the noise for sequential IO, but
-    // waiting for the readahead hurts random IO. So we add 128k to the first request size
-    // to avoid the latency hit of the second request.
-    //
-    // Note the CRT does not respect this value right now, they always return chunks of part size
-    // but this is the first window size we prefer.
-    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
-    let mut client_config = S3ClientConfig::new()
-        .auth_config(auth_config)
-        .throughput_target_gbps(throughput_target_gbps)
-        .read_part_size(args.read_part_size.unwrap_or(args.part_size) as usize)
-        .write_part_size(args.write_part_size.unwrap_or(args.part_size) as usize)
-        .read_backpressure(true)
-        .initial_read_window(initial_read_window_size)
-        .user_agent(user_agent);
-    if let Some(interfaces) = &args.bind {
-        client_config = client_config.network_interface_names(interfaces.clone());
-    }
-    if args.requester_pays {
-        client_config = client_config.request_payer("requester");
-    }
-    if let Some(owner) = &args.expected_bucket_owner {
-        client_config = client_config.bucket_owner(owner);
-    }
-    // Transient errors are really bad for file systems (applications don't usually expect them), so
-    // let's be more stubborn than the SDK default. With the CRT defaults of 500ms backoff, full
-    // jitter, and 20s max backoff time, 10 attempts will take an average of 55 seconds.
-    client_config = client_config.max_attempts(NonZeroUsize::new(10).unwrap());
-
-    let client = create_client_for_bucket(
-        &args.bucket_name,
-        &args.prefix(),
-        args.region.clone(),
-        args.endpoint_url.clone(),
-        endpoint_config,
-        client_config,
-        &instance_info,
-    )
-    .context("Failed to create S3 client")?;
     let runtime = client.event_loop_group();
-    let s3_personality = infer_s3_personality(args.bucket_type.clone(), &args.bucket_name, client.endpoint_config());
+    let s3_personality = args
+        .personality()
+        .unwrap_or_else(|| S3Personality::infer_from_bucket(&channel.bucket_name, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
 }
@@ -1054,55 +1053,6 @@ where
     Ok(session)
 }
 
-/// Create a client for a bucket in the given region and send a ListObjectsV2 request to validate
-/// that it's accessible. If no region is provided, attempt to infer it by first sending a
-/// ListObjectsV2 to the default region.
-///
-/// This also has the nice side effect of triggering the CRT's DNS resolver to start pooling
-/// responses, which means we don't have to wait for the first file read to start the rampup period.
-fn create_client_for_bucket(
-    bucket: &str,
-    prefix: &Prefix,
-    args_region: Option<String>,
-    endpoint_url: Option<String>,
-    mut endpoint_config: EndpointConfig,
-    client_config: S3ClientConfig,
-    instance_info: &InstanceInfo,
-) -> Result<S3CrtClient, anyhow::Error> {
-    let (region_to_try, user_provided_region) = get_region(args_region, instance_info);
-    endpoint_config = endpoint_config.region(&region_to_try);
-
-    if let Some(uri) = endpoint_url {
-        if !user_provided_region {
-            tracing::warn!(
-                "endpoint specified but region unspecified. using {} as the signing region.",
-                region_to_try
-            );
-        }
-
-        let endpoint_uri = Uri::new_from_str(&Allocator::default(), uri).context("Failed to parse endpoint URL")?;
-        endpoint_config = endpoint_config.endpoint(endpoint_uri);
-    }
-
-    let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
-
-    let list_request = client.list_objects(bucket, None, "", 0, prefix.as_str());
-    match futures::executor::block_on(list_request) {
-        Ok(_) => Ok(client),
-        // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(region))) if !user_provided_region => {
-            tracing::warn!("bucket {bucket} is in region {region}, not {region_to_try}. redirecting...");
-            let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&region)))?;
-            let list_request = new_client.list_objects(bucket, None, "", 0, prefix.as_str());
-            futures::executor::block_on(list_request)
-                .map(|_| new_client)
-                .with_context(|| format!("initial ListObjectsV2 failed for bucket {bucket} in region {region}"))
-        }
-        Err(e) => Err(e)
-            .with_context(|| format!("initial ListObjectsV2 failed for bucket {bucket} in region {region_to_try}")),
-    }
-}
-
 /// Creates PID file at location specified by env var, writing the PID of the Mountpoint process.
 ///
 /// The written PID may not match the PID visible in your namespace.
@@ -1163,69 +1113,8 @@ fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
     }
 }
 
-fn env_region() -> Option<String> {
-    env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
-}
-
 fn env_unstable_cache_key() -> Option<OsString> {
     env::var_os("UNSTABLE_MOUNTPOINT_CACHE_KEY")
-}
-
-/// Determine the region using the following sources (in order):
-///  * `--region` flag (user-provided),
-///  * `AWS_REGION` environment variable (user-provided),
-///  * EC2 instance region (using the IMDS client),
-///  * default region (us-east-1).
-///
-/// Returns the region name and a bool specifying whether
-/// the region was provided by the user.
-fn get_region(args_region: Option<String>, instance_info: &InstanceInfo) -> (String, bool) {
-    const DEFAULT_REGION: &str = "us-east-1";
-
-    // Use --region (user-provided).
-    if let Some(region) = args_region {
-        return (region, true);
-    }
-
-    // Use AWS_REGION (user-provided).
-    if let Some(region) = env_region() {
-        tracing::debug!("using AWS_REGION: {region}");
-        return (region, true);
-    }
-
-    // Use instance region, if available.
-    if let Ok(region) = instance_info.region() {
-        tracing::debug!("using instance region {}", region);
-        return (region.to_owned(), false);
-    }
-
-    // Use default region.
-    tracing::debug!("using default region {}", DEFAULT_REGION);
-    (DEFAULT_REGION.to_owned(), false)
-}
-
-fn infer_s3_personality(
-    bucket_type: Option<BucketType>,
-    bucket: &str,
-    endpoint_config: EndpointConfig,
-) -> S3Personality {
-    if let Some(bucket_type) = bucket_type {
-        return bucket_type.to_personality();
-    }
-
-    let Ok(resolved) = endpoint_config.resolve_for_bucket(bucket) else {
-        return S3Personality::Standard;
-    };
-    let Ok(auth_scheme) = resolved.auth_scheme() else {
-        return S3Personality::Standard;
-    };
-    if auth_scheme.scheme_name() == SigningAlgorithm::SigV4Express {
-        S3Personality::ExpressOneZone
-    } else if auth_scheme.signing_name() == "s3-outposts" {
-        S3Personality::Outposts
-    } else {
-        S3Personality::Standard
-    }
 }
 
 #[cfg(test)]
