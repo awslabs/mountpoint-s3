@@ -50,7 +50,7 @@ For finer-grained control over log verbosity, Mountpoint uses the `MOUNTPOINT_LO
 > The default action of `SIGUSR2` POSIX signal is to terminate the process.
 > Ensure Mountpoint version supports `SIGUSR2` signal before sending it, as otherwise it might terminate the process. Mountpoint v1.17.0 onward supports `SIGUSR2` signal as long as `--no-log` options is not passed.
 
-Mountpoint allows changing logging verbosity dynamically on runtime using `SIGUSR2` POSIX signal, e.g., `kill -USR2 <mount-s3-pid>`.
+Mountpoint allows changing logging verbosity dynamically at runtime using `SIGUSR2` POSIX signal, e.g., `kill -USR2 <mount-s3-pid>`.
 
 Mountpoint toggles between the following verbosity levels each time it receives a `SIGUSR2` signal:
   1. Default logging verbosity (i.e., the one configured using `--debug`, `--debug-crt`, or `MOUNTPOINT_LOG` environment variable)

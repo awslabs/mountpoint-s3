@@ -2,7 +2,7 @@
 
 * Updated `network_performance.sh` to set maximum throughput correctly for newer instances (i.e. `trn2.48xlarge`, `i7ie.6xlarge`).
   ([#1369](https://github.com/awslabs/mountpoint-s3/pull/1369))
-* Allow changing log level dynamically with `USR2` signal. See [Changing logging verbosity on runtime](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#changing-logging-verbosity-on-runtime) for more details. ([#1367](https://github.com/awslabs/mountpoint-s3/pull/1367))
+* Allow changing log level dynamically with `USR2` signal. See [Changing logging verbosity at runtime](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#changing-logging-verbosity-at-runtime) for more details. ([#1367](https://github.com/awslabs/mountpoint-s3/pull/1367))
 
 ## v0.1.3 (April 9, 2025)
 
