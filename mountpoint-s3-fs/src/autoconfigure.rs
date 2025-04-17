@@ -1,7 +1,8 @@
+mod instance_throughput;
+
 use anyhow::{anyhow, Context};
-
+use instance_throughput::get_instance_throughput;
 use mountpoint_s3_client::instance_info::InstanceInfo;
-
 /// Determine the maximum network throughput for the current instance using IMDS. Returns an error
 /// if the instance type either cannot be retrieved using the IMDS client or does not have a known
 /// network throughput.
@@ -13,19 +14,13 @@ pub fn network_throughput(instance_info: &InstanceInfo) -> anyhow::Result<f64> {
     Ok(throughput)
 }
 
-fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
-    const INSTANCE_THROUGHPUT: &str = "instance_throughput";
-    const NETWORK_PERFORMANCE_JSON: &str = include_str!("../scripts/network_performance.json");
-
-    let data: serde_json::Value =
-        serde_json::from_str(NETWORK_PERFORMANCE_JSON).context("failed to parse network_performance.json")?;
-    let instance_throughput = data
-        .get(INSTANCE_THROUGHPUT)
-        .context("instance throughput missing from json")?;
-    instance_throughput
-        .get(ec2_instance_type)
-        .and_then(|t| t.as_f64())
-        .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
+pub fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
+    get_instance_throughput(ec2_instance_type).ok_or_else(|| {
+        anyhow!(
+            "no throughput configuration for EC2 instance type {}",
+            ec2_instance_type
+        )
+    })
 }
 
 #[cfg(test)]
