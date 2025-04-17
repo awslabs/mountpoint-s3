@@ -5,7 +5,6 @@ pub mod cli;
 pub mod data_cache;
 pub mod fs;
 pub mod fuse;
-mod instance_throughput;
 pub mod logging;
 pub mod mem_limiter;
 pub mod metrics;

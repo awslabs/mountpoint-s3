@@ -1,6 +1,7 @@
-use anyhow::{anyhow, Context};
+mod instance_throughput;
 
-use crate::instance_throughput::get_instance_throughput;
+use anyhow::{anyhow, Context};
+use instance_throughput::get_instance_throughput;
 use mountpoint_s3_client::instance_info::InstanceInfo;
 /// Determine the maximum network throughput for the current instance using IMDS. Returns an error
 /// if the instance type either cannot be retrieved using the IMDS client or does not have a known
