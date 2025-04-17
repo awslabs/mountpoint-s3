@@ -22,7 +22,7 @@ use mountpoint_s3_fs::cli::{CliArgs, ContextParams};
 use mountpoint_s3_fs::s3::S3Personality;
 
 fn main() -> anyhow::Result<()> {
-    let cli_args = mountpoint_s3::cli::get_cli_args()?;
+    let cli_args = mountpoint_s3::try_parse_cli_args()?;
     let context = ContextParams {
         full_version: mountpoint_s3::build_info::FULL_VERSION.to_string(),
     };
