@@ -5,10 +5,7 @@ use mountpoint_s3_fs::cli::CliArgs;
 use std::env;
 
 #[derive(Parser, Debug)]
-#[clap(
-    name = "mount-s3",
-    disable_help_flag=true
-)]
+#[clap(name = "mount-s3", disable_help_flag = true)]
 pub(crate) struct FsTabCliArgs {
     bucket_name: String,
     #[clap(value_name = "DIRECTORY")]

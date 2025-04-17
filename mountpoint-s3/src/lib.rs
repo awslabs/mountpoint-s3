@@ -2,7 +2,7 @@ pub mod build_info;
 mod fstab;
 
 use crate::fstab::FsTabCliArgs;
-use clap::{Parser};
+use clap::Parser;
 use mountpoint_s3_fs::cli::CliArgs;
 use std::env;
 use std::ffi::OsString;
