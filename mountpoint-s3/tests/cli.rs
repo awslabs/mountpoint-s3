@@ -301,3 +301,55 @@ fn verify_new_part_size_config_conflict_with_old_one(
 
     Ok(())
 }
+
+#[cfg(feature = "fstab")]
+#[test]
+fn fstab_rw_conflicts_with_ro() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("ro,rw");
+    let error_message = "Cannot use 'ro' flag combined with 'rw' flag";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[cfg(feature = "fstab")]
+#[test]
+fn fstab_cannot_use_foreground() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("foreground");
+    let error_message = "Cannot use 'foreground' flag when using fstab style arguments";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[cfg(feature = "fstab")]
+#[test]
+fn fstab_cannot_use_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("read-only");
+    let error_message = "Cannot use 'read-only' flag when using fstab style arguments";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[cfg(feature = "fstab")]
+#[test]
+fn fstab_no_options() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("--");
+    let error_message = "a value is required for '-o <OPTIONS>' but none was supplied";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
