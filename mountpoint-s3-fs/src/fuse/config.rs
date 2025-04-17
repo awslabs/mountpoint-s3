@@ -16,41 +16,49 @@ pub struct FuseSessionConfig {
     pub(crate) max_threads: usize,
 }
 
+/// Mount options to be passed to FUSE.
+pub struct FuseOptions {
+    /// Mount file system in read-only mode
+    pub read_only: bool,
+    /// Automatically unmount on exit
+    pub auto_unmount: bool,
+    /// Allow root user to access file system
+    pub allow_root: bool,
+    /// Allow other users, including root, to access file system
+    pub allow_other: bool,
+}
+
 impl FuseSessionConfig {
-    pub fn new(
-        mount_point: MountPoint,
-        read_only: bool,
-        auto_unmount: bool,
-        allow_root: bool,
-        allow_other: bool,
-        max_threads: usize,
-    ) -> anyhow::Result<Self> {
+    pub fn new(mount_point: MountPoint, fuse_options: FuseOptions, max_threads: usize) -> anyhow::Result<Self> {
         let fs_name = String::from("mountpoint-s3");
         let mut options = vec![
             MountOption::DefaultPermissions,
             MountOption::FSName(fs_name),
             MountOption::NoAtime,
         ];
-        if read_only {
+        if fuse_options.read_only {
             options.push(MountOption::RO);
         }
-        if auto_unmount {
+        if fuse_options.auto_unmount {
             options.push(MountOption::AutoUnmount);
         }
-        if allow_root {
+        if fuse_options.allow_root {
             options.push(MountOption::AllowRoot);
         }
-        if allow_other {
+        if fuse_options.allow_other {
             options.push(MountOption::AllowOther);
         }
 
         #[cfg(target_os = "linux")]
         if matches!(mount_point, MountPoint::FileDescriptor(_)) {
-            let passed_mount_options = &[(read_only, "--read-only"), (auto_unmount, "--auto-unmount")]
-                .iter()
-                .filter(|o| o.0)
-                .map(|o| o.1)
-                .collect::<Vec<_>>();
+            let passed_mount_options = &[
+                (fuse_options.read_only, "--read-only"),
+                (fuse_options.auto_unmount, "--auto-unmount"),
+            ]
+            .iter()
+            .filter(|o| o.0)
+            .map(|o| o.1)
+            .collect::<Vec<_>>();
 
             if !passed_mount_options.is_empty() {
                 return Err(anyhow!(

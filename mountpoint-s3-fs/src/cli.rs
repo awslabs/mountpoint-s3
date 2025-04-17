@@ -31,7 +31,7 @@ use crate::data_cache::{
     MultilevelDataCache,
 };
 use crate::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
-use crate::fuse::config::{FuseSessionConfig, MountPoint};
+use crate::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
@@ -586,14 +586,13 @@ impl CliArgs {
 
     fn fuse_session_config(&self) -> anyhow::Result<FuseSessionConfig> {
         let mount_point = MountPoint::new(&self.mount_point).context("Failed to create mount point")?;
-        FuseSessionConfig::new(
-            mount_point,
-            self.read_only,
-            self.auto_unmount,
-            self.allow_root,
-            self.allow_other,
-            self.max_threads as usize,
-        )
+        let fuse_options = FuseOptions {
+            read_only: self.read_only,
+            auto_unmount: self.auto_unmount,
+            allow_root: self.allow_root,
+            allow_other: self.allow_other,
+        };
+        FuseSessionConfig::new(mount_point, fuse_options, self.max_threads as usize)
     }
 }
 
