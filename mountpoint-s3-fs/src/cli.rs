@@ -465,6 +465,37 @@ impl CliArgs {
         1024 * 1024 // 1 MiB block size - default for disk cache and for express cache
     }
 
+    fn cache_config(&self) -> CacheConfig {
+        let mut metadata_cache_ttl = self.metadata_ttl.unwrap_or_else(|| {
+            if self.cache.is_some() || self.cache_xz.is_some() {
+                // When the data cache is enabled, use 1min as metadata-ttl.
+                TimeToLive::Duration(Duration::from_secs(60))
+            } else {
+                TimeToLive::Minimal
+            }
+        });
+        if matches!(metadata_cache_ttl, TimeToLive::Duration(Duration::ZERO)) {
+            const ZERO_TTL_WARNING: &str = "The '--metadata-ttl 0' setting is no longer supported, is now interpreted as 'minimal', and will be removed in a future release. Use '--metadata-ttl minimal' instead";
+            tracing::warn!("{}", ZERO_TTL_WARNING);
+            if !self.foreground {
+                // Ensure warning is visible even when not redirecting logs to stdout.
+                use owo_colors::{OwoColorize, Stream::Stderr, Style};
+                eprintln!(
+                    "{}: {}",
+                    "warning".if_supports_color(Stderr, |text| text.style(Style::new().yellow().bold())),
+                    ZERO_TTL_WARNING
+                );
+            }
+            metadata_cache_ttl = TimeToLive::Minimal;
+        }
+        tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
+        let mut cache_config = CacheConfig::new(metadata_cache_ttl);
+        if let Some(negative_cache_ttl) = self.negative_metadata_ttl {
+            cache_config = cache_config.with_negative_metadata_ttl(negative_cache_ttl);
+        }
+        cache_config
+    }
+
     fn cache_express_bucket_name(&self) -> Option<&str> {
         if let Some(bucket_name) = &self.cache_xz {
             return Some(bucket_name);
@@ -923,6 +954,7 @@ where
     filesystem_config.incremental_upload = args.incremental_upload;
     filesystem_config.s3_personality = s3_personality;
     filesystem_config.server_side_encryption = sse.clone();
+    filesystem_config.cache_config = args.cache_config();
 
     let sys = System::new_with_specifics(RefreshKind::everything());
     let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
@@ -944,36 +976,6 @@ where
     }
 
     let prefetcher_config = Default::default();
-
-    let mut metadata_cache_ttl = args.metadata_ttl.unwrap_or_else(|| {
-        if args.cache.is_some() || args.cache_express_bucket_name().is_some() {
-            // When the data cache is enabled, use 1min as metadata-ttl.
-            TimeToLive::Duration(Duration::from_secs(60))
-        } else {
-            TimeToLive::Minimal
-        }
-    });
-    if matches!(metadata_cache_ttl, TimeToLive::Duration(Duration::ZERO)) {
-        const ZERO_TTL_WARNING: &str = "The '--metadata-ttl 0' setting is no longer supported, is now interpreted as 'minimal', and will be removed in a future release. Use '--metadata-ttl minimal' instead";
-        tracing::warn!("{}", ZERO_TTL_WARNING);
-        if !args.foreground {
-            // Ensure warning is visible even when not redirecting logs to stdout.
-            use owo_colors::{OwoColorize, Stream::Stderr, Style};
-            eprintln!(
-                "{}: {}",
-                "warning".if_supports_color(Stderr, |text| text.style(Style::new().yellow().bold())),
-                ZERO_TTL_WARNING
-            );
-        }
-        metadata_cache_ttl = TimeToLive::Minimal;
-    }
-    tracing::trace!("using metadata TTL setting {metadata_cache_ttl:?}");
-    filesystem_config.cache_config = CacheConfig::new(metadata_cache_ttl);
-    if let Some(negative_cache_ttl) = args.negative_metadata_ttl {
-        filesystem_config.cache_config = filesystem_config
-            .cache_config
-            .with_negative_metadata_ttl(negative_cache_ttl);
-    }
 
     match (args.disk_data_cache_config(), args.express_data_cache_config(sse)) {
         (None, Some((config, bucket_name, cache_bucket_name))) => {
