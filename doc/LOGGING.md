@@ -42,6 +42,25 @@ To enable more verbose logging for the AWS Common Runtime that Mountpoint uses t
 
 For finer-grained control over log verbosity, Mountpoint uses the `MOUNTPOINT_LOG` environment variable, which overrides the verbosity options above. The `MOUNTPOINT_LOG` environment variable uses the [`tracing-subscriber` directive syntax](https://docs.rs/tracing-subscriber/0.3.17/tracing_subscriber/filter/struct.EnvFilter.html), and can be used to control log verbosity on a per-subject basis. For example, setting `MOUNTPOINT_LOG` to `trace` enables all trace-level logs, while `trace,awscrt=warn` enables trace-level logs for all log subjects except `awscrt`, which has only warning-level logging enabled.
 
+#### Changing logging verbosity at runtime
+
+> [!WARNING]
+> This is an unstable interface and might be subject to change in the future.
+>
+> The default action of `SIGUSR2` POSIX signal is to terminate the process.
+> Ensure Mountpoint version supports `SIGUSR2` signal before sending it, as otherwise it might terminate the process. Mountpoint v1.17.0 onward supports `SIGUSR2` signal as long as `--no-log` options is not passed.
+
+Mountpoint allows changing logging verbosity dynamically at runtime using `SIGUSR2` POSIX signal, e.g., `kill -USR2 <mount-s3-pid>`.
+
+Mountpoint toggles between the following verbosity levels each time it receives a `SIGUSR2` signal:
+  1. Default logging verbosity (i.e., the one configured using `--debug`, `--debug-crt`, or `MOUNTPOINT_LOG` environment variable)
+  2. Debug logging for all except CRT (i.e., `debug,awscrt=off`)
+  3. Debug logging for all (i.e., `debug,awscrt=debug`)
+  4. Trace logging for all except CRT (i.e., `trace,awscrt=off`)
+  5. Trace logging for all (i.e., `trace,awscrt=trace`)
+
+Note that increasing logging verbosity might affect runtime performance and cause more more log entries to be generated. Caution must be taken before using this feature in a production workload.
+
 ## Metrics
 
 Mountpoint optionally collects metrics measuring various values across different components.

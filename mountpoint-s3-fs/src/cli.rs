@@ -648,7 +648,7 @@ where
     );
 
     if args.foreground {
-        init_logging(args.make_logging_config()).context("failed to initialize logging")?;
+        let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
 
         let _metrics = metrics::install();
 
@@ -680,7 +680,7 @@ where
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
                 let args = CliArgs::parse();
-                init_logging(logging_config).context("failed to initialize logging")?;
+                let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
 
@@ -724,7 +724,7 @@ where
                 }
             }
             ForkResult::Parent { child } => {
-                init_logging(logging_config).context("failed to initialize logging")?;
+                let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
                 // close unused file descriptor, we only read from this end.
                 drop(write_fd);
