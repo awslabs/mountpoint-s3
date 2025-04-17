@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1744904916027,
+  "lastUpdate": 1744905963951,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
@@ -3215,6 +3215,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 239.9140625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "burakvar@amazon.co.uk",
+            "name": "Burak Varlı",
+            "username": "unexge"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1dcafbb49b0f9060b558f451ffab1d41eeec7861",
+          "message": "Allow changing log level dynamically with `USR2` signal  (#1367)\n\nThis PR makes Mountpoint capable of changing log verbosity dynamically\nwith `USR2` Unix signal. The users can send a `USR2` signal to\nMountpoint process, e.g., `kill -USR2 <mount-s3-pid>`, to toggle between\nthe following log verbosity levels:\n  1. Default logging verbosity\n  2. Debug logging for all except CRT (i.e., `debug,awscrt=off`)\n  3. Debug logging for all (i.e., `debug,awscrt=debug`)\n  4. Trace logging for all except CRT (i.e., `trace,awscrt=off`)\n  5. Trace logging for all (i.e., `trace,awscrt=trace`)\n\n### Does this change impact existing behavior?\n\nNo breaking change, a new runtime behavior with `USR2` Unix signal.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, will update.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Burak Varlı <burakvar@amazon.co.uk>\nSigned-off-by: Burak Varlı <unexge@gmail.com>\nCo-authored-by: Alessandro Passaro <alessandro.passaro@gmail.com>",
+          "timestamp": "2025-04-17T13:52:06Z",
+          "tree_id": "6d5f6cdff76b161f33ccb8173ed1b7bae72f4f31",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/1dcafbb49b0f9060b558f451ffab1d41eeec7861"
+        },
+        "date": 1744905963903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 12916.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 29802.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 37426.61328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 153.2421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 398.32421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 190.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 415.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 85.58203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 330.41015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 88.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 327.328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 35318.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 392.9609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 40278.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 400.29296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13657.65234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 261.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 14335.37890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11428.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 264.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 372.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 254.1171875,
             "unit": "MiB"
           }
         ]
