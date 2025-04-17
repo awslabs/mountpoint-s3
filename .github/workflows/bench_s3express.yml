@@ -26,6 +26,7 @@ env:
   # Optional endpoint url, can be empty
   S3_ENDPOINT_URL: ${{ vars.S3_EXPRESS_ONE_ZONE_BENCH_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_BENCH_REGION }}
+  MAX_VALUES_IN_BENCH_CHART: 30
 
 jobs:
   bench:
@@ -85,7 +86,7 @@ jobs:
         # Make sure to add this chart to the step provisioning static content and pushing the changes
         auto-push: false
         comment-on-alert: true
-        max-items-in-chart: 20
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Check resource utilization
       uses: benchmark-action/github-action-benchmark@v1
@@ -101,7 +102,7 @@ jobs:
         # Make sure to add this chart to the step provisioning static content and pushing the changes
         auto-push: false
         comment-on-alert: false
-        max-items-in-chart: 20
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         skip-fetch-gh-pages: true
         summary-always: true
     - name: Provision static content and push benchmark results
@@ -168,7 +169,7 @@ jobs:
         # Make sure to add this chart to the step provisioning static content and pushing the changes
         auto-push: false
         comment-on-alert: false
-        max-items-in-chart: 20
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Provision static content and push benchmark results
       # Store the results and deploy GitHub pages if the results are from main branch
