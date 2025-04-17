@@ -472,11 +472,11 @@ impl CliArgs {
         None
     }
 
-    fn express_data_cache_config(&self) -> Option<(ExpressDataCacheConfig, &str, &str)> {
+    fn express_data_cache_config(&self, sse: ServerSideEncryption) -> Option<(ExpressDataCacheConfig, &str, &str)> {
         let express_bucket_name = self.cache_express_bucket_name()?;
         let config = ExpressDataCacheConfig {
             block_size: self.cache_block_size_in_bytes(),
-            sse: ServerSideEncryption::new(self.sse.clone(), self.sse_kms_key_id.clone()),
+            sse,
             ..Default::default()
         };
 
@@ -502,6 +502,16 @@ impl CliArgs {
             }
             None => None,
         }
+    }
+
+    /// The server-side encryption configuration.
+    ///
+    /// Disallow specifying `--sse-kms-key-id` when `--sse=AES256` as this is not allowed by the S3 API.
+    fn server_side_encryption(&self) -> anyhow::Result<ServerSideEncryption> {
+        if self.sse_kms_key_id.is_some() && self.sse.as_deref() == Some("AES256") {
+            return Err(anyhow!("--sse-kms-key-id can not be used with --sse AES256"));
+        }
+        Ok(ServerSideEncryption::new(self.sse.clone(), self.sse_kms_key_id.clone()))
     }
 
     /// Generates a logging configuration based on the CLI arguments.
@@ -887,8 +897,7 @@ where
     tracing::debug!("{:?}", args);
 
     let fuse_config = args.fuse_session_config()?;
-
-    validate_sse_args(args.sse.as_deref(), args.sse_kms_key_id.as_deref())?;
+    let sse = args.server_side_encryption()?;
 
     let (client, runtime, s3_personality) = client_builder(&args, &context_params)?;
 
@@ -913,7 +922,7 @@ where
     filesystem_config.allow_overwrite = args.allow_overwrite;
     filesystem_config.incremental_upload = args.incremental_upload;
     filesystem_config.s3_personality = s3_personality;
-    filesystem_config.server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
+    filesystem_config.server_side_encryption = sse.clone();
 
     let sys = System::new_with_specifics(RefreshKind::everything());
     let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
@@ -966,7 +975,7 @@ where
             .with_negative_metadata_ttl(negative_cache_ttl);
     }
 
-    match (args.disk_data_cache_config(), args.express_data_cache_config()) {
+    match (args.disk_data_cache_config(), args.express_data_cache_config(sse)) {
         (None, Some((config, bucket_name, cache_bucket_name))) => {
             tracing::trace!("using S3 Express One Zone bucket as a cache for object content");
             let express_cache = ExpressDataCache::new(client.clone(), config, bucket_name, cache_bucket_name);
@@ -1393,17 +1402,6 @@ fn infer_s3_personality(
         S3Personality::Outposts
     } else {
         S3Personality::Standard
-    }
-}
-
-/// Disallow specifying `--sse-kms-key-id` when `--sse=AES256` as this is not allowed by the S3 API.
-/// We are not able to perform this check via clap API (the closest it has is `conflicts_with` method),
-/// thus having a custom validation.
-fn validate_sse_args(sse_type: Option<&str>, sse_kms_key_id: Option<&str>) -> anyhow::Result<()> {
-    if sse_kms_key_id.is_some() && sse_type == Some("AES256") {
-        Err(anyhow!("--sse-kms-key-id can not be used with --sse AES256"))
-    } else {
-        Ok(())
     }
 }
 
