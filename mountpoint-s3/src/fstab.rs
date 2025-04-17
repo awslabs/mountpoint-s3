@@ -1,9 +1,14 @@
 use anyhow::anyhow;
-use clap::Parser;
+use clap::error::ErrorKind;
+use clap::{Command, CommandFactory, Parser};
 use mountpoint_s3_fs::cli::CliArgs;
 use std::env;
 
 #[derive(Parser, Debug)]
+#[clap(
+    name = "mount-s3",
+    disable_help_flag=true
+)]
 pub(crate) struct FsTabCliArgs {
     bucket_name: String,
     #[clap(value_name = "DIRECTORY")]
@@ -14,12 +19,12 @@ pub(crate) struct FsTabCliArgs {
 }
 
 impl TryFrom<FsTabCliArgs> for CliArgs {
-    type Error = anyhow::Error;
+    type Error = clap::Error;
 
     fn try_from(fstab_cli_args: FsTabCliArgs) -> Result<Self, Self::Error> {
         let cli_arg_list = fstab_cli_args.into_cli_arg_list()?;
 
-        let mut cli_args = CliArgs::try_parse_from(cli_arg_list).map_err(|e| anyhow!(e))?;
+        let mut cli_args = CliArgs::try_parse_from(cli_arg_list)?;
         cli_args.foreground = true;
         Ok(cli_args)
     }
@@ -28,31 +33,22 @@ impl TryFrom<FsTabCliArgs> for CliArgs {
 impl FsTabCliArgs {
     /// Parse the args we've been given into an iterator of options to pass to the main CliArgs parser
     /// Filters out arguments that aren't meant for Mountpoint, and add `--` to any argument that's not prefixed with `-`.
-    fn into_cli_arg_list(self) -> anyhow::Result<Vec<String>> {
-        let mut options: Vec<String> = self
-            .options
-            .into_iter()
-            .filter(|option| !Self::filter_option(option))
-            .map(|option| {
-                if option.starts_with("-") {
-                    option
-                } else {
-                    format!("--{}", option)
-                }
-            })
-            .map(Self::rename_option)
-            .collect();
+    fn into_cli_arg_list(self) -> Result<Vec<String>, clap::Error> {
+        Self::validate_options(&self.options)?;
 
-        Self::validate_options(&options)?;
-        options.retain(|x| x != "--read-write");
-
-        let mut cli_arg_list = vec![
-            env::args_os().nth(0).map(|s| s.into_string().unwrap()).unwrap_or("mount-s3".to_string()),
+        let cli_arg_list = [
+            env::args().nth(0).unwrap_or("mount-s3".to_string()),
             self.bucket_name,
             self.mount_point,
-        ];
-        cli_arg_list.append(&mut options);
-
+        ]
+        .into_iter()
+        .chain(
+            self.options
+                .into_iter()
+                .filter(|option| !Self::filter_option(option))
+                .map(Self::rename_option),
+        )
+        .collect();
         Ok(cli_arg_list)
     }
 
@@ -61,23 +57,43 @@ impl FsTabCliArgs {
     /// Options prefixed with `x-` are 'comments' in fstab, and can be ignored by us.
     fn filter_option(option: &str) -> bool {
         // Same as from https://github.com/libfuse/sshfs/blob/ed0825440c48895b7e20cc1440bbafd8d9c88eb8/sshfs.c#L533-L538
-        ["auto", "noauto", "user", "nouser", "users", "_netdev"].contains(&option) || option.starts_with("x-")
+        ["auto", "noauto", "user", "nouser", "users", "_netdev", "rw"].contains(&option) || option.starts_with("x-")
     }
 
     fn rename_option(option: String) -> String {
         match option.as_str() {
-            "--ro" => "--read-only".to_string(),
-            "--rw" => "--read-write".to_string(),
-            _ => option,
+            "ro" => "--read-only".to_string(),
+            _ => format!("--{}", option),
         }
     }
 
-    fn validate_options(options: &[String]) -> anyhow::Result<()> {
-        if options.iter().any(|x| x == "--read-only") && options.iter().any(|x| x == "--read-write") {
-            return Err(anyhow!("Cannot use 'read-only' flag combined with 'read-write' flag"));
+    fn validate_options(options: &[String]) -> Result<(), clap::Error> {
+        if options.iter().any(|x| x.starts_with("-")) {
+            return Err(Command::error(
+                &mut Self::command(),
+                ErrorKind::InvalidValue,
+                "Cannot prefix arguments with `--` when using fstab style arguments.",
+            ));
         }
-        if options.iter().any(|x| x == "--foreground" || x == "-f") {
-            return Err(anyhow!("Cannot use 'foreground' flag when using fstab style arguments"));
+        if options.iter().any(|x| x == "ro") && options.iter().any(|x| x == "rw") {
+            return Err(Command::error(
+                &mut Self::command(),
+                ErrorKind::ArgumentConflict,
+                "Cannot use 'ro' flag combined with 'rw' flag.",
+            ));
+        }
+        if let Some(disallowed_option) = options
+            .iter()
+            .find(|x| ["foreground", "read-only"].contains(&x.as_str()))
+        {
+            return Err(Command::error(
+                &mut Self::command(),
+                ErrorKind::InvalidValue,
+                format!(
+                    "Cannot use '{}' flag when using fstab style arguments.",
+                    disallowed_option
+                ),
+            ));
         }
         Ok(())
     }
@@ -155,15 +171,26 @@ mod tests {
         );
     }
 
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", ""].to_vec())]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "_netdev"].to_vec())]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "ro"].to_vec())]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "rw"].to_vec())]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "uid=2,gid=4,debug"].to_vec())]
-    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "prefix=foo/bar\\,baz/"].to_vec())]
-    fn test_fstab_cli_args_parses(args: Vec<&str>) {
-        let fstab_cli_args = FsTabCliArgs::try_parse_from(&args).unwrap();
-        let _: CliArgs = fstab_cli_args.try_into().unwrap();
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", ""].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "_netdev"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "ro"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "rw"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "uid=2,gid=4,debug"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "prefix=foo/bar\\,baz/"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "--uid=2"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "ro,rw"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "foreground"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "read-only"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "typo"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "\\"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "\\a"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "cache=\\\"foo\\\""].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "cache=\""].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "-f"].to_vec(), false)]
+    fn test_fstab_cli_args_parses(args: Vec<&str>, should_parse: bool) {
+        let res: Result<CliArgs, clap::Error> =
+            FsTabCliArgs::try_parse_from(&args).and_then(|fstab_cli_args| fstab_cli_args.try_into());
+        assert_eq!(res.is_ok(), should_parse, "args={:?}\n res={:?}", args, res);
     }
 
     #[test]

@@ -80,7 +80,6 @@ walkdir = "2.5.0"
 # Unreleased and/or experimental features: not enabled in the release binary and may be dropped in future
 block_size = []
 event_log = []
-fstab = []
 mem_limiter = []
 manifest = []
 # Features for choosing tests
