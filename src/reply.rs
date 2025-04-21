@@ -624,7 +624,7 @@ impl ReplyXattr {
 
     /// Reply to a request with the data in the xattr.
     pub fn data(self, data: &[u8]) {
-        self.reply.send_ll(&ll::Response::new_data(data))
+        self.reply.send_ll(&ll::Response::new_slice(data))
     }
 
     /// Reply to a request with the given error code.
