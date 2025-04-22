@@ -2,7 +2,7 @@
 mod cache_test;
 mod consistency_test;
 mod lookup_test;
-#[cfg(feature = "manifest_tests")]
+#[cfg(feature = "manifest")]
 mod manifest_test;
 mod mkdir_test;
 mod perm_test;
