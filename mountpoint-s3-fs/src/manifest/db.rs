@@ -2,7 +2,7 @@ use rusqlite::{params_from_iter, Connection, Result, Row};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DbEntry {
     pub full_key: String, // Both files and directories don't have '/' in the end
     pub etag: Option<String>,
@@ -202,42 +202,41 @@ fn infer_directories(prev_s3_key: Option<&str>, s3_key: &str) -> Vec<DbEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn test_manifest_entry_parent_key() {
+    #[test_case("a.txt", "")]
+    #[test_case("dir1/a.txt", "dir1")]
+    #[test_case("dir1/dir2/a.txt", "dir1/dir2")]
+    #[test_case("dir1", "")]
+    #[test_case("dir1/dir2", "dir1")]
+    fn test_manifest_entry_parent_key(full_key: &str, parent_key: &str) {
         let entry = DbEntry {
-            full_key: "a.txt".to_string(),
+            full_key: full_key.to_string(),
             etag: None,
             size: None,
         };
-        assert_eq!(entry.parent_key(), "");
+        assert_eq!(entry.parent_key(), parent_key);
+    }
 
-        let entry = DbEntry {
-            full_key: "dir1/a.txt".to_string(),
-            etag: None,
-            size: None,
-        };
-        assert_eq!(entry.parent_key(), "dir1");
-
-        let entry = DbEntry {
-            full_key: "dir1/dir2/a.txt".to_string(),
-            etag: None,
-            size: None,
-        };
-        assert_eq!(entry.parent_key(), "dir1/dir2");
-
-        let entry = DbEntry {
-            full_key: "dir1".to_string(),
-            etag: None,
-            size: None,
-        };
-        assert_eq!(entry.parent_key(), "");
-
-        let entry = DbEntry {
-            full_key: "dir1/dir2".to_string(),
-            etag: None,
-            size: None,
-        };
-        assert_eq!(entry.parent_key(), "dir1");
+    #[test_case(None, "dir1/a.jpg", &["dir1"]; "no prev 1 dir")]
+    #[test_case(None, "dir1/dir2/a.jpg", &["dir1", "dir1/dir2"]; "no prev 2 dirs")]
+    #[test_case(None, "", &[]; "empty")]
+    #[test_case(Some("dir1/dir2/a.jpg"), "dir1/dir2/b.jpg", &[]; "all dirs created in prev")]
+    #[test_case(Some("dir1/a.jpg"), "dir1/dir2/b.jpg", &["dir1/dir2"]; "cur longer")]
+    #[test_case(Some("dir1/dir2/dir3/a.jpg"), "dir1/dir2/b.jpg", &[]; "prev longer")]
+    #[test_case(Some("dir1/dir2/dir3/dir4/c.jpg"), "dir1/dir5/d.jpg", &["dir1/dir5"]; "prev longer, new dir")]
+    #[test_case(Some(""), "dir1/dir2/a.jpg", &["dir1", "dir1/dir2"]; "empty prev")]
+    #[test_case(Some("dir1/a.jpg"), "dir1/dir2/", &["dir1/dir2"]; "cur ends with /")]
+    #[test_case(Some("dir1/"), "dir1/dir2/a.jpg", &["dir1/dir2"]; "prev ends with /")]
+    fn test_infer_directories(prev_key: Option<&str>, current_key: &str, inferred_dirs: &[&str]) {
+        let inferred_dirs: Vec<_> = inferred_dirs
+            .iter()
+            .map(|key| DbEntry {
+                full_key: key.to_string(),
+                etag: None,
+                size: None,
+            })
+            .collect();
+        assert_eq!(infer_directories(prev_key, current_key), inferred_dirs);
     }
 }
