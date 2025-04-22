@@ -766,14 +766,14 @@ pub trait Filesystem {
 
     /// Create and open a file.
     /// If the file does not exist, first create it with the specified mode, and then
-    /// open it. Open flags (with the exception of O_NOCTTY) are available in flags.
-    /// Filesystem may store an arbitrary file handle (pointer, index, etc) in fh,
-    /// and use this in other all other file operations (read, write, flush, release,
-    /// fsync). There are also some flags (direct_io, keep_cache) which the
-    /// filesystem may set, to change the way the file is opened. See fuse_file_info
-    /// structure in <fuse_common.h> for more details. If this method is not
-    /// implemented or under Linux kernel versions earlier than 2.6.15, the mknod()
-    /// and open() methods will be called instead.
+    /// open it. You can use any open flags in the flags parameter except O_NOCTTY.
+    /// The filesystem can store any type of file handle (such as a pointer or index)
+    /// in fh, which can then be used across all subsequent file operations including
+    /// read, write, flush, release, and fsync. Additionally, the filesystem may set
+    /// certain flags like direct_io and keep_cache to change the way the file is
+    /// opened. See fuse_file_info structure in <fuse_common.h> for more details. If
+    /// this method is not implemented or under Linux kernel versions earlier than
+    /// 2.6.15, the mknod() and open() methods will be called instead.
     fn create(
         &mut self,
         _req: &Request<'_>,
