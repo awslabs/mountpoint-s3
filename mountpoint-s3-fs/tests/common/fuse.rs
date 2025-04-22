@@ -11,7 +11,7 @@ use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksu
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_fs::data_cache::DataCache;
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
-use mountpoint_s3_fs::prefetch::{Prefetch, PrefetcherConfig};
+use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
 use nix::fcntl::{self, FdFlag};
@@ -61,7 +61,6 @@ pub struct TestSessionConfig {
     pub part_size: usize,
     pub initial_read_window_size: usize,
     pub filesystem_config: S3FilesystemConfig,
-    pub prefetcher_config: PrefetcherConfig,
     pub auth_config: S3ClientAuthConfig,
     // If true, the test session will be created by opening and passing
     // FUSE device using `Session::from_fd`, otherwise `Session::new` will be used.
@@ -75,7 +74,6 @@ impl Default for TestSessionConfig {
             part_size,
             initial_read_window_size: part_size,
             filesystem_config: Default::default(),
-            prefetcher_config: Default::default(),
             auth_config: Default::default(),
             pass_fuse_fd: false,
         }
@@ -146,9 +144,9 @@ pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
 impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
 
 #[allow(clippy::too_many_arguments)]
-pub fn create_fuse_session<Client, Prefetcher>(
+pub fn create_fuse_session<Client>(
     client: Client,
-    prefetcher: Prefetcher,
+    prefetcher_builder: PrefetcherBuilder<Client>,
     runtime: Runtime,
     bucket: &str,
     prefix: &str,
@@ -158,7 +156,6 @@ pub fn create_fuse_session<Client, Prefetcher>(
 ) -> (BackgroundSession, Option<Mount>)
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch + Send + Sync + 'static,
 {
     let options = vec![
         MountOption::DefaultPermissions,
@@ -172,7 +169,7 @@ where
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let fs = S3FuseFilesystem::new(S3Filesystem::new(
         client,
-        prefetcher,
+        prefetcher_builder,
         runtime,
         bucket,
         &prefix,
@@ -214,7 +211,7 @@ pub mod mock_session {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
     use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
-    use mountpoint_s3_fs::prefetch::{caching_prefetch, default_prefetch};
+    use mountpoint_s3_fs::prefetch::Prefetcher;
 
     const BUCKET_NAME: &str = "test_bucket";
 
@@ -237,10 +234,10 @@ pub mod mock_session {
         };
         let client = Arc::new(MockClient::new(client_config));
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let prefetcher = default_prefetch(runtime.clone(), test_config.prefetcher_config);
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let (session, mount) = create_fuse_session(
             client.clone(),
-            prefetcher,
+            prefetcher_builder,
             runtime,
             BUCKET_NAME,
             &prefix,
@@ -276,10 +273,10 @@ pub mod mock_session {
             };
             let client = Arc::new(MockClient::new(client_config));
             let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-            let prefetcher = caching_prefetch(cache, runtime.clone(), test_config.prefetcher_config);
+            let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
             let (session, mount) = create_fuse_session(
                 client.clone(),
-                prefetcher,
+                prefetcher_builder,
                 runtime,
                 BUCKET_NAME,
                 &prefix,
@@ -400,7 +397,7 @@ pub mod s3_session {
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::Checksum;
     use mountpoint_s3_client::S3CrtClient;
-    use mountpoint_s3_fs::prefetch::{caching_prefetch, default_prefetch};
+    use mountpoint_s3_fs::prefetch::Prefetcher;
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
@@ -428,10 +425,10 @@ pub mod s3_session {
             .initial_read_window(test_config.initial_read_window_size);
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = Runtime::new(client.event_loop_group());
-        let prefetcher = default_prefetch(runtime.clone(), test_config.prefetcher_config);
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let (session, mount) = create_fuse_session(
             client,
-            prefetcher,
+            prefetcher_builder,
             runtime,
             bucket,
             prefix,
@@ -465,10 +462,10 @@ pub mod s3_session {
                 Default::default(),
             );
             let runtime = Runtime::new(client.event_loop_group());
-            let prefetcher = caching_prefetch(cache, runtime.clone(), test_config.prefetcher_config);
+            let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
             let (session, mount) = create_fuse_session(
                 client,
-                prefetcher,
+                prefetcher_builder,
                 runtime,
                 &bucket,
                 &prefix,

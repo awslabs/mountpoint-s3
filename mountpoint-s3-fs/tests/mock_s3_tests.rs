@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use common::{make_test_filesystem_with_client, TestS3Filesystem};
+use common::make_test_filesystem_with_client;
 use httpmock::{Method, MockServer, Then};
 use mountpoint_s3_client::config::{
     AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
@@ -10,6 +10,7 @@ use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3_fs::fs::FUSE_ROOT_INODE;
 
+use mountpoint_s3_fs::S3Filesystem;
 use test_case::test_case;
 
 mod common;
@@ -124,7 +125,7 @@ async fn test_lookup_unhandled_error_mock() {
     );
 }
 
-fn create_fs_with_mock_s3(bucket: &str) -> (TestS3Filesystem<S3CrtClient>, MockServer) {
+fn create_fs_with_mock_s3(bucket: &str) -> (S3Filesystem<S3CrtClient>, MockServer) {
     let server = MockServer::start();
     let endpoint = format!("http://{}", server.address());
     let endpoint = Uri::new_from_str(&Allocator::default(), endpoint).expect("must be a valid uri");

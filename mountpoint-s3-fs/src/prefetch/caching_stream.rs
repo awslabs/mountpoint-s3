@@ -12,45 +12,43 @@ use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
-use crate::prefetch::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
-use crate::prefetch::part::Part;
-use crate::prefetch::part_queue::{unbounded_part_queue, PartQueueProducer};
-use crate::prefetch::part_stream::{
+
+use super::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
+use super::part::Part;
+use super::part_queue::{unbounded_part_queue, PartQueueProducer};
+use super::part_stream::{
     read_from_client_stream, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
 };
-use crate::prefetch::task::RequestTask;
-use crate::prefetch::PrefetchReadError;
+use super::task::RequestTask;
+use super::PrefetchReadError;
 
 /// [ObjectPartStream] implementation which maintains a [DataCache] for the object data
 /// retrieved by an [ObjectClient].
 #[derive(Debug)]
-pub struct CachingPartStream<Cache> {
+pub struct CachingPartStream<Cache, Client: ObjectClient + Clone + Send + Sync + 'static> {
     cache: Arc<Cache>,
     runtime: Runtime,
+    client: Client,
+    mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
-impl<Cache> CachingPartStream<Cache> {
-    pub fn new(runtime: Runtime, cache: Cache) -> Self {
+impl<Cache, Client: ObjectClient + Clone + Send + Sync + 'static> CachingPartStream<Cache, Client> {
+    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter<Client>>, cache: Cache) -> Self {
         Self {
             cache: Arc::new(cache),
             runtime,
+            client,
+            mem_limiter,
         }
     }
 }
 
-impl<Cache> ObjectPartStream for CachingPartStream<Cache>
+impl<Cache, Client> ObjectPartStream<Client> for CachingPartStream<Cache, Client>
 where
     Cache: DataCache + Send + Sync + 'static,
+    Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    fn spawn_get_object_request<Client>(
-        &self,
-        client: &Client,
-        config: RequestTaskConfig,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
-    ) -> RequestTask<Client>
-    where
-        Client: ObjectClient + Clone + Send + Sync + 'static,
-    {
+    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
         let range = config.range;
 
         let backpressure_config = BackpressureConfig {
@@ -61,13 +59,13 @@ where
             request_range: range.into(),
         };
         let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(mem_limiter);
+            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
         trace!(?range, "spawning request");
 
         let request_task = {
             let request = CachingRequest::new(
-                client.clone(),
+                self.client.clone(),
                 self.cache.clone(),
                 self.runtime.clone(),
                 backpressure_limiter,
@@ -80,6 +78,10 @@ where
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
 
         RequestTask::from_handle(task_handle, range, part_queue, backpressure_controller)
+    }
+
+    fn client(&self) -> &Client {
+        &self.client
     }
 }
 
@@ -454,7 +456,7 @@ mod tests {
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let stream = CachingPartStream::new(runtime, cache);
+        let stream = CachingPartStream::new(runtime, mock_client.clone(), mem_limiter.clone(), cache);
         let range = RequestRange::new(object_size, offset as u64, preferred_size);
         let expected_start_block = (range.start() as usize).div_euclid(block_size);
         let expected_end_block = (range.end() as usize).div_ceil(block_size);
@@ -472,7 +474,7 @@ mod tests {
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(&mock_client, config, mem_limiter.clone());
+            let request_task = stream.spawn_get_object_request(config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -498,7 +500,7 @@ mod tests {
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(&mock_client, config, mem_limiter.clone());
+            let request_task = stream.spawn_get_object_request(config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -535,7 +537,7 @@ mod tests {
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let stream = CachingPartStream::new(runtime, cache);
+        let stream = CachingPartStream::new(runtime, mock_client, mem_limiter.clone(), cache);
 
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
@@ -549,7 +551,7 @@ mod tests {
                     max_read_window_size,
                     read_window_size_multiplier,
                 };
-                let request_task = stream.spawn_get_object_request(&mock_client, config, mem_limiter.clone());
+                let request_task = stream.spawn_get_object_request(config);
                 compare_read(&id, &object, request_task);
             }
         }

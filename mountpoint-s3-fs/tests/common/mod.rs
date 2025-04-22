@@ -24,20 +24,18 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
-use mountpoint_s3_fs::prefetch::{default_prefetch, DefaultPrefetcher};
+use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
 
-pub type TestS3Filesystem<Client> = S3Filesystem<Client, DefaultPrefetcher>;
-
 pub fn make_test_filesystem(
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
-) -> (Arc<MockClient>, TestS3Filesystem<Arc<MockClient>>) {
+) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
     let client_config = MockClientConfig {
         bucket: bucket.to_string(),
         part_size: 1024 * 1024,
@@ -56,13 +54,13 @@ pub fn make_test_filesystem_with_client<Client>(
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
-) -> TestS3Filesystem<Client>
+) -> S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-    let prefetcher = default_prefetch(runtime.clone(), Default::default());
-    S3Filesystem::new(client, prefetcher, runtime, bucket, prefix, config)
+    let prefetcher_builder = Prefetcher::default_builder(client.clone());
+    S3Filesystem::new(client, prefetcher_builder, runtime, bucket, prefix, config)
 }
 
 #[track_caller]

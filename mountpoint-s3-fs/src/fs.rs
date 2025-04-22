@@ -17,7 +17,7 @@ use mountpoint_s3_client::ObjectClient;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
-use crate::prefetch::{Prefetch, PrefetchResult};
+use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
 use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -51,21 +51,19 @@ pub use time_to_live::TimeToLive;
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
 #[derive(Debug)]
-pub struct S3Filesystem<Client, Prefetcher>
+pub struct S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
 {
     config: S3FilesystemConfig,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
     superblock: Superblock,
-    prefetcher: Prefetcher,
+    prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
     bucket: String,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
-    file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client, Prefetcher>>>>,
+    file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
 
 /// Reply to a `lookup` call
@@ -145,14 +143,13 @@ impl Default for StatFs {
     }
 }
 
-impl<Client, Prefetcher> S3Filesystem<Client, Prefetcher>
+impl<Client> S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
 {
     pub fn new(
         client: Client,
-        prefetcher: Prefetcher,
+        prefetch_builder: PrefetcherBuilder<Client>,
         runtime: Runtime,
         bucket: &str,
         prefix: &Prefix,
@@ -167,10 +164,11 @@ where
         };
         let superblock = Superblock::new(bucket, prefix, superblock_config);
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
             runtime,
-            mem_limiter.clone(),
+            mem_limiter,
             config.storage_class.to_owned(),
             config.server_side_encryption.clone(),
             client.write_part_size().unwrap(),
@@ -180,7 +178,6 @@ where
         Self {
             config,
             client,
-            mem_limiter,
             superblock,
             prefetcher,
             uploader,
@@ -916,7 +913,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::prefetch::default_prefetch;
+    use crate::prefetch::Prefetcher;
 
     use fuser::FileType;
     use futures::executor::ThreadPool;
@@ -936,14 +933,21 @@ mod tests {
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let prefetcher = default_prefetch(runtime.clone(), Default::default());
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
         let fs_config = S3FilesystemConfig {
             server_side_encryption,
             ..Default::default()
         };
-        let mut fs = S3Filesystem::new(client, prefetcher, runtime, bucket, &Default::default(), fs_config);
+        let mut fs = S3Filesystem::new(
+            client,
+            prefetcher_builder,
+            runtime,
+            bucket,
+            &Default::default(),
+            fs_config,
+        );
 
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
