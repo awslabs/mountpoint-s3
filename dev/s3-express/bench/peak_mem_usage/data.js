@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1744914212422,
+  "lastUpdate": 1745325731355,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
@@ -3483,6 +3483,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 236.19140625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "05f39827035890ced5e62a3824057293bc955279",
+          "message": "Add feature flags for manifest (#1376)\n\nWe'd like to have implementation of the manifest hidden behind the\nfeature flag. We enable tests in workflows now, so they will be\ntriggered in the subsequent PRs.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2025-04-22T10:26:24Z",
+          "tree_id": "72a694f20a19e78b44a622b1659f04bae6a3e31c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/05f39827035890ced5e62a3824057293bc955279"
+        },
+        "date": 1745325731305,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 17292.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 25398.19921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 39010.703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 158.671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 399.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 213.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 427.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 85.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 324.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 88.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 328.76171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 39554.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 392.84375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 33152.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 388.05859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 10983.484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 266.3203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12790.18359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 12822.29296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 264.72265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 404.890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 238.3984375,
             "unit": "MiB"
           }
         ]
