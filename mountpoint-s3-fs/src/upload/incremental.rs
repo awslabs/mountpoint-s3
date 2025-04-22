@@ -13,7 +13,7 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, Instrument};
 
-use crate::async_util::{result_channel, BoxRuntime, RemoteResult};
+use crate::async_util::{result_channel, RemoteResult, Runtime};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::sync::Arc;
 use crate::ServerSideEncryption;
@@ -56,7 +56,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
 {
     pub(super) fn new(
-        runtime: &BoxRuntime,
+        runtime: &Runtime,
         client: Client,
         buffer_size: usize,
         mem_limiter: Arc<MemoryLimiter<Client>>,
@@ -158,7 +158,7 @@ where
     Client: ObjectClient + Send + Sync + 'static,
 {
     pub fn new(
-        runtime: &BoxRuntime,
+        runtime: &Runtime,
         client: Client,
         mem_limiter: Arc<MemoryLimiter<Client>>,
         params: AppendUploadQueueParams,
@@ -470,7 +470,7 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,
@@ -1177,7 +1177,7 @@ mod tests {
         let mem_limiter = MemoryLimiter::new(client.clone(), 0);
         let uploader = Uploader::new(
             client.clone(),
-            ThreadPool::builder().pool_size(1).create().unwrap(),
+            Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
             mem_limiter.into(),
             None,
             Default::default(),

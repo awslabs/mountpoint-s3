@@ -7,6 +7,7 @@ use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::caching_prefetch;
+use mountpoint_s3_fs::Runtime;
 
 use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
@@ -407,7 +408,7 @@ where
     Cache: DataCache + Send + Sync + 'static,
 {
     let mount_point = tempfile::tempdir().unwrap();
-    let runtime = client.event_loop_group();
+    let runtime = Runtime::new(client.event_loop_group());
     let prefetcher = caching_prefetch(cache, runtime.clone(), Default::default());
     let (session, _mount) = create_fuse_session(
         client,
