@@ -1,5 +1,8 @@
 use super::{ManifestError, ManifestWarning};
-use crate::manifest::db::{Db, DbEntry};
+use crate::{
+    manifest::db::{Db, DbEntry},
+    superblock::path::ValidName,
+};
 use std::path::Path;
 use tracing::warn;
 
@@ -49,10 +52,10 @@ fn validate_db_entry(db_entry: &DbEntry) -> Option<ManifestWarning> {
     if db_entry.etag.is_none() || db_entry.size.is_none() {
         return Some(ManifestWarning::NoEtagOrSize(db_entry.full_key.clone()));
     }
-    if db_entry.full_key.ends_with('/') {
-        return Some(ManifestWarning::InvalidKey(db_entry.full_key.clone()));
+    for component in db_entry.full_key.split('/') {
+        if ValidName::parse_str(component).is_err() {
+            return Some(ManifestWarning::InvalidKey(db_entry.full_key.clone()));
+        }
     }
-    // TODO: implement other checks for the key, see [ValidName::parse_str]
-    // https://github.com/awslabs/mountpoint-s3/blob/2e293cf8334db3db4bfa3aae53e63d820a91c127/mountpoint-s3-fs/src/superblock/path.rs#L96C12-L96C21
     None
 }

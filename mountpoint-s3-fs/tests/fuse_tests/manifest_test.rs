@@ -61,12 +61,17 @@ fn test_ingest_shadowed(manifest_keys: &[&str]) {
     assert_eq!(&warnings, &[ManifestWarning::ShadowedKey("dir1".to_string())]);
 }
 
-#[test_case("dir1/"; "ends with /")]
+#[test_case("dir1/./a.txt"; "with dot")]
+#[test_case("dir1/../a.txt"; "with 2 dots")]
+#[test_case("dir1//a.txt"; "with 2 slashes")]
+#[test_case(""; "empty")]
+#[test_case("dir1/a\0.txt"; "with 0")]
+#[test_case("dir1/dir2/"; "ends with slash")]
 fn test_ingest_invalid_key(key: &str) {
     let (_tmp_dir, db_path, warnings) = create_dummy_manifest(&[key], DUMMY_SIZE);
     let db_entries = select_all(&db_path).expect("must select all objects");
     assert!(db_entries.is_empty());
-    assert_eq!(&warnings, &[ManifestWarning::InvalidKey("dir1/".to_string())]);
+    assert_eq!(&warnings, &[ManifestWarning::InvalidKey(key.to_string())]);
 }
 
 fn create_dummy_manifest<T: AsRef<str>>(s3_keys: &[T], file_size: usize) -> (TempDir, PathBuf, Vec<ManifestWarning>) {
