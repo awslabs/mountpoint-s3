@@ -77,11 +77,10 @@ tokio = { version = "1.44.2", features = ["rt", "macros"] }
 walkdir = "2.5.0"
 
 [features]
-# Unreleased feature flags
+# Unreleased and/or experimental features: not enabled in the release binary and may be dropped in future
 block_size = []
 event_log = []
 mem_limiter = []
-# Experimental features: not enabled in the release binary and may be dropped in future
 manifest = []
 # Features for choosing tests
 fips_tests = []
@@ -90,4 +89,3 @@ s3_tests = []
 s3express_tests = []
 shuttle = []
 second_account_tests = []
-manifest_tests = []
