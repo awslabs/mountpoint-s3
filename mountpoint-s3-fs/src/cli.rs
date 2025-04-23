@@ -59,7 +59,7 @@ pub struct ContextParams {
     group(
         ArgGroup::new("cache_group")
             .multiple(true),
-    )
+    ),
 )]
 pub struct CliArgs {
     #[clap(help = "Name of bucket to mount", value_parser = parse_bucket_name)]
