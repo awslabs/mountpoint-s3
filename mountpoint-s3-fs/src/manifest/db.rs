@@ -128,6 +128,7 @@ impl Db {
     }
 
     fn insert_batch_locked(&self, conn: &MutexGuard<'_, Connection>, entries: &[DbEntry]) -> Result<()> {
+        // todo: this must split queries in a way that doesn't trigger limits
         conn.execute_batch("BEGIN TRANSACTION;")?;
         let mut stmt =
             conn.prepare("INSERT OR REPLACE INTO s3_objects (key, parent_key, etag, size) VALUES (?1, ?2, ?3, ?4)")?;
@@ -140,17 +141,39 @@ impl Db {
 
     // From a list of new directories to be inserted find files that will be shadowed by those
     fn select_shadowed_locked(&self, conn: &MutexGuard<'_, Connection>, entries: &[DbEntry]) -> Result<Vec<DbEntry>> {
-        let placeholders = std::iter::repeat("?")
-            .take(entries.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let query = format!("SELECT key, etag, size FROM s3_objects WHERE key in ({})", placeholders);
-        let mut stmt = conn.prepare(&query)?;
-        let keys: Vec<&str> = entries.iter().map(|entry| entry.full_key.as_str()).collect();
-        let result: rusqlite::Result<Vec<DbEntry>> = stmt
-            .query_map(params_from_iter(keys.iter()), DbEntry::from_row)?
-            .collect();
-        result
+        let prepare_stmt = |params_num| {
+            let placeholders = std::iter::repeat("?").take(params_num).collect::<Vec<_>>().join(", ");
+            let query = format!("SELECT key, etag, size FROM s3_objects WHERE key in ({})", placeholders);
+            conn.prepare(&query)
+        };
+
+        // Select shadowed keys in batches to avoid going over the limit of query parameters: https://www.sqlite.org/limits.html.
+        const SQLITE_MAX_VARIABLE_NUMBER: usize = 32766;
+        let batch_size = std::cmp::min(SQLITE_MAX_VARIABLE_NUMBER, entries.len());
+        let mut stmt = prepare_stmt(batch_size)?;
+
+        let mut all_shadowed = Vec::new();
+        let mut batch = Vec::with_capacity(batch_size);
+        for entry in entries {
+            batch.push(entry.full_key.as_str());
+            if batch.len() == batch_size {
+                let query_result: rusqlite::Result<Vec<DbEntry>> = stmt
+                    .query_map(params_from_iter(batch.iter()), DbEntry::from_row)?
+                    .collect();
+                all_shadowed.extend(query_result?);
+                batch.clear();
+            }
+        }
+
+        if !batch.is_empty() {
+            let mut stmt = prepare_stmt(batch.len())?;
+            let query_result: rusqlite::Result<Vec<DbEntry>> = stmt
+                .query_map(params_from_iter(batch.iter()), DbEntry::from_row)?
+                .collect();
+            all_shadowed.extend(query_result?);
+        }
+
+        Ok(all_shadowed)
     }
 }
 
