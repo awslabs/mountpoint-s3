@@ -7,22 +7,26 @@ use mountpoint_s3_fs::cli::CliArgs;
 use std::env;
 use std::ffi::OsString;
 
+const FSTAB_DOCS: &str = "
+Alternative fstab style:
+  mount-s3 <BUCKET> <DIRECTORY> -o <OPTIONS>
+
+Arguments:
+  <BUCKET_NAME>
+          Name of bucket to mount, with s3:// URIs supported
+  <DIRECTORY>
+          Location to mount bucket at
+  <OPTIONS>
+          fstab style options. Comma separated list of CLI options, with backslash escapes for commas, backslashes, and double quotes.
+          Use of `--` to prefix arguments is not allowed.";
+
 // TODO: Extract `mountpoint_s3_fs::cli::CliArgs` to this crate.
 #[derive(Parser, Debug)]
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
     version = build_info::FULL_VERSION,
-    after_help = if cfg!(feature = "fstab") {concat!(
-        "\nAlternative fstab style:\n",
-        "  mount-s3 <BUCKET> <DIRECTORY> -o <OPTIONS>\n\n",
-        "Arguments:\n",
-        "  <BUCKET_NAME>\n          Name of bucket to mount, with s3:// URIs supported\n",
-        "  <DIRECTORY>\n          Location to mount bucket at\n",
-        "  <OPTIONS>\n",
-        "          fstab style options. Comma separated list of CLI options, with backslash escapes for commas, backslashes, and double quotes.\n",
-        "          Use of `--` to prefix arguments is not allowed."
-    )} else {""}
+    after_help = if cfg!(feature = "fstab") {FSTAB_DOCS} else {""}
 )]
 struct AppCliArgs {
     #[clap(flatten)]
