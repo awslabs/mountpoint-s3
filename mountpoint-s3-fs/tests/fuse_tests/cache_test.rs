@@ -24,7 +24,7 @@ use crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_stan
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3_client::ObjectClient;
 #[cfg(feature = "s3express_tests")]
-use mountpoint_s3_fs::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache};
+use mountpoint_s3_fs::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache, ExpressDataCacheConfig};
 
 const CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
@@ -44,9 +44,7 @@ async fn express_invalid_block_read() {
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let cache = CacheTestWrapper::new(ExpressDataCache::new(
         client.clone(),
-        Default::default(),
-        &bucket,
-        &cache_bucket,
+        ExpressDataCacheConfig::new(&cache_bucket, &bucket),
     ));
     let (mount_point, _session) = mount_bucket(client.clone(), cache.clone(), &bucket, &prefix);
 
@@ -104,7 +102,10 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
     let express_bucket_name = get_express_bucket();
-    let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket_name, &express_bucket_name);
+    let cache = ExpressDataCache::new(
+        client.clone(),
+        ExpressDataCacheConfig::new(&express_bucket_name, &bucket_name),
+    );
 
     cache_write_read_base(
         client,
@@ -124,10 +125,11 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
 fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
+        cache_directory: cache_dir.path().to_path_buf(),
         block_size: CACHE_BLOCK_SIZE,
         limit: Default::default(),
     };
-    let cache = DiskDataCache::new(cache_dir.path().to_path_buf(), cache_config);
+    let cache = DiskDataCache::new(cache_config);
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
 
@@ -156,11 +158,9 @@ fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<Str
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
-    let config = ExpressDataCacheConfig {
-        sse: ServerSideEncryption::new(sse_type.clone(), kms_key_id.clone()),
-        ..Default::default()
-    };
-    let cache = ExpressDataCache::new(client.clone(), config, &bucket_name, &cache_bucket);
+    let config = ExpressDataCacheConfig::new(&cache_bucket, &bucket_name)
+        .sse(ServerSideEncryption::new(sse_type.clone(), kms_key_id.clone()));
+    let cache = ExpressDataCache::new(client.clone(), config);
 
     cache_write_read_base(
         client,
@@ -179,7 +179,7 @@ async fn express_cache_read_empty() {
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
     let express_bucket_name = get_express_bucket();
-    let cache = ExpressDataCache::new(client, Default::default(), &bucket_name, &express_bucket_name);
+    let cache = ExpressDataCache::new(client, ExpressDataCacheConfig::new(&express_bucket_name, &bucket_name));
 
     cache_read_empty(cache, "express_cache_read_empty").await;
 }
@@ -188,10 +188,11 @@ async fn express_cache_read_empty() {
 async fn disk_cache_read_empty() {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
+        cache_directory: cache_dir.path().to_path_buf(),
         block_size: CACHE_BLOCK_SIZE,
         limit: Default::default(),
     };
-    let cache = DiskDataCache::new(cache_dir.path().to_path_buf(), cache_config);
+    let cache = DiskDataCache::new(cache_config);
 
     cache_read_empty(cache, "disk_cache_read_empty").await;
 }
@@ -204,7 +205,10 @@ async fn express_cache_verify_fail_non_express() {
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_standard_bucket();
-    let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket_name, &cache_bucket_name);
+    let cache = ExpressDataCache::new(
+        client.clone(),
+        ExpressDataCacheConfig::new(&cache_bucket_name, &bucket_name),
+    );
     let err = cache
         .verify_cache_valid()
         .await
@@ -252,7 +256,10 @@ async fn express_cache_verify_fail_forbidden() {
         S3ClientAuthConfig::Provider(provider),
     );
 
-    let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket_name, &cache_bucket_name);
+    let cache = ExpressDataCache::new(
+        client.clone(),
+        ExpressDataCacheConfig::new(&cache_bucket_name, &bucket_name),
+    );
     let err = cache.verify_cache_valid().await.expect_err("cache must be write-able");
 
     if let DataCacheError::IoFailure(err) = err {
@@ -344,7 +351,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
     // Create cache and mount a bucket
     let bucket = get_standard_bucket();
     let prefix = get_test_prefix("express_expected_bucket_owner");
-    let cache = ExpressDataCache::new(client.clone(), Default::default(), &bucket, &cache_bucket);
+    let cache = ExpressDataCache::new(client.clone(), ExpressDataCacheConfig::new(&cache_bucket, &bucket));
     let cache_valid = block_on(cache.verify_cache_valid());
     if owner_checked && !owner_matches {
         match cache_valid {

@@ -7,11 +7,11 @@
 //! and limits the risk from deleting or overwriting data to files written within this sub-directory.
 
 use sha2::{Digest, Sha256};
-use std::ffi::OsString;
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::DirBuilderExt;
-use std::os::unix::prelude::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -41,12 +41,12 @@ impl ManagedCacheDir {
     /// being retained, assuming other Mountpoint instances are being ran on the host.
     pub fn new_from_parent_with_cache_key(
         parent_path: impl AsRef<Path>,
-        cache_key: Option<OsString>,
+        cache_key: Option<&OsStr>,
     ) -> Result<Self, ManagedCacheDirError> {
         let mountpoint_cache_path = parent_path.as_ref().join("mountpoint-cache");
         let managed_cache_path = match cache_key {
             None => mountpoint_cache_path.clone(),
-            Some(ref cache_key) => mountpoint_cache_path.join(hash_cache_key(cache_key.as_bytes())),
+            Some(cache_key) => mountpoint_cache_path.join(hash_cache_key(cache_key.as_bytes())),
         };
         let managed_cache_dir = Self {
             mountpoint_cache_path,
@@ -118,10 +118,10 @@ fn hash_cache_key(cache_key: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{hash_cache_key, ManagedCacheDir};
-    use std::ffi::OsString;
 
+    use std::ffi::OsStr;
     use std::fs;
-    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     use std::path::PathBuf;
 
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn test_cache_key_unused() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache_key = OsString::from("cache_key");
+        let cache_key = OsStr::new("cache_key");
         let mp_cache_path = temp_dir.path().join("mountpoint-cache");
         let expected_path = mp_cache_path.join(hash_cache_key(cache_key.as_bytes()));
 
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn test_cache_key_used() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache_key = OsString::from("cache_key");
+        let cache_key = OsStr::new("cache_key");
         let mp_cache_path = temp_dir.path().join("mountpoint-cache");
         let expected_path = mp_cache_path.join(hash_cache_key(cache_key.as_bytes()));
 

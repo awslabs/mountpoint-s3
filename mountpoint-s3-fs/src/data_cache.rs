@@ -87,3 +87,13 @@ pub trait DataCache {
     /// Returns the block size for the data cache.
     fn block_size(&self) -> u64;
 }
+
+/// Configuration for the data cache.
+///
+/// Can be configured to enable a local disk cache, a shared cache
+/// in S3 Express One Zone, or both.
+#[derive(Debug)]
+pub struct DataCacheConfig {
+    pub disk_cache_config: Option<DiskDataCacheConfig>,
+    pub express_cache_config: Option<ExpressDataCacheConfig>,
+}

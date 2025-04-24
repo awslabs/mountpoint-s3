@@ -115,7 +115,7 @@ where
 mod tests {
     use super::*;
     use crate::checksums::ChecksummedBytes;
-    use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache};
+    use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig};
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
@@ -128,13 +128,11 @@ mod tests {
 
     fn create_disk_cache() -> (TempDir, Arc<DiskDataCache>) {
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(
-            cache_directory.path().to_path_buf(),
-            DiskDataCacheConfig {
-                block_size: BLOCK_SIZE,
-                limit: CacheLimit::Unbounded,
-            },
-        );
+        let cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_directory.path().to_path_buf(),
+            block_size: BLOCK_SIZE,
+            limit: CacheLimit::Unbounded,
+        });
         (cache_directory, Arc::new(cache))
     }
 
@@ -148,7 +146,10 @@ mod tests {
             ..Default::default()
         };
         let client = MockClient::new(config);
-        let cache = ExpressDataCache::new(client.clone(), Default::default(), "unique source description", bucket);
+        let cache = ExpressDataCache::new(
+            client.clone(),
+            ExpressDataCacheConfig::new(bucket, "unique source description"),
+        );
         (client, cache)
     }
 
