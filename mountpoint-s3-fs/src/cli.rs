@@ -5,12 +5,10 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser, ValueEnum};
-use futures::executor::block_on;
 use futures::task::Spawn;
 use mountpoint_s3_client::config::{AddressingStyle, EventLoopGroup, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
 use mountpoint_s3_client::instance_info::InstanceInfo;
@@ -21,22 +19,16 @@ use nix::unistd::ForkResult;
 use regex::Regex;
 use sysinfo::{RefreshKind, System};
 
-use crate::async_util::Runtime;
-use crate::data_cache::{
-    CacheLimit, DataCacheConfig, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig,
-    ManagedCacheDir, MultilevelDataCache,
-};
+use crate::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig, ManagedCacheDir};
 use crate::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use crate::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use crate::fuse::session::FuseSession;
-use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
-use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
 use crate::s3::config::{ClientConfig, PartConfig, S3Path};
 use crate::s3::S3Personality;
-use crate::{autoconfigure, metrics, S3Filesystem, S3FilesystemConfig};
+use crate::{autoconfigure, metrics, MountpointConfig, Runtime, S3FilesystemConfig};
 
 const CLIENT_OPTIONS_HEADER: &str = "Client options";
 const MOUNT_OPTIONS_HEADER: &str = "Mount options";
@@ -956,10 +948,11 @@ where
     tracing::info!("mount-s3 {}", context_params.full_version);
     tracing::debug!("{:?}", args);
 
-    let fuse_config = args.fuse_session_config()?;
+    let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
     let (client, runtime, s3_personality) = client_builder(&args, &context_params)?;
+    let runtime = Runtime::new(runtime);
 
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
@@ -968,11 +961,17 @@ where
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
     let mut data_cache_config = args.data_cache_config(sse);
 
-    let runtime = Runtime::new(runtime);
     let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
-    let prefetcher_builder = create_prefetcher_builder(data_cache_config, &client, &runtime)?;
-    let fs = create_filesystem(client, prefetcher_builder, runtime, &s3_path, filesystem_config);
-    let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
+
+    tracing::debug!(?fuse_session_config, "creating fuse session");
+    let mount_point_path = format!("{}", fuse_session_config.mount_point());
+
+    let mut fuse_session = MountpointConfig::new(fuse_session_config)
+        .filesystem_config(filesystem_config)
+        .data_cache_config(data_cache_config)
+        .create_fuse_session(s3_path, client, runtime)?;
+    tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
+
     if let Some(managed_cache_dir) = managed_cache_dir {
         fuse_session.run_on_close(Box::new(move || {
             drop(managed_cache_dir);
@@ -991,77 +990,6 @@ fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Res
             .context("failed to create cache directory")?;
     disk_cache_config.cache_directory = managed_cache_dir.as_path_buf();
     Ok(Some(managed_cache_dir))
-}
-
-fn create_prefetcher_builder<Client>(
-    data_cache_config: DataCacheConfig,
-    client: &Client,
-    runtime: &Runtime,
-) -> anyhow::Result<PrefetcherBuilder<Client>>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    let disk_cache = data_cache_config.disk_cache_config.map(DiskDataCache::new);
-    let express_cache = match data_cache_config.express_cache_config {
-        None => None,
-        Some(config) => {
-            let cache_bucket_name = config.bucket_name.clone();
-            let express_cache = ExpressDataCache::new(client.clone(), config);
-            block_on(express_cache.verify_cache_valid())
-                .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
-            Some(express_cache)
-        }
-    };
-    let client = client.clone();
-    let builder = match (disk_cache, express_cache) {
-        (None, Some(express_cache)) => Prefetcher::caching_builder(express_cache, client),
-        (Some(disk_cache), None) => Prefetcher::caching_builder(disk_cache, client),
-        (Some(disk_cache), Some(express_cache)) => {
-            let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
-            Prefetcher::caching_builder(cache, client)
-        }
-        _ => Prefetcher::default_builder(client),
-    };
-    Ok(builder)
-}
-
-fn create_filesystem<Client>(
-    client: Client,
-    prefetcher_builder: PrefetcherBuilder<Client>,
-    runtime: Runtime,
-    s3_path: &S3Path,
-    filesystem_config: S3FilesystemConfig,
-) -> S3Filesystem<Client>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    tracing::trace!(?filesystem_config, "creating file system");
-    S3Filesystem::new(
-        client,
-        prefetcher_builder,
-        runtime,
-        &s3_path.bucket_name,
-        &s3_path.prefix,
-        filesystem_config,
-    )
-}
-
-fn create_fuse_session<Client>(
-    fs: S3Filesystem<Client>,
-    fuse_session_config: FuseSessionConfig,
-    bucket_description: &str,
-) -> anyhow::Result<FuseSession>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    let fuse_fs = S3FuseFilesystem::new(fs);
-
-    tracing::debug!(?fuse_session_config, "creating fuse session");
-    let mount_point_path = format!("{}", &fuse_session_config.mount_point);
-
-    let session = FuseSession::new(fuse_fs, fuse_session_config)?;
-    tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
-    Ok(session)
 }
 
 /// Creates PID file at location specified by env var, writing the PID of the Mountpoint process.
