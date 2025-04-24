@@ -1,4 +1,4 @@
-use mountpoint_s3_fs::manifest::{create_db, DbEntry, ManifestError, ManifestWarning};
+use mountpoint_s3_fs::manifest::{create_db, DbEntry, ManifestError};
 use rusqlite::{Connection, Row};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -9,7 +9,7 @@ pub const DUMMY_SIZE: usize = 1024;
 pub fn create_dummy_manifest<T: AsRef<str>>(
     s3_keys: &[T],
     file_size: usize,
-) -> (TempDir, PathBuf, Vec<ManifestWarning>) {
+) -> Result<(TempDir, PathBuf), ManifestError> {
     let db_entries = s3_keys.iter().map(|key| {
         Ok(DbEntry {
             full_key: key.as_ref().to_string(),
@@ -25,13 +25,13 @@ pub fn create_dummy_manifest<T: AsRef<str>>(
 pub fn create_manifest(
     db_entries: impl Iterator<Item = Result<DbEntry, ManifestError>>,
     batch_size: usize,
-) -> (TempDir, PathBuf, Vec<ManifestWarning>) {
+) -> Result<(TempDir, PathBuf), ManifestError> {
     let db_dir = tempfile::tempdir().unwrap();
     let db_path = db_dir.path().join("s3_keys.db3");
 
-    let warnings = create_db(&db_path, db_entries, batch_size).expect("db must be created");
+    create_db(&db_path, db_entries, batch_size)?;
 
-    (db_dir, db_path, warnings)
+    Ok((db_dir, db_path))
 }
 
 /// Entry from a db. Compared to [DbEntry] it has a `parent_key` field.

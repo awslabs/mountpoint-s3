@@ -1,5 +1,5 @@
 use crate::common::manifest::{create_dummy_manifest, select_all, TestDbEntry, DUMMY_ETAG, DUMMY_SIZE};
-use mountpoint_s3_fs::manifest::ManifestWarning;
+use mountpoint_s3_fs::manifest::ManifestError;
 use test_case::test_case;
 
 #[test_case(&[
@@ -28,7 +28,7 @@ fn test_ingest_directories(manifest_keys: &[&str]) {
         TestDbEntry::file("dir1/dir3/dir4/d.txt", "dir1/dir3/dir4", DUMMY_ETAG, DUMMY_SIZE),
         TestDbEntry::file("e.txt", "", DUMMY_ETAG, DUMMY_SIZE),
     ];
-    let (_tmp_dir, db_path, _) = create_dummy_manifest(manifest_keys, DUMMY_SIZE);
+    let (_tmp_dir, db_path) = create_dummy_manifest(manifest_keys, DUMMY_SIZE).expect("manifest must be created");
     let db_entries = select_all(&db_path).expect("must select all objects");
     assert_eq!(&db_entries, all_expected_entries);
 }
@@ -50,10 +50,9 @@ fn test_ingest_shadowed(manifest_keys: &[&str]) {
         TestDbEntry::directory("dir2", ""),
         TestDbEntry::file("dir2/b.txt", "dir2", DUMMY_ETAG, DUMMY_SIZE),
     ];
-    let (_tmp_dir, db_path, warnings) = create_dummy_manifest(manifest_keys, DUMMY_SIZE);
+    let (_tmp_dir, db_path) = create_dummy_manifest(manifest_keys, DUMMY_SIZE).expect("manifest must be created");
     let db_entries = select_all(&db_path).expect("must select all objects");
     assert_eq!(&db_entries, all_expected_entries);
-    assert_eq!(&warnings, &[ManifestWarning::ShadowedKey("dir1".to_string())]);
 }
 
 #[test_case("dir1/./a.txt"; "with dot")]
@@ -63,8 +62,6 @@ fn test_ingest_shadowed(manifest_keys: &[&str]) {
 #[test_case("dir1/a\0.txt"; "with 0")]
 #[test_case("dir1/dir2/"; "ends with slash")]
 fn test_ingest_invalid_key(key: &str) {
-    let (_tmp_dir, db_path, warnings) = create_dummy_manifest(&[key], DUMMY_SIZE);
-    let db_entries = select_all(&db_path).expect("must select all objects");
-    assert!(db_entries.is_empty());
-    assert_eq!(&warnings, &[ManifestWarning::InvalidKey(key.to_string())]);
+    let err = create_dummy_manifest(&[key], DUMMY_SIZE).expect_err("must be an error");
+    assert_eq!(err, ManifestError::InvalidKey(key.to_string()));
 }
