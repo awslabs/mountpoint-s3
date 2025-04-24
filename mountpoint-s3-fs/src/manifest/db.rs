@@ -79,7 +79,7 @@ impl Db {
     pub(super) fn insert_directories(&self, batch_size: usize) -> Result<()> {
         let mut conn = self.conn.lock().expect("lock must succeed");
         let tx = conn.transaction()?;
-        let mut read_stmt = tx.prepare("SELECT key FROM s3_objects")?;
+        let mut read_stmt = tx.prepare("SELECT DISTINCT(parent_key) FROM s3_objects")?;
         let mut write_stmt =
             tx.prepare("INSERT OR REPLACE INTO s3_objects (key, parent_key, etag, size) VALUES (?1, ?2, ?3, ?4)")?;
         let keys_iter = read_stmt.query_map((), |row| {
@@ -88,8 +88,8 @@ impl Db {
         })?;
 
         let mut insert_buffer: HashSet<DbEntry> = Default::default();
-        for s3_key in keys_iter {
-            insert_buffer.extend(infer_directories(&s3_key?));
+        for dir_key in keys_iter {
+            insert_buffer.extend(infer_directories(&dir_key?));
 
             if insert_buffer.len() >= batch_size {
                 for entry in insert_buffer.iter() {
@@ -109,15 +109,19 @@ impl Db {
     }
 }
 
-fn infer_directories(s3_key: &str) -> Vec<DbEntry> {
+fn infer_directories(dir_key: &str) -> Vec<DbEntry> {
+    let dir_key = dir_key.trim_end_matches("/");
+    if dir_key.is_empty() {
+        return Default::default();
+    }
+
     let mut insert_buffer: Vec<DbEntry> = Default::default();
 
     // create new subdirectories
-    let components: Vec<_> = s3_key.split("/").collect();
     let mut dir_key_len = 0;
-    for component in components.iter().take(components.len() - 1) {
+    for component in dir_key.split("/") {
         dir_key_len += component.len() + 1; // includes the trailing '/'
-        let directory_key = &s3_key[..dir_key_len - 1];
+        let directory_key = &dir_key[..dir_key_len - 1];
         debug_assert!(!directory_key.ends_with("/")); // directories don't have '/' in the end
         insert_buffer.push(DbEntry {
             full_key: directory_key.to_owned(),
@@ -148,12 +152,11 @@ mod tests {
         assert_eq!(entry.parent_key(), parent_key);
     }
 
-    #[test_case("dir1/a.jpg", &["dir1"]; "no prev 1 dir")]
-    #[test_case( "dir1/dir2/a.jpg", &["dir1", "dir1/dir2"]; "no prev 2 dirs")]
+    #[test_case("dir1", &["dir1"]; "no prev 1 dir")]
+    #[test_case( "dir1/dir2", &["dir1", "dir1/dir2"]; "no prev 2 dirs")]
     #[test_case("", &[]; "empty")]
-    #[test_case("a.jpg", &[]; "empty2")]
     #[test_case("dir1/", &["dir1"]; "ends with /")]
-    fn test_infer_directories(current_key: &str, inferred_dirs: &[&str]) {
+    fn test_infer_directories(dir_key: &str, inferred_dirs: &[&str]) {
         let inferred_dirs: Vec<_> = inferred_dirs
             .iter()
             .map(|key| DbEntry {
@@ -162,6 +165,6 @@ mod tests {
                 size: None,
             })
             .collect();
-        assert_eq!(infer_directories(current_key), inferred_dirs);
+        assert_eq!(infer_directories(dir_key), inferred_dirs);
     }
 }
