@@ -57,9 +57,12 @@ pub struct CliArgs {
     )]
     pub maximum_throughput_gbps: Option<u64>,
 
+    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
+    pub crt_memory_limit_gib: Option<u64>,
+
     #[clap(
         long,
-        help = "Maximum memory usage target in MiB",
+        help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
     )]
@@ -111,6 +114,9 @@ fn main() {
         .initial_read_window(initial_read_window_size);
     if let Some(throughput_target_gbps) = args.maximum_throughput_gbps {
         config = config.throughput_target_gbps(throughput_target_gbps as f64);
+    }
+    if let Some(limit_gib) = args.crt_memory_limit_gib {
+        config = config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
     }
     if let Some(part_size) = args.part_size {
         config = config.part_size(part_size as usize);
