@@ -595,7 +595,7 @@ impl CliArgs {
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads as usize)
     }
 
-    fn user_agent(&self, instance_info: &InstanceInfo, version: String) -> UserAgent {
+    fn user_agent(&self, instance_info: &InstanceInfo, version: &str) -> UserAgent {
         let user_agent_prefix = if let Some(custom_prefix) = &self.user_agent_prefix {
             format!("{} mountpoint-s3/{}", custom_prefix, version)
         } else {
@@ -666,7 +666,7 @@ impl CliArgs {
         }
     }
 
-    fn client_config(&self, version: String) -> ClientConfig {
+    fn client_config(&self, version: &str) -> ClientConfig {
         let instance_info = InstanceInfo::new();
         let user_agent = self.user_agent(&instance_info, version);
         let throughput_target_gbps = self.throughput_target_gbps(&instance_info);
@@ -851,7 +851,7 @@ pub fn create_s3_client(
     // We keep this logic here until we decouple config layer from FS implementation
     // Once we do that, we can move this logic into a hosting app as it will know the full context
     // and remove the contextParams struct
-    let version = context_params.full_version.to_owned();
+    let version = &context_params.full_version;
     let client_config = args.client_config(version);
 
     let channel = args.channel();

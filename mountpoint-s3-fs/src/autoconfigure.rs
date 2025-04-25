@@ -33,17 +33,17 @@ pub fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result
 ///  * `AWS_REGION` environment variable (user-provided),
 ///  * EC2 instance region (using the IMDS client),
 ///  * default region (us-east-1).
-pub fn get_region(instance_info: &InstanceInfo, args_region: Option<String>) -> Region {
+pub fn get_region(instance_info: &InstanceInfo, region_override: Option<String>) -> Region {
     const DEFAULT_REGION: &str = "us-east-1";
 
     // Use --region (user-provided).
-    if let Some(region) = args_region {
+    if let Some(region) = region_override {
         return Region::new_user_specified(region);
     }
 
     // Use AWS_REGION (user-provided).
     if let Some(region) = env_region() {
-        tracing::debug!("using AWS_REGION: {region}");
+        tracing::debug!("using AWS_REGION: {region} (environment variable)");
         return Region::new_user_specified(region);
     }
 

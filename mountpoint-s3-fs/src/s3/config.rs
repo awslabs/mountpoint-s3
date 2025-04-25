@@ -155,11 +155,10 @@ impl ClientConfig {
         // jitter, and 20s max backoff time, 10 attempts will take an average of 55 seconds.
         client_config = client_config.max_attempts(NonZeroUsize::new(10).unwrap());
 
-        let mut endpoint_config = EndpointConfig::new("PLACEHOLDER")
+        let mut endpoint_config = EndpointConfig::new(self.region.as_str())
             .addressing_style(self.addressing_style)
             .use_accelerate(self.transfer_acceleration)
-            .use_dual_stack(self.dual_stack)
-            .region(self.region.as_str());
+            .use_dual_stack(self.dual_stack);
 
         if let Some(uri) = self.endpoint_url {
             if !self.region.user_specified {
