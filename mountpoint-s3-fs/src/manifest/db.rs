@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Error, Result, Row};
+use rusqlite::{Connection, Error, OptionalExtension, Result, Row};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -62,13 +62,10 @@ impl Db {
         let start = Instant::now();
         let query = "SELECT key, etag, size FROM s3_objects WHERE key = ?1";
         let mut stmt = conn.prepare(query)?;
-        let db_entry = stmt
-            .query_map((key,), |row: &Row| DbEntry::try_from(row))?
-            .next()
-            .transpose();
+        let result = stmt.query_row((key,), |row: &Row| row.try_into()).optional();
         metrics::histogram!("manifest.lookup.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
 
-        db_entry
+        result
     }
 
     /// Queries up to `batch_size` direct children of the directory with key `parent`, starting from `next_offset`
@@ -81,7 +78,7 @@ impl Db {
         let query = "SELECT key, etag, size FROM s3_objects WHERE parent_key = ?1 ORDER BY key LIMIT ?2, ?3";
         let mut stmt = conn.prepare(query)?;
         let result: Result<Vec<DbEntry>> = stmt
-            .query_map((parent, next_offset, batch_size), |row: &Row| DbEntry::try_from(row))?
+            .query_map((parent, next_offset, batch_size), |row: &Row| row.try_into())?
             .collect();
         metrics::histogram!("manifest.readdir.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
 

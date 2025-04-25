@@ -82,7 +82,7 @@ impl Manifest {
         // search for an entry and validate it
         let db_entry = self.db.select_entries(&full_path)?;
         match db_entry {
-            Some(db_entry) => Ok(Some(ManifestEntry::try_from(db_entry)?)),
+            Some(db_entry) => Ok(Some(db_entry.try_into()?)),
             None => Ok(None),
         }
     }
@@ -133,7 +133,7 @@ impl ManifestIter {
             return Ok(None);
         };
 
-        Ok(Some(ManifestEntry::try_from(db_entry)?))
+        Ok(Some(db_entry.try_into()?))
     }
 
     /// Load next batch of entries from the database, keeping track of the `next_offset`
