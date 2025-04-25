@@ -7,7 +7,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::upload::Uploader;
-use mountpoint_s3_fs::ServerSideEncryption;
+use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -107,7 +107,7 @@ fn main() {
         config = config.memory_limit_in_bytes(crt_mem_limit_gib * 1024 * 1024 * 1024);
     }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
-    let runtime = client.event_loop_group();
+    let runtime = Runtime::new(client.event_loop_group());
 
     for i in 0..args.iterations {
         let max_memory_target = if let Some(target) = args.max_memory_target {

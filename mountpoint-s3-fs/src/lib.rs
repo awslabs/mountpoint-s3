@@ -17,6 +17,7 @@ mod superblock;
 mod sync;
 pub mod upload;
 
+pub use async_util::Runtime;
 pub use fs::{S3Filesystem, S3FilesystemConfig, ServerSideEncryption};
 
 /// Enable tracing and CRT logging when running unit tests.

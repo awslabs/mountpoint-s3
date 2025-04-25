@@ -26,6 +26,7 @@ use nix::unistd::ForkResult;
 use regex::Regex;
 use sysinfo::{RefreshKind, System};
 
+use crate::async_util::Runtime;
 use crate::data_cache::{
     CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig, ManagedCacheDir,
     MultilevelDataCache,
@@ -879,15 +880,15 @@ fn create_disk_cache(
     Ok((managed_cache_dir, DiskDataCache::new(cache_dir_path, cache_config)))
 }
 
-fn mount<ClientBuilder, Client, Runtime>(
+fn mount<ClientBuilder, Client, ClientRuntime>(
     args: CliArgs,
     client_builder: ClientBuilder,
     context_params: ContextParams,
 ) -> anyhow::Result<FuseSession>
 where
-    ClientBuilder: FnOnce(&CliArgs, &ContextParams) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    ClientBuilder: FnOnce(&CliArgs, &ContextParams) -> anyhow::Result<(Client, ClientRuntime, S3Personality)>,
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Runtime: Spawn + Clone + Send + Sync + 'static,
+    ClientRuntime: Spawn + Clone + Send + Sync + 'static,
 {
     tracing::info!("mount-s3 {}", context_params.full_version);
     tracing::debug!("{:?}", args);
@@ -941,7 +942,7 @@ where
     }
 
     let prefetcher_config = Default::default();
-
+    let runtime = Runtime::new(runtime);
     match (args.disk_data_cache_config(), args.express_data_cache_config(sse)) {
         (None, Some((config, bucket_name, cache_bucket_name))) => {
             tracing::trace!("using S3 Express One Zone bucket as a cache for object content");
@@ -1018,7 +1019,7 @@ where
     }
 }
 
-fn create_filesystem<Client, Prefetcher, Runtime>(
+fn create_filesystem<Client, Prefetcher>(
     client: Client,
     prefetcher: Prefetcher,
     runtime: Runtime,
@@ -1029,7 +1030,6 @@ fn create_filesystem<Client, Prefetcher, Runtime>(
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync + 'static,
 {
     tracing::trace!(?filesystem_config, "creating file system");
     S3Filesystem::new(client, prefetcher, runtime, bucket_name, prefix, filesystem_config)

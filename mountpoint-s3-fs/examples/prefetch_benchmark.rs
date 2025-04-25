@@ -11,6 +11,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{default_prefetch, Prefetch, PrefetchResult};
+use mountpoint_s3_fs::Runtime;
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -142,7 +143,7 @@ fn main() {
     let etag = head_object_result.etag;
 
     for i in 0..args.iterations {
-        let runtime = client.event_loop_group();
+        let runtime = Runtime::new(client.event_loop_group());
         let manager = default_prefetch(runtime, Default::default());
         let received_bytes = Arc::new(AtomicU64::new(0));
 

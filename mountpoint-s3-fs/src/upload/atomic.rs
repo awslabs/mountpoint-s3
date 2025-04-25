@@ -8,7 +8,7 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::error;
 
-use crate::async_util::{BoxRuntime, RemoteResult};
+use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
 use crate::ServerSideEncryption;
 
@@ -43,7 +43,7 @@ where
     Client: ObjectClient + Send + 'static,
 {
     pub fn new(
-        runtime: &BoxRuntime,
+        runtime: &Runtime,
         client: Client,
         params: UploadRequestParams,
     ) -> Result<Self, UploadError<Client::ClientError>> {
@@ -222,7 +222,7 @@ mod tests {
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let buffer_size = client.write_part_size().unwrap();
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,

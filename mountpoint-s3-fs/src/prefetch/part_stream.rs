@@ -1,5 +1,5 @@
 use async_stream::try_stream;
-use futures::task::{Spawn, SpawnExt};
+use futures::task::SpawnExt;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::ObjectClient;
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
 use tracing::{debug_span, error, trace, Instrument};
 
+use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
@@ -162,14 +163,11 @@ impl Debug for RequestRange {
 
 /// [ObjectPartStream] implementation which delegates retrieving object data to a [Client].
 #[derive(Debug)]
-pub struct ClientPartStream<Runtime> {
+pub struct ClientPartStream {
     runtime: Runtime,
 }
 
-impl<Runtime> ClientPartStream<Runtime>
-where
-    Runtime: Spawn,
-{
+impl ClientPartStream {
     pub fn new(runtime: Runtime) -> Self {
         Self { runtime }
     }
@@ -177,10 +175,7 @@ where
 
 pub type RequestReaderOutput<E> = Result<GetBodyPart, PrefetchReadError<E>>;
 
-impl<Runtime> ObjectPartStream for ClientPartStream<Runtime>
-where
-    Runtime: Spawn,
-{
+impl ObjectPartStream for ClientPartStream {
     fn spawn_get_object_request<Client>(
         &self,
         client: &Client,
