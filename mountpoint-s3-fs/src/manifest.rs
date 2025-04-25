@@ -4,13 +4,15 @@ use thiserror::Error;
 use tracing::{error, trace};
 
 mod builder;
+mod csv_reader;
 mod db;
 
 pub use builder::create_db;
+pub use csv_reader::CsvReader;
 use db::Db;
 pub use db::DbEntry;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
@@ -20,6 +22,8 @@ pub enum ManifestError {
     InvalidKey(String),
     #[error("invalid database row")]
     InvalidRow,
+    #[error("csv error")]
+    CsvError(#[from] csv::Error),
 }
 
 /// An entry returned by manifest_lookup() and ManifestIter::next()

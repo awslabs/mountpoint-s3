@@ -63,5 +63,5 @@ fn test_ingest_shadowed(manifest_keys: &[&str]) {
 #[test_case("dir1/dir2/"; "ends with slash")]
 fn test_ingest_invalid_key(key: &str) {
     let err = create_dummy_manifest(&[key], DUMMY_SIZE).expect_err("must be an error");
-    assert_eq!(err, ManifestError::InvalidKey(key.to_string()));
+    assert!(matches!(err, ManifestError::InvalidKey(_)));
 }
