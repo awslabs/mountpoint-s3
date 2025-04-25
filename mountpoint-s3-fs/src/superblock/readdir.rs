@@ -100,7 +100,7 @@ impl ReaddirHandle {
 
         let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
             trace!("using manifest readdir iter");
-            ReaddirIter::manifest(manifest, &inner.bucket, &full_path)?
+            ReaddirIter::manifest(manifest, &inner.bucket, &full_path, inner.mount_time)?
         } else if inner.config.s3_personality.is_list_ordered() {
             ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
         } else {
@@ -332,10 +332,16 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
-    fn manifest(manifest: &Manifest, bucket: &str, full_path: &str) -> Result<Self, InodeError> {
+    fn manifest(
+        manifest: &Manifest,
+        bucket: &str,
+        full_path: &str,
+        mount_time: OffsetDateTime,
+    ) -> Result<Self, InodeError> {
         Ok(Self::Manifest(manifest::ReaddirIter::new(
-            manifest.iter(bucket, full_path)?,
+            manifest.iter(bucket, full_path),
             full_path.len(),
+            mount_time,
         )))
     }
 
@@ -631,13 +637,15 @@ mod manifest {
     pub struct ReaddirIter {
         manifest_iter: ManifestIter,
         full_path_len: usize,
+        mount_time: OffsetDateTime,
     }
 
     impl ReaddirIter {
-        pub(super) fn new(manifest_iter: ManifestIter, full_path_len: usize) -> Self {
+        pub(super) fn new(manifest_iter: ManifestIter, full_path_len: usize, mount_time: OffsetDateTime) -> Self {
             Self {
                 manifest_iter,
                 full_path_len,
+                mount_time,
             }
         }
 
@@ -651,7 +659,7 @@ mod manifest {
                         name,
                         full_key,
                         size: size as u64,
-                        last_modified: OffsetDateTime::now_utc(),
+                        last_modified: self.mount_time,
                         storage_class: None,
                         restore_status: None,
                         etag,

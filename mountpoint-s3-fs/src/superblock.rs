@@ -669,7 +669,6 @@ impl SuperblockInner {
         }
 
         let parent_full_path = self.full_key_for_inode(&parent);
-        let mount_time = OffsetDateTime::now_utc(); // todo: mount time
         let Some(manifest_entry) = manifest.manifest_lookup(parent_full_path, name)? else {
             return Ok(None);
         };
@@ -679,7 +678,7 @@ impl SuperblockInner {
                 kind: InodeKind::File,
                 stat: InodeStat::for_file(
                     size,
-                    mount_time,
+                    self.mount_time,
                     Some(etag.as_str().into()),
                     // Intentionally leaving `storage_class` and `restore_status` empty,
                     // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
@@ -690,7 +689,7 @@ impl SuperblockInner {
             },
             ManifestEntry::Directory { .. } => RemoteLookup {
                 kind: InodeKind::Directory,
-                stat: InodeStat::for_directory(mount_time, self.config.cache_config.dir_ttl),
+                stat: InodeStat::for_directory(self.mount_time, self.config.cache_config.dir_ttl),
             },
         };
         Ok(Some(remote_lookup))

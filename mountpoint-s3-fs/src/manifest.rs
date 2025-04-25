@@ -3,8 +3,6 @@ use std::path::Path;
 use thiserror::Error;
 use tracing::{error, trace};
 
-use crate::superblock::InodeError;
-
 mod builder;
 mod db;
 
@@ -42,19 +40,19 @@ impl TryFrom<DbEntry> for ManifestEntry {
 
     fn try_from(db_entry: DbEntry) -> Result<Self, Self::Error> {
         if db_entry.full_key.ends_with('/') {
-            Err(ManifestError::InvalidRow)
-        } else if db_entry.etag.is_none() && db_entry.size.is_none() {
-            Ok(ManifestEntry::Directory {
+            return Err(ManifestError::InvalidRow);
+        }
+
+        match (db_entry.etag, db_entry.size) {
+            (None, None) => Ok(ManifestEntry::Directory {
                 full_key: db_entry.full_key,
-            })
-        } else if db_entry.etag.is_some() && db_entry.size.is_some() {
-            Ok(ManifestEntry::File {
+            }),
+            (Some(etag), Some(size)) => Ok(ManifestEntry::File {
                 full_key: db_entry.full_key,
-                etag: db_entry.etag.unwrap(),
-                size: db_entry.size.unwrap(),
-            })
-        } else {
-            Err(ManifestError::InvalidRow)
+                etag,
+                size,
+            }),
+            _ => Err(ManifestError::InvalidRow),
         }
     }
 }
@@ -83,15 +81,14 @@ impl Manifest {
 
         // search for an entry and validate it
         let db_entry = self.db.select_entries(&full_path)?;
-        let Some(db_entry) = db_entry else {
-            return Ok(None);
-        };
-        let manifest_entry = ManifestEntry::try_from(db_entry)?;
-        Ok(Some(manifest_entry))
+        match db_entry {
+            Some(db_entry) => Ok(Some(ManifestEntry::try_from(db_entry)?)),
+            None => Ok(None),
+        }
     }
 
     /// Create an iterator over directory's direct children
-    pub fn iter(&self, bucket: &str, directory_full_path: &str) -> Result<ManifestIter, InodeError> {
+    pub fn iter(&self, bucket: &str, directory_full_path: &str) -> ManifestIter {
         ManifestIter::new(self.db.clone(), bucket, directory_full_path)
     }
 }
@@ -112,18 +109,18 @@ pub struct ManifestIter {
 }
 
 impl ManifestIter {
-    fn new(db: Db, _bucket: &str, parent_key: &str) -> Result<Self, InodeError> {
+    fn new(db: Db, _bucket: &str, parent_key: &str) -> Self {
         // remove trailing '/' since we don't store it in the db
         let parent_key = parent_key.trim_end_matches("/").to_owned();
         let batch_size = 10000;
-        Ok(Self {
+        Self {
             db,
             entries: Default::default(),
             parent_key,
             next_offset: 0,
             batch_size,
             finished: false,
-        })
+        }
     }
 
     /// Next child of the directory
