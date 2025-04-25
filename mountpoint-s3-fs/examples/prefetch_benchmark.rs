@@ -101,6 +101,7 @@ pub struct CliArgs {
 
 fn main() {
     init_tracing_subscriber();
+    let _metrics_handle = mountpoint_s3_fs::metrics::install();
 
     let args = CliArgs::parse();
 
