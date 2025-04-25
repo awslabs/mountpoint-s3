@@ -54,7 +54,7 @@ impl Db {
     }
 
     /// Queries a row from the DB representing either the file or a directory
-    pub fn select_entries(&self, key: &str) -> Result<Option<DbEntry>> {
+    pub fn select_entry(&self, key: &str) -> Result<Option<DbEntry>> {
         let start = Instant::now();
         let conn = self.conn.lock().expect("lock must succeed");
         metrics::histogram!("manifest.lookup.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
