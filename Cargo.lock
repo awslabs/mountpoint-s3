@@ -2815,6 +2815,7 @@ dependencies = [
  "rusty-fork",
  "serde_json",
  "static_assertions",
+ "supports-color 3.0.2",
  "tempfile",
  "test-case",
  "thiserror 2.0.12",

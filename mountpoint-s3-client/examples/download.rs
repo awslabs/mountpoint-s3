@@ -19,6 +19,7 @@ fn init_tracing_subscriber() {
 
     let subscriber = Subscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(supports_color::on(supports_color::Stream::Stderr).is_some())
         .with_writer(std::io::stderr)
         .finish();
 
