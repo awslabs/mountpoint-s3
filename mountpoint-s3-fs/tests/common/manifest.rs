@@ -84,12 +84,12 @@ pub fn insert_entries(
     manifest_db_path: &Path,
     entries: &[(&str, &str, Option<&str>, Option<usize>)],
 ) -> rusqlite::Result<()> {
-    let conn = Connection::open(manifest_db_path).expect("must connect to a db");
-    conn.execute_batch("BEGIN TRANSACTION;")?;
-    let mut stmt = conn.prepare("INSERT INTO s3_objects (key, parent_key, etag, size) VALUES (?1, ?2, ?3, ?4)")?;
+    let mut conn = Connection::open(manifest_db_path).expect("must connect to a db");
+    let tx = conn.transaction()?;
+    let mut stmt = tx.prepare("INSERT INTO s3_objects (key, parent_key, etag, size) VALUES (?1, ?2, ?3, ?4)")?;
     for entry in entries {
         stmt.execute(*entry)?;
     }
-    conn.execute_batch("COMMIT;")?;
-    Ok(())
+    drop(stmt);
+    tx.commit()
 }

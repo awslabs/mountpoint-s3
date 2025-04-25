@@ -1,13 +1,15 @@
-use crate::superblock::InodeError;
-use db::Db;
-use std::{collections::VecDeque, path::Path};
+use std::collections::VecDeque;
+use std::path::Path;
 use thiserror::Error;
 use tracing::{error, trace};
+
+use crate::superblock::InodeError;
 
 mod builder;
 mod db;
 
 pub use builder::create_db;
+use db::Db;
 pub use db::DbEntry;
 
 #[derive(Debug, Error, PartialEq)]
@@ -20,8 +22,6 @@ pub enum ManifestError {
     InvalidKey(String),
     #[error("invalid database row")]
     InvalidRow,
-    #[error("too many rows returned from db")]
-    TooManyRows,
 }
 
 /// An entry returned by manifest_lookup() and ManifestIter::next()
@@ -37,8 +37,10 @@ pub enum ManifestEntry {
     },
 }
 
-impl ManifestEntry {
-    fn from_db_entry(db_entry: DbEntry) -> Result<Self, ManifestError> {
+impl TryFrom<DbEntry> for ManifestEntry {
+    type Error = ManifestError;
+
+    fn try_from(db_entry: DbEntry) -> Result<Self, Self::Error> {
         if db_entry.full_key.ends_with('/') {
             Err(ManifestError::InvalidRow)
         } else if db_entry.etag.is_none() && db_entry.size.is_none() {
@@ -79,16 +81,13 @@ impl Manifest {
         let mut full_path = parent_full_path;
         full_path.push_str(name);
 
-        // search for an entry
-        let mut db_entries = self.db.select_entries(&full_path)?;
-        let Some(db_entry) = db_entries.pop() else {
+        // search for an entry and validate it
+        let db_entry = self.db.select_entries(&full_path)?;
+        let Some(db_entry) = db_entry else {
             return Ok(None);
         };
-        if !db_entries.is_empty() {
-            Err(ManifestError::TooManyRows)
-        } else {
-            ManifestEntry::from_db_entry(db_entry).map(Some)
-        }
+        let manifest_entry = ManifestEntry::try_from(db_entry)?;
+        Ok(Some(manifest_entry))
     }
 
     /// Create an iterator over directory's direct children
@@ -130,14 +129,14 @@ impl ManifestIter {
     /// Next child of the directory
     pub fn next_entry(&mut self) -> Result<Option<ManifestEntry>, ManifestError> {
         if self.entries.is_empty() && !self.finished {
-            self.search_next_entries()?
+            self.search_next_entries()?;
         }
 
         let Some(db_entry) = self.entries.pop_front() else {
             return Ok(None);
         };
 
-        ManifestEntry::from_db_entry(db_entry).map(Some)
+        Ok(Some(ManifestEntry::try_from(db_entry)?))
     }
 
     /// Load next batch of entries from the database, keeping track of the `next_offset`

@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result, Row};
+use rusqlite::{Connection, Error, Result, Row};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -12,14 +12,6 @@ pub struct DbEntry {
 }
 
 impl DbEntry {
-    fn from_row(row: &Row) -> Result<Self> {
-        Ok(Self {
-            full_key: row.get(0)?,
-            etag: row.get(1)?,
-            size: row.get(2)?,
-        })
-    }
-
     // Parent key without a trailing '/'
     fn parent_key(&self) -> &str {
         let key = self.full_key.trim_end_matches("/");
@@ -33,13 +25,25 @@ impl DbEntry {
     }
 }
 
+impl TryFrom<&Row<'_>> for DbEntry {
+    type Error = Error;
+
+    fn try_from(row: &Row) -> std::result::Result<Self, Self::Error> {
+        Ok(Self {
+            full_key: row.get(0)?,
+            etag: row.get(1)?,
+            size: row.get(2)?,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
-pub(super) struct Db {
+pub struct Db {
     conn: Arc<Mutex<Connection>>,
 }
 
 impl Db {
-    pub(super) fn new(manifest_db_path: &Path) -> Result<Self> {
+    pub fn new(manifest_db_path: &Path) -> Result<Self> {
         let conn = Connection::open(manifest_db_path)?;
         let mode: String = conn.query_row("PRAGMA journal_mode=off", [], |row| row.get(0))?;
         assert_eq!(&mode, "off");
@@ -49,8 +53,8 @@ impl Db {
         })
     }
 
-    /// Queries rows from the DB representing either the file or a directory (typically a single row returned)
-    pub(super) fn select_entries(&self, key: &str) -> Result<Vec<DbEntry>> {
+    /// Queries a row from the DB representing either the file or a directory
+    pub fn select_entries(&self, key: &str) -> Result<Option<DbEntry>> {
         let start = Instant::now();
         let conn = self.conn.lock().expect("lock must succeed");
         metrics::histogram!("manifest.lookup.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
@@ -58,14 +62,17 @@ impl Db {
         let start = Instant::now();
         let query = "SELECT key, etag, size FROM s3_objects WHERE key = ?1";
         let mut stmt = conn.prepare(query)?;
-        let result: Result<Vec<DbEntry>> = stmt.query_map((key,), DbEntry::from_row)?.collect();
+        let db_entry = stmt
+            .query_map((key,), |row: &Row| DbEntry::try_from(row))?
+            .next()
+            .transpose();
         metrics::histogram!("manifest.lookup.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
 
-        result
+        db_entry
     }
 
     /// Queries up to `batch_size` direct children of the directory with key `parent`, starting from `next_offset`
-    pub(super) fn select_children(&self, parent: &str, next_offset: usize, batch_size: usize) -> Result<Vec<DbEntry>> {
+    pub fn select_children(&self, parent: &str, next_offset: usize, batch_size: usize) -> Result<Vec<DbEntry>> {
         let start = Instant::now();
         let conn = self.conn.lock().expect("lock must succeed");
         metrics::histogram!("manifest.readdir.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
@@ -74,14 +81,14 @@ impl Db {
         let query = "SELECT key, etag, size FROM s3_objects WHERE parent_key = ?1 ORDER BY key LIMIT ?2, ?3";
         let mut stmt = conn.prepare(query)?;
         let result: Result<Vec<DbEntry>> = stmt
-            .query_map((parent, next_offset, batch_size), DbEntry::from_row)?
+            .query_map((parent, next_offset, batch_size), |row: &Row| DbEntry::try_from(row))?
             .collect();
         metrics::histogram!("manifest.readdir.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
 
         result
     }
 
-    pub(super) fn create_table(&self) -> Result<()> {
+    pub fn create_table(&self) -> Result<()> {
         let conn = self.conn.lock().expect("lock must succeed");
         conn.execute(
             "CREATE TABLE s3_objects (
@@ -97,7 +104,7 @@ impl Db {
         Ok(())
     }
 
-    pub(super) fn create_index(&self) -> Result<()> {
+    pub fn create_index(&self) -> Result<()> {
         let conn = self.conn.lock().expect("lock must succeed");
         conn.execute("CREATE UNIQUE INDEX idx_key ON s3_objects (key)", ())?;
 
@@ -106,7 +113,7 @@ impl Db {
         Ok(())
     }
 
-    pub(super) fn insert_batch(&self, entries: &[DbEntry]) -> Result<()> {
+    pub fn insert_batch(&self, entries: &[DbEntry]) -> Result<()> {
         let mut conn = self.conn.lock().expect("lock must succeed");
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare("INSERT INTO s3_objects (key, parent_key, etag, size) VALUES (?1, ?2, ?3, ?4)")?;
@@ -117,7 +124,7 @@ impl Db {
         tx.commit()
     }
 
-    pub(super) fn insert_directories(&self, batch_size: usize) -> Result<()> {
+    pub fn insert_directories(&self, batch_size: usize) -> Result<()> {
         let mut conn = self.conn.lock().expect("lock must succeed");
         let tx = conn.transaction()?;
         let mut read_stmt = tx.prepare("SELECT DISTINCT(parent_key) FROM s3_objects")?;

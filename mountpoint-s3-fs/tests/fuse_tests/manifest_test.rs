@@ -130,7 +130,7 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     // put objects
     let (bucket, prefix) = get_test_bucket_and_prefix("test_basic_read_manifest_s3");
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
-    let visible_object_props = put_object(
+    let visible_object_etag = put_object(
         &sdk_client,
         &bucket,
         &prefix,
@@ -144,8 +144,8 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     let (_tmp_dir, db_path) = create_manifest(
         [Ok(DbEntry {
             full_key: format!("{}{}", prefix, visible_object.0),
-            etag: Some(visible_object_props.0),
-            size: Some(visible_object_props.1),
+            etag: Some(visible_object_etag),
+            size: Some(visible_object.1.len()),
         })]
         .into_iter(),
         1000,
@@ -168,7 +168,7 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     if stat_before_read {
         let m = metadata(test_session.mount_path().join("visible_object_key")).unwrap();
         assert!(m.file_type().is_file());
-        assert_eq!(m.size(), visible_object_props.1 as u64);
+        assert_eq!(m.size(), visible_object.1.len() as u64);
     }
 
     // Read file once
@@ -205,7 +205,7 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
     let object = ("visible_object_key", vec![b'1'; 1024]);
     let (bucket, prefix) = get_test_bucket_and_prefix("test_basic_read_manifest_s3");
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
-    let object_props = put_object(&sdk_client, &bucket, &prefix, object.0, object.1.clone()).await;
+    let object_etag = put_object(&sdk_client, &bucket, &prefix, object.0, object.1.clone()).await;
 
     let (_tmp_dir, db_path) = create_manifest(
         [Ok(DbEntry {
@@ -213,9 +213,9 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
             etag: if wrong_etag {
                 Some("wrong_etag".to_string())
             } else {
-                Some(object_props.0)
+                Some(object_etag)
             },
-            size: if wrong_size { Some(2048) } else { Some(object_props.1) }, // size smaller than actual will result in incomplete response
+            size: if wrong_size { Some(2048) } else { Some(object.1.len()) }, // size smaller than actual will result in incomplete response
         })]
         .into_iter(),
         1000,
@@ -258,11 +258,11 @@ async fn put_object(
     prefix: &str,
     key: &str,
     content: Vec<u8>,
-) -> (String, usize) {
+) -> String {
     use aws_sdk_s3::primitives::ByteStream;
 
     let full_key = format!("{}{}", prefix, key);
-    sdk_client
+    let put_resp = sdk_client
         .put_object()
         .bucket(bucket)
         .key(&full_key)
@@ -271,14 +271,5 @@ async fn put_object(
         .await
         .expect("put object must succeed");
 
-    let head_resp = sdk_client
-        .head_object()
-        .bucket(bucket)
-        .key(&full_key)
-        .send()
-        .await
-        .expect("head object must succeed");
-
-    let size = head_resp.content_length().unwrap() as usize;
-    (head_resp.e_tag.unwrap(), size)
+    put_resp.e_tag.unwrap()
 }
