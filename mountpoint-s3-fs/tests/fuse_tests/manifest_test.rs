@@ -2,7 +2,7 @@ use crate::common::fuse::{self, read_dir_to_entry_names, TestClient, TestSession
 use crate::common::manifest::{create_dummy_manifest, create_manifest, insert_entries};
 #[cfg(feature = "s3_tests")]
 use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
-use mountpoint_s3_fs::manifest::DbEntry;
+use mountpoint_s3_fs::manifest::{DbEntry, Manifest};
 use mountpoint_s3_fs::S3FilesystemConfig;
 use std::fs::{self, metadata};
 use std::io::ErrorKind;
@@ -234,9 +234,10 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
 }
 
 fn manifest_test_session_config(db_path: &Path) -> TestSessionConfig {
+    let manifest = Manifest::new(db_path).expect("manifest must be created");
     TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
-            manifest_db_path: Some(db_path.to_path_buf()),
+            manifest: Some(manifest),
             ..Default::default()
         },
         ..Default::default()

@@ -58,7 +58,7 @@ impl ManifestEntry {
 }
 
 /// Manifest of all available objects in the bucket
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Manifest {
     db: Db,
 }

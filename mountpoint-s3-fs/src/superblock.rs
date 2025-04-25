@@ -24,7 +24,6 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -77,7 +76,6 @@ struct SuperblockInner {
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
     config: SuperblockConfig,
-    manifest: Option<Manifest>,
 }
 
 /// Configuration for superblock operations
@@ -85,7 +83,7 @@ struct SuperblockInner {
 pub struct SuperblockConfig {
     pub cache_config: CacheConfig,
     pub s3_personality: S3Personality,
-    pub manifest_db_path: Option<PathBuf>,
+    pub manifest: Option<Manifest>,
 }
 
 impl Superblock {
@@ -102,11 +100,6 @@ impl Superblock {
             config.cache_config.negative_cache_ttl,
         );
 
-        let manifest = config
-            .manifest_db_path
-            .as_ref()
-            .map(|manifest_db_path| Manifest::new(manifest_db_path).expect("manifest must be created"));
-
         let inner = SuperblockInner {
             bucket: bucket.to_owned(),
             prefix: prefix.clone(),
@@ -115,7 +108,6 @@ impl Superblock {
             next_ino: AtomicU64::new(2),
             mount_time,
             config,
-            manifest,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -604,7 +596,7 @@ impl SuperblockInner {
         let lookup = match lookup {
             Some(lookup) => lookup?,
             None => {
-                let remote = if let Some(manifest) = &self.manifest {
+                let remote = if let Some(manifest) = &self.config.manifest {
                     self.manifest_lookup(manifest, parent_ino, &name)?
                 } else {
                     self.remote_lookup(client, parent_ino, &name).await?
@@ -1388,7 +1380,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
-                manifest_db_path: None,
+                manifest: None,
             },
         );
 
@@ -1439,7 +1431,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
-                manifest_db_path: None,
+                manifest: None,
             },
         );
 

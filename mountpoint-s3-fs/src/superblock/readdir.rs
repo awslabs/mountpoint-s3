@@ -98,7 +98,7 @@ impl ReaddirHandle {
             }
         };
 
-        let iter = if let Some(manifest) = inner.manifest.as_ref() {
+        let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
             trace!("using manifest readdir iter");
             ReaddirIter::manifest(manifest, &inner.bucket, &full_path)?
         } else if inner.config.s3_personality.is_list_ordered() {

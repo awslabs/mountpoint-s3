@@ -163,7 +163,7 @@ where
         let superblock_config = SuperblockConfig {
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,
-            manifest_db_path: config.manifest_db_path.clone(),
+            manifest: config.manifest.clone(),
         };
         let superblock = Superblock::new(bucket, prefix, superblock_config);
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));

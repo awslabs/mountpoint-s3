@@ -1,7 +1,8 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use nix::unistd::{getgid, getuid};
 
+use crate::manifest::Manifest;
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::s3::S3Personality;
 use crate::superblock::WriteMode;
@@ -38,8 +39,8 @@ pub struct S3FilesystemConfig {
     pub use_upload_checksums: bool,
     /// Memory limit
     pub mem_limit: u64,
-    /// Path to an SQLite DB containing the list of S3 keys available with this mount
-    pub manifest_db_path: Option<PathBuf>,
+    /// An SQLite DB containing the list of S3 keys available with this mount
+    pub manifest: Option<Manifest>,
 }
 
 impl Default for S3FilesystemConfig {
@@ -62,7 +63,7 @@ impl Default for S3FilesystemConfig {
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
-            manifest_db_path: None,
+            manifest: None,
         }
     }
 }
