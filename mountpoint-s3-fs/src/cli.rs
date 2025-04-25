@@ -33,7 +33,7 @@ use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
 use crate::prefix::Prefix;
-use crate::s3::config::{Channel, ClientConfig, PartConfig};
+use crate::s3::config::{ClientConfig, PartConfig, S3Path};
 use crate::s3::S3Personality;
 use crate::{autoconfigure, metrics, S3Filesystem, S3FilesystemConfig};
 
@@ -453,8 +453,8 @@ impl CliArgs {
         self.prefix.as_ref().cloned().unwrap_or_default()
     }
 
-    fn channel(&self) -> Channel {
-        Channel::new(self.bucket_name.to_owned(), self.prefix())
+    fn s3_path(&self) -> S3Path {
+        S3Path::new(self.bucket_name.to_owned(), self.prefix())
     }
 
     fn cache_block_size_in_bytes(&self) -> u64 {
@@ -854,15 +854,15 @@ pub fn create_s3_client(
     let version = &context_params.full_version;
     let client_config = args.client_config(version);
 
-    let channel = args.channel();
+    let s3_path = args.s3_path();
     let client = client_config
-        .create_client(Some(&channel))
+        .create_client(Some(&s3_path))
         .context("Failed to create S3 client")?;
 
     let runtime = client.event_loop_group();
     let s3_personality = args
         .personality()
-        .unwrap_or_else(|| S3Personality::infer_from_bucket(&channel.bucket_name, &client.endpoint_config()));
+        .unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket_name, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
 }

@@ -11,6 +11,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
 use crate::prefix::Prefix;
 
+/// Configuration for the S3 Client to use in Mountpoint.
 #[derive(Debug)]
 pub struct ClientConfig {
     /// AWS region
@@ -50,8 +51,9 @@ pub struct ClientConfig {
     pub user_agent: UserAgent,
 }
 
+/// A bucket & prefix combination.
 #[derive(Debug, Clone)]
-pub struct Channel {
+pub struct S3Path {
     /// Name of bucket
     pub bucket_name: String,
 
@@ -59,7 +61,7 @@ pub struct Channel {
     pub prefix: Prefix,
 }
 
-impl Channel {
+impl S3Path {
     pub fn new(bucket_name: String, prefix: Prefix) -> Self {
         Self { bucket_name, prefix }
     }
@@ -132,7 +134,7 @@ const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 + 128 * 1024;
 
 impl ClientConfig {
     /// Create an [S3CrtClient]
-    pub fn create_client(self, validate_on_channel: Option<&Channel>) -> anyhow::Result<S3CrtClient> {
+    pub fn create_client(self, validate_on_s3_path: Option<&S3Path>) -> anyhow::Result<S3CrtClient> {
         let mut client_config = S3ClientConfig::new()
             .auth_config(self.auth_config)
             .throughput_target_gbps(self.throughput_target_gbps)
@@ -174,8 +176,8 @@ impl ClientConfig {
 
         let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
 
-        if let Some(channel) = validate_on_channel {
-            validate_client_for_bucket(client, channel, self.region, endpoint_config, client_config)
+        if let Some(s3_path) = validate_on_s3_path {
+            validate_client_for_bucket(client, s3_path, self.region, endpoint_config, client_config)
         } else {
             Ok(client)
         }
@@ -189,12 +191,12 @@ impl ClientConfig {
 /// responses, which means we don't have to wait for the first file read to start the rampup period.
 fn validate_client_for_bucket(
     client: S3CrtClient,
-    channel: &Channel,
+    s3_path: &S3Path,
     region: Region,
     endpoint_config: EndpointConfig,
     client_config: S3ClientConfig,
 ) -> anyhow::Result<S3CrtClient> {
-    let list_request = client.list_objects(&channel.bucket_name, None, "", 0, channel.prefix.as_str());
+    let list_request = client.list_objects(&s3_path.bucket_name, None, "", 0, s3_path.prefix.as_str());
     match futures::executor::block_on(list_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
@@ -203,25 +205,25 @@ fn validate_client_for_bucket(
         {
             tracing::warn!(
                 "bucket {} is in region {}, not {}. redirecting...",
-                channel.bucket_name,
+                s3_path.bucket_name,
                 correct_region,
                 region
             );
             let new_client = S3CrtClient::new(client_config.endpoint_config(endpoint_config.region(&correct_region)))?;
-            let list_request = new_client.list_objects(&channel.bucket_name, None, "", 0, channel.prefix.as_str());
+            let list_request = new_client.list_objects(&s3_path.bucket_name, None, "", 0, s3_path.prefix.as_str());
             futures::executor::block_on(list_request)
                 .map(|_| new_client)
                 .with_context(|| {
                     format!(
                         "initial ListObjectsV2 failed for bucket {} in region {}",
-                        channel.bucket_name, correct_region
+                        s3_path.bucket_name, correct_region
                     )
                 })
         }
         Err(e) => Err(e).with_context(|| {
             format!(
                 "initial ListObjectsV2 failed for bucket {} in region {}",
-                channel.bucket_name, region
+                s3_path.bucket_name, region
             )
         }),
     }
