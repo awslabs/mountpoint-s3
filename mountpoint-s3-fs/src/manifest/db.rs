@@ -1,7 +1,8 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, Result, Row};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct DbEntry {
@@ -11,6 +12,14 @@ pub struct DbEntry {
 }
 
 impl DbEntry {
+    fn from_row(row: &Row) -> Result<Self> {
+        Ok(Self {
+            full_key: row.get(0)?,
+            etag: row.get(1)?,
+            size: row.get(2)?,
+        })
+    }
+
     // Parent key without a trailing '/'
     fn parent_key(&self) -> &str {
         let key = self.full_key.trim_end_matches("/");
@@ -38,6 +47,38 @@ impl Db {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)), // TODO: connection pool?
         })
+    }
+
+    /// Queries rows from the DB representing either the file or a directory (typically a single row returned)
+    pub(super) fn select_entries(&self, key: &str) -> Result<Vec<DbEntry>> {
+        let start = Instant::now();
+        let conn = self.conn.lock().expect("lock must succeed");
+        metrics::histogram!("manifest.lookup.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
+
+        let start = Instant::now();
+        let query = "SELECT key, etag, size FROM s3_objects WHERE key = ?1";
+        let mut stmt = conn.prepare(query)?;
+        let result: Result<Vec<DbEntry>> = stmt.query_map((key,), DbEntry::from_row)?.collect();
+        metrics::histogram!("manifest.lookup.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
+
+        result
+    }
+
+    /// Queries up to `batch_size` direct children of the directory with key `parent`, starting from `next_offset`
+    pub(super) fn select_children(&self, parent: &str, next_offset: usize, batch_size: usize) -> Result<Vec<DbEntry>> {
+        let start = Instant::now();
+        let conn = self.conn.lock().expect("lock must succeed");
+        metrics::histogram!("manifest.readdir.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
+
+        let start = Instant::now();
+        let query = "SELECT key, etag, size FROM s3_objects WHERE parent_key = ?1 ORDER BY key LIMIT ?2, ?3";
+        let mut stmt = conn.prepare(query)?;
+        let result: Result<Vec<DbEntry>> = stmt
+            .query_map((parent, next_offset, batch_size), DbEntry::from_row)?
+            .collect();
+        metrics::histogram!("manifest.readdir.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
+
+        result
     }
 
     pub(super) fn create_table(&self) -> Result<()> {

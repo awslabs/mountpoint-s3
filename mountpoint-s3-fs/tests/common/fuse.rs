@@ -406,10 +406,21 @@ pub mod s3_session {
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
-        let mount_dir = tempfile::tempdir().unwrap();
-
         let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
         let region = get_test_region();
+        let sdk_client = tokio_block_on(async { get_test_sdk_client(&region).await });
+
+        new_with_test_client(test_config, sdk_client, &bucket, &prefix)
+    }
+
+    /// Create a FUSE mount backed by a real S3 client, session will use a test client provided by the caller
+    pub fn new_with_test_client(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        bucket: &str,
+        prefix: &str,
+    ) -> TestSession {
+        let mount_dir = tempfile::tempdir().unwrap();
 
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
@@ -424,14 +435,18 @@ pub mod s3_session {
             client,
             prefetcher,
             runtime,
-            &bucket,
-            &prefix,
+            bucket,
+            prefix,
             mount_dir.path(),
             test_config.filesystem_config,
             test_config.pass_fuse_fd,
         );
-        let test_client = create_test_client(&region, &bucket, &prefix);
 
+        let test_client = SDKTestClient {
+            prefix: prefix.to_owned(),
+            bucket: bucket.to_owned(),
+            sdk_client,
+        };
         TestSession::new(mount_dir, session, test_client, mount)
     }
 

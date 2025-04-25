@@ -24,6 +24,7 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -39,6 +40,7 @@ use tracing::{debug, error, trace, warn};
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
 use crate::logging;
+use crate::manifest::{Manifest, ManifestEntry, ManifestError};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -75,6 +77,7 @@ struct SuperblockInner {
     next_ino: AtomicU64,
     mount_time: OffsetDateTime,
     config: SuperblockConfig,
+    manifest: Option<Manifest>,
 }
 
 /// Configuration for superblock operations
@@ -82,6 +85,7 @@ struct SuperblockInner {
 pub struct SuperblockConfig {
     pub cache_config: CacheConfig,
     pub s3_personality: S3Personality,
+    pub manifest_db_path: Option<PathBuf>,
 }
 
 impl Superblock {
@@ -98,6 +102,11 @@ impl Superblock {
             config.cache_config.negative_cache_ttl,
         );
 
+        let manifest = config
+            .manifest_db_path
+            .as_ref()
+            .map(|manifest_db_path| Manifest::new(manifest_db_path).expect("manifest must be created"));
+
         let inner = SuperblockInner {
             bucket: bucket.to_owned(),
             prefix: prefix.clone(),
@@ -106,6 +115,7 @@ impl Superblock {
             next_ino: AtomicU64::new(2),
             mount_time,
             config,
+            manifest,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -594,7 +604,11 @@ impl SuperblockInner {
         let lookup = match lookup {
             Some(lookup) => lookup?,
             None => {
-                let remote = self.remote_lookup(client, parent_ino, &name).await?;
+                let remote = if let Some(manifest) = &self.manifest {
+                    self.manifest_lookup(manifest, parent_ino, &name)?
+                } else {
+                    self.remote_lookup(client, parent_ino, &name).await?
+                };
                 self.update_from_remote(parent_ino, name, remote)?
             }
         };
@@ -648,6 +662,46 @@ impl SuperblockInner {
         metrics::counter!("metadata_cache.cache_hit").increment(lookup.is_some().into());
 
         lookup
+    }
+
+    /// Lookup in the [Manifest] and convert the entry to [RemoteLookup]
+    fn manifest_lookup(
+        &self,
+        manifest: &Manifest,
+        parent_ino: InodeNo,
+        name: &str,
+    ) -> Result<Option<RemoteLookup>, InodeError> {
+        let parent = self.get(parent_ino)?;
+        if parent.kind() != InodeKind::Directory {
+            return Err(InodeError::NotADirectory(parent.err()));
+        }
+
+        let parent_full_path = self.full_key_for_inode(&parent);
+        let mount_time = OffsetDateTime::now_utc(); // todo: mount time
+        let Some(manifest_entry) = manifest.manifest_lookup(parent_full_path, name)? else {
+            return Ok(None);
+        };
+
+        let remote_lookup = match manifest_entry {
+            ManifestEntry::File { etag, size, .. } => RemoteLookup {
+                kind: InodeKind::File,
+                stat: InodeStat::for_file(
+                    size,
+                    mount_time,
+                    Some(etag.as_str().into()),
+                    // Intentionally leaving `storage_class` and `restore_status` empty,
+                    // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
+                    None,
+                    None,
+                    self.config.cache_config.file_ttl,
+                ),
+            },
+            ManifestEntry::Directory { .. } => RemoteLookup {
+                kind: InodeKind::Directory,
+                stat: InodeStat::for_directory(mount_time, self.config.cache_config.dir_ttl),
+            },
+        };
+        Ok(Some(remote_lookup))
     }
 
     /// Lookup an inode in the parent directory with the given name
@@ -1110,6 +1164,8 @@ pub enum InodeError {
         old_inode: InodeErrorInfo,
         new_inode: InodeErrorInfo,
     },
+    #[error("manifest error")]
+    ManifestError(#[from] ManifestError),
 }
 
 impl InodeError {
@@ -1332,6 +1388,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
+                manifest_db_path: None,
             },
         );
 
@@ -1382,6 +1439,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
+                manifest_db_path: None,
             },
         );
 

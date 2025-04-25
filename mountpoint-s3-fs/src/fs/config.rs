@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use nix::unistd::{getgid, getuid};
 
@@ -38,6 +38,8 @@ pub struct S3FilesystemConfig {
     pub use_upload_checksums: bool,
     /// Memory limit
     pub mem_limit: u64,
+    /// Path to an SQLite DB containing the list of S3 keys available with this mount
+    pub manifest_db_path: Option<PathBuf>,
 }
 
 impl Default for S3FilesystemConfig {
@@ -60,6 +62,7 @@ impl Default for S3FilesystemConfig {
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
+            manifest_db_path: None,
         }
     }
 }
