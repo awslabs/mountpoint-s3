@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1745583199282,
+  "lastUpdate": 1745590868404,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "26006e1c16b76a95c6ecf9be1ad716fecb2a21bd",
-          "message": "Update documentation for access points to directory bucket (#1339)\n\nJust a doc update.\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
-          "timestamp": "2025-04-01T12:22:44Z",
-          "tree_id": "41b6fea4e39d61cd1cbc98bc54f80ffdcd45b66a",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/26006e1c16b76a95c6ecf9be1ad716fecb2a21bd"
-        },
-        "date": 1743518258899,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 15135.35546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 26124.703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 39900.5546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 149.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 405.15625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 1327.63671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 432.98046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 84.8125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 309.25390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 939.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 302.58203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 41975.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 396.37109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 41020.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 390.50390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 10729.390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 269.17578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 12881.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11622.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 261.84765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 404.0234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 238.40625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 240.5390625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c8721ca3da76db2bdc586edb748a75e5379c1eb",
+          "message": "Add metrics log output for prefetcher and uploader benchmarks (#1384)\n\nToday, the prefetcher and uploader benchmarks configure the tracing\nlibrary to output logs to `stderr` however no metric sink is installed.\nThis change reuses the metrics module in `mountpoint-s3-fs` to emit\nmetrics in the same way.\n\nIf we want to leverage this in `mountpoint-s3-client`'s\n`client_benchmark`, we'd have to move this to a crate that the client\ncan depend on. I do not think it is worth doing at this time - we plan\nto review how metrics are emitted later this year.\n\nThe motivation for this change now is to support investigation into\nprefetcher performance.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, only adds metrics to layer benchmarks.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2025-04-25T12:08:55Z",
+          "tree_id": "52425983b70a26014b591bef1da6c24e32b72a1b",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/1c8721ca3da76db2bdc586edb748a75e5379c1eb"
+        },
+        "date": 1745590868354,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 15039.640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 26035.1796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 45411.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 150.19140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 405.39453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 228.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 399.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 84.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 327.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 88.359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 328.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 36328.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 400.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 36961.79296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 383.5859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13033.484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 263.01953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12777.3984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10262.86328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 262.6015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 402.171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 236.7890625,
             "unit": "MiB"
           }
         ]
