@@ -175,6 +175,7 @@ impl ToErrno for InodeError {
             InodeError::CorruptedMetadata(_) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::StaleInode { .. } => libc::ESTALE,
+            InodeError::ManifestError { .. } => libc::EIO,
         }
     }
 }

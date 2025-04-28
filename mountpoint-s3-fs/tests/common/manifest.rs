@@ -79,3 +79,17 @@ pub fn select_all(manifest_db_path: &Path) -> rusqlite::Result<Vec<TestDbEntry>>
     let result: rusqlite::Result<Vec<TestDbEntry>> = stmt.query_map((), TestDbEntry::from_row)?.collect();
     result
 }
+
+pub fn insert_entries(
+    manifest_db_path: &Path,
+    entries: &[(&str, &str, Option<&str>, Option<usize>)],
+) -> rusqlite::Result<()> {
+    let mut conn = Connection::open(manifest_db_path).expect("must connect to a db");
+    let tx = conn.transaction()?;
+    let mut stmt = tx.prepare("INSERT INTO s3_objects (key, parent_key, etag, size) VALUES (?1, ?2, ?3, ?4)")?;
+    for entry in entries {
+        stmt.execute(*entry)?;
+    }
+    drop(stmt);
+    tx.commit()
+}
