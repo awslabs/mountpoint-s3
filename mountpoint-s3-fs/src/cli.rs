@@ -458,6 +458,64 @@ impl CliArgs {
         S3Path::new(self.bucket_name.to_owned(), self.prefix())
     }
 
+    fn mem_limit(&self) -> u64 {
+        let mut mem_limit = MINIMUM_MEM_LIMIT;
+
+        let sys = System::new_with_specifics(RefreshKind::everything());
+        let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
+        mem_limit = mem_limit.max(default_mem_target);
+
+        #[cfg(feature = "mem_limiter")]
+        if let Some(max_mem_target) = self.max_memory_target {
+            mem_limit = max_mem_target * 1024 * 1024;
+        }
+
+        mem_limit
+    }
+
+    fn should_use_upload_checksum(&self, s3_personality: S3Personality) -> bool {
+        // Written in this awkward way to force us to update it if we add new checksum types
+        match self.upload_checksums {
+            Some(UploadChecksums::Crc32c) => true,
+            Some(UploadChecksums::Off) => false,
+            None => {
+                // Default to true if supported
+                if s3_personality.supports_additional_checksums() {
+                    true
+                } else {
+                    tracing::info!("disabling upload checksums because target S3 personality does not support them");
+                    false
+                }
+            }
+        }
+    }
+
+    fn filesystem_config(&self, sse: ServerSideEncryption, s3_personality: S3Personality) -> S3FilesystemConfig {
+        let mut filesystem_config = S3FilesystemConfig::default();
+        if let Some(uid) = self.uid {
+            filesystem_config.uid = uid;
+        }
+        if let Some(gid) = self.gid {
+            filesystem_config.gid = gid;
+        }
+        if let Some(dir_mode) = self.dir_mode {
+            filesystem_config.dir_mode = dir_mode;
+        }
+        if let Some(file_mode) = self.file_mode {
+            filesystem_config.file_mode = file_mode;
+        }
+        filesystem_config.storage_class = self.storage_class.clone();
+        filesystem_config.allow_delete = self.allow_delete;
+        filesystem_config.allow_overwrite = self.allow_overwrite;
+        filesystem_config.incremental_upload = self.incremental_upload;
+        filesystem_config.s3_personality = s3_personality;
+        filesystem_config.server_side_encryption = sse;
+        filesystem_config.cache_config = self.cache_config();
+        filesystem_config.mem_limit = self.mem_limit();
+        filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+        filesystem_config
+    }
+
     fn cache_block_size_in_bytes(&self) -> u64 {
         #[cfg(feature = "block_size")]
         if let Some(kib) = self.cache_block_size {
@@ -900,45 +958,8 @@ where
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
-    let mut filesystem_config = S3FilesystemConfig::default();
-    if let Some(uid) = args.uid {
-        filesystem_config.uid = uid;
-    }
-    if let Some(gid) = args.gid {
-        filesystem_config.gid = gid;
-    }
-    if let Some(dir_mode) = args.dir_mode {
-        filesystem_config.dir_mode = dir_mode;
-    }
-    if let Some(file_mode) = args.file_mode {
-        filesystem_config.file_mode = file_mode;
-    }
-    filesystem_config.storage_class = args.storage_class.clone();
-    filesystem_config.allow_delete = args.allow_delete;
-    filesystem_config.allow_overwrite = args.allow_overwrite;
-    filesystem_config.incremental_upload = args.incremental_upload;
-    filesystem_config.s3_personality = s3_personality;
-    filesystem_config.server_side_encryption = sse.clone();
-    filesystem_config.cache_config = args.cache_config();
-
-    let sys = System::new_with_specifics(RefreshKind::everything());
-    let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
-    filesystem_config.mem_limit = default_mem_target.max(MINIMUM_MEM_LIMIT);
-
-    #[cfg(feature = "mem_limiter")]
-    if let Some(max_mem_target) = args.max_memory_target {
-        filesystem_config.mem_limit = max_mem_target * 1024 * 1024;
-    }
-
-    // Written in this awkward way to force us to update it if we add new checksum types
-    filesystem_config.use_upload_checksums = match args.upload_checksums {
-        Some(UploadChecksums::Crc32c) | None => true,
-        Some(UploadChecksums::Off) => false,
-    };
-    if !s3_personality.supports_additional_checksums() && args.upload_checksums.is_none() {
-        tracing::info!("disabling upload checksums because target S3 personality does not support them");
-        filesystem_config.use_upload_checksums = false;
-    }
+    let s3_path = args.s3_path();
+    let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
 
     let prefetcher_config = Default::default();
     let runtime = Runtime::new(runtime);
@@ -950,14 +971,7 @@ where
                 .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
 
             let prefetcher = caching_prefetch(express_cache, runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(
-                client,
-                prefetcher,
-                runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
-                filesystem_config,
-            );
+            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
             create_fuse_session(fs, fuse_config, &bucket_description)
         }
         (Some((disk_data_cache_config, cache_dir_path)), None) => {
@@ -965,14 +979,7 @@ where
             let (managed_cache_dir, disk_cache) = create_disk_cache(cache_dir_path, disk_data_cache_config)?;
 
             let prefetcher = caching_prefetch(disk_cache, runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(
-                client,
-                prefetcher,
-                runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
-                filesystem_config,
-            );
+            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
             let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
             fuse_session.run_on_close(Box::new(move || {
                 drop(managed_cache_dir);
@@ -988,14 +995,7 @@ where
             let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
 
             let prefetcher = caching_prefetch(cache, runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(
-                client,
-                prefetcher,
-                runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
-                filesystem_config,
-            );
+            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
             let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
             fuse_session.run_on_close(Box::new(move || {
                 drop(managed_cache_dir);
@@ -1005,14 +1005,7 @@ where
         _ => {
             tracing::trace!("using no cache");
             let prefetcher = default_prefetch(runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(
-                client,
-                prefetcher,
-                runtime,
-                &args.bucket_name,
-                &args.prefix.unwrap_or_default(),
-                filesystem_config,
-            );
+            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
             create_fuse_session(fs, fuse_config, &bucket_description)
         }
     }
@@ -1022,8 +1015,7 @@ fn create_filesystem<Client, Prefetcher>(
     client: Client,
     prefetcher: Prefetcher,
     runtime: Runtime,
-    bucket_name: &str,
-    prefix: &Prefix,
+    s3_path: &S3Path,
     filesystem_config: S3FilesystemConfig,
 ) -> S3Filesystem<Client, Prefetcher>
 where
@@ -1031,7 +1023,14 @@ where
     Prefetcher: Prefetch + Send + Sync + 'static,
 {
     tracing::trace!(?filesystem_config, "creating file system");
-    S3Filesystem::new(client, prefetcher, runtime, bucket_name, prefix, filesystem_config)
+    S3Filesystem::new(
+        client,
+        prefetcher,
+        runtime,
+        &s3_path.bucket_name,
+        &s3_path.prefix,
+        filesystem_config,
+    )
 }
 
 fn create_fuse_session<Client, Prefetcher>(
