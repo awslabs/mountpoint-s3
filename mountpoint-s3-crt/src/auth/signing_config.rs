@@ -29,7 +29,7 @@ impl Debug for SigningConfigInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SigningConfigInner")
             .field("region", &self.region)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

@@ -24,7 +24,9 @@ pub struct Logger {
 
 impl Debug for Logger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Logger").field("inner", &self.inner).finish()
+        f.debug_struct("Logger")
+            .field("inner", &self.inner)
+            .finish_non_exhaustive()
     }
 }
 
