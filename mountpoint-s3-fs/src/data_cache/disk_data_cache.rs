@@ -302,6 +302,7 @@ impl DiskDataCache {
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
+        metrics::gauge!("disk_data_cache.disk_usage_mib").set((size / 1024 / 1024) as f64);
         match self.config.limit {
             CacheLimit::Unbounded => false,
             CacheLimit::TotalSize { max_size } => size > max_size,
