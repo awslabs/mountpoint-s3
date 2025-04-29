@@ -7,6 +7,7 @@ use mountpoint_s3_client::types::GetBodyPart;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug_span, trace, warn, Instrument};
 
+use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
@@ -23,12 +24,12 @@ use crate::prefetch::PrefetchReadError;
 /// [ObjectPartStream] implementation which maintains a [DataCache] for the object data
 /// retrieved by an [ObjectClient].
 #[derive(Debug)]
-pub struct CachingPartStream<Cache, Runtime> {
+pub struct CachingPartStream<Cache> {
     cache: Arc<Cache>,
     runtime: Runtime,
 }
 
-impl<Cache, Runtime> CachingPartStream<Cache, Runtime> {
+impl<Cache> CachingPartStream<Cache> {
     pub fn new(runtime: Runtime, cache: Cache) -> Self {
         Self {
             cache: Arc::new(cache),
@@ -37,10 +38,9 @@ impl<Cache, Runtime> CachingPartStream<Cache, Runtime> {
     }
 }
 
-impl<Cache, Runtime> ObjectPartStream for CachingPartStream<Cache, Runtime>
+impl<Cache> ObjectPartStream for CachingPartStream<Cache>
 where
     Cache: DataCache + Send + Sync + 'static,
-    Runtime: Spawn + Clone + Send + Sync + 'static,
 {
     fn spawn_get_object_request<Client>(
         &self,
@@ -84,7 +84,7 @@ where
 }
 
 #[derive(Debug)]
-struct CachingRequest<Client: ObjectClient, Cache, Runtime: Spawn> {
+struct CachingRequest<Client: ObjectClient, Cache> {
     client: Client,
     cache: Arc<Cache>,
     runtime: Runtime,
@@ -92,11 +92,10 @@ struct CachingRequest<Client: ObjectClient, Cache, Runtime: Spawn> {
     config: RequestTaskConfig,
 }
 
-impl<Client, Cache, Runtime> CachingRequest<Client, Cache, Runtime>
+impl<Client, Cache> CachingRequest<Client, Cache>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Cache: DataCache + Send + Sync + 'static,
-    Runtime: Spawn + Clone,
 {
     fn new(
         client: Client,
@@ -454,7 +453,7 @@ mod tests {
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let stream = CachingPartStream::new(runtime, cache);
         let range = RequestRange::new(object_size, offset as u64, preferred_size);
         let expected_start_block = (range.start() as usize).div_euclid(block_size);
@@ -535,7 +534,7 @@ mod tests {
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let stream = CachingPartStream::new(runtime, cache);
 
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {

@@ -5,7 +5,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fuser::{BackgroundSession, Mount, MountOption, Session};
-use futures::task::Spawn;
 use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
@@ -14,7 +13,7 @@ use mountpoint_s3_fs::data_cache::DataCache;
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
 use mountpoint_s3_fs::prefetch::{Prefetch, PrefetcherConfig};
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
 use nix::fcntl::{self, FdFlag};
 use tempfile::TempDir;
 
@@ -147,7 +146,7 @@ pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
 impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
 
 #[allow(clippy::too_many_arguments)]
-pub fn create_fuse_session<Client, Prefetcher, Runtime>(
+pub fn create_fuse_session<Client, Prefetcher>(
     client: Client,
     prefetcher: Prefetcher,
     runtime: Runtime,
@@ -160,7 +159,6 @@ pub fn create_fuse_session<Client, Prefetcher, Runtime>(
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
     Prefetcher: Prefetch + Send + Sync + 'static,
-    Runtime: Spawn + Send + Sync + 'static,
 {
     let options = vec![
         MountOption::DefaultPermissions,
@@ -238,7 +236,7 @@ pub mod mock_session {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let prefetcher = default_prefetch(runtime.clone(), test_config.prefetcher_config);
         let (session, mount) = create_fuse_session(
             client.clone(),
@@ -277,7 +275,7 @@ pub mod mock_session {
                 ..Default::default()
             };
             let client = Arc::new(MockClient::new(client_config));
-            let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+            let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
             let prefetcher = caching_prefetch(cache, runtime.clone(), test_config.prefetcher_config);
             let (session, mount) = create_fuse_session(
                 client.clone(),
@@ -418,7 +416,7 @@ pub mod s3_session {
             .read_backpressure(true)
             .initial_read_window(test_config.initial_read_window_size);
         let client = S3CrtClient::new(client_config).unwrap();
-        let runtime = client.event_loop_group();
+        let runtime = Runtime::new(client.event_loop_group());
         let prefetcher = default_prefetch(runtime.clone(), test_config.prefetcher_config);
         let (session, mount) = create_fuse_session(
             client,
@@ -451,7 +449,7 @@ pub mod s3_session {
                 test_config.initial_read_window_size,
                 Default::default(),
             );
-            let runtime = client.event_loop_group();
+            let runtime = Runtime::new(client.event_loop_group());
             let prefetcher = caching_prefetch(cache, runtime.clone(), test_config.prefetcher_config);
             let (session, mount) = create_fuse_session(
                 client,

@@ -6,6 +6,7 @@ pub mod data_cache;
 pub mod fs;
 pub mod fuse;
 pub mod logging;
+pub mod manifest;
 pub mod mem_limiter;
 pub mod metrics;
 pub mod object;
@@ -16,6 +17,7 @@ mod superblock;
 mod sync;
 pub mod upload;
 
+pub use async_util::Runtime;
 pub use fs::{S3Filesystem, S3FilesystemConfig, ServerSideEncryption};
 
 /// Enable tracing and CRT logging when running unit tests.

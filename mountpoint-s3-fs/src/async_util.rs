@@ -3,24 +3,27 @@ use std::{fmt::Debug, future::Future};
 use async_channel::{Receiver, Sender};
 use futures::task::{Spawn, SpawnError, SpawnExt};
 
-/// Type-erasure for a [Spawn] implementation.
-pub struct BoxRuntime(Box<dyn Spawn + Send + Sync>);
+use crate::sync::Arc;
 
-impl Spawn for BoxRuntime {
+/// Type-erasure for a [Spawn] implementation.
+#[derive(Clone)]
+pub struct Runtime(Arc<dyn Spawn + Send + Sync>);
+
+impl Spawn for Runtime {
     fn spawn_obj(&self, future: futures::task::FutureObj<'static, ()>) -> Result<(), SpawnError> {
         self.0.spawn_obj(future)
     }
 }
 
-impl Debug for BoxRuntime {
+impl Debug for Runtime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("BoxRuntime").field(&"dyn").finish()
+        f.debug_tuple("Runtime").field(&"dyn").finish()
     }
 }
 
-impl BoxRuntime {
+impl Runtime {
     pub fn new(runtime: impl Spawn + Sync + Send + 'static) -> Self {
-        BoxRuntime(Box::new(runtime))
+        Runtime(Arc::new(runtime))
     }
 
     /// Spawns a task that polls the given future to completion and return
@@ -99,7 +102,7 @@ mod tests {
     use futures::executor::{block_on, ThreadPool};
     use test_case::test_case;
 
-    use super::{result_channel, BoxRuntime};
+    use super::{result_channel, Runtime};
 
     #[test_case(Ok(42))]
     #[test_case(Err("error"))]
@@ -130,7 +133,7 @@ mod tests {
     #[test_case(true; "after await")]
     #[test_case(false; "without await")]
     fn test_drop(await_result: bool) {
-        let runtime = BoxRuntime::new(ThreadPool::new().unwrap());
+        let runtime = Runtime::new(ThreadPool::new().unwrap());
 
         struct Dropping(Arc<AtomicBool>);
 

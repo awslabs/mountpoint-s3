@@ -60,25 +60,38 @@ The main Mountpoint changelog lives in the `mountpoint-s3` crate/directory, but 
 Here is the full list of changelog files we maintain for reference.
 
 - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
+- https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-fs/CHANGELOG.md
 - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/CHANGELOG.md
 - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt/CHANGELOG.md
 - https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-crt-sys/CHANGELOG.md
 
+Note that we do not maintain a change log for `mountpoint-s3-fuser`.
+
 ### Version numbers
 
-Mountpoint and the other `mountpoint-s3-*` crates in this repository follow [semantic versioning](https://semver.org/) rules. After we release Mountpoint or [publish the
-other crates](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-client/PUBLISHING_CRATES.md), we provisionally increase the patch version number
-of the corresponding crate.
+Mountpoint and the other `mountpoint-s3-*` crates in this repository follow [semantic versioning](https://semver.org/) rules.
+`mountpoint-s3` is the only crate with a stable release version (1.x), while the internal crates are unstable (0.x).
+All but the `mountpoint-s3` crate are published to crates.io.
+For `mountpoint-s3` (i.e. Mountpoint itself), new features and very minor breaking changes result in a minor version update while bug fixes result in a patch version update.
+For the crates, both we and Cargo treat the middle number (0.Y.z) as breaking changes and all new additions or bug fixes should update the latter number (0.y.Z).
 
-When a pull request is submitted, we consider whether the changes it contains should trigger a version number increment by comparing the latest released
-version with the one on `main`. If a pull request introduces a new Mountpoint feature, we make sure that the minor version of the `mountpoint-s3`
-crate is incremented compared to the latest release, if it was not already. The crate's `CHANGELOG.md` will show the latest released version and all the more
-recent changes under the `Unreleased` section. Example:
+When a pull request is submitted, we consider whether the changes it contains should trigger a version number increment
+by comparing the latest released version with the one on `main`.
+Ultimately, we want both the crate version and the changelog to reflect all changes since the last published release.
 
-* A pull request introduces a new feature and adds an entry to the changelog,
-* The latest release, as reported on the changelog, is `1.13.0`,
-* The version on `main` is `1.13.1`,
-* The minor version number must be incremented, so the new version should be `1.14.0`.
+Mountpoint (`mountpoint-s3`) change example:
+
+* A pull request introduces a new feature to Mountpoint such as a CLI flag and adds an entry to the changelog.
+* The latest release, as reported on the changelog, is `1.13.0`.
+* The minor version number must be incremented as a new feature is introduced when compared to the published (i.e. released) version,
+  so the new version should be `1.14.0`.
+
+`mountpoint-s3-client` change example:
+
+* A pull request adds a new configurable option to the client and adds an entry to the changelog.
+* The latest release, as reported on the changelog, is `0.14.0`.
+* The patch version number should be incremented compared to the published version as this is new behavior for an unstable crate,
+  so the new version should be `0.14.1`.
 
 ## Finding contributions to work on
 

@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 
-use futures::task::Spawn;
-
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
 use mountpoint_s3_client::ObjectClient;
@@ -9,7 +7,7 @@ use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use tracing::error;
 
-use crate::async_util::BoxRuntime;
+use crate::async_util::Runtime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
 use crate::sync::Arc;
@@ -29,7 +27,7 @@ pub use incremental::AppendUploadRequest;
 #[derive(Debug)]
 pub struct Uploader<Client: ObjectClient> {
     client: Client,
-    runtime: BoxRuntime,
+    runtime: Runtime,
     mem_limiter: Arc<MemoryLimiter<Client>>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
@@ -72,7 +70,7 @@ where
     /// Create a new [Uploader] that will make requests to the given client.
     pub fn new(
         client: Client,
-        runtime: impl Spawn + Sync + Send + 'static,
+        runtime: Runtime,
         mem_limiter: Arc<MemoryLimiter<Client>>,
         storage_class: Option<String>,
         server_side_encryption: ServerSideEncryption,
@@ -81,7 +79,7 @@ where
     ) -> Self {
         Self {
             client,
-            runtime: BoxRuntime::new(runtime),
+            runtime,
             mem_limiter,
             storage_class,
             server_side_encryption,

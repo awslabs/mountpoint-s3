@@ -1,7 +1,6 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
 use bytes::Bytes;
-use futures::task::Spawn;
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -15,6 +14,7 @@ use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::ObjectClient;
 
+use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::prefetch::{Prefetch, PrefetchResult};
@@ -153,7 +153,7 @@ where
     pub fn new(
         client: Client,
         prefetcher: Prefetcher,
-        runtime: impl Spawn + Send + Sync + 'static,
+        runtime: Runtime,
         bucket: &str,
         prefix: &Prefix,
         config: S3FilesystemConfig,
@@ -934,7 +934,7 @@ mod tests {
         // Create "dir1" in the client to avoid creating it locally
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let prefetcher = default_prefetch(runtime.clone(), Default::default());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));

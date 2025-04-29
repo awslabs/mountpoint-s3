@@ -44,8 +44,9 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use mountpoint_s3_client::types::ObjectInfo;
+use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::ObjectClient;
+use time::OffsetDateTime;
 use tracing::{error, trace, warn};
 
 use crate::sync::{Arc, AsyncMutex, Mutex};
@@ -173,13 +174,20 @@ impl ReaddirHandle {
                     kind: InodeKind::Directory,
                 })
             }
-            ReaddirEntry::RemoteObject { object_info, .. } => {
+            ReaddirEntry::RemoteObject {
+                size,
+                last_modified,
+                etag,
+                storage_class,
+                restore_status,
+                ..
+            } => {
                 let stat = InodeStat::for_file(
-                    object_info.size as usize,
-                    object_info.last_modified,
-                    Some(object_info.etag.as_str().into()),
-                    object_info.storage_class.as_deref(),
-                    object_info.restore_status,
+                    *size as usize,
+                    *last_modified,
+                    Some(etag.as_str().into()),
+                    storage_class.as_deref(),
+                    *restore_status,
                     self.inner.config.cache_config.file_ttl,
                 );
                 Some(RemoteLookup {
@@ -204,9 +212,30 @@ impl ReaddirHandle {
 /// should be done lazily by the consumer of the entry.
 #[derive(Debug, Clone)]
 enum ReaddirEntry {
-    RemotePrefix { name: String },
-    RemoteObject { name: String, object_info: ObjectInfo },
-    LocalInode { lookup: LookedUp },
+    RemotePrefix {
+        name: String,
+    },
+    RemoteObject {
+        /// Last component of the S3 Key.
+        name: String,
+        /// S3 Key for this object.
+        full_key: String,
+        /// Size of this object in bytes.
+        size: u64,
+        /// The time this object was last modified.
+        last_modified: OffsetDateTime,
+        /// Storage class for this object. Optional because this information may not be available when
+        /// [ReaddirEntry] is loaded from disk.
+        storage_class: Option<String>,
+        /// Objects in flexible retrieval storage classes (such as GLACIER and DEEP_ARCHIVE) are only
+        /// accessible after restoration.
+        restore_status: Option<RestoreStatus>,
+        /// Entity tag of this object.
+        etag: String,
+    },
+    LocalInode {
+        lookup: LookedUp,
+    },
 }
 
 // This looks a little silly but makes the [Ord] implementation for [ReaddirEntry] a bunch clearer
@@ -240,8 +269,8 @@ impl ReaddirEntry {
             Self::RemotePrefix { name } => {
                 format!("directory '{name}'")
             }
-            Self::RemoteObject { name, object_info } => {
-                format!("file '{}' (full key {:?})", name, object_info.key)
+            Self::RemoteObject { name, full_key, .. } => {
+                format!("file '{}' (full key {:?})", name, full_key)
             }
             Self::LocalInode { lookup } => {
                 let kind = match lookup.inode.kind() {
@@ -385,7 +414,12 @@ impl RemoteIter {
                 .into_iter()
                 .map(|object_info| ReaddirEntry::RemoteObject {
                     name: object_info.key[self.full_path.len()..].to_owned(),
-                    object_info,
+                    full_key: object_info.key,
+                    size: object_info.size,
+                    last_modified: object_info.last_modified,
+                    storage_class: object_info.storage_class,
+                    restore_status: object_info.restore_status,
+                    etag: object_info.etag,
                 });
 
             if self.ordered {

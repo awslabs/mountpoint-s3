@@ -206,28 +206,10 @@ struct FormattedFields(String);
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
+    use crate::logging::testing::LockedWriter;
 
     use tracing_subscriber::layer::SubscriberExt;
-
-    #[derive(Debug, Clone, Default)]
-    struct LockedWriter {
-        inner: Arc<Mutex<Vec<u8>>>,
-    }
-
-    impl std::io::Write for LockedWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let mut inner = self.inner.lock().unwrap();
-            inner.extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     #[test]
     fn test_syslog_layer() {
@@ -241,8 +223,7 @@ mod tests {
             let _enter2 = span2.enter();
             tracing::info!(field5 = 5, field6 = 6, "this is a real {:?} message", "cool");
         });
-        let vec = std::mem::take(&mut *buf.inner.lock().unwrap());
-        let output = String::from_utf8(vec).unwrap();
+        let output = buf.into_string();
         // The actual output is syslog-formatted, so includes the current time and PID. Let's just
         // check the parts of the payload we really care about.
         let expected = "[INFO] span1{msg1=1 field1=1 field2=2}:span2{msg2=2 field3=3 field4=4}: mountpoint_s3_fs::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6";

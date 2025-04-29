@@ -1,23 +1,21 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::task::{Spawn, SpawnExt};
+use futures::task::SpawnExt;
 use tracing::{trace, warn};
 
-use crate::object::ObjectId;
+use crate::{object::ObjectId, Runtime};
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// A data cache which uses both the local disk and S3 Express One Zone bucket as a storage.
-pub struct MultilevelDataCache<DiskCache, ExpressCache, Runtime> {
+pub struct MultilevelDataCache<DiskCache, ExpressCache> {
     disk_cache: Arc<DiskCache>,
     express_cache: ExpressCache,
     runtime: Runtime,
 }
 
-impl<DiskCache: DataCache, ExpressCache: DataCache, Runtime: Spawn>
-    MultilevelDataCache<DiskCache, ExpressCache, Runtime>
-{
+impl<DiskCache: DataCache, ExpressCache: DataCache> MultilevelDataCache<DiskCache, ExpressCache> {
     /// Both the `disk_cache` and `express_cache` must be configured with the same `block_size`.
     pub fn new(disk_cache: Arc<DiskCache>, express_cache: ExpressCache, runtime: Runtime) -> Self {
         // The same blocks are written to both caches. The `block_size`-s must match.
@@ -35,11 +33,10 @@ impl<DiskCache: DataCache, ExpressCache: DataCache, Runtime: Spawn>
 }
 
 #[async_trait]
-impl<DiskCache, ExpressCache, Runtime> DataCache for MultilevelDataCache<DiskCache, ExpressCache, Runtime>
+impl<DiskCache, ExpressCache> DataCache for MultilevelDataCache<DiskCache, ExpressCache>
 where
     DiskCache: DataCache + Sync + Send + 'static,
     ExpressCache: DataCache + Sync,
-    Runtime: Spawn + Sync,
 {
     /// Gets a block from one of the underlying caches. Populates the disk cache with data fetched from the S3 Express cache.
     async fn get_block(
@@ -162,7 +159,7 @@ mod tests {
     async fn test_put_to_both_caches(cleanup_local: bool, cleanup_express: bool) {
         let (cache_dir, disk_cache) = create_disk_cache();
         let (client, express_cache) = create_express_cache();
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
         let data = ChecksummedBytes::new("Foo".into());
@@ -213,8 +210,8 @@ mod tests {
             .await
             .expect("put should succeed");
 
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
-        let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime.clone());
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+        let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
         // get from express, put entry in the local cache
         let entry = cache
@@ -296,7 +293,7 @@ mod tests {
             .await
             .expect("put should succeed");
 
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
         // get data, which is stored in local only
@@ -335,7 +332,7 @@ mod tests {
             .await
             .expect("put should succeed");
 
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
         let entry = cache
@@ -353,7 +350,7 @@ mod tests {
     async fn large_object_bypassed() {
         let (cache_dir, disk_cache) = create_disk_cache();
         let (client, express_cache) = create_express_cache();
-        let runtime = ThreadPool::builder().pool_size(1).create().unwrap();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
         let data = vec![0u8; 1024 * 1024 + 1];

@@ -1,5 +1,5 @@
 use async_stream::try_stream;
-use futures::task::{Spawn, SpawnExt};
+use futures::task::SpawnExt;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::ObjectClient;
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
 use tracing::{debug_span, error, trace, Instrument};
 
+use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
@@ -162,14 +163,11 @@ impl Debug for RequestRange {
 
 /// [ObjectPartStream] implementation which delegates retrieving object data to a [Client].
 #[derive(Debug)]
-pub struct ClientPartStream<Runtime> {
+pub struct ClientPartStream {
     runtime: Runtime,
 }
 
-impl<Runtime> ClientPartStream<Runtime>
-where
-    Runtime: Spawn,
-{
+impl ClientPartStream {
     pub fn new(runtime: Runtime) -> Self {
         Self { runtime }
     }
@@ -177,10 +175,7 @@ where
 
 pub type RequestReaderOutput<E> = Result<GetBodyPart, PrefetchReadError<E>>;
 
-impl<Runtime> ObjectPartStream for ClientPartStream<Runtime>
-where
-    Runtime: Spawn,
-{
+impl ObjectPartStream for ClientPartStream {
     fn spawn_get_object_request<Client>(
         &self,
         client: &Client,
@@ -302,6 +297,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
         let first_req_range = range.trim_end(first_read_window_end_offset);
+        let mut current_offset = first_req_range.start();
         if !first_req_range.is_empty() {
             let first_request_stream = read_from_request(
                 backpressure_limiter,
@@ -312,7 +308,9 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
             );
             pin_mut!(first_request_stream);
             while let Some(next) = first_request_stream.next().await {
-                yield(next?);
+                let next = next?;
+                current_offset = next.offset + next.data.len() as u64;
+                yield(next);
             }
         }
 
@@ -320,6 +318,21 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
         // but only if there is something left to be fetched.
         let range = range.trim_start(first_read_window_end_offset);
         if !range.is_empty() {
+            if current_offset < range.start() {
+                // We got less data than we requested. We assume the consumer will consume
+                // all the data up to `range.start()` and will increase the read window,
+                // thus, the next line, `wait_for_read_window_increment(range.start())` will eventually be satisfied.
+                // However, if we get less data than we expected, the consumer wouldn't consume
+                // enough data and wouldn't increase the read window, and the next await would block forever
+                // as there is no one to increase the read window.
+                //
+                // This is an runtime error instead of an `assert!` because the prefetcher resets the
+                // prefetch to the offset again in case of an error, and that would cause a new `read_from_client_stream`
+                // to be created which in turn would succeed in the next try if this was a transient issue.
+                error!(key=object_id.key(), current_range=?range, current_offset, "Previous GetObject request terminated unexpectedly");
+                Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)?;
+            }
+
             // To optimize random reads we don't start the second request until half of the first one was read as the second
             // request may not be needed. After increment threshold is reached `backpressure_limiter` will receive a diff to
             // add to the window. This diff will be the initial read window size of the second request and we use it as

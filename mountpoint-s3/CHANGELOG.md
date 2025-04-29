@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Allow changing log level dynamically with `USR2` signal. See [Changing logging verbosity at runtime](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#changing-logging-verbosity-at-runtime) for more details. ([#1367](https://github.com/awslabs/mountpoint-s3/pull/1367))
+
 ## v1.16.2 (April 9, 2025)
 
 * Address an issue introduced in v1.16.0 that could affect throughput and memory usage in

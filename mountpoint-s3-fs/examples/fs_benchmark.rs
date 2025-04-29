@@ -9,7 +9,7 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
 use mountpoint_s3_fs::prefetch::default_prefetch;
-use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
 use tempfile::tempdir;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -147,7 +147,7 @@ fn mount_file_system(
         config = config.throughput_target_gbps(throughput_target_gbps);
     }
     let client = S3CrtClient::new(config).expect("Failed to create S3 client");
-    let runtime = client.event_loop_group();
+    let runtime = Runtime::new(client.event_loop_group());
 
     let mut options = vec![MountOption::RO, MountOption::FSName("mountpoint-s3".to_string())];
     options.push(MountOption::AutoUnmount);

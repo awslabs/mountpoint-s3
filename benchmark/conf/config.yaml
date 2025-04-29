@@ -46,6 +46,7 @@ fuse_threads: !!null
 application_workers: 1
 direct_io: false
 fio_benchmark: "${fio_benchmarks[0]}"
+fio_io_engine: "psync"
 iteration: 0
 
 hydra:

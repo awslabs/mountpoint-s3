@@ -1,6 +1,12 @@
-use anyhow::{anyhow, Context};
+use std::env;
 
+use anyhow::{anyhow, Context};
 use mountpoint_s3_client::instance_info::InstanceInfo;
+
+use crate::s3::config::Region;
+
+mod instance_throughput;
+use instance_throughput::get_instance_throughput;
 
 /// Determine the maximum network throughput for the current instance using IMDS. Returns an error
 /// if the instance type either cannot be retrieved using the IMDS client or does not have a known
@@ -13,19 +19,47 @@ pub fn network_throughput(instance_info: &InstanceInfo) -> anyhow::Result<f64> {
     Ok(throughput)
 }
 
-fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
-    const INSTANCE_THROUGHPUT: &str = "instance_throughput";
-    const NETWORK_PERFORMANCE_JSON: &str = include_str!("../scripts/network_performance.json");
+pub fn get_maximum_network_throughput(ec2_instance_type: &str) -> anyhow::Result<f64> {
+    get_instance_throughput(ec2_instance_type).ok_or_else(|| {
+        anyhow!(
+            "no throughput configuration for EC2 instance type {}",
+            ec2_instance_type
+        )
+    })
+}
 
-    let data: serde_json::Value =
-        serde_json::from_str(NETWORK_PERFORMANCE_JSON).context("failed to parse network_performance.json")?;
-    let instance_throughput = data
-        .get(INSTANCE_THROUGHPUT)
-        .context("instance throughput missing from json")?;
-    instance_throughput
-        .get(ec2_instance_type)
-        .and_then(|t| t.as_f64())
-        .ok_or_else(|| anyhow!("no throughput configuration for EC2 instance type {ec2_instance_type}"))
+/// Determine the region using the following sources (in order):
+///  * `--region` flag (user-provided),
+///  * `AWS_REGION` environment variable (user-provided),
+///  * EC2 instance region (using the IMDS client),
+///  * default region (us-east-1).
+pub fn get_region(instance_info: &InstanceInfo, region_override: Option<String>) -> Region {
+    const DEFAULT_REGION: &str = "us-east-1";
+
+    // Use --region (user-provided).
+    if let Some(region) = region_override {
+        return Region::new_user_specified(region);
+    }
+
+    // Use AWS_REGION (user-provided).
+    if let Some(region) = env_region() {
+        tracing::debug!("using AWS_REGION: {region} (environment variable)");
+        return Region::new_user_specified(region);
+    }
+
+    // Use instance region, if available.
+    if let Ok(region) = instance_info.region() {
+        tracing::debug!("using instance region {}", region);
+        return Region::new_inferred(region.to_owned());
+    }
+
+    // Use default region.
+    tracing::debug!("using default region {}", DEFAULT_REGION);
+    Region::new_inferred(DEFAULT_REGION.to_owned())
+}
+
+fn env_region() -> Option<String> {
+    env::var_os("AWS_REGION").map(|val| val.to_string_lossy().into())
 }
 
 #[cfg(test)]

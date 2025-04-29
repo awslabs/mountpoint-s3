@@ -7,7 +7,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::upload::Uploader;
-use mountpoint_s3_fs::ServerSideEncryption;
+use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -55,9 +55,12 @@ struct UploadBenchmarkArgs {
     #[clap(long, help = "Size of each write in bytes", default_value = "131072")]
     pub write_size: usize,
 
+    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
+    pub crt_memory_limit_gib: Option<u64>,
+
     #[clap(
         long,
-        help = "Maximum memory usage target [default: 95% of total system memory]",
+        help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
         value_name = "MiB"
     )]
     pub max_memory_target: Option<u64>,
@@ -86,6 +89,7 @@ struct UploadBenchmarkArgs {
 
 fn main() {
     init_tracing_subscriber();
+    let _metrics_handle = mountpoint_s3_fs::metrics::install();
 
     let args = UploadBenchmarkArgs::parse();
     println!("starting upload benchmark with {:?}", &args);
@@ -95,12 +99,15 @@ fn main() {
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), url).expect("Failed to parse endpoint URL");
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
-    let config = S3ClientConfig::new()
+    let mut config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)
         .write_part_size(args.write_part_size);
+    if let Some(crt_mem_limit_gib) = args.crt_memory_limit_gib {
+        config = config.memory_limit_in_bytes(crt_mem_limit_gib * 1024 * 1024 * 1024);
+    }
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
-    let runtime = client.event_loop_group();
+    let runtime = Runtime::new(client.event_loop_group());
 
     for i in 0..args.iterations {
         let max_memory_target = if let Some(target) = args.max_memory_target {
