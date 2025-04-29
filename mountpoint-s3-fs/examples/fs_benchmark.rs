@@ -8,7 +8,7 @@ use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
-use mountpoint_s3_fs::prefetch::default_prefetch;
+use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
 use tempfile::tempdir;
 use tracing_subscriber::fmt::Subscriber;
@@ -160,10 +160,10 @@ fn mount_file_system(
         bucket_name,
         mountpoint.to_str().unwrap()
     );
-    let prefetcher = default_prefetch(runtime.clone(), Default::default());
+    let prefetcher_builder = Prefetcher::default_builder(client.clone());
     let fs = S3Filesystem::new(
         client,
-        prefetcher,
+        prefetcher_builder,
         runtime,
         bucket_name,
         &Default::default(),

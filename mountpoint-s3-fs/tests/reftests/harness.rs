@@ -1,7 +1,7 @@
 //! Provides the test harness along with operations that can be performed against
 //! the [Harness::reference] model and the system under test [Harness::fs].
 //!
-//! Note that the system under test is Mountpoint's file system type wrapped by [TestS3Filesystem],
+//! Note that the system under test is Mountpoint's file system type [S3Filesystem],
 //! and does not include FUSE integration.
 //!
 //! - TODO: How can we test the new incremental upload mode?
@@ -19,12 +19,12 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_fs::fs::{CacheConfig, InodeNo, OpenFlags, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, debug_span, trace};
 
-use crate::common::{make_test_filesystem, DirectoryReply, TestS3Filesystem};
+use crate::common::{make_test_filesystem, DirectoryReply};
 use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, Name, TreeNode, ValidName};
 use crate::reftests::reference::{File, Node, Reference};
 
@@ -190,7 +190,7 @@ pub struct Harness {
     /// Reference model for the system under test (SUT) to be compared against.
     reference: Reference,
     /// The system under test (SUT) that we compare against the [Self::reference].
-    fs: TestS3Filesystem<Arc<MockClient>>,
+    fs: S3Filesystem<Arc<MockClient>>,
     /// An S3 client, used for performing operations against the 'remote' S3.
     client: Arc<MockClient>,
     bucket: String,
@@ -200,7 +200,7 @@ pub struct Harness {
 impl Harness {
     /// Create a new test harness
     pub fn new(
-        fs: TestS3Filesystem<Arc<MockClient>>,
+        fs: S3Filesystem<Arc<MockClient>>,
         client: Arc<MockClient>,
         reference: Reference,
         bucket: &str,

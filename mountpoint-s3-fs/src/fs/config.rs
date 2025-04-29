@@ -4,6 +4,7 @@ use nix::unistd::{getgid, getuid};
 
 use crate::manifest::Manifest;
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
 use crate::superblock::WriteMode;
 
@@ -39,6 +40,8 @@ pub struct S3FilesystemConfig {
     pub use_upload_checksums: bool,
     /// Memory limit
     pub mem_limit: u64,
+    /// Prefetcher configuration
+    pub prefetcher_config: PrefetcherConfig,
     /// An SQLite DB containing the list of S3 keys available with this mount
     pub manifest: Option<Manifest>,
 }
@@ -63,6 +66,7 @@ impl Default for S3FilesystemConfig {
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
+            prefetcher_config: Default::default(),
             manifest: None,
         }
     }

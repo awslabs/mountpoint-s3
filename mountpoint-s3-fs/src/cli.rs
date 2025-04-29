@@ -32,7 +32,7 @@ use crate::fuse::session::FuseSession;
 use crate::fuse::S3FuseFilesystem;
 use crate::logging::{init_logging, prepare_log_file_name, LoggingConfig};
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
-use crate::prefetch::{caching_prefetch, default_prefetch, Prefetch};
+use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
 use crate::s3::config::{ClientConfig, PartConfig, S3Path};
 use crate::s3::S3Personality;
@@ -961,30 +961,46 @@ where
     let s3_path = args.s3_path();
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
 
-    let prefetcher_config = Default::default();
     let runtime = Runtime::new(runtime);
-    match (args.disk_data_cache_config(), args.express_data_cache_config(sse)) {
+    let (prefetcher_builder, managed_cache_dir) = create_prefetcher_builder(
+        args.disk_data_cache_config(),
+        args.express_data_cache_config(sse),
+        client.clone(),
+        runtime.clone(),
+    )?;
+
+    let fs = create_filesystem(client, prefetcher_builder, runtime, &s3_path, filesystem_config);
+    let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
+    if let Some(managed_cache_dir) = managed_cache_dir {
+        fuse_session.run_on_close(Box::new(move || {
+            drop(managed_cache_dir);
+        }));
+    }
+    Ok(fuse_session)
+}
+
+fn create_prefetcher_builder<Client>(
+    disk_data_cache_config: Option<(DiskDataCacheConfig, &Path)>,
+    express_data_cache_config: Option<(ExpressDataCacheConfig, &str, &str)>,
+    client: Client,
+    runtime: Runtime,
+) -> Result<(PrefetcherBuilder<Client>, Option<ManagedCacheDir>), anyhow::Error>
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+{
+    match (disk_data_cache_config, express_data_cache_config) {
         (None, Some((config, bucket_name, cache_bucket_name))) => {
             tracing::trace!("using S3 Express One Zone bucket as a cache for object content");
             let express_cache = ExpressDataCache::new(client.clone(), config, bucket_name, cache_bucket_name);
             block_on(express_cache.verify_cache_valid())
                 .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
 
-            let prefetcher = caching_prefetch(express_cache, runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
-            create_fuse_session(fs, fuse_config, &bucket_description)
+            Ok((Prefetcher::caching_builder(express_cache, client), None))
         }
         (Some((disk_data_cache_config, cache_dir_path)), None) => {
             tracing::trace!("using local disk as a cache for object content");
             let (managed_cache_dir, disk_cache) = create_disk_cache(cache_dir_path, disk_data_cache_config)?;
-
-            let prefetcher = caching_prefetch(disk_cache, runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
-            let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
-            fuse_session.run_on_close(Box::new(move || {
-                drop(managed_cache_dir);
-            }));
-            Ok(fuse_session)
+            Ok((Prefetcher::caching_builder(disk_cache, client), Some(managed_cache_dir)))
         }
         (Some((disk_data_cache_config, cache_dir_path)), Some((config, bucket_name, cache_bucket_name))) => {
             tracing::trace!("using both local disk and S3 Express One Zone bucket as a cache for object content");
@@ -994,38 +1010,29 @@ where
                 .with_context(|| format!("initial PutObject failed for shared cache bucket {cache_bucket_name}"))?;
             let cache = MultilevelDataCache::new(Arc::new(disk_cache), express_cache, runtime.clone());
 
-            let prefetcher = caching_prefetch(cache, runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
-            let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
-            fuse_session.run_on_close(Box::new(move || {
-                drop(managed_cache_dir);
-            }));
-            Ok(fuse_session)
+            Ok((Prefetcher::caching_builder(cache, client), Some(managed_cache_dir)))
         }
         _ => {
             tracing::trace!("using no cache");
-            let prefetcher = default_prefetch(runtime.clone(), prefetcher_config);
-            let fs = create_filesystem(client, prefetcher, runtime, &s3_path, filesystem_config);
-            create_fuse_session(fs, fuse_config, &bucket_description)
+            Ok((Prefetcher::default_builder(client), None))
         }
     }
 }
 
-fn create_filesystem<Client, Prefetcher>(
+fn create_filesystem<Client>(
     client: Client,
-    prefetcher: Prefetcher,
+    prefetcher_builder: PrefetcherBuilder<Client>,
     runtime: Runtime,
     s3_path: &S3Path,
     filesystem_config: S3FilesystemConfig,
-) -> S3Filesystem<Client, Prefetcher>
+) -> S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch + Send + Sync + 'static,
 {
     tracing::trace!(?filesystem_config, "creating file system");
     S3Filesystem::new(
         client,
-        prefetcher,
+        prefetcher_builder,
         runtime,
         &s3_path.bucket_name,
         &s3_path.prefix,
@@ -1033,14 +1040,13 @@ where
     )
 }
 
-fn create_fuse_session<Client, Prefetcher>(
-    fs: S3Filesystem<Client, Prefetcher>,
+fn create_fuse_session<Client>(
+    fs: S3Filesystem<Client>,
     fuse_session_config: FuseSessionConfig,
     bucket_description: &str,
 ) -> anyhow::Result<FuseSession>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch + Send + Sync + 'static,
 {
     let fuse_fs = S3FuseFilesystem::new(fs);
 

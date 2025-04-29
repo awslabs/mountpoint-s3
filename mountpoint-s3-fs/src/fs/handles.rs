@@ -5,7 +5,7 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::{debug, error};
 
 use crate::object::ObjectId;
-use crate::prefetch::Prefetch;
+use crate::prefetch::PrefetchGetObject;
 use crate::superblock::{Inode, LookedUp, ReadHandle, ReaddirHandle, WriteHandle};
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::AsyncMutex;
@@ -45,56 +45,41 @@ impl DirHandle {
 }
 
 #[derive(Debug)]
-pub struct FileHandle<Client, Prefetcher>
+pub struct FileHandle<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
 {
     pub inode: Inode,
     pub full_key: String,
-    pub state: AsyncMutex<FileHandleState<Client, Prefetcher>>,
+    pub state: AsyncMutex<FileHandleState<Client>>,
     /// Process that created the handle
     pub open_pid: u32,
 }
 
-pub enum FileHandleState<Client, Prefetcher>
+#[derive(Debug)]
+pub enum FileHandleState<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
-    Prefetcher: Prefetch,
 {
     /// The file handle has been assigned as a read handle
     Read {
         handle: ReadHandle,
-        request: Prefetcher::PrefetchResult<Client>,
+        request: PrefetchGetObject<Client>,
     },
     /// The file handle has been assigned as a write handle
     Write(UploadState<Client>),
 }
 
-impl<Client, Prefetcher> std::fmt::Debug for FileHandleState<Client, Prefetcher>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static + std::fmt::Debug,
-    Prefetcher: Prefetch,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FileHandleState::Read { handle, .. } => f.debug_struct("Read").field("handle", handle).finish(),
-            FileHandleState::Write(arg0) => f.debug_tuple("Write").field(arg0).finish(),
-        }
-    }
-}
-
-impl<Client, Prefetcher> FileHandleState<Client, Prefetcher>
+impl<Client> FileHandleState<Client>
 where
     Client: ObjectClient + Clone + Send + Sync,
-    Prefetcher: Prefetch,
 {
     pub async fn new_write_handle(
         lookup: &LookedUp,
         ino: InodeNo,
         flags: OpenFlags,
-        fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
+        fs: &S3Filesystem<Client>,
+    ) -> Result<FileHandleState<Client>, Error> {
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
         let handle = fs.superblock.write(&fs.client, ino, &write_mode, is_truncate).await?;
@@ -129,8 +114,8 @@ where
 
     pub async fn new_read_handle(
         lookup: &LookedUp,
-        fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<FileHandleState<Client, Prefetcher>, Error> {
+        fs: &S3Filesystem<Client>,
+    ) -> Result<FileHandleState<Client>, Error> {
         if !lookup.stat.is_readable {
             return Err(err!(
                 libc::EACCES,
@@ -145,13 +130,7 @@ where
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
         let object_id = ObjectId::new(full_key, etag);
-        let request = fs.prefetcher.prefetch(
-            fs.client.clone(),
-            fs.mem_limiter.clone(),
-            fs.bucket.clone(),
-            object_id,
-            object_size,
-        );
+        let request = fs.prefetcher.prefetch(fs.bucket.clone(), object_id, object_size);
         let handle = FileHandleState::Read { handle, request };
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
@@ -222,11 +201,7 @@ where
         }
     }
 
-    pub async fn commit<Prefetcher: Prefetch>(
-        &mut self,
-        key: &str,
-        fs: &S3Filesystem<Client, Prefetcher>,
-    ) -> Result<(), Error> {
+    pub async fn commit(&mut self, key: &str, fs: &S3Filesystem<Client>) -> Result<(), Error> {
         match &self {
             UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", key)),
@@ -276,12 +251,12 @@ where
         }
     }
 
-    pub async fn complete<Prefetcher: Prefetch>(
+    pub async fn complete(
         &mut self,
         key: &str,
         pid: u32,
         open_pid: u32,
-        fs: &S3Filesystem<Client, Prefetcher>,
+        fs: &S3Filesystem<Client>,
     ) -> Result<(), Error> {
         match self {
             UploadState::AppendInProgress { written_bytes, .. } => {

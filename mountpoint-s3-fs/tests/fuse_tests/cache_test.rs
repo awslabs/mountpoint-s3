@@ -6,7 +6,7 @@ use crate::common::s3::{get_test_bucket, get_test_prefix};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::caching_prefetch;
+use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::Runtime;
 
 use fuser::BackgroundSession;
@@ -409,10 +409,10 @@ where
 {
     let mount_point = tempfile::tempdir().unwrap();
     let runtime = Runtime::new(client.event_loop_group());
-    let prefetcher = caching_prefetch(cache, runtime.clone(), Default::default());
+    let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
     let (session, _mount) = create_fuse_session(
         client,
-        prefetcher,
+        prefetcher_builder,
         runtime,
         bucket,
         prefix,

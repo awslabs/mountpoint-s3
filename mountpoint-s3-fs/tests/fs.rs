@@ -20,7 +20,7 @@ use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIEN
 use mountpoint_s3_fs::fs::{CacheConfig, OpenFlags, TimeToLive, ToErrno, FUSE_ROOT_INODE};
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -35,7 +35,7 @@ use test_case::test_case;
 mod common;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::creds::get_scoped_down_credentials;
-use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply, TestS3Filesystem};
+use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
 
@@ -1608,7 +1608,7 @@ async fn test_lookup_forbidden() {
     );
 }
 
-async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) {
+async fn new_local_file(fs: &S3Filesystem<Arc<MockClient>>, filename: &str) {
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let dentry = fs.mknod(FUSE_ROOT_INODE, filename.as_ref(), mode, 0, 0).await.unwrap();
     assert_eq!(dentry.attr.size, 0);
@@ -1623,7 +1623,7 @@ async fn new_local_file(fs: &TestS3Filesystem<Arc<MockClient>>, filename: &str) 
 }
 
 async fn ls(
-    fs: &TestS3Filesystem<Arc<MockClient>>,
+    fs: &S3Filesystem<Arc<MockClient>>,
     dir_handle: u64,
     offset: i64,
     max_entries: usize,
