@@ -91,9 +91,7 @@ def _mount_mp(
         "--allow-delete",
         f"--log-directory={MP_LOGS_DIRECTORY}",
     ]
-    subprocess_env = {
-        "PATH": os.environ["PATH"],
-    }
+    subprocess_env = os.environ.copy()
 
     if cfg['s3_prefix'] is not None:
         subprocess_args.append(f"--prefix={cfg['s3_prefix']}")
@@ -174,14 +172,12 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
         f"--directory={mount_dir}",
         fio_job_filepath,
     ]
-    subprocess_env = {
-        "PATH": os.environ["PATH"],
-        "APP_WORKERS": str(cfg['application_workers']),
-        "SIZE_GIB": "100",
-        "DIRECT": "1" if cfg['direct_io'] else "0",
-        "UNIQUE_DIR": datetime.now(tz=timezone.utc).isoformat(),
-        "IO_ENGINE": cfg['fio_io_engine'],
-    }
+    subprocess_env = os.environ.copy()
+    subprocess_env["APP_WORKERS"] = str(cfg['application_workers'])
+    subprocess_env["SIZE_GIB"] = "100"
+    subprocess_env["DIRECT"] = "1" if cfg['direct_io'] else "0"
+    subprocess_env["UNIQUE_DIR"] = datetime.now(tz=timezone.utc).isoformat()
+    subprocess_env["IO_ENGINE"] = cfg['fio_io_engine']
     log.info("Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
 
     # Use Popen instead of check_output, as we had some issues when trying to attach perf
