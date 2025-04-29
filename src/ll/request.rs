@@ -1018,8 +1018,12 @@ mod op {
                 reserved: [0; 8],
                 #[cfg(feature = "abi-7-36")]
                 flags2: (flags >> 32) as u32,
-                #[cfg(feature = "abi-7-36")]
+                #[cfg(all(feature = "abi-7-36", not(feature = "abi-7-40")))]
                 reserved: [0; 7],
+                #[cfg(feature = "abi-7-40")]
+                max_stack_depth: config.max_stack_depth,
+                #[cfg(feature = "abi-7-40")]
+                reserved: [0; 6],
             };
             Response::new_data(init.as_bytes())
         }

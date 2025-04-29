@@ -12,6 +12,7 @@ pre:
 	cargo clippy --all-targets --no-default-features
 	cargo clippy --all-targets --features=abi-7-30
 	cargo clippy --all-targets --features=abi-7-36
+	cargo clippy --all-targets --features=abi-7-40
 
 xfstests:
 	docker build -t fuser:xfstests -f xfstests.Dockerfile .

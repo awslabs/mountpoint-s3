@@ -6,6 +6,8 @@
 //! data without cloning the data. A reply *must always* be used (by calling either ok() or
 //! error() exactly once).
 
+#[cfg(feature = "abi-7-40")]
+use crate::consts::FOPEN_PASSTHROUGH;
 use crate::ll::{
     self,
     reply::{DirEntPlusList, DirEntryPlus},
@@ -271,6 +273,8 @@ impl Reply for ReplyOpen {
 impl ReplyOpen {
     /// Reply to a request with the given open result
     pub fn opened(self, fh: u64, flags: u32) {
+        #[cfg(feature = "abi-7-40")]
+        assert_eq!(flags & FOPEN_PASSTHROUGH, 0);
         self.reply
             .send_ll(&ll::Response::new_open(ll::FileHandle(fh), flags))
     }
@@ -369,6 +373,8 @@ impl Reply for ReplyCreate {
 impl ReplyCreate {
     /// Reply to a request with the given entry
     pub fn created(self, ttl: &Duration, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+        #[cfg(feature = "abi-7-40")]
+        assert_eq!(flags & FOPEN_PASSTHROUGH, 0);
         self.reply.send_ll(&ll::Response::new_create(
             ttl,
             &attr.into(),

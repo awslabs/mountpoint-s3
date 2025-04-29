@@ -76,8 +76,10 @@ pub const FUSE_KERNEL_MINOR_VERSION: u32 = 29;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 30;
 #[cfg(all(feature = "abi-7-31", not(feature = "abi-7-36")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 31;
-#[cfg(feature = "abi-7-36")]
+#[cfg(all(feature = "abi-7-36", not(feature = "abi-7-40")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 36;
+#[cfg(feature = "abi-7-40")]
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 40;
 
 pub const FUSE_ROOT_ID: u64 = 1;
 
@@ -177,6 +179,8 @@ pub mod consts {
     pub const FOPEN_CACHE_DIR: u32 = 1 << 3; // allow caching this directory
     #[cfg(feature = "abi-7-31")]
     pub const FOPEN_STREAM: u32 = 1 << 4; // the file is stream-like (no file position at all)
+    #[cfg(feature = "abi-7-40")]
+    pub const FOPEN_PASSTHROUGH: u32 = 1 << 7; // the file is fd-backed (via the backing_id field)
 
     #[cfg(target_os = "macos")]
     pub const FOPEN_PURGE_ATTR: u32 = 1 << 30;
@@ -239,6 +243,8 @@ pub mod consts {
     pub const FUSE_INIT_EXT: u64 = 1 << 30; // extended fuse_init_in request
     #[cfg(feature = "abi-7-36")]
     pub const FUSE_INIT_RESERVED: u64 = 1 << 31; // reserved, do not use
+    #[cfg(feature = "abi-7-40")]
+    pub const FUSE_PASSTHROUGH: u64 = 1 << 37; // filesystem wants to use passthrough files
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u64 = 1 << 27;
@@ -723,7 +729,10 @@ pub struct fuse_create_out(pub fuse_entry_out, pub fuse_open_out);
 pub struct fuse_open_out {
     pub fh: u64,
     pub open_flags: u32,
+    #[cfg(not(feature = "abi-7-40"))]
     pub padding: u32,
+    #[cfg(feature = "abi-7-40")]
+    pub backing_id: u32,
 }
 
 #[repr(C)]
@@ -903,8 +912,12 @@ pub struct fuse_init_out {
     pub reserved: [u32; 8],
     #[cfg(feature = "abi-7-36")]
     pub flags2: u32,
-    #[cfg(feature = "abi-7-36")]
+    #[cfg(all(feature = "abi-7-36", not(feature = "abi-7-40")))]
     pub reserved: [u32; 7],
+    #[cfg(feature = "abi-7-40")]
+    pub max_stack_depth: u32,
+    #[cfg(feature = "abi-7-40")]
+    pub reserved: [u32; 6],
 }
 
 #[cfg(feature = "abi-7-12")]

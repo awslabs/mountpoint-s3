@@ -154,6 +154,8 @@ pub struct KernelConfig {
     max_write: u32,
     #[cfg(feature = "abi-7-23")]
     time_gran: Duration,
+    #[cfg(feature = "abi-7-40")]
+    max_stack_depth: u32,
 }
 
 impl KernelConfig {
@@ -172,7 +174,35 @@ impl KernelConfig {
             // 1ns means nano-second granularity.
             #[cfg(feature = "abi-7-23")]
             time_gran: Duration::new(0, 1),
+            #[cfg(feature = "abi-7-40")]
+            max_stack_depth: 0,
         }
+    }
+
+    /// Set the maximum stacking depth of the filesystem
+    ///
+    /// This has to be at least 1 to support passthrough to backing files.  Setting this to 0 (the
+    /// default) effectively disables support for passthrough.
+    ///
+    /// With max_stack_depth > 1, the backing files can be on a stacked fs (e.g. overlayfs)
+    /// themselves and with max_stack_depth == 1, this FUSE filesystem can be stacked as the
+    /// underlying fs of a stacked fs (e.g. overlayfs).
+    ///
+    /// The kernel currently has a hard maximum value of 2.  Anything higher won't work.
+    ///
+    /// On success, returns the previous value.  On error, returns the nearest value which will succeed.
+    #[cfg(feature = "abi-7-40")]
+    pub fn set_max_stack_depth(&mut self, value: u32) -> Result<u32, u32> {
+        // https://lore.kernel.org/linux-fsdevel/CAOYeF9V_n93OEF_uf0Gwtd=+da0ReX8N2aaT6RfEJ9DPvs8O2w@mail.gmail.com/
+        const FILESYSTEM_MAX_STACK_DEPTH: u32 = 2;
+
+        if value > FILESYSTEM_MAX_STACK_DEPTH {
+            return Err(FILESYSTEM_MAX_STACK_DEPTH);
+        }
+
+        let previous = self.max_stack_depth;
+        self.max_stack_depth = value;
+        Ok(previous)
     }
 
     /// Set the timestamp granularity

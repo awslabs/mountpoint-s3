@@ -123,7 +123,10 @@ impl<'a> Response<'a> {
         let r = abi::fuse_open_out {
             fh: fh.into(),
             open_flags: flags,
+            #[cfg(not(feature = "abi-7-40"))]
             padding: 0,
+            #[cfg(feature = "abi-7-40")]
+            backing_id: 0,
         };
         Self::from_struct(&r)
     }
@@ -202,7 +205,10 @@ impl<'a> Response<'a> {
             abi::fuse_open_out {
                 fh: fh.into(),
                 open_flags: flags,
+                #[cfg(not(feature = "abi-7-40"))]
                 padding: 0,
+                #[cfg(feature = "abi-7-40")]
+                backing_id: 0,
             },
         );
         Self::from_struct(&r)
