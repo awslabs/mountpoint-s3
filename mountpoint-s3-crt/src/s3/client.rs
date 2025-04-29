@@ -300,7 +300,7 @@ impl Debug for MetaRequestOptionsInner<'_> {
             .field("inner", &self.inner)
             .field("message", &self.message)
             .field("signing_config", &self.signing_config)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

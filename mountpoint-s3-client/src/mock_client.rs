@@ -624,7 +624,7 @@ impl std::fmt::Debug for MockObject {
             .field("last_modified", &self.last_modified)
             .field("etag", &self.etag)
             .field("restored", &self.restore_status)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

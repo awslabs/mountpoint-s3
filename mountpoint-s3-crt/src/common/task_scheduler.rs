@@ -64,7 +64,7 @@ impl Debug for TaskInner {
             .field("inner", &(&self.inner as *const _))
             .field("type_tag", &self.type_tag)
             .field("_pinned", &self._pinned)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
