@@ -29,7 +29,13 @@ mod tests {
     use super::*;
     use test_case::test_case;
 
-    #[test_case("\"key1\",\"\"\"etag1\"\"\",1024\n\"key2\",\"\"\"etag2\"\"\",2048\n", &[
+    const CSV_2_ENTRIES: &str = r#""key1","""etag1""",1024
+"key2","""etag2""",2048"#;
+
+    const CSV_MULTILINE_ENTRY: &str = r#""ke"",
+y1","""etag1""",1024"#;
+
+    #[test_case(CSV_2_ENTRIES, &[
         DbEntry {
             full_key: "key1".to_string(),
             etag: Some("\"etag1\"".to_string()),
@@ -41,23 +47,23 @@ mod tests {
             size: Some(2048),
         },
     ]; "2 full entries")]
-    #[test_case("\"key1\",\"\",1024", &[
+    #[test_case(r#""key1","",1024"#, &[
         DbEntry {
             full_key: "key1".to_string(),
             etag: None,
             size: Some(1024),
         },
     ]; "no etag")]
-    #[test_case("\"key1\",\"\"\"etag1\"\"\",", &[
+    #[test_case(r#""key1","""etag1""","#, &[
         DbEntry {
             full_key: "key1".to_string(),
             etag: Some("\"etag1\"".to_string()),
             size: None,
         },
     ]; "no size")]
-    #[test_case("\"ke\"\",\n\0y1\",\"\"\"etag1\"\"\",1024", &[
+    #[test_case(CSV_MULTILINE_ENTRY, &[
         DbEntry {
-            full_key: "ke\",\n\0y1".to_string(),
+            full_key: "ke\",\ny1".to_string(),
             etag: Some("\"etag1\"".to_string()),
             size: Some(1024),
         },
@@ -70,7 +76,7 @@ mod tests {
         assert_eq!(&actual, expected);
     }
 
-    #[test_case("\"key\",\"\"\"etag1\"\"\""; "incomplete row")]
+    #[test_case(r#""key","""etag1""""#; "incomplete row")]
     fn test_csv_parsing_err(csv_str: &str) {
         let mut reader = CsvReader::new(csv_str.as_bytes());
         let err = reader.next().expect("must be some").expect_err("must be an error");
