@@ -174,11 +174,11 @@ fn main() {
 
         let received_size = received_bytes.load(Ordering::SeqCst);
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2}MiB/s",
+            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
             i,
             received_size,
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024) as f64
+            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
     }
 }
