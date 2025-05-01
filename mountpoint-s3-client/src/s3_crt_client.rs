@@ -26,6 +26,7 @@ pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::io::stream::InputStream;
+use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
     init_signing_config, BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions,
     MetaRequestResult, MetaRequestType, RequestMetrics, RequestType,
@@ -534,7 +535,7 @@ impl S3CrtClientInner {
         request_span: Span,
         on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
-        mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
+        mut on_body: impl FnMut(u64, &Buffer) + Send + 'static,
         parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_meta_request_result: impl FnOnce(ObjectClientResult<(), E, S3RequestError>) + Send + 'static,
     ) -> Result<CancellingMetaRequest, S3RequestError> {

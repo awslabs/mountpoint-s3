@@ -9,6 +9,7 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
+use crate::s3::buffer::BufferTicket;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
 use futures::Future;
@@ -24,6 +25,8 @@ use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::task::Waker;
 use std::time::Duration;
+
+use super::buffer::Buffer;
 
 /// A client for high-throughput access to Amazon S3
 #[derive(Debug)]
@@ -223,7 +226,7 @@ type TelemetryCallback = Box<dyn Fn(&RequestMetrics) + Send>;
 type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 
 /// Callback for when part of the response body is received. Given (range_start, data).
-type BodyExCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
+type BodyExCallback = Box<dyn FnMut(u64, &Buffer) + Send>;
 
 /// Callback for reviewing an upload before it completes.
 type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> bool + Send>;
@@ -427,7 +430,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Provide a callback to run when the request's body arrives.
-    pub fn on_body(&mut self, callback: impl FnMut(u64, &[u8]) + Send + 'static) -> &mut Self {
+    pub fn on_body(&mut self, callback: impl FnMut(u64, &Buffer) + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_body_ex = Some(Box::new(callback));
@@ -569,8 +572,9 @@ unsafe extern "C" fn meta_request_receive_body_callback_ex(
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
     if let Some(callback) = user_data.on_body_ex.as_mut() {
-        let slice: &[u8] = aws_byte_cursor_as_slice(&*body);
-        callback(meta.range_start, slice);
+        let ticket = BufferTicket::new_unowned(meta.ticket);
+        let buffer = Buffer::new_unchecked(&*body, ticket.as_deref());
+        callback(meta.range_start, &buffer);
     }
 
     AWS_OP_SUCCESS
