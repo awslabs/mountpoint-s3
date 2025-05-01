@@ -17,6 +17,7 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{init_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestType};
 use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
 use tracing::trace;
@@ -144,7 +145,7 @@ impl CrtClient {
         &self,
         bucket: &str,
         key: &str,
-        body_callback: impl FnMut(u64, &[u8]) + Send + 'static,
+        body_callback: impl FnMut(u64, &Buffer) + Send + 'static,
     ) -> anyhow::Result<()> {
         let endpoint = Endpoint::resolve(&self.config.region, bucket)?;
 

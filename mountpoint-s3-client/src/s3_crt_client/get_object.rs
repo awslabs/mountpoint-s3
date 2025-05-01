@@ -102,7 +102,10 @@ impl S3CrtClient {
                 move |offset, data| {
                     _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
                         offset,
-                        data: Bytes::copy_from_slice(data),
+                        data: Bytes::from_owner(
+                            data.to_owned_buffer()
+                                .expect("can acquire ownership of buffers from GetObject"),
+                        ),
                     }));
                 },
                 parse_get_object_error,
