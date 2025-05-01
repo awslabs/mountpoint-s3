@@ -84,3 +84,7 @@ required-features = ["abi-7-15"]
 [[example]]
 name = "ioctl"
 required-features = ["abi-7-11"]
+
+[[example]]
+name = "passthrough"
+required-features = ["abi-7-40"]
