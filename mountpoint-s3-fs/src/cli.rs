@@ -966,10 +966,10 @@ where
 
     let s3_path = args.s3_path();
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
-    let data_cache_config = args.data_cache_config(sse);
+    let mut data_cache_config = args.data_cache_config(sse);
 
     let runtime = Runtime::new(runtime);
-    let (data_cache_config, managed_cache_dir) = setup_disk_cache_directory(data_cache_config)?;
+    let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
     let prefetcher_builder = create_prefetcher_builder(data_cache_config, &client, &runtime)?;
     let fs = create_filesystem(client, prefetcher_builder, runtime, &s3_path, filesystem_config);
     let mut fuse_session = create_fuse_session(fs, fuse_config, &bucket_description)?;
@@ -981,18 +981,16 @@ where
     Ok(fuse_session)
 }
 
-fn setup_disk_cache_directory(
-    mut cache_config: DataCacheConfig,
-) -> anyhow::Result<(DataCacheConfig, Option<ManagedCacheDir>)> {
+fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Result<Option<ManagedCacheDir>> {
     let Some(disk_cache_config) = &mut cache_config.disk_cache_config else {
-        return Ok((cache_config, None));
+        return Ok(None);
     };
     let cache_key = env_unstable_cache_key();
     let managed_cache_dir =
         ManagedCacheDir::new_from_parent_with_cache_key(&disk_cache_config.cache_directory, cache_key.as_deref())
             .context("failed to create cache directory")?;
     disk_cache_config.cache_directory = managed_cache_dir.as_path_buf();
-    Ok((cache_config, Some(managed_cache_dir)))
+    Ok(Some(managed_cache_dir))
 }
 
 fn create_prefetcher_builder<Client>(
