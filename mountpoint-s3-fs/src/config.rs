@@ -20,22 +20,16 @@ pub struct MountpointConfig {
 }
 
 impl MountpointConfig {
-    pub fn new(fuse_session_config: FuseSessionConfig) -> Self {
+    pub fn new(
+        fuse_session_config: FuseSessionConfig,
+        filesystem_config: S3FilesystemConfig,
+        data_cache_config: DataCacheConfig,
+    ) -> Self {
         Self {
             fuse_session_config,
-            data_cache_config: Default::default(),
-            filesystem_config: Default::default(),
+            data_cache_config,
+            filesystem_config,
         }
-    }
-
-    pub fn filesystem_config(mut self, filesystem_config: S3FilesystemConfig) -> Self {
-        self.filesystem_config = filesystem_config;
-        self
-    }
-
-    pub fn data_cache_config(mut self, data_cache_config: DataCacheConfig) -> Self {
-        self.data_cache_config = data_cache_config;
-        self
     }
 
     /// Create a new FUSE session
