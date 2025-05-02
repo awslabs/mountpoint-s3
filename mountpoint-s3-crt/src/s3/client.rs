@@ -223,7 +223,7 @@ type TelemetryCallback = Box<dyn Fn(&RequestMetrics) + Send>;
 type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 
 /// Callback for when part of the response body is received. Given (range_start, data).
-type BodyCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
+type BodyExCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
 
 /// Callback for reviewing an upload before it completes.
 type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> bool + Send>;
@@ -259,7 +259,7 @@ struct MetaRequestOptionsInner<'a> {
     on_headers: Option<HeadersCallback>,
 
     /// Body callback, if provided.
-    on_body: Option<BodyCallback>,
+    on_body_ex: Option<BodyExCallback>,
 
     /// Upload review callback, if provided (and not already called, since it's FnOnce).
     on_upload_review: Option<UploadReviewCallback>,
@@ -320,7 +320,7 @@ impl<'a> MetaRequestOptions<'a> {
             inner: aws_s3_meta_request_options {
                 telemetry_callback: Some(meta_request_telemetry_callback),
                 headers_callback: Some(meta_request_headers_callback),
-                body_callback: Some(meta_request_receive_body_callback),
+                body_callback_ex: Some(meta_request_receive_body_callback_ex),
                 finish_callback: Some(meta_request_finish_callback),
                 shutdown_callback: Some(meta_request_shutdown_callback),
                 upload_review_callback: Some(meta_request_upload_review_callback),
@@ -334,7 +334,7 @@ impl<'a> MetaRequestOptions<'a> {
             copy_source_uri: None,
             on_telemetry: None,
             on_headers: None,
-            on_body: None,
+            on_body_ex: None,
             on_upload_review: None,
             on_finish: None,
             _pinned: Default::default(),
@@ -430,7 +430,7 @@ impl<'a> MetaRequestOptions<'a> {
     pub fn on_body(&mut self, callback: impl FnMut(u64, &[u8]) + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
-        options.on_body = Some(Box::new(callback));
+        options.on_body_ex = Some(Box::new(callback));
         self
     }
 
@@ -558,19 +558,19 @@ unsafe extern "C" fn meta_request_headers_callback(
 }
 
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
-unsafe extern "C" fn meta_request_receive_body_callback(
+unsafe extern "C" fn meta_request_receive_body_callback_ex(
     _request: *mut aws_s3_meta_request,
     body: *const aws_byte_cursor,
-    range_start: u64,
+    meta: aws_s3_meta_request_receive_body_extra_info,
     user_data: *mut libc::c_void,
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
-    if let Some(callback) = user_data.on_body.as_mut() {
+    if let Some(callback) = user_data.on_body_ex.as_mut() {
         let slice: &[u8] = aws_byte_cursor_as_slice(&*body);
-        callback(range_start, slice);
+        callback(meta.range_start, slice);
     }
 
     AWS_OP_SUCCESS
