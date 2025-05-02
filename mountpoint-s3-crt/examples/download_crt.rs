@@ -110,6 +110,7 @@ impl CrtClient {
 
         let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
             bootstrap: &mut client_bootstrap,
+            profile_name_override: None,
         };
         let credentials_provider =
             CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)?;

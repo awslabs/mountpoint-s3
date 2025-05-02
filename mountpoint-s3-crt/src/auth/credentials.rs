@@ -6,9 +6,7 @@ use std::ptr::NonNull;
 use mountpoint_s3_crt_sys::{
     aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_chain_default_options,
     aws_credentials_provider_new_anonymous, aws_credentials_provider_new_chain_default,
-    aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
-    aws_credentials_provider_profile_options, aws_credentials_provider_release,
-    aws_credentials_provider_static_options,
+    aws_credentials_provider_new_static, aws_credentials_provider_release, aws_credentials_provider_static_options,
 };
 
 use crate::auth::auth_library_init;
@@ -22,15 +20,8 @@ use crate::{CrtError as _, ToAwsByteCursor as _};
 pub struct CredentialsProviderChainDefaultOptions<'a> {
     /// The client bootstrap this credentials provider should use to setup channels
     pub bootstrap: &'a mut ClientBootstrap,
-}
-
-/// Options for creating a profile credentials provider
-#[derive(Debug)]
-pub struct CredentialsProviderProfileOptions<'a> {
-    /// The client bootstrap this credentials provider should use to setup channels
-    pub bootstrap: &'a mut ClientBootstrap,
     /// The name of profile to use.
-    pub profile_name_override: &'a str,
+    pub profile_name_override: Option<&'a str>,
 }
 
 /// Options for creating a static credentials provider
@@ -73,13 +64,20 @@ impl CredentialsProvider {
     ) -> Result<Self, Error> {
         auth_library_init(allocator);
 
-        let inner_options = aws_credentials_provider_chain_default_options {
-            bootstrap: options.bootstrap.inner.as_ptr(),
-            ..Default::default()
-        };
-
-        // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options.
+        // SAFETY: aws_credentials_provider_chain_default_options makes a copy of bootstrap
+        // and contents of profile_name_override.
         let inner = unsafe {
+            let skip_environment_credentials_provider = options.profile_name_override.is_some();
+            let profile_name_override = match options.profile_name_override {
+                Some(profile_name) => profile_name.as_aws_byte_cursor(),
+                None => Default::default(),
+            };
+            let inner_options = aws_credentials_provider_chain_default_options {
+                bootstrap: options.bootstrap.inner.as_ptr(),
+                profile_name_override,
+                skip_environment_credentials_provider,
+                ..Default::default()
+            };
             aws_credentials_provider_new_chain_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
 
@@ -94,25 +92,6 @@ impl CredentialsProvider {
         // SAFETY: allocator is a valid aws_allocator and shutdown_options is optional
         let inner = unsafe {
             aws_credentials_provider_new_anonymous(allocator.inner.as_ptr(), std::ptr::null_mut()).ok_or_last_error()?
-        };
-
-        Ok(Self { inner })
-    }
-
-    /// Creates the profile credential provider.
-    pub fn new_profile(allocator: &Allocator, options: CredentialsProviderProfileOptions) -> Result<Self, Error> {
-        auth_library_init(allocator);
-
-        // SAFETY: aws_credentials_provider_new_profile makes a copy of bootstrap
-        // and contents of profile_name_override.
-        let inner = unsafe {
-            let inner_options = aws_credentials_provider_profile_options {
-                bootstrap: options.bootstrap.inner.as_ptr(),
-                profile_name_override: options.profile_name_override.as_aws_byte_cursor(),
-                ..Default::default()
-            };
-
-            aws_credentials_provider_new_profile(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
 
         Ok(Self { inner })

@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 
 use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
+use mountpoint_s3_crt::auth::credentials::CredentialsProviderChainDefaultOptions;
 pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
 pub use mountpoint_s3_crt::common::error::Error as CrtError;
@@ -258,7 +258,7 @@ pub enum S3ClientAuthConfig {
     Default,
     /// Do not sign requests at all
     NoSigning,
-    /// Explicitly load the given profile name from the AWS CLI configuration file
+    /// The default AWS credentials resolution chain, but with overridden profile name
     Profile(String),
     /// Use a custom credentials provider
     Provider(CredentialsProvider),
@@ -360,6 +360,7 @@ impl S3CrtClientInner {
             S3ClientAuthConfig::Default => {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
+                    profile_name_override: None,
                 };
                 CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?
@@ -368,11 +369,14 @@ impl S3CrtClientInner {
                 CredentialsProvider::new_anonymous(&allocator).map_err(NewClientError::ProviderFailure)?
             }
             S3ClientAuthConfig::Profile(profile_name) => {
-                let credentials_profile_options = CredentialsProviderProfileOptions {
+                let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
-                    profile_name_override: &profile_name,
+                    profile_name_override: Some(&profile_name),
                 };
-                CredentialsProvider::new_profile(&allocator, credentials_profile_options)
+                // If profile doesn't work out (e.g. does not exist), other methods will be attempted:
+                // https://github.com/awslabs/aws-c-auth/blob/9d904153eb187e5a553258de2433f740cd46813e/include/aws/auth/credentials.h#L1250
+                // Credentials will be cached for 15 minutes.
+                CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?
             }
             S3ClientAuthConfig::Provider(provider) => provider,
