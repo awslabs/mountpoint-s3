@@ -92,7 +92,7 @@ pub trait DataCache {
 ///
 /// Can be configured to enable a local disk cache, a shared cache
 /// in S3 Express One Zone, or both.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DataCacheConfig {
     pub disk_cache_config: Option<DiskDataCacheConfig>,
     pub express_cache_config: Option<ExpressDataCacheConfig>,
