@@ -30,7 +30,6 @@ const HASHED_DIR_SPLIT_INDEX: usize = 2;
 
 /// On-disk implementation of [DataCache].
 pub struct DiskDataCache {
-    cache_directory: PathBuf,
     config: DiskDataCacheConfig,
     /// Tracks blocks usage. `None` when no cache limit was set.
     usage: Option<Mutex<UsageInfo<DiskBlockKey>>>,
@@ -39,6 +38,7 @@ pub struct DiskDataCache {
 /// Configuration for a [DiskDataCache].
 #[derive(Debug)]
 pub struct DiskDataCacheConfig {
+    pub cache_directory: PathBuf,
     /// Size of data blocks.
     pub block_size: u64,
     /// How to limit the cache size.
@@ -208,21 +208,17 @@ impl From<std::io::Error> for DataCacheError {
 
 impl DiskDataCache {
     /// Create a new instance of an [DiskDataCache] with the specified configuration.
-    pub fn new(cache_directory: PathBuf, config: DiskDataCacheConfig) -> Self {
+    pub fn new(config: DiskDataCacheConfig) -> Self {
         let usage = match config.limit {
             CacheLimit::Unbounded => None,
             CacheLimit::TotalSize { .. } | CacheLimit::AvailableSpace { .. } => Some(Mutex::new(UsageInfo::new())),
         };
-        DiskDataCache {
-            cache_directory,
-            config,
-            usage,
-        }
+        DiskDataCache { config, usage }
     }
 
     /// Get the relative path for the given block.
     fn get_path_for_block_key(&self, block_key: &DiskBlockKey) -> PathBuf {
-        let mut path = self.cache_directory.join(CACHE_VERSION);
+        let mut path = self.config.cache_directory.join(CACHE_VERSION);
         block_key.append_to_path(&mut path);
         path
     }
@@ -307,7 +303,7 @@ impl DiskDataCache {
             CacheLimit::Unbounded => false,
             CacheLimit::TotalSize { max_size } => size > max_size,
             CacheLimit::AvailableSpace { min_ratio } => {
-                let stats = match nix::sys::statvfs::statvfs(&self.cache_directory) {
+                let stats = match nix::sys::statvfs::statvfs(&self.config.cache_directory) {
                     Ok(stats) if stats.blocks() == 0 => {
                         warn!("unable to determine available space (0 blocks reported)");
                         return false;
@@ -585,13 +581,11 @@ mod tests {
     #[test]
     fn get_path_for_block_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let data_cache = DiskDataCache::new(
-            cache_dir,
-            DiskDataCacheConfig {
-                block_size: 1024,
-                limit: CacheLimit::Unbounded,
-            },
-        );
+        let data_cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_dir,
+            block_size: 1024,
+            limit: CacheLimit::Unbounded,
+        });
 
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
@@ -615,13 +609,11 @@ mod tests {
     #[test]
     fn get_path_for_block_key_huge_block_index() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let data_cache = DiskDataCache::new(
-            cache_dir,
-            DiskDataCacheConfig {
-                block_size: 1024,
-                limit: CacheLimit::Unbounded,
-            },
-        );
+        let data_cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_dir,
+            block_size: 1024,
+            limit: CacheLimit::Unbounded,
+        });
 
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
@@ -653,13 +645,11 @@ mod tests {
 
         let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(
-            cache_directory.into_path(),
-            DiskDataCacheConfig {
-                block_size,
-                limit: CacheLimit::Unbounded,
-            },
-        );
+        let cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_directory.path().to_path_buf(),
+            block_size,
+            limit: CacheLimit::Unbounded,
+        });
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
         let cache_key_2 = ObjectId::new(
             "long-key_".repeat(100), // at least 900 chars, exceeding easily 255 chars (UNIX filename limit)
@@ -739,13 +729,11 @@ mod tests {
         let slice = data.slice(1..5);
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(
-            cache_directory.into_path(),
-            DiskDataCacheConfig {
-                block_size: 8 * 1024 * 1024,
-                limit: CacheLimit::Unbounded,
-            },
-        );
+        let cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_directory.path().to_path_buf(),
+            block_size: 8 * 1024 * 1024,
+            limit: CacheLimit::Unbounded,
+        });
         let cache_key = ObjectId::new("a".into(), ETag::for_tests());
 
         cache
@@ -819,13 +807,11 @@ mod tests {
         let small_object_key = ObjectId::new("small".into(), ETag::for_tests());
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(
-            cache_directory.into_path(),
-            DiskDataCacheConfig {
-                block_size: BLOCK_SIZE as u64,
-                limit: CacheLimit::TotalSize { max_size: CACHE_LIMIT },
-            },
-        );
+        let cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_directory.path().to_path_buf(),
+            block_size: BLOCK_SIZE as u64,
+            limit: CacheLimit::TotalSize { max_size: CACHE_LIMIT },
+        });
 
         // Put all of large_object
         for (block_idx, bytes) in large_object_blocks.iter().enumerate() {

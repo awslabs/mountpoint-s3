@@ -25,6 +25,10 @@ const CACHE_VERSION: &str = "V2";
 /// Configuration for a [ExpressDataCache].
 #[derive(Debug)]
 pub struct ExpressDataCacheConfig {
+    /// Name of the S3 Express bucket to store the blocks.
+    pub bucket_name: String,
+    /// Name of the mounted bucket.
+    pub source_bucket_name: String,
     /// Size of data blocks.
     pub block_size: u64,
     /// The maximum size of an object to be cached.
@@ -33,13 +37,30 @@ pub struct ExpressDataCacheConfig {
     pub sse: ServerSideEncryption,
 }
 
-impl Default for ExpressDataCacheConfig {
-    fn default() -> Self {
+impl ExpressDataCacheConfig {
+    pub fn new(bucket_name: &str, source_bucket_name: &str) -> Self {
         Self {
+            bucket_name: bucket_name.to_owned(),
+            source_bucket_name: source_bucket_name.to_owned(),
             block_size: 1024 * 1024,      // 1 MiB
             max_object_size: 1024 * 1024, // 1 MiB
             sse: ServerSideEncryption::default(),
         }
+    }
+
+    pub fn block_size(mut self, block_size: u64) -> Self {
+        self.block_size = block_size;
+        self
+    }
+
+    pub fn max_object_size(mut self, max_object_size: usize) -> Self {
+        self.max_object_size = max_object_size;
+        self
+    }
+
+    pub fn sse(mut self, sse: ServerSideEncryption) -> Self {
+        self.sse = sse;
+        self
     }
 }
 
@@ -48,10 +69,6 @@ pub struct ExpressDataCache<Client: ObjectClient> {
     client: Client,
     prefix: String,
     config: ExpressDataCacheConfig,
-    /// Name of the S3 Express bucket to store the blocks.
-    bucket_name: String,
-    /// Name of the mounted bucket.
-    source_bucket_name: String,
 }
 
 impl<S, C> From<ObjectClientError<S, C>> for DataCacheError
@@ -69,13 +86,11 @@ where
     Client: ObjectClient + Send + Sync + 'static,
 {
     /// Create a new instance.
-    pub fn new(client: Client, config: ExpressDataCacheConfig, source_bucket_name: &str, bucket_name: &str) -> Self {
+    pub fn new(client: Client, config: ExpressDataCacheConfig) -> Self {
         Self {
             client,
-            prefix: build_prefix(source_bucket_name, config.block_size),
+            prefix: build_prefix(&config.source_bucket_name, config.block_size),
             config,
-            bucket_name: bucket_name.to_owned(),
-            source_bucket_name: source_bucket_name.to_owned(),
         }
     }
 
@@ -96,7 +111,7 @@ where
 
         let result = self
             .client
-            .put_object_single(&self.bucket_name, object_key, &params, data)
+            .put_object_single(&self.config.bucket_name, object_key, &params, data)
             .in_current_span()
             .await
             .map_err(|err| DataCacheError::IoFailure(err.into()))?;
@@ -127,7 +142,7 @@ where
         // calculates the prefix.
         let data = format!(
             "source_bucket={}\nblock_size={}",
-            self.source_bucket_name, self.config.block_size
+            self.config.source_bucket_name, self.config.block_size
         );
 
         // put_object is sufficient for validating cache, as S3 Directory buckets only support
@@ -164,7 +179,7 @@ where
         let mut result = match self
             .client
             .get_object(
-                &self.bucket_name,
+                &self.config.bucket_name,
                 &object_key,
                 &GetObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
             )
@@ -223,7 +238,13 @@ where
             .ok_or_else(|| DataCacheError::InvalidBlockChecksum)?;
         let crc32c = crc32c_from_base64(&crc32c_b64).map_err(|_| DataCacheError::InvalidBlockChecksum)?;
 
-        let block_metadata = BlockMetadata::new(block_idx, block_offset, cache_key, &self.source_bucket_name, crc32c);
+        let block_metadata = BlockMetadata::new(
+            block_idx,
+            block_offset,
+            cache_key,
+            &self.config.source_bucket_name,
+            crc32c,
+        );
         block_metadata.validate_object_metadata(&object_metadata)?;
 
         Ok(Some(ChecksummedBytes::new_from_inner_data(buffer, crc32c)))
@@ -249,8 +270,13 @@ where
         let object_key = get_s3_key(&self.prefix, &cache_key, block_idx);
 
         let (data, checksum) = bytes.into_inner().map_err(|_| DataCacheError::InvalidBlockContent)?;
-        let block_metadata =
-            BlockMetadata::new(block_idx, block_offset, &cache_key, &self.source_bucket_name, checksum);
+        let block_metadata = BlockMetadata::new(
+            block_idx,
+            block_offset,
+            &cache_key,
+            &self.config.source_bucket_name,
+            checksum,
+        );
 
         self.make_put_object_request(block_metadata.to_put_object_params(), &object_key, data)
             .await
@@ -484,11 +510,8 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(config));
 
-        let config = ExpressDataCacheConfig {
-            block_size,
-            ..Default::default()
-        };
-        let cache = ExpressDataCache::new(client, config, "unique source description", bucket);
+        let config = ExpressDataCacheConfig::new(bucket, "unique source description").block_size(block_size);
+        let cache = ExpressDataCache::new(client, config);
 
         let data_1 = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
@@ -585,7 +608,10 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let cache = ExpressDataCache::new(client.clone(), Default::default(), "unique source description", bucket);
+        let cache = ExpressDataCache::new(
+            client.clone(),
+            ExpressDataCacheConfig::new(bucket, "unique source description"),
+        );
         let data_1 = vec![0u8; 1024 * 1024 + 1];
         let data_1 = ChecksummedBytes::new(data_1.into());
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
@@ -614,7 +640,9 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let cache = ExpressDataCache::new(client.clone(), Default::default(), source_bucket, bucket);
+        let config = ExpressDataCacheConfig::new(bucket, source_bucket);
+        let block_size = config.block_size;
+        let cache = ExpressDataCache::new(client.clone(), config);
 
         let data = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
@@ -622,11 +650,7 @@ mod tests {
         let cache_key_non_existent = ObjectId::new("does-not-exist".into(), ETag::for_tests());
 
         // Setup cache
-        let object_key = get_s3_key(
-            &build_prefix(source_bucket, ExpressDataCacheConfig::default().block_size),
-            &cache_key,
-            0,
-        );
+        let object_key = get_s3_key(&build_prefix(source_bucket, block_size), &cache_key, 0);
 
         let (data, checksum) = data.into_inner().unwrap();
         let block_metadata = BlockMetadata::new(0, 0, &cache_key, source_bucket, checksum);
@@ -743,7 +767,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(config));
-        let cache = ExpressDataCache::new(client.clone(), Default::default(), source_bucket, bucket);
+        let cache = ExpressDataCache::new(client.clone(), ExpressDataCacheConfig::new(bucket, source_bucket));
 
         cache.verify_cache_valid().await.expect("cache should work");
     }
@@ -772,7 +796,7 @@ mod tests {
             },
         ));
 
-        let cache = ExpressDataCache::new(failure_client, Default::default(), source_bucket, bucket);
+        let cache = ExpressDataCache::new(failure_client, ExpressDataCacheConfig::new(bucket, source_bucket));
 
         cache
             .verify_cache_valid()
