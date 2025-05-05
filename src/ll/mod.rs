@@ -238,6 +238,12 @@ impl From<std::io::Error> for Errno {
         }
     }
 }
+impl From<nix::errno::Errno> for Errno {
+    fn from(x: nix::errno::Errno) -> Self {
+        let err: std::io::Error = x.into();
+        err.into()
+    }
+}
 impl From<std::io::ErrorKind> for Errno {
     fn from(x: std::io::ErrorKind) -> Self {
         let err: std::io::Error = x.into();

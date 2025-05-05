@@ -63,7 +63,7 @@ abi-7-29 = ["abi-7-28"]
 abi-7-30 = ["abi-7-29"]
 abi-7-31 = ["abi-7-30"]
 abi-7-36 = ["abi-7-31"]
-abi-7-40 = ["abi-7-36"]
+abi-7-40 = ["abi-7-36", "nix/ioctl"]
 
 [[example]]
 name = "poll"

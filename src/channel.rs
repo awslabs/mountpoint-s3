@@ -10,6 +10,8 @@ use std::{
 
 use libc::{c_int, c_void, size_t};
 
+#[cfg(feature = "abi-7-40")]
+use crate::passthrough::BackingId;
 use crate::reply::ReplySender;
 
 /// A raw communication channel to the FUSE kernel driver
@@ -74,5 +76,10 @@ impl ReplySender for ChannelSender {
             debug_assert_eq!(bufs.iter().map(|b| b.len()).sum::<usize>(), rc as usize);
             Ok(())
         }
+    }
+
+    #[cfg(feature = "abi-7-40")]
+    fn open_backing(&self, fd: BorrowedFd<'_>) -> std::io::Result<BackingId> {
+        BackingId::create(&self.0, fd)
     }
 }
