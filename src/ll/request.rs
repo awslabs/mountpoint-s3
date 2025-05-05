@@ -975,6 +975,10 @@ mod op {
     impl_request!(Init<'a>);
     impl<'a> Init<'a> {
         pub fn capabilities(&self) -> u64 {
+            #[cfg(feature = "abi-7-36")]
+            if self.arg.flags & (FUSE_INIT_EXT as u32) != 0 {
+                return (self.arg.flags as u64) | ((self.arg.flags2 as u64) << 32);
+            }
             self.arg.flags as u64
         }
         pub fn max_readahead(&self) -> u32 {
@@ -991,7 +995,10 @@ mod op {
                 major: FUSE_KERNEL_VERSION,
                 minor: FUSE_KERNEL_MINOR_VERSION,
                 max_readahead: config.max_readahead,
+                #[cfg(not(feature = "abi-7-36"))]
                 flags: flags as u32,
+                #[cfg(feature = "abi-7-36")]
+                flags: (flags | FUSE_INIT_EXT) as u32,
                 #[cfg(not(feature = "abi-7-13"))]
                 unused: 0,
                 #[cfg(feature = "abi-7-13")]
@@ -1007,8 +1014,12 @@ mod op {
                 max_pages: config.max_pages(),
                 #[cfg(feature = "abi-7-28")]
                 unused2: 0,
-                #[cfg(feature = "abi-7-28")]
+                #[cfg(all(feature = "abi-7-28", not(feature = "abi-7-36")))]
                 reserved: [0; 8],
+                #[cfg(feature = "abi-7-36")]
+                flags2: (flags >> 32) as u32,
+                #[cfg(feature = "abi-7-36")]
+                reserved: [0; 7],
             };
             Response::new_data(init.as_bytes())
         }

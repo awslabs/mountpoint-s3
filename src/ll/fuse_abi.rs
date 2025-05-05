@@ -74,8 +74,10 @@ pub const FUSE_KERNEL_MINOR_VERSION: u32 = 28;
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 29;
 #[cfg(all(feature = "abi-7-30", not(feature = "abi-7-31")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 30;
-#[cfg(feature = "abi-7-31")]
+#[cfg(all(feature = "abi-7-31", not(feature = "abi-7-36")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 31;
+#[cfg(feature = "abi-7-36")]
+pub const FUSE_KERNEL_MINOR_VERSION: u32 = 36;
 
 pub const FUSE_ROOT_ID: u64 = 1;
 
@@ -233,6 +235,10 @@ pub mod consts {
     pub const FUSE_NO_OPENDIR_SUPPORT: u64 = 1 << 24; // kernel supports zero-message opendir
     #[cfg(feature = "abi-7-30")]
     pub const FUSE_EXPLICIT_INVAL_DATA: u64 = 1 << 25; // only invalidate cached pages on explicit request
+    #[cfg(feature = "abi-7-36")]
+    pub const FUSE_INIT_EXT: u64 = 1 << 30; // extended fuse_init_in request
+    #[cfg(feature = "abi-7-36")]
+    pub const FUSE_INIT_RESERVED: u64 = 1 << 31; // reserved, do not use
 
     #[cfg(target_os = "macos")]
     pub const FUSE_ALLOCATE: u64 = 1 << 27;
@@ -865,6 +871,10 @@ pub struct fuse_init_in {
     pub minor: u32,
     pub max_readahead: u32,
     pub flags: u32,
+    #[cfg(feature = "abi-7-36")]
+    pub flags2: u32,
+    #[cfg(feature = "abi-7-36")]
+    pub unused: [u32; 11],
 }
 
 #[repr(C)]
@@ -889,8 +899,12 @@ pub struct fuse_init_out {
     pub max_pages: u16,
     #[cfg(feature = "abi-7-28")]
     pub unused2: u16,
-    #[cfg(feature = "abi-7-28")]
+    #[cfg(all(feature = "abi-7-28", not(feature = "abi-7-36")))]
     pub reserved: [u32; 8],
+    #[cfg(feature = "abi-7-36")]
+    pub flags2: u32,
+    #[cfg(feature = "abi-7-36")]
+    pub reserved: [u32; 7],
 }
 
 #[cfg(feature = "abi-7-12")]
