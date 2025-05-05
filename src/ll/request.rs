@@ -974,8 +974,8 @@ mod op {
     }
     impl_request!(Init<'a>);
     impl<'a> Init<'a> {
-        pub fn capabilities(&self) -> u32 {
-            self.arg.flags
+        pub fn capabilities(&self) -> u64 {
+            self.arg.flags as u64
         }
         pub fn max_readahead(&self) -> u32 {
             self.arg.max_readahead
@@ -985,11 +985,13 @@ mod op {
         }
 
         pub fn reply(&self, config: &crate::KernelConfig) -> Response<'a> {
+            let flags = self.capabilities() & config.requested; // use requested features and reported as capable
+
             let init = fuse_init_out {
                 major: FUSE_KERNEL_VERSION,
                 minor: FUSE_KERNEL_MINOR_VERSION,
                 max_readahead: config.max_readahead,
-                flags: self.capabilities() & config.requested, // use requested features and reported as capable
+                flags: flags as u32,
                 #[cfg(not(feature = "abi-7-13"))]
                 unused: 0,
                 #[cfg(feature = "abi-7-13")]

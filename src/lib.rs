@@ -57,9 +57,9 @@ mod session;
 
 /// We generally support async reads
 #[cfg(all(not(target_os = "macos"), not(feature = "abi-7-10")))]
-const INIT_FLAGS: u32 = FUSE_ASYNC_READ;
+const INIT_FLAGS: u64 = FUSE_ASYNC_READ;
 #[cfg(all(not(target_os = "macos"), feature = "abi-7-10"))]
-const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
+const INIT_FLAGS: u64 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
 // TODO: Add FUSE_EXPORT_SUPPORT
 
 /// On macOS, we additionally support case insensitiveness, volume renames and xtimes
@@ -68,7 +68,7 @@ const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
 const INIT_FLAGS: u32 = FUSE_ASYNC_READ | FUSE_CASE_INSENSITIVE | FUSE_VOL_RENAME | FUSE_XTIMES;
 // TODO: Add FUSE_EXPORT_SUPPORT and FUSE_BIG_WRITES (requires ABI 7.10)
 
-const fn default_init_flags(#[allow(unused_variables)] capabilities: u32) -> u32 {
+const fn default_init_flags(#[allow(unused_variables)] capabilities: u64) -> u64 {
     #[cfg(not(feature = "abi-7-28"))]
     {
         INIT_FLAGS
@@ -143,8 +143,8 @@ pub struct FileAttr {
 /// Configuration of the fuse kernel module connection
 #[derive(Debug)]
 pub struct KernelConfig {
-    capabilities: u32,
-    requested: u32,
+    capabilities: u64,
+    requested: u64,
     max_readahead: u32,
     max_max_readahead: u32,
     #[cfg(feature = "abi-7-13")]
@@ -157,7 +157,7 @@ pub struct KernelConfig {
 }
 
 impl KernelConfig {
-    fn new(capabilities: u32, max_readahead: u32) -> Self {
+    fn new(capabilities: u64, max_readahead: u32) -> Self {
         Self {
             capabilities,
             requested: default_init_flags(capabilities),
@@ -234,7 +234,7 @@ impl KernelConfig {
     /// Add a set of capabilities.
     ///
     /// On success returns Ok, else return bits of capabilities not supported when capabilities you provided are not all supported by kernel.
-    pub fn add_capabilities(&mut self, capabilities_to_add: u32) -> Result<(), u32> {
+    pub fn add_capabilities(&mut self, capabilities_to_add: u64) -> Result<(), u64> {
         if capabilities_to_add & self.capabilities != capabilities_to_add {
             return Err(capabilities_to_add - (capabilities_to_add & self.capabilities));
         }
