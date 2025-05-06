@@ -126,18 +126,18 @@ apt update
 apt install -y fuse
 echo 'user_allow_other' >> /etc/fuse.conf
 
-run_test --no-default-features 'without libfuse, with fusermount'
-run_test --no-default-features 'without libfuse, with fusermount' --auto_unmount
-test_no_user_allow_other --no-default-features 'without libfuse, with fusermount'
+run_test --features='' 'without libfuse, with fusermount'
+run_test --features='' 'without libfuse, with fusermount' --auto_unmount
+test_no_user_allow_other --features='' 'without libfuse, with fusermount'
 
 apt remove --purge -y fuse
 apt autoremove -y
 apt install -y fuse3
 echo 'user_allow_other' >> /etc/fuse.conf
 
-run_test --no-default-features 'without libfuse, with fusermount3'
-run_test --no-default-features 'without libfuse, with fusermount3' --auto_unmount
-test_no_user_allow_other --no-default-features 'without libfuse, with fusermount3'
+run_test --features='' 'without libfuse, with fusermount3'
+run_test --features='' 'without libfuse, with fusermount3' --auto_unmount
+test_no_user_allow_other --features='' 'without libfuse, with fusermount3'
 
 apt remove --purge -y fuse3
 apt autoremove -y
