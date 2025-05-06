@@ -4,10 +4,12 @@ use thiserror::Error;
 use tracing::{error, trace};
 
 mod builder;
+#[cfg(feature = "manifest")]
 mod csv_reader;
 mod db;
 
 pub use builder::create_db;
+#[cfg(feature = "manifest")]
 pub use csv_reader::CsvReader;
 use db::Db;
 pub use db::DbEntry;
@@ -22,6 +24,7 @@ pub enum ManifestError {
     InvalidKey(String),
     #[error("invalid database row")]
     InvalidRow,
+    #[cfg(feature = "manifest")]
     #[error("csv error")]
     CsvError(#[from] csv::Error),
 }
