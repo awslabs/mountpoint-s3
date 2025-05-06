@@ -126,7 +126,7 @@ fn bucket_name_and_directory_swapped() -> Result<(), Box<dyn std::error::Error>>
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     cmd.arg("test/dir").arg("my-bucket-name");
-    let error_message = "bucket argument should be a valid bucket name(only letters, numbers, . and -) or a valid ARN";
+    let error_message = "bucket argument should be a valid bucket name (only letters, numbers, . and -) or a valid ARN";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -336,6 +336,22 @@ fn fstab_cannot_use_read_only() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("read-only");
     let error_message = "Cannot use 'read-only' flag when using fstab style arguments";
+    cmd.assert().failure().stderr(predicate::str::contains(error_message));
+
+    Ok(())
+}
+
+#[cfg(feature = "fstab")]
+#[test]
+fn fstab_cannot_use_multiple_prefixes() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = assert_fs::TempDir::new()?;
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+
+    cmd.arg("s3://test-bucket/prefix/")
+        .arg(dir.path())
+        .arg("-o")
+        .arg("prefix=foo/");
+    let error_message = "Cannot use 'prefix' flag when using s3:// URIs with a prefix";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
