@@ -49,5 +49,9 @@ mount_tests:
 	docker run --rm -$(INTERACTIVE)t --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor:unconfined \
 	 fuser:mount_tests bash -c "cd /code/fuser && bash ./mount_tests.sh"
 
+test_passthrough:
+	cargo build --example passthrough --features=abi-7-40
+	sudo tests/test_passthrough.sh target/debug/examples/passthrough
+
 test: pre mount_tests pjdfs_tests xfstests
 	cargo test
