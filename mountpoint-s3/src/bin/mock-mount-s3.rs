@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use clap::Parser;
 use futures::executor::ThreadPool;
 
 use mountpoint_s3::CliArgs;
@@ -23,7 +24,7 @@ use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::Runtime;
 
 fn main() -> anyhow::Result<()> {
-    let cli_args = mountpoint_s3::try_parse_cli_args()?;
+    let cli_args = CliArgs::parse();
     mountpoint_s3::run(create_mock_client, cli_args)
 }
 
