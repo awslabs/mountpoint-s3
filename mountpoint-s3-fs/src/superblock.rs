@@ -39,6 +39,7 @@ use tracing::{debug, error, trace, warn};
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::CacheConfig;
 use crate::logging;
+#[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -83,6 +84,7 @@ struct SuperblockInner {
 pub struct SuperblockConfig {
     pub cache_config: CacheConfig,
     pub s3_personality: S3Personality,
+    #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
 }
 
@@ -596,11 +598,14 @@ impl SuperblockInner {
         let lookup = match lookup {
             Some(lookup) => lookup?,
             None => {
+                #[cfg(feature = "manifest")]
                 let remote = if let Some(manifest) = &self.config.manifest {
                     self.manifest_lookup(manifest, parent_ino, &name)?
                 } else {
                     self.remote_lookup(client, parent_ino, &name).await?
                 };
+                #[cfg(not(feature = "manifest"))]
+                let remote = self.remote_lookup(client, parent_ino, &name).await?;
                 self.update_from_remote(parent_ino, name, remote)?
             }
         };
@@ -657,6 +662,7 @@ impl SuperblockInner {
     }
 
     /// Lookup in the [Manifest] and convert the entry to [RemoteLookup]
+    #[cfg(feature = "manifest")]
     fn manifest_lookup(
         &self,
         manifest: &Manifest,
@@ -1155,6 +1161,7 @@ pub enum InodeError {
         old_inode: InodeErrorInfo,
         new_inode: InodeErrorInfo,
     },
+    #[cfg(feature = "manifest")]
     #[error("manifest error")]
     ManifestError(#[from] ManifestError),
 }
@@ -1379,7 +1386,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
-                manifest: None,
+                ..Default::default()
             },
         );
 
@@ -1430,7 +1437,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
-                manifest: None,
+                ..Default::default()
             },
         );
 

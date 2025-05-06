@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use nix::unistd::{getgid, getuid};
 
+#[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::prefetch::PrefetcherConfig;
@@ -43,6 +44,7 @@ pub struct S3FilesystemConfig {
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
     /// An SQLite DB containing the list of S3 keys available with this mount
+    #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
 }
 
@@ -67,6 +69,7 @@ impl Default for S3FilesystemConfig {
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
+            #[cfg(feature = "manifest")]
             manifest: None,
         }
     }
