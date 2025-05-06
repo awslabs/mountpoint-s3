@@ -30,8 +30,10 @@ use super::MockBackpressureHandle;
 /// TODO: make it bi-directional, so that upload throughput can be simulated as well.
 pub struct ThroughputMockClient {
     inner: MockClient,
-    /// A throughput rate limiter with one token per byte
-    rate_limiter: LeakyBucket,
+    /// A throughput rate limiter with one token per byte.
+    ///
+    /// If [None], there will be no limit on throughput.
+    rate_limiter: Option<LeakyBucket>,
 }
 
 impl ThroughputMockClient {
@@ -46,12 +48,23 @@ impl ThroughputMockClient {
             .refill_amount(bytes_per_interval as u32)
             .max(config.part_size as u32)
             .tokens(0)
-            .build();
+            .build()
+            .into();
         tracing::info!(?rate_limiter, "new client");
 
         Self {
             inner: MockClient::new(config),
             rate_limiter,
+        }
+    }
+
+    /// Create a new [ThroughputMockClient] with the given configuration and no throughput limits.
+    ///
+    /// This is effectively the same as a [MockClient], but allows you to use the [ThroughputMockClient] type.
+    pub fn new_unlimited_throughput(config: MockClientConfig) -> Self {
+        Self {
+            inner: MockClient::new(config),
+            rate_limiter: None,
         }
     }
 
@@ -65,7 +78,7 @@ impl ThroughputMockClient {
 pub struct ThroughputGetObjectResponse {
     #[pin]
     request: MockGetObjectResponse,
-    rate_limiter: LeakyBucket,
+    rate_limiter: Option<LeakyBucket>,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
@@ -94,8 +107,10 @@ impl Stream for ThroughputGetObjectResponse {
         this.request.poll_next(cx).map(|next| {
             next.map(|item| {
                 item.inspect(|body_part| {
-                    // Acquire enough tokens for the number of bytes we want to deliver
-                    block_on(this.rate_limiter.acquire(body_part.data.len() as u32));
+                    if let Some(rate_limiter) = this.rate_limiter {
+                        // Acquire enough tokens for the number of bytes we want to deliver
+                        block_on(rate_limiter.acquire(body_part.data.len() as u32));
+                    }
                 })
             })
         })
