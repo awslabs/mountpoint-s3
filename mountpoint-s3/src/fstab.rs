@@ -1,12 +1,14 @@
+use std::env;
+
 use anyhow::anyhow;
 use clap::error::ErrorKind;
 use clap::{Command, CommandFactory, Parser};
-use mountpoint_s3_fs::cli::CliArgs;
-use std::env;
+
+use crate::cli::CliArgs;
 
 #[derive(Parser, Debug)]
 #[clap(name = "mount-s3", disable_help_flag = true)]
-pub(crate) struct FsTabCliArgs {
+pub struct FsTabCliArgs {
     bucket_name: String,
     #[clap(value_name = "DIRECTORY")]
     mount_point: String,
