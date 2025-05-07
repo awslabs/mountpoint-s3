@@ -91,3 +91,7 @@ s3_tests = []
 s3express_tests = []
 shuttle = []
 second_account_tests = []
+
+[[example]]
+name = "manifest_to_sqlite"
+required-features = ["manifest"]
