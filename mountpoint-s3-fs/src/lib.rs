@@ -6,6 +6,7 @@ pub mod data_cache;
 pub mod fs;
 pub mod fuse;
 pub mod logging;
+#[cfg(feature = "manifest")]
 pub mod manifest;
 pub mod mem_limiter;
 pub mod metrics;

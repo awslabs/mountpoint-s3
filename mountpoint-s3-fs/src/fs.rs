@@ -160,6 +160,7 @@ where
         let superblock_config = SuperblockConfig {
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,
+            #[cfg(feature = "manifest")]
             manifest: config.manifest.clone(),
         };
         let superblock = Superblock::new(bucket, prefix, superblock_config);

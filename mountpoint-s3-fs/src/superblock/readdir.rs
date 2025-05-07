@@ -44,7 +44,8 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use crate::manifest::{Manifest, ManifestEntry};
+#[cfg(feature = "manifest")]
+use crate::manifest::Manifest;
 use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::ObjectClient;
 use time::OffsetDateTime;
@@ -98,10 +99,18 @@ impl ReaddirHandle {
             }
         };
 
+        #[cfg(feature = "manifest")]
         let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
             trace!("using manifest readdir iter");
             ReaddirIter::manifest(manifest, &inner.bucket, &full_path, inner.mount_time)?
         } else if inner.config.s3_personality.is_list_ordered() {
+            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+        } else {
+            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+        };
+
+        #[cfg(not(feature = "manifest"))]
+        let iter = if inner.config.s3_personality.is_list_ordered() {
             ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
         } else {
             ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
@@ -320,6 +329,7 @@ impl Ord for ReaddirEntry {
 enum ReaddirIter {
     Ordered(ordered::ReaddirIter),
     Unordered(unordered::ReaddirIter),
+    #[cfg(feature = "manifest")]
     Manifest(manifest::ReaddirIter),
 }
 
@@ -332,6 +342,7 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
+    #[cfg(feature = "manifest")]
     fn manifest(
         manifest: &Manifest,
         bucket: &str,
@@ -349,6 +360,7 @@ impl ReaddirIter {
         match self {
             Self::Ordered(iter) => iter.next(client).await,
             Self::Unordered(iter) => iter.next(client).await,
+            #[cfg(feature = "manifest")]
             Self::Manifest(iter) => iter.next(),
         }
     }
@@ -625,12 +637,13 @@ mod unordered {
     }
 }
 
+#[cfg(feature = "manifest")]
 mod manifest {
     use time::OffsetDateTime;
 
-    use crate::manifest::ManifestIter;
+    use crate::manifest::{ManifestEntry, ManifestIter};
 
-    use super::*;
+    use super::{InodeError, ReaddirEntry};
 
     /// Adaptor for [ManifestIter], converts [ManifestEntry] to [ReaddirEntry]
     #[derive(Debug)]
