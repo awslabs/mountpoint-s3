@@ -1,10 +1,11 @@
 use rusqlite::{Connection, Error, OptionalExtension, Result, Row};
+use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, Deserialize)]
 pub struct DbEntry {
     pub full_key: String, // Both files and directories don't have '/' in the end
     pub etag: Option<String>,
