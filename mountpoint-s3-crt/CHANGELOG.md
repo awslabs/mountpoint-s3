@@ -1,12 +1,12 @@
 ## Unreleased
 
-* Update to latest CRT dependencies.
-* Incorporate upstream bug fixes and improvements, including:
-  - Correct omission of `Content-Length: 0` on GET, HEAD, DELETE requests for better compatibility with S3-like services.
-  - Updated checksum initialisation and HTTP client improvements.
-  - Security and performance enhancements from updated aws-lc and s2n-tls libraries.
+### Other changes
 
-## Unreleased
+* Fix compatibility issue with S3-like services by removing `Content-Length: 0` header from GET, HEAD, and DELETE requests.
+  ([#1381](https://github.com/awslabs/mountpoint-s3/issues/1381))
+  ([awslabs/aws-c-s3#516](https://github.com/awslabs/aws-c-s3/pull/516))
+
+* Update to latest CRT dependencies.
 
 ## v0.12.2 (April 1, 2025)
 

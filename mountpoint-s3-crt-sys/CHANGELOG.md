@@ -1,10 +1,6 @@
 ## Unreleased
 
 * Update to latest CRT dependencies.
-* Incorporate upstream bug fixes and improvements, including:
-  - Correct omission of `Content-Length: 0` on GET, HEAD, DELETE requests for better compatibility with S3-like services.
-  - Improvements to checksum initialisation, HTTP/2 windowing, and TLS configurations.
-  - Security and performance updates from aws-lc and s2n-tls libraries.
 
 ## v0.13.0 (April 1, 2025)
 
