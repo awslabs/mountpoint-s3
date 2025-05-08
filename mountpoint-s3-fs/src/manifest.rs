@@ -9,6 +9,8 @@ mod csv_reader;
 mod db;
 
 pub use builder::create_db;
+pub use builder::ingest_manifest;
+
 #[cfg(feature = "manifest")]
 pub use csv_reader::CsvReader;
 use db::Db;
@@ -16,6 +18,8 @@ pub use db::DbEntry;
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
+    #[error("database exists")]
+    DbExists(),
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
     #[error("key has no etag or size and will be unavailable: {0}")]
