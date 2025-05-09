@@ -249,12 +249,14 @@ fn main() -> anyhow::Result<()> {
             Ok::<_, anyhow::Error>(bytes_received.load(Ordering::SeqCst))
         })?;
         let elapsed = start.elapsed();
+        let throughput_bytes = num_bytes as f64 / elapsed.as_secs_f64();
+        let throughput_gibibits = throughput_bytes / (1024.0 * 1024.0 * 1024.0 / 8.0);
         println!(
-            "iteration {}: {}b in {}s = {:.2}MiB/s",
+            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
             i,
             num_bytes,
             elapsed.as_secs_f64(),
-            num_bytes as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0)
+            throughput_gibibits,
         );
     }
 
