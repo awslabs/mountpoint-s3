@@ -7,6 +7,8 @@
   ([awslabs/aws-c-s3#516](https://github.com/awslabs/aws-c-s3/pull/516))
 * The memory limit for CRT Client can now be configured with the `S3ClientConfig::memory_limit_in_bytes` method.
   ([#1363](https://github.com/awslabs/mountpoint-s3/pull/1363))
+* Fix missing credential caching when using `S3ClientAuthConfig::Profile` credential configuration.
+  ([#1398](https://github.com/awslabs/mountpoint-s3/pull/1398))
 
 ## v0.14.0 (April 9, 2025)
 
