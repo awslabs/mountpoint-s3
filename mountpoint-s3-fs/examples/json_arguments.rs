@@ -7,11 +7,15 @@ use mountpoint_s3_fs::{
     fs::CacheConfig,
     fuse::config::{FuseOptions, FuseSessionConfig, MountPoint},
     logging::{init_logging, LoggingConfig},
+    manifest::{ingest_manifest, Manifest},
     metrics,
     prefix::Prefix,
     s3::config::{ClientConfig, PartConfig, Region, S3Path},
     MountpointConfig, Runtime, S3FilesystemConfig,
 };
+
+use std::time::Instant;
+
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
@@ -69,20 +73,8 @@ struct ConfigOptions {
     gid: Option<u32>,
 }
 
-// Consolidated configuration structure to reduce passing many configs around
-struct MountConfigs {
-    fuse_session: FuseSessionConfig,
-    filesystem: S3FilesystemConfig,
-    data_cache: DataCacheConfig,
-    client: ClientConfig,
-    logging: LoggingConfig,
-    s3_path: S3Path,
-}
-
 impl ConfigOptions {
-    // Single method to build all configs at once
-    fn build_configs(&self) -> Result<MountConfigs> {
-        // Build fuse session config
+    fn build_fuse_session_config(&self) -> Result<FuseSessionConfig> {
         let mount_point = MountPoint::new(&self.mountpoint)?;
         let fuse_options = FuseOptions {
             read_only: true,
@@ -90,23 +82,17 @@ impl ConfigOptions {
             allow_root: self.allow_root,
             auto_unmount: self.auto_unmount.unwrap_or(false),
         };
-        let fuse_session = FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))?;
+        FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))
+    }
 
-        // Build filesystem config
+    fn build_filesystem_config(&self) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
             ..Default::default()
         };
 
-        #[cfg(feature = "manifest")]
         if let Some(manifest_path) = &self.channels[0].converted_db_path {
-            use mountpoint_s3_fs::manifest::Manifest;
             fs_config.manifest = Some(Manifest::new(manifest_path)?);
-        }
-
-        #[cfg(not(feature = "manifest"))]
-        if self.channels[0].converted_db_path.is_some() {
-            return Err(anyhow!("Please compile using manifest feature flag to use manifest."));
         }
 
         // Apply custom filesystem settings if provided
@@ -122,16 +108,16 @@ impl ConfigOptions {
         if let Some(gid) = self.gid {
             fs_config.uid = gid;
         }
+        Ok(fs_config)
+    }
 
-        // Build client config
+    pub fn build_client_config(&self) -> Result<ClientConfig> {
         let user_agent_string = match &self.user_agent_prefix {
             Some(prefix) => format!("{}/mp-exmpl-smt", prefix),
             None => "mountpoint-s3-example/mp-exmpl-smt".to_string(),
         };
-
         let target_throughput = self.determine_throughput()?;
-
-        let client = ClientConfig {
+        Ok(ClientConfig {
             region: Region::new_user_specified(self.region.clone()),
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: AddressingStyle::Automatic,
@@ -147,28 +133,26 @@ impl ConfigOptions {
                 self.part_size.unwrap_or(8388608),
             ),
             user_agent: UserAgent::new(Some(user_agent_string)),
-        };
+        })
+    }
 
-        // Build other configs
-        let s3_path = S3Path {
+    fn build_s3_path(&self) -> Result<S3Path> {
+        Ok(S3Path {
             bucket_name: self.channels[0].bucket_name.clone(),
             prefix: Prefix::new(&self.channels[0].prefix)?,
-        };
+        })
+    }
 
-        let logging = LoggingConfig {
+    fn build_logging_config(&self) -> LoggingConfig {
+        LoggingConfig {
             log_file: None,
             log_to_stdout: true,
             default_filter: self.loglevel.clone().unwrap_or("debug,awscrt=off".to_string()),
-        };
+        }
+    }
 
-        Ok(MountConfigs {
-            fuse_session,
-            filesystem: fs_config,
-            data_cache: DataCacheConfig::default(),
-            client,
-            logging,
-            s3_path,
-        })
+    fn build_data_cache_config(&self) -> DataCacheConfig {
+        DataCacheConfig::default()
     }
 
     fn determine_throughput(&self) -> Result<f64> {
@@ -196,11 +180,6 @@ fn load_config<P: AsRef<Path>>(path: P) -> anyhow::Result<ConfigOptions> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let config: ConfigOptions = serde_json::from_reader(reader)?;
-    Ok(config)
-}
-
-fn validate_config(config: &ConfigOptions) -> anyhow::Result<()> {
-    // TODO: For multichannel-support, check disjointness of channel prefixes
     if config.channels.len() != 1 {
         return Err(anyhow!("Exactly one channel must be configured"));
     }
@@ -217,7 +196,7 @@ fn validate_config(config: &ConfigOptions) -> anyhow::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(config)
 }
 
 // Simplified manifest processing function
@@ -227,49 +206,45 @@ fn process_manifests(config: &mut ConfigOptions) -> Result<()> {
         return Ok(());
     }
 
-    #[cfg(feature = "manifest")]
-    {
-        use mountpoint_s3_fs::manifest::ingest_manifest;
-        use std::time::Instant;
-        let channel = &mut config.channels[0];
+    let channel = &mut config.channels[0];
 
-        // Skip if no CSV path provided
-        let csv_path = match &channel.manifest_path {
-            Some(path) => path,
-            None => return Ok(()),
-        };
-        // Generate manifest path and check if it exists
-        let db_path = Path::new(&config.metadata_store_dir)
-            .join("manifests")
-            .join(format!("{}.db", channel.directory_name));
-        println!("Creating manifest for channel {}", channel.directory_name);
-        let start = Instant::now();
-        ingest_manifest(csv_path, &db_path)?;
-        println!("Created manifest in {:?}", start.elapsed());
-        channel.converted_db_path = Some(db_path.clone());
-        Ok(())
-    }
-
-    #[cfg(not(feature = "manifest"))]
-    Err(anyhow!("Please compile with manifest feature flag to use manifests."))
+    // Skip if no CSV path provided
+    let csv_path = match &channel.manifest_path {
+        Some(path) => path,
+        None => return Ok(()),
+    };
+    // Generate manifest path and check if it exists
+    let db_path = Path::new(&config.metadata_store_dir)
+        .join("manifests")
+        .join(format!("{}.db", channel.directory_name));
+    println!("Creating manifest for channel {}", channel.directory_name);
+    let start = Instant::now();
+    ingest_manifest(csv_path, &db_path)?;
+    println!("Created manifest in {:?}", start.elapsed());
+    channel.converted_db_path = Some(db_path.clone());
+    Ok(())
 }
 
-fn mount_filesystem(configs: MountConfigs) -> Result<()> {
+fn mount_filesystem(configs: &ConfigOptions) -> Result<()> {
     // Create the Mountpoint configuration
-    let mp_config = MountpointConfig::new(configs.fuse_session, configs.filesystem, configs.data_cache);
-    let _logging = init_logging(configs.logging)?;
+    let mp_config = MountpointConfig::new(
+        configs.build_fuse_session_config()?,
+        configs.build_filesystem_config()?,
+        configs.build_data_cache_config(),
+    );
+    let _logging = init_logging(configs.build_logging_config())?;
     let _metrics = metrics::install();
 
     // Create the client and runtime
     let client = configs
-        .client
-        .create_client(Some(&configs.s3_path))
+        .build_client_config()?
+        .create_client(Some(&configs.build_s3_path()?))
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(configs.s3_path, client, runtime)
+        .create_fuse_session(configs.build_s3_path()?, client, runtime)
         .context("Failed to create FUSE session")?;
 
     // Join the session and wait until it completes
@@ -289,12 +264,9 @@ fn main() -> Result<()> {
     let args = Args::parse();
     // Read and process config
     let mut config = load_config(&args.config)?;
-    validate_config(&config)?;
     // Process manifests if needed
     process_manifests(&mut config)?;
     // Build all configurations
-    let configs = config.build_configs()?;
-    // Mount the filesystem
-    mount_filesystem(configs)?;
+    mount_filesystem(&config)?;
     Ok(())
 }
