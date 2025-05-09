@@ -181,19 +181,6 @@ fn load_config<P: AsRef<Path>>(path: P) -> anyhow::Result<ConfigOptions> {
     if config.channels.len() != 1 {
         return Err(anyhow!("Exactly one channel must be configured"));
     }
-    // Check that all manifest files exist
-    for channel in &config.channels {
-        if let Some(manifest_path) = &channel.manifest_path {
-            let path = Path::new(manifest_path);
-            if !path.exists() {
-                return Err(anyhow!("Manifest file not found"));
-            }
-            if !path.is_file() {
-                return Err(anyhow!("Manifest not a file"));
-            }
-        }
-    }
-
     Ok(config)
 }
 
@@ -222,26 +209,30 @@ fn process_manifests(config: &ConfigOptions) -> Result<Option<PathBuf>> {
     Ok(Some(db_path.clone()))
 }
 
-fn mount_filesystem(configs: &ConfigOptions, manifest_path: Option<PathBuf>) -> Result<()> {
+fn setup_logging(config: &ConfigOptions) -> Result<()> {
+    let _logging = init_logging(config.build_logging_config())?;
+    let _metrics = metrics::install();
+    Ok(())
+}
+
+fn mount_filesystem(config: &ConfigOptions, manifest_path: Option<PathBuf>) -> Result<()> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
-        configs.build_fuse_session_config()?,
-        configs.build_filesystem_config(manifest_path)?,
-        configs.build_data_cache_config(),
+        config.build_fuse_session_config()?,
+        config.build_filesystem_config(manifest_path)?,
+        config.build_data_cache_config(),
     );
-    let _logging = init_logging(configs.build_logging_config())?;
-    let _metrics = metrics::install();
 
     // Create the client and runtime
-    let client = configs
+    let client = config
         .build_client_config()?
-        .create_client(Some(&configs.build_s3_path()?))
+        .create_client(Some(&config.build_s3_path()?))
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(configs.build_s3_path()?, client, runtime)
+        .create_fuse_session(config.build_s3_path()?, client, runtime)
         .context("Failed to create FUSE session")?;
 
     // Join the session and wait until it completes
@@ -259,8 +250,10 @@ struct Args {
 fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
-    // Read and process config
+    // Read the config
     let config = load_config(&args.config)?;
+    // Set up logging
+    setup_logging(&config)?;
     // Process manifests if needed
     let manifest_path = process_manifests(&config)?;
     // Build all configurations
