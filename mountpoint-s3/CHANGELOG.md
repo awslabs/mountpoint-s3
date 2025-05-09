@@ -1,11 +1,14 @@
 ## Unreleased
 
+### New features
+
+* Allow changing log level dynamically with `USR2` signal. See [Changing logging verbosity at runtime](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#changing-logging-verbosity-at-runtime) for more details. ([#1367](https://github.com/awslabs/mountpoint-s3/pull/1367))
+
 ### Other changes
 
 * Fix compatibility issue with S3-like services by removing `Content-Length: 0` header from GET, HEAD, and DELETE requests.
   ([#1381](https://github.com/awslabs/mountpoint-s3/issues/1381))
   ([awslabs/aws-c-s3#516](https://github.com/awslabs/aws-c-s3/pull/516))
-* Allow changing log level dynamically with `USR2` signal. See [Changing logging verbosity at runtime](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#changing-logging-verbosity-at-runtime) for more details. ([#1367](https://github.com/awslabs/mountpoint-s3/pull/1367))
 * Enable caching of credentials when `--profile` CLI argument is used. ([#1398](https://github.com/awslabs/mountpoint-s3/pull/1398))
 
 ## v1.16.2 (April 9, 2025)
