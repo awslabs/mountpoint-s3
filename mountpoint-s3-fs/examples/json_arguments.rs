@@ -14,7 +14,7 @@ use mountpoint_s3_fs::{
     MountpointConfig, Runtime, S3FilesystemConfig,
 };
 
-use std::time::Instant;
+use std::{fs, time::Instant};
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -35,7 +35,7 @@ struct ChannelConfig {
 #[derive(Debug, Serialize, Deserialize)]
 enum ThroughputConfig {
     IMDSAutoConfigure,
-    IMDSLookUp { instance_id: String },
+    IMDSLookUp { ec2_instance_type: String },
     Explicit { throughput: f64 },
 }
 
@@ -72,7 +72,7 @@ struct ConfigOptions {
 }
 
 impl ConfigOptions {
-    fn build_fuse_session_config(&self) -> Result<FuseSessionConfig> {
+    pub fn build_fuse_session_config(&self) -> Result<FuseSessionConfig> {
         let mount_point = MountPoint::new(&self.mountpoint)?;
         let fuse_options = FuseOptions {
             read_only: true,
@@ -83,7 +83,7 @@ impl ConfigOptions {
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))
     }
 
-    fn build_filesystem_config(&self, converted_manifest_path: Option<PathBuf>) -> Result<S3FilesystemConfig> {
+    pub fn build_filesystem_config(&self, converted_manifest_path: Option<PathBuf>) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
             ..Default::default()
@@ -111,8 +111,8 @@ impl ConfigOptions {
 
     pub fn build_client_config(&self) -> Result<ClientConfig> {
         let user_agent_string = match &self.user_agent_prefix {
-            Some(prefix) => format!("{}/mp-exmpl-smt", prefix),
-            None => "mountpoint-s3-example/mp-exmpl-smt".to_string(),
+            Some(prefix) => format!("{}/mp-exmpl", prefix),
+            None => "mountpoint-s3-example/mp-exmpl".to_string(),
         };
         let target_throughput = self.determine_throughput()?;
         Ok(ClientConfig {
@@ -134,14 +134,14 @@ impl ConfigOptions {
         })
     }
 
-    fn build_s3_path(&self) -> Result<S3Path> {
+    pub fn build_s3_path(&self) -> Result<S3Path> {
         Ok(S3Path {
             bucket_name: self.channels[0].bucket_name.clone(),
             prefix: Prefix::new(&self.channels[0].prefix)?,
         })
     }
 
-    fn build_logging_config(&self) -> LoggingConfig {
+    pub fn build_logging_config(&self) -> LoggingConfig {
         LoggingConfig {
             log_file: None,
             log_to_stdout: true,
@@ -155,6 +155,7 @@ impl ConfigOptions {
 
     fn determine_throughput(&self) -> Result<f64> {
         match &self.throughput_config {
+            // TODO(chagem): Remove some code duplication, by moving this logic into fs crate.
             ThroughputConfig::Explicit { throughput } => Ok(*throughput),
             ThroughputConfig::IMDSAutoConfigure => {
                 const DEFAULT_THROUGHPUT: f64 = 10.0;
@@ -167,14 +168,14 @@ impl ConfigOptions {
                     }
                 }
             }
-            ThroughputConfig::IMDSLookUp { instance_id } => {
-                autoconfigure::get_maximum_network_throughput(instance_id).context("Unrecognized instance ID")
+            ThroughputConfig::IMDSLookUp { ec2_instance_type } => {
+                autoconfigure::get_maximum_network_throughput(ec2_instance_type).context("Unrecognized instance ID")
             }
         }
     }
 }
 
-fn load_config<P: AsRef<Path>>(path: P) -> anyhow::Result<ConfigOptions> {
+fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let config: ConfigOptions = serde_json::from_reader(reader)?;
@@ -202,6 +203,7 @@ fn process_manifests(config: &ConfigOptions) -> Result<Option<PathBuf>> {
     let db_path = Path::new(&config.metadata_store_dir)
         .join("manifests")
         .join(format!("{}.db", channel.directory_name));
+    fs::create_dir_all(db_path.parent().unwrap())?;
     println!("Creating manifest for channel {}", channel.directory_name);
     let start = Instant::now();
     ingest_manifest(csv_path, &db_path)?;

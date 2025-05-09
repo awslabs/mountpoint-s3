@@ -19,7 +19,7 @@ pub use db::DbEntry;
 #[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("database exists")]
-    DbExists(),
+    DbExists,
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
     #[error("key has no etag or size and will be unavailable: {0}")]
