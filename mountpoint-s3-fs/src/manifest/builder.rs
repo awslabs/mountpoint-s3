@@ -55,7 +55,7 @@ pub fn ingest_manifest(csv_path: &Path, db_path: &Path) -> Result<(), ManifestEr
     let file = File::open(csv_path).unwrap();
     let csv_reader = CsvReader::new(BufReader::new(file));
     if db_path.exists() {
-        return Err(ManifestError::DbExists());
+        return Err(ManifestError::DbExists);
     }
     create_db(db_path, csv_reader, 100000)?;
     Ok(())
