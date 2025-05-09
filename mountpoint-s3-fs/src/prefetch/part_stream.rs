@@ -406,7 +406,7 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
-            .map_err(PrefetchReadError::GetRequestFailed)?;
+            .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
 
         let mut backpressure_handle = request.backpressure_handle().cloned();
         if let Some(handle) = backpressure_handle.as_mut() {
@@ -417,7 +417,7 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
         while let Some(next) = request.next().await {
             let part = next
                 .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
-                .map_err(PrefetchReadError::GetRequestFailed)?;
+                .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
 
             let length = part.data.len() as u64;
             trace!(offset=part.offset, length, "received GetObject part");
