@@ -99,6 +99,12 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
+                    tracing::info!(
+                        target: "benchmarking_instrumentation",
+                        offset,
+                        length = data.len(),
+                        "S3 request on_body",
+                    );
                     _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
                         offset,
                         data: Bytes::copy_from_slice(data),
