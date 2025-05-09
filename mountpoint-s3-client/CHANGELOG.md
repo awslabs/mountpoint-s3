@@ -1,5 +1,7 @@
 ## Unreleased
 
+## v0.14.1 (May 9, 2025)
+
 ### Other changes
 
 * Fix compatibility issue with S3-like services by removing `Content-Length: 0` header from GET, HEAD, and DELETE requests.

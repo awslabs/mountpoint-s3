@@ -1,11 +1,12 @@
 ## Unreleased
 
+## v0.12.3 (May 9, 2025)
+
 ### Other changes
 
 * Fix compatibility issue with S3-like services by removing `Content-Length: 0` header from GET, HEAD, and DELETE requests.
   ([#1381](https://github.com/awslabs/mountpoint-s3/issues/1381))
   ([awslabs/aws-c-s3#516](https://github.com/awslabs/aws-c-s3/pull/516))
-
 * Update to latest CRT dependencies.
 
 ## v0.12.2 (April 1, 2025)
