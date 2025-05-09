@@ -30,8 +30,6 @@ struct ChannelConfig {
     #[serde(default)]
     prefix: String,
     manifest_path: Option<PathBuf>,
-    #[serde(skip)]
-    converted_db_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,14 +83,14 @@ impl ConfigOptions {
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))
     }
 
-    fn build_filesystem_config(&self) -> Result<S3FilesystemConfig> {
+    fn build_filesystem_config(&self, converted_manifest_path: Option<PathBuf>) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
             ..Default::default()
         };
 
-        if let Some(manifest_path) = &self.channels[0].converted_db_path {
-            fs_config.manifest = Some(Manifest::new(manifest_path)?);
+        if let Some(manifest_path) = converted_manifest_path {
+            fs_config.manifest = Some(Manifest::new(&manifest_path)?);
         }
 
         // Apply custom filesystem settings if provided
@@ -200,18 +198,18 @@ fn load_config<P: AsRef<Path>>(path: P) -> anyhow::Result<ConfigOptions> {
 }
 
 // Simplified manifest processing function
-fn process_manifests(config: &mut ConfigOptions) -> Result<()> {
+fn process_manifests(config: &ConfigOptions) -> Result<Option<PathBuf>> {
     // Skip if no manifests or no channels
     if config.channels.is_empty() || config.channels[0].manifest_path.is_none() {
-        return Ok(());
+        return Ok(None);
     }
 
-    let channel = &mut config.channels[0];
+    let channel = &config.channels[0];
 
     // Skip if no CSV path provided
     let csv_path = match &channel.manifest_path {
         Some(path) => path,
-        None => return Ok(()),
+        None => return Ok(None),
     };
     // Generate manifest path and check if it exists
     let db_path = Path::new(&config.metadata_store_dir)
@@ -221,15 +219,14 @@ fn process_manifests(config: &mut ConfigOptions) -> Result<()> {
     let start = Instant::now();
     ingest_manifest(csv_path, &db_path)?;
     println!("Created manifest in {:?}", start.elapsed());
-    channel.converted_db_path = Some(db_path.clone());
-    Ok(())
+    Ok(Some(db_path.clone()))
 }
 
-fn mount_filesystem(configs: &ConfigOptions) -> Result<()> {
+fn mount_filesystem(configs: &ConfigOptions, manifest_path: Option<PathBuf>) -> Result<()> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
         configs.build_fuse_session_config()?,
-        configs.build_filesystem_config()?,
+        configs.build_filesystem_config(manifest_path)?,
         configs.build_data_cache_config(),
     );
     let _logging = init_logging(configs.build_logging_config())?;
@@ -263,10 +260,10 @@ fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
     // Read and process config
-    let mut config = load_config(&args.config)?;
+    let config = load_config(&args.config)?;
     // Process manifests if needed
-    process_manifests(&mut config)?;
+    let manifest_path = process_manifests(&config)?;
     // Build all configurations
-    mount_filesystem(&config)?;
+    mount_filesystem(&config, manifest_path)?;
     Ok(())
 }
