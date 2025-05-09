@@ -1,6 +1,10 @@
-## Unreleased
+## Unreleased
 
 ### Other changes
+
+* Fix compatibility issue with S3-like services by removing `Content-Length: 0` header from GET, HEAD, and DELETE requests.
+  ([#1381](https://github.com/awslabs/mountpoint-s3/issues/1381))
+  ([awslabs/aws-c-s3#516](https://github.com/awslabs/aws-c-s3/pull/516))
 * The memory limit for CRT Client can now be configured with the `S3ClientConfig::memory_limit_in_bytes` method.
   ([#1363](https://github.com/awslabs/mountpoint-s3/pull/1363))
 
