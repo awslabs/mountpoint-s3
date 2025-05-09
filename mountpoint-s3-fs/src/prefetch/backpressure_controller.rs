@@ -1,5 +1,5 @@
-use std::ops::Range;
 use std::sync::Arc;
+use std::{env::VarError, ops::Range};
 
 use async_channel::{unbounded, Receiver, Sender};
 use humansize::make_format;
@@ -48,6 +48,21 @@ pub struct BackpressureController<Client: ObjectClient> {
     /// data up to this offset *exclusively*.
     request_end_offset: u64,
     mem_limiter: Arc<MemoryLimiter<Client>>,
+    increment_heuristic: BackpressureIncrementHeuristic,
+}
+
+#[derive(Debug)]
+enum BackpressureIncrementHeuristic {
+    AfterHalfConsumed,
+    Linear {
+        step: BackpressureIncrementHeuristicLinearStep,
+    },
+}
+
+#[derive(Debug)]
+enum BackpressureIncrementHeuristicLinearStep {
+    ReadSize,
+    PartSize,
 }
 
 #[derive(Debug)]
@@ -82,6 +97,20 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
     let (read_window_updater, read_window_incrementing_queue) = unbounded();
     mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
+    let increment_heuristic = match std::env::var("UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC")
+        .as_ref()
+        .map(|string| string.as_str())
+    {
+        Ok("LINEAR_PARTSIZE") | Err(VarError::NotPresent) => BackpressureIncrementHeuristic::Linear {
+            step: BackpressureIncrementHeuristicLinearStep::PartSize,
+        },
+        Ok("LINEAR_READSIZE") => BackpressureIncrementHeuristic::Linear {
+            step: BackpressureIncrementHeuristicLinearStep::ReadSize,
+        },
+        Ok("HALF_CONSUMED") => BackpressureIncrementHeuristic::AfterHalfConsumed,
+        Ok(_) | Err(_) => panic!("unexpected value for UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC, oh no!"),
+    };
+    tracing::trace!("using backpressure heuristic {increment_heuristic:?}");
     let controller = BackpressureController {
         read_window_updater,
         preferred_read_window_size: config.initial_read_window_size,
@@ -92,6 +121,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
         mem_limiter,
+        increment_heuristic,
     };
     let limiter = BackpressureLimiter {
         read_window_incrementing_queue,
@@ -116,38 +146,86 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                 self.mem_limiter.release(BufferArea::Prefetch, length as u64);
                 let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
 
-                // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
-                // When memory is low the `preferred_read_window_size` will be scaled down so we have to keep trying
-                // until we have enough read window.
-                while remaining_window < (self.preferred_read_window_size / 2)
-                    && self.read_window_end_offset < self.request_end_offset
-                {
-                    let new_read_window_end_offset = self
-                        .next_read_offset
-                        .saturating_add(self.preferred_read_window_size as u64)
-                        .min(self.request_end_offset);
-                    // We can skip if the new `read_window_end_offset` is less than or equal to the current one, this
-                    // could happen after the read window is scaled down.
-                    if new_read_window_end_offset <= self.read_window_end_offset {
-                        break;
-                    }
-                    let to_increase = new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
+                match &self.increment_heuristic {
+                    BackpressureIncrementHeuristic::Linear { step } => {
+                        // TODO: Fix scaling up of the window.
+                        // I suspect that it currently scales up immediately due to not waiting until 50% consumption.
 
-                    // Force incrementing read window regardless of available memory when we are already at minimum
-                    // read window size.
-                    if self.preferred_read_window_size <= self.min_read_window_size {
-                        self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
-                        self.increment_read_window(to_increase).await;
-                        break;
+                        let mut new_read_window_end_offset = self
+                            .next_read_offset
+                            .saturating_add(self.preferred_read_window_size as u64)
+                            .min(self.request_end_offset);
+                        if matches!(step, BackpressureIncrementHeuristicLinearStep::PartSize) {
+                            // TODO: Take configured part size into account, rather than hardcoded.
+                            const TEMP_PART_SIZE: u64 = 8 * 1024 * 1024;
+                            if TEMP_PART_SIZE < self.preferred_read_window_size as u64 {
+                                new_read_window_end_offset =
+                                    (new_read_window_end_offset / TEMP_PART_SIZE) * TEMP_PART_SIZE;
+                            }
+                        }
+                        // Cap it at the end if needed.
+                        new_read_window_end_offset = new_read_window_end_offset.min(self.request_end_offset);
+                        let to_increase =
+                            new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
+                        if to_increase > 0 {
+                            tracing::info!(
+                                target: "benchmarking_instrumentation",
+                                preferred_read_window_size = ?self.preferred_read_window_size,
+                                prev_read_window_end_offset = self.read_window_end_offset,
+                                new_read_window_end_offset,
+                                to_increase,
+                                "advancing read window",
+                            );
+                            // TODO: This currently just forces the reservation, we should implement scale down.
+                            self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
+                            self.increment_read_window(to_increase).await;
+                        }
                     }
+                    BackpressureIncrementHeuristic::AfterHalfConsumed => {
+                        // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
+                        // When memory is low the `preferred_read_window_size` will be scaled down so we have to keep trying
+                        // until we have enough read window.
+                        while remaining_window < (self.preferred_read_window_size / 2)
+                            && self.read_window_end_offset < self.request_end_offset
+                        {
+                            let new_read_window_end_offset = self
+                                .next_read_offset
+                                .saturating_add(self.preferred_read_window_size as u64)
+                                .min(self.request_end_offset);
+                            // We can skip if the new `read_window_end_offset` is less than or equal to the current one, this
+                            // could happen after the read window is scaled down.
+                            if new_read_window_end_offset <= self.read_window_end_offset {
+                                break;
+                            }
+                            let to_increase =
+                                new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
 
-                    // Try to reserve the memory for the length we want to increase before sending the request,
-                    // scale down the read window if it fails.
-                    if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
-                        self.increment_read_window(to_increase).await;
-                        break;
-                    } else {
-                        self.scale_down();
+                            tracing::info!(
+                                target: "benchmarking_instrumentation",
+                                preferred_read_window_size = ?self.preferred_read_window_size,
+                                prev_read_window_end_offset = self.read_window_end_offset,
+                                new_read_window_end_offset,
+                                to_increase,
+                                "advancing read window",
+                            );
+
+                            // Force incrementing read window regardless of available memory when we are already at minimum
+                            // read window size.
+                            if self.preferred_read_window_size <= self.min_read_window_size {
+                                self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
+                                self.increment_read_window(to_increase).await;
+                                break;
+                            }
+
+                            // Try to reserve the memory for the length we want to increase before sending the request,
+                            // scale down the read window if it fails.
+                            if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                                self.increment_read_window(to_increase).await;
+                                break;
+                            } else {
+                                self.scale_down();
+                            }
+                        }
                     }
                 }
             }
@@ -194,6 +272,12 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                     new_size = formatter(new_read_window_size),
                     "scaled up preferred read window"
                 );
+                tracing::info!(
+                    target: "benchmarking_instrumentation",
+                    old_read_window_size = ?self.preferred_read_window_size,
+                    new_read_window_size,
+                    "read_window_scale",
+                );
                 self.preferred_read_window_size = new_read_window_size;
                 metrics::histogram!("prefetch.window_after_increase_mib")
                     .record((self.preferred_read_window_size / 1024 / 1024) as f64);
@@ -213,6 +297,12 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                 current_size = formatter(self.preferred_read_window_size),
                 new_size = formatter(new_read_window_size),
                 "scaled down read window"
+            );
+            tracing::info!(
+                target: "benchmarking_instrumentation",
+                old_read_window_size = ?self.preferred_read_window_size,
+                new_read_window_size,
+                "read_window_scale",
             );
             self.preferred_read_window_size = new_read_window_size;
             metrics::histogram!("prefetch.window_after_decrease_mib")

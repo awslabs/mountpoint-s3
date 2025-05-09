@@ -162,8 +162,15 @@ fn main() {
                         let mut offset = 0;
                         while offset < size {
                             let bytes = request.read(offset, args.read_size).await.unwrap();
-                            offset += bytes.len() as u64;
-                            received_bytes.fetch_add(bytes.len() as u64, Ordering::SeqCst);
+                            let length = bytes.len() as u64;
+                            offset += length;
+                            tracing::info!(
+                                target: "benchmarking_instrumentation",
+                                offset,
+                                length,
+                                "consuming data",
+                            );
+                            received_bytes.fetch_add(length, Ordering::SeqCst);
                         }
                     })
                 });
