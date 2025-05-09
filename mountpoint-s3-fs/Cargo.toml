@@ -94,3 +94,7 @@ second_account_tests = []
 [[example]]
 name = "manifest_to_sqlite"
 required-features = ["manifest"]
+
+[[example]]
+name = "json_arguments"
+required-features = ["manifest"]
