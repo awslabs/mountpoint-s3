@@ -254,86 +254,41 @@ mod tests {
         }
     }
 
-    fn valid_cli_args_strategy() -> impl Strategy<Value = CliArgs> {
+    fn fstab_compatible_strategy() -> impl Strategy<Value = FstabCompatibleCliArgs> {
         (
-            "bucket-[a-z]{3,10}",         
-            "/mnt/test-[a-z]{1,5}",       
-            1..=u32::MAX,            // the uid must be > zero
-            any::<bool>(),                // read_only
-            any::<bool>(),                // allow_delete
-            any::<bool>(),                // for the debug 
-        )
-        .prop_filter("Disallow invalid combos", |(_, _, _, ro, _, _)| {
-            // Disallow read_only=true  since fstab mode does not support read-only . So, these need to be excluded from test generation 
-            *ro != true
-        })
-        .prop_map(|(bucket_name, mount_point, uid, read_only, allow_delete, debug)| {
-            CliArgs {
+            "bucket-[a-z]{3,10}",        
+            "/mnt/test-[a-z]{1,5}",     
+            1..=u32::MAX,               // uid , it must be greater than 0
+            any::<bool>(),              // allow_delete
+            any::<bool>(),              // debug
+        ).prop_map(|(bucket_name, mount_point, uid, allow_delete, debug)| {
+            FstabCompatibleCliArgs {
                 bucket_name,
-                mount_point: mount_point.into(),
-                prefix: None,
-                region: None,
-                endpoint_url: None,
-                force_path_style: false,
-                transfer_acceleration: false,
-                dual_stack: false,
-                requester_pays: false,
-                bucket_type: None,
-                no_sign_request: false,
-                profile: None,
-                read_only,
-                storage_class: None,
+                mount_point,
+                uid,
                 allow_delete,
-                allow_overwrite: false,
-                incremental_upload: false,
-                auto_unmount: false,
-                allow_root: false,
-                allow_other: false,
-                maximum_throughput_gbps: None,
-                max_threads: 16,
-                part_size: 8388608,
-                read_part_size: None,
-                write_part_size: None,
-                uid: Some(uid),
-                gid: None,
-                dir_mode: None,
-                file_mode: None,
-                foreground: false,
-                expected_bucket_owner: None,
-                log_directory: None,
-                log_metrics: false,
                 debug,
-                debug_crt: false,
-                no_log: false,
-                cache: None,
-                metadata_ttl: None,
-                negative_metadata_ttl: None,
-                max_cache_size: None,
-                cache_xz: None,
-                user_agent_prefix: None,
-                sse: None,
-                sse_kms_key_id: None,
-                upload_checksums: None,
-                bind: None,
             }
         })
     }
 
+    #[derive(Debug, Clone)]
+    struct FstabCompatibleCliArgs {
+        bucket_name: String,
+        mount_point: String,
+        uid: u32,
+        allow_delete: bool,
+        debug: bool,
+    }
 
-    fn serialize_to_fstab_args(cli_args: &CliArgs) -> Vec<String> {
+    fn serialize_to_fstab_args(cli_args: &FstabCompatibleCliArgs) -> Vec<String> {
         let mut args = vec![
             "mount-s3".to_string(),
             cli_args.bucket_name.clone(),
-            cli_args.mount_point.to_string_lossy().into_owned(),
+            cli_args.mount_point.clone(),
         ];
     
-        let mut options = Vec::new();
-        if let Some(uid) = cli_args.uid {
-            options.push(format!("uid={}", uid));
-        }
-        if cli_args.read_only {
-            options.push("ro".to_string());
-        }
+        let mut options = vec![format!("uid={}", cli_args.uid)];
         if cli_args.allow_delete {
             options.push("allow-delete".to_string());
         }
@@ -341,28 +296,24 @@ mod tests {
             options.push("debug".to_string());
         }
     
-        if !options.is_empty() {
-            args.push("-o".to_string());
-            args.push(options.join(","));
-        }
-    
+        args.push("-o".to_string());
+        args.push(options.join(","));
         args
     }
-
+    
     // This addresses the PR suggestion to test roundtrip from CliArgs -> FsTabCliArgs -> CliArgs
     proptest! {
         #[test]
-        fn cli_args_roundtrip_from_fstab_args(original in valid_cli_args_strategy()) {
+        fn cli_args_roundtrip_from_fstab_args(original in fstab_compatible_strategy()) {
             let args = serialize_to_fstab_args(&original);
             let fstab = FsTabCliArgs::try_parse_from(&args).unwrap();
             let roundtripped: CliArgs = fstab.try_into().unwrap();
-
+    
             prop_assert_eq!(roundtripped.bucket_name, original.bucket_name);
-            prop_assert_eq!(roundtripped.mount_point, original.mount_point);
-            prop_assert_eq!(roundtripped.uid, original.uid);
-            prop_assert_eq!(roundtripped.read_only, original.read_only);
+            prop_assert_eq!(roundtripped.mount_point.to_str().unwrap(), original.mount_point.as_str());
+            prop_assert_eq!(roundtripped.uid, Some(original.uid));
             prop_assert_eq!(roundtripped.allow_delete, original.allow_delete);
             prop_assert_eq!(roundtripped.debug, original.debug);
         }
-    }
+    }    
 }
