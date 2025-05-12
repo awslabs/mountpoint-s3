@@ -254,31 +254,42 @@ mod tests {
         }
     }
 
-    fn fstab_compatible_strategy() -> impl Strategy<Value = FstabCompatibleCliArgs> {
-        (
-            "bucket-[a-z]{3,10}",        
-            "/mnt/test-[a-z]{1,5}",     
-            1..=u32::MAX,               // uid , it must be greater than 0
-            any::<bool>(),              // allow_delete
-            any::<bool>(),              // debug
-        ).prop_map(|(bucket_name, mount_point, uid, allow_delete, debug)| {
-            FstabCompatibleCliArgs {
-                bucket_name,
-                mount_point,
-                uid,
-                allow_delete,
-                debug,
-            }
-        })
-    }
-
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct FstabCompatibleCliArgs {
         bucket_name: String,
         mount_point: String,
         uid: u32,
         allow_delete: bool,
+        allow_other: bool,
         debug: bool,
+        read_only: bool
+    }
+
+    impl Arbitrary for FstabCompatibleCliArgs {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+    
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            // "bucket-" + 3–10 lowercase letters = 10–17 total length
+            let bucket_name = "[a-z]{3,10}".prop_map(|s| format!("bucket-{}", s));
+            // "/mnt/test-" + 1–5 lowercase letters
+            let mount_point = "[a-z]{1,5}".prop_map(|s| format!("/mnt/test-{}", s));
+    
+            (bucket_name, mount_point, 1..=u32::MAX, any::<bool>(),any::<bool>(), any::<bool>())
+                .prop_map(|(bucket_name, mount_point, uid, allow_delete, allow_other, debug)| {
+                    FstabCompatibleCliArgs {
+                        bucket_name,
+                        mount_point,
+                        uid,
+                        allow_delete,
+                        allow_other,
+                        debug,
+                        read_only: false, // enforcing read_only = false
+                    }
+                })
+                .boxed()
+        }
     }
 
     fn serialize_to_fstab_args(cli_args: &FstabCompatibleCliArgs) -> Vec<String> {
@@ -292,6 +303,9 @@ mod tests {
         if cli_args.allow_delete {
             options.push("allow-delete".to_string());
         }
+        if cli_args.allow_other {
+            options.push("allow-other".to_string());
+        }
         if cli_args.debug {
             options.push("debug".to_string());
         }
@@ -304,7 +318,7 @@ mod tests {
     // This addresses the PR suggestion to test roundtrip from CliArgs -> FsTabCliArgs -> CliArgs
     proptest! {
         #[test]
-        fn cli_args_roundtrip_from_fstab_args(original in fstab_compatible_strategy()) {
+        fn cli_args_roundtrip_from_fstab_args(original in any::<FstabCompatibleCliArgs>()) {
             let args = serialize_to_fstab_args(&original);
             let fstab = FsTabCliArgs::try_parse_from(&args).unwrap();
             let roundtripped: CliArgs = fstab.try_into().unwrap();
@@ -313,7 +327,9 @@ mod tests {
             prop_assert_eq!(roundtripped.mount_point.to_str().unwrap(), original.mount_point.as_str());
             prop_assert_eq!(roundtripped.uid, Some(original.uid));
             prop_assert_eq!(roundtripped.allow_delete, original.allow_delete);
+            prop_assert_eq!(roundtripped.allow_other, original.allow_other);
             prop_assert_eq!(roundtripped.debug, original.debug);
+            prop_assert_eq!(roundtripped.read_only, original.read_only);
         }
-    }    
+    }
 }
