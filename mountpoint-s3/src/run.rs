@@ -6,7 +6,6 @@ use std::time::Duration;
 use std::{env, fs};
 
 use anyhow::{anyhow, Context as _};
-use clap::Parser;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
@@ -16,8 +15,8 @@ use mountpoint_s3_fs::{metrics, MountpointConfig, Runtime};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 
-use crate::build_info;
 use crate::cli::CliArgs;
+use crate::{build_info, get_cli_args};
 
 /// Run Mountpoint with the given [CliArgs].
 pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
@@ -63,7 +62,7 @@ where
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                let args = CliArgs::parse();
+                let args = get_cli_args();
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
