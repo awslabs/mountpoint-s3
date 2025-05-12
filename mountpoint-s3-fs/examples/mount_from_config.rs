@@ -1,28 +1,22 @@
-use anyhow::{anyhow, Context, Result};
-use clap::Parser;
-use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
-use mountpoint_s3_fs::{
-    autoconfigure,
-    data_cache::DataCacheConfig,
-    fs::CacheConfig,
-    fuse::config::{FuseOptions, FuseSessionConfig, MountPoint},
-    logging::{init_logging, LoggingConfig, LoggingHandle},
-    manifest::{ingest_manifest, Manifest},
-    metrics,
-    metrics::MetricsSinkHandle,
-    prefix::Prefix,
-    s3::config::{ClientConfig, PartConfig, Region, S3Path},
-    MountpointConfig, Runtime, S3FilesystemConfig,
-};
-
-use std::{fs, time::Instant};
-
-use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
+    time::Instant,
 };
+
+use anyhow::{anyhow, Context, Result};
+use clap::Parser;
+use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
+use mountpoint_s3_fs::{
+    autoconfigure, data_cache::DataCacheConfig, fs::CacheConfig, fuse::config::FuseOptions,
+    fuse::config::FuseSessionConfig, fuse::config::MountPoint, fuse::session::FuseSession, logging::init_logging,
+    logging::LoggingConfig, logging::LoggingHandle, manifest::ingest_manifest, manifest::Manifest, metrics,
+    metrics::MetricsSinkHandle, prefix::Prefix, s3::config::ClientConfig, s3::config::PartConfig, s3::config::Region,
+    s3::config::S3Path, MountpointConfig, Runtime, S3FilesystemConfig,
+};
+use serde::{Deserialize, Serialize};
+use tempfile::tempdir;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChannelConfig {
@@ -30,7 +24,7 @@ struct ChannelConfig {
     bucket_name: String,
     #[serde(default)]
     prefix: String,
-    manifest_path: Option<PathBuf>,
+    manifest_path: PathBuf,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,7 +44,7 @@ struct ConfigOptions {
     /// Maximum number of FUSE daemon threads
     max_threads: Option<usize>,
     throughput_config: ThroughputConfig,
-    /// Directory where MP stores temporary files, such as the manifest metadata
+    /// Directory where MP stores temporary files, such as cached metadata
     metadata_store_dir: String,
     /// List of channels
     channels: Vec<ChannelConfig>,
@@ -125,10 +119,7 @@ impl ConfigOptions {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target_gbps: target_throughput,
             bind: None,
-            part_config: PartConfig::with_read_write_sizes(
-                self.part_size.unwrap_or(8388608),
-                self.part_size.unwrap_or(8388608),
-            ),
+            part_config: PartConfig::with_part_size(self.part_size.unwrap_or(8388608)),
             user_agent: UserAgent::new(Some(user_agent_string)),
         })
     }
@@ -181,26 +172,22 @@ fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
     Ok(config)
 }
 
-// Simplified manifest processing function
-fn process_manifests(config: &ConfigOptions) -> Result<Manifest> {
-    // Error if no manifests or no channels
+/// Processes a manifest and stores database in `database_directory`
+fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Result<Manifest> {
+    // Error if no channels
     if config.channels.len() != 1 {
         return Err(anyhow!("Exactly one channel must be configured"));
     }
 
     let channel = &config.channels[0];
     // Skip if no manifest provided
-    let csv_path = match &channel.manifest_path {
-        Some(path) => path,
-        None => return Err(anyhow!("Channel has no manifest specified")),
-    };
+    let csv_path = &channel.manifest_path;
     // Generate manifest path and check if it exists
-    let db_path = Path::new(&config.metadata_store_dir).join(format!("{}.db", channel.directory_name));
-    fs::create_dir_all(db_path.parent().unwrap())?;
+    let db_path = database_directory.join("metadata.db");
     println!("Creating manifest for channel {}", channel.directory_name);
     let start = Instant::now();
     ingest_manifest(csv_path, &db_path)?;
-    println!("Created manifest in {:?}", start.elapsed());
+    println!("Created manifest in {:?} stored at {:?}", start.elapsed(), db_path);
 
     Ok(Manifest::new(&db_path)?)
 }
@@ -211,12 +198,7 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
     Ok((logging, metrics))
 }
 
-fn mount_filesystem(
-    config: &ConfigOptions,
-    manifest_path: Manifest,
-    logging: LoggingHandle,
-    metrics: MetricsSinkHandle,
-) -> Result<()> {
+fn mount_filesystem(config: &ConfigOptions, manifest_path: Manifest) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
         config.build_fuse_session_config()?,
@@ -229,7 +211,7 @@ fn mount_filesystem(
     // Create the client and runtime
     let client = config
         .build_client_config()?
-        .create_client(Some(&s3_path))
+        .create_client(None)
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
@@ -238,11 +220,7 @@ fn mount_filesystem(
         .create_fuse_session(s3_path, client, runtime)
         .context("Failed to create FUSE session")?;
 
-    // Join the session and wait until it completes
-    fuse_session.join().context("Failed to join session")?;
-    drop(metrics);
-    drop(logging);
-    Ok(())
+    Ok(fuse_session)
 }
 
 #[derive(Parser, Debug)]
@@ -259,10 +237,13 @@ fn main() -> Result<()> {
     // Read the config
     let config = load_config(&args.config)?;
     // Set up logging
-    let (logging, metrics) = setup_logging(&config)?;
+    let (_logging, _metrics) = setup_logging(&config)?;
     // Process manifests if needed
-    let manifest = process_manifests(&config)?;
+    let temporary_dir = tempdir()?;
+    let manifest = process_manifests(&config, temporary_dir.path())?;
     // Build all configurations
-    mount_filesystem(&config, manifest, logging, metrics)?;
+    let fuse_session = mount_filesystem(&config, manifest)?;
+    // Join the session and wait until it completes
+    fuse_session.join().context("Failed to join session")?;
     Ok(())
 }
