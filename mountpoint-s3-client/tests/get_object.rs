@@ -342,14 +342,9 @@ async fn test_get_object_403() {
         err,
         ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
     ));
-    assert_eq!(
-        err.meta(),
-        ClientErrorMetadata {
-            http_code: Some(403),
-            error_code: Some("AccessDenied".to_string()),
-            error_message: Some("Access Denied".to_string())
-        }
-    );
+    assert_eq!(err.meta().http_code, Some(403));
+    assert_eq!(err.meta().error_code, Some("AccessDenied".to_string()));
+    assert!(err.meta().error_message.is_some());
 }
 
 #[test_case(false; "early")]

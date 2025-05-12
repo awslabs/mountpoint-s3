@@ -86,8 +86,8 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
         ErrorMetadata {
             client_error_meta: ClientErrorMetadata {
                 http_code: Some(503),
-                error_code: None,
-                error_message: None,
+                error_code: Some("SlowDown".to_string()),
+                error_message: Some("Please reduce your request rate.".to_string()),
             },
             error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),
