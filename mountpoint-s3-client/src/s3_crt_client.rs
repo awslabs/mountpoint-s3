@@ -1128,7 +1128,7 @@ pub enum S3RequestError {
 
     /// The request was made to the wrong region
     #[error("Wrong region (expecting {0})")]
-    IncorrectRegion(String),
+    IncorrectRegion(String, ClientErrorMetadata),
 
     /// Forbidden
     #[error("Forbidden: {0}")]
@@ -1173,6 +1173,7 @@ impl ProvideErrorMetadata for S3RequestError {
                 error_code: Some("SlowDown".to_string()),
                 error_message: Some("Please reduce your request rate.".to_string()),
             },
+            Self::IncorrectRegion(_, metadata) => metadata.clone(),
             _ => Default::default(),
         }
     }
@@ -1253,7 +1254,10 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         let headers = request_result.error_response_headers.as_ref()?;
         let region_header = headers.get("x-amz-bucket-region").ok()?;
         let region = region_header.value().to_owned().into_string().ok()?;
-        Some(S3RequestError::IncorrectRegion(region))
+        Some(S3RequestError::IncorrectRegion(
+            region,
+            ClientErrorMetadata::from_meta_request_result(request_result),
+        ))
     }
 
     /// Look for access-related errors
@@ -1684,7 +1688,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>PermanentRedirect</Code><Message>The bucket you are attempting to access must be addressed using the specified endpoint. Please send all future requests to this endpoint.</Message><Endpoint>amzn-s3-demo-bucket.s3-us-west-2.amazonaws.com</Endpoint><Bucket>amzn-s3-demo-bucket</Bucket><RequestId>CM0Z9YFABRVSWXDJ</RequestId><HostId>HHmbUixasrJ02DlkOSCvJId897Jm0ERHuE2XMkSn2Oax1J/ad2+AU9nFrODN1ay13cWFgIAYBnI=</HostId></Error>"#;
         let result = make_result(301, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::IncorrectRegion(region)) = result else {
+        let Some(S3RequestError::IncorrectRegion(region, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(region, "us-west-2");
@@ -1729,7 +1733,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>AuthorizationHeaderMalformed</Code><Message>The authorization header is malformed; the region \'us-east-1\' is wrong; expecting \'us-west-2\'</Message><Region>us-west-2</Region><RequestId>VR3NH4JF5F39GB66</RequestId><HostId>ZDzYFC1w0E5K34+ZCAnvh9ZiGaAhvx5COyZVYTUnKvSP/694xCiXmJ2AEGZd5T1Epy9vB4EOOjk=</HostId></Error>"#;
         let result = make_result(400, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
-        let Some(S3RequestError::IncorrectRegion(region)) = result else {
+        let Some(S3RequestError::IncorrectRegion(region, _)) = result else {
             panic!("wrong result, got: {:?}", result);
         };
         assert_eq!(region, "us-west-2");

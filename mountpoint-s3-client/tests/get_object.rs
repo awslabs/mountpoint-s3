@@ -13,7 +13,7 @@ use bytes::Bytes;
 use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
-use mountpoint_s3_client::config::S3ClientConfig;
+use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{
@@ -344,6 +344,29 @@ async fn test_get_object_403() {
     ));
     assert_eq!(err.meta().http_code, Some(403));
     assert_eq!(err.meta().error_code, Some("AccessDenied".to_string()));
+    assert!(err.meta().error_message.is_some());
+}
+
+#[tokio::test]
+async fn test_get_object_wrong_region() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_wrong_region");
+
+    let key = format!("{prefix}/nonexistent_key");
+
+    let client = S3CrtClient::new(S3ClientConfig::new().endpoint_config(EndpointConfig::new("us-west-1")))
+        .expect("must create a client");
+
+    let err = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect_err("get_object should fail");
+
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::IncorrectRegion(_, _))
+    ));
+    assert_eq!(err.meta().http_code, Some(301));
+    assert_eq!(err.meta().error_code, Some("PermanentRedirect".to_string()));
     assert!(err.meta().error_message.is_some());
 }
 
