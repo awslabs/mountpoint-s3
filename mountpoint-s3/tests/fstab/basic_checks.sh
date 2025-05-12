@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+# Exit on errors
+set -e -x
+
+source "$(dirname "$(which "$0")")/common.sh"
+
+build_mountpoint
+
+FSTAB_CONTENT="
+${MOUNTPOINT_PATH}#${S3_BUCKET_NAME} /mnt/mountpoint_ro fuse allow-other,_netdev,nosuid,nodev,prefix=${S3_BUCKET_TEST_PREFIX},ro 0 0
+${MOUNTPOINT_PATH}#${S3_BUCKET_NAME} /mnt/mountpoint_rw fuse allow-other,_netdev,nosuid,nodev,prefix=${S3_BUCKET_TEST_PREFIX},rw 0 0
+"
+
+spawn_mounts "$FSTAB_CONTENT"
+
+S3_PREFIX="s3://${S3_BUCKET_NAME}/${S3_BUCKET_TEST_PREFIX}"
+
+# Upload test data to S3 outside of Mountpoint
+test_data=$(uuidgen)
+echo "$test_data" | aws s3 cp - "${S3_PREFIX}test_data"
+
+# Read test
+if ! grep -q "$test_data" /mnt/mountpoint_ro/test_data
+then
+  echo "(/mnt/mountpoint_ro) Data file does not contain correct test_data ($test_data)"
+  exit 1
+fi
+
+if ! grep -q "$test_data" /mnt/mountpoint_rw/test_data
+then
+  echo "(/mnt/mountpoint_rw) Data file does not contain correct test_data ($test_data)"
+  exit 1
+fi
+
+# Write test
+
+# Verify our write test data isn't in S3
+aws s3 rm "${S3_PREFIX}/write_test"
+
+if ! echo "$test_data" | sudo tee /mnt/mountpoint_rw/write_test
+then
+  echo "Should be able to write to read-write filesystem"
+  exit 1
+fi
+
+if echo "$test_data" | sudo tee /mnt/mountpoint_ro/cannot_write_with_ro_filesystem
+then
+  echo "Shouldn't be able to write to read-only filesystem"
+  exit 1
+fi
+
+# Cleanup
+aws s3 rm "${S3_PREFIX}test_data"
+aws s3 rm "${S3_PREFIX}write_test"
