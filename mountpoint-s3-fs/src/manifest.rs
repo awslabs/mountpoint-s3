@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::{error, trace};
 
@@ -20,6 +21,8 @@ pub use db::DbEntry;
 pub enum ManifestError {
     #[error("database exists")]
     DbExists,
+    #[error("error opening manifest file at '{path}': {source}")]
+    ManifestOpenError { path: PathBuf, source: io::Error },
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
     #[error("key has no etag or size and will be unavailable: {0}")]

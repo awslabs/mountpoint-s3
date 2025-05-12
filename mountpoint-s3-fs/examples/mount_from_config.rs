@@ -28,6 +28,7 @@ struct ChannelConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 enum ThroughputConfig {
     IMDSAutoConfigure,
     IMDSLookUp { ec2_instance_type: String },
@@ -180,7 +181,6 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
     }
 
     let channel = &config.channels[0];
-    // Skip if no manifest provided
     let csv_path = &channel.manifest_path;
     // Generate manifest path and check if it exists
     let db_path = database_directory.join("metadata.db");

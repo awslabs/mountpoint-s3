@@ -12,6 +12,6 @@
     ],
     "loglevel": "debug,awscrt=off",
     "throughput_config": {
-        "IMDSAutoConfigure": null
+        "type": "IMDSAutoConfigure"
     }
 }
