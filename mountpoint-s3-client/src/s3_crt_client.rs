@@ -1166,21 +1166,12 @@ impl S3RequestError {
 impl ProvideErrorMetadata for S3RequestError {
     fn meta(&self) -> ClientErrorMetadata {
         match self {
-            Self::ResponseError(request_result) => {
-                let http_code = if request_result.response_status >= 100 {
-                    Some(request_result.response_status)
-                } else {
-                    None
-                };
-                ClientErrorMetadata {
-                    http_code,
-                    ..Default::default()
-                }
-            }
+            Self::ResponseError(request_result) => ClientErrorMetadata::from_meta_request_result(request_result),
             Self::Forbidden(_, metadata) => metadata.clone(),
             Self::Throttled => ClientErrorMetadata {
                 http_code: Some(503),
-                ..Default::default()
+                error_code: Some("SlowDown".to_string()),
+                error_message: Some("Please reduce your request rate.".to_string()),
             },
             _ => Default::default(),
         }

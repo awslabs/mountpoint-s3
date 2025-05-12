@@ -126,7 +126,7 @@ impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> fo
     fn from(err: PrefetchReadError<E>) -> Self {
         match err {
             PrefetchReadError::GetRequestFailed {
-                source: ObjectClientError::ServiceError(GetObjectError::PreconditionFailed),
+                source: ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_)),
                 metadata,
             } => err!(libc::ESTALE, __source:None, Level::WARN, (*metadata).clone(), "object was mutated remotely",),
             PrefetchReadError::Integrity(e) => err!(libc::EIO, source:e, "integrity error"),
