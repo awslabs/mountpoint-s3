@@ -97,5 +97,5 @@ name = "manifest_to_sqlite"
 required-features = ["manifest"]
 
 [[example]]
-name = "json_arguments"
+name = "mount_from_config"
 required-features = ["manifest"]

@@ -6,9 +6,10 @@ use mountpoint_s3_fs::{
     data_cache::DataCacheConfig,
     fs::CacheConfig,
     fuse::config::{FuseOptions, FuseSessionConfig, MountPoint},
-    logging::{init_logging, LoggingConfig},
+    logging::{init_logging, LoggingConfig, LoggingHandle},
     manifest::{ingest_manifest, Manifest},
     metrics,
+    metrics::MetricsSinkHandle,
     prefix::Prefix,
     s3::config::{ClientConfig, PartConfig, Region, S3Path},
     MountpointConfig, Runtime, S3FilesystemConfig,
@@ -42,11 +43,11 @@ enum ThroughputConfig {
 /// Configuration options for a Mountpoint instance
 #[derive(Debug, Serialize, Deserialize)]
 struct ConfigOptions {
-    /// A string escribing the mountpoint
+    /// Directory to mount the bucket at
     mountpoint: String,
-    /// Used to set the region i.e. to "us-east-2"
+    /// AWS region of the bucket, e.g. "us-east-2"
     region: String,
-    /// Use to set the maximum number of threads used by MP
+    /// Maximum number of FUSE daemon threads
     max_threads: Option<usize>,
     throughput_config: ThroughputConfig,
     /// Directory where MP stores temporary files, such as the manifest metadata
@@ -72,7 +73,7 @@ struct ConfigOptions {
 }
 
 impl ConfigOptions {
-    pub fn build_fuse_session_config(&self) -> Result<FuseSessionConfig> {
+    fn build_fuse_session_config(&self) -> Result<FuseSessionConfig> {
         let mount_point = MountPoint::new(&self.mountpoint)?;
         let fuse_options = FuseOptions {
             read_only: true,
@@ -83,15 +84,13 @@ impl ConfigOptions {
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))
     }
 
-    pub fn build_filesystem_config(&self, converted_manifest_path: Option<PathBuf>) -> Result<S3FilesystemConfig> {
+    fn build_filesystem_config(&self, manifest: Manifest) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
             ..Default::default()
         };
 
-        if let Some(manifest_path) = converted_manifest_path {
-            fs_config.manifest = Some(Manifest::new(&manifest_path)?);
-        }
+        fs_config.manifest = Some(manifest);
 
         // Apply custom filesystem settings if provided
         if let Some(dir_mode) = self.dir_mode {
@@ -109,7 +108,7 @@ impl ConfigOptions {
         Ok(fs_config)
     }
 
-    pub fn build_client_config(&self) -> Result<ClientConfig> {
+    fn build_client_config(&self) -> Result<ClientConfig> {
         let user_agent_string = match &self.user_agent_prefix {
             Some(prefix) => format!("{}/mp-exmpl", prefix),
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
@@ -134,14 +133,14 @@ impl ConfigOptions {
         })
     }
 
-    pub fn build_s3_path(&self) -> Result<S3Path> {
+    fn build_s3_path(&self) -> Result<S3Path> {
         Ok(S3Path {
             bucket_name: self.channels[0].bucket_name.clone(),
             prefix: Prefix::new(&self.channels[0].prefix)?,
         })
     }
 
-    pub fn build_logging_config(&self) -> LoggingConfig {
+    fn build_logging_config(&self) -> LoggingConfig {
         LoggingConfig {
             log_file: None,
             log_to_stdout: true,
@@ -179,70 +178,75 @@ fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let config: ConfigOptions = serde_json::from_reader(reader)?;
-    if config.channels.len() != 1 {
-        return Err(anyhow!("Exactly one channel must be configured"));
-    }
     Ok(config)
 }
 
 // Simplified manifest processing function
-fn process_manifests(config: &ConfigOptions) -> Result<Option<PathBuf>> {
-    // Skip if no manifests or no channels
-    if config.channels.is_empty() || config.channels[0].manifest_path.is_none() {
-        return Ok(None);
+fn process_manifests(config: &ConfigOptions) -> Result<Manifest> {
+    // Error if no manifests or no channels
+    if config.channels.len() != 1 {
+        return Err(anyhow!("Exactly one channel must be configured"));
     }
 
     let channel = &config.channels[0];
-
-    // Skip if no CSV path provided
+    // Skip if no manifest provided
     let csv_path = match &channel.manifest_path {
         Some(path) => path,
-        None => return Ok(None),
+        None => return Err(anyhow!("Channel has no manifest specified")),
     };
     // Generate manifest path and check if it exists
-    let db_path = Path::new(&config.metadata_store_dir)
-        .join("manifests")
-        .join(format!("{}.db", channel.directory_name));
+    let db_path = Path::new(&config.metadata_store_dir).join(format!("{}.db", channel.directory_name));
     fs::create_dir_all(db_path.parent().unwrap())?;
     println!("Creating manifest for channel {}", channel.directory_name);
     let start = Instant::now();
     ingest_manifest(csv_path, &db_path)?;
     println!("Created manifest in {:?}", start.elapsed());
-    Ok(Some(db_path.clone()))
+
+    Ok(Manifest::new(&db_path)?)
 }
 
-fn setup_logging(config: &ConfigOptions) -> Result<()> {
-    let _logging = init_logging(config.build_logging_config())?;
-    let _metrics = metrics::install();
-    Ok(())
+fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHandle)> {
+    let logging = init_logging(config.build_logging_config())?;
+    let metrics = metrics::install();
+    Ok((logging, metrics))
 }
 
-fn mount_filesystem(config: &ConfigOptions, manifest_path: Option<PathBuf>) -> Result<()> {
+fn mount_filesystem(
+    config: &ConfigOptions,
+    manifest_path: Manifest,
+    logging: LoggingHandle,
+    metrics: MetricsSinkHandle,
+) -> Result<()> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
         config.build_fuse_session_config()?,
         config.build_filesystem_config(manifest_path)?,
         config.build_data_cache_config(),
     );
+    // Get S3 Path
+    let s3_path = config.build_s3_path()?;
 
     // Create the client and runtime
     let client = config
         .build_client_config()?
-        .create_client(Some(&config.build_s3_path()?))
+        .create_client(Some(&s3_path))
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(config.build_s3_path()?, client, runtime)
+        .create_fuse_session(s3_path, client, runtime)
         .context("Failed to create FUSE session")?;
 
     // Join the session and wait until it completes
-    fuse_session.join().context("Failed to join session")
+    fuse_session.join().context("Failed to join session")?;
+    drop(metrics);
+    drop(logging);
+    Ok(())
 }
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about = "Mountpoint configuration validator")]
+#[clap(version, about = "Mountpoint launcher from configuration file")]
 struct Args {
     /// Path to the configuration file
     #[clap(short, long, default_value = "config.json")]
@@ -255,10 +259,10 @@ fn main() -> Result<()> {
     // Read the config
     let config = load_config(&args.config)?;
     // Set up logging
-    setup_logging(&config)?;
+    let (logging, metrics) = setup_logging(&config)?;
     // Process manifests if needed
-    let manifest_path = process_manifests(&config)?;
+    let manifest = process_manifests(&config)?;
     // Build all configurations
-    mount_filesystem(&config, manifest_path)?;
+    mount_filesystem(&config, manifest, logging, metrics)?;
     Ok(())
 }
