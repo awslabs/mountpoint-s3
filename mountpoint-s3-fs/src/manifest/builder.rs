@@ -1,8 +1,11 @@
 use super::ManifestError;
 use crate::{
     manifest::db::{Db, DbEntry},
+    manifest::CsvReader,
     superblock::path::ValidName,
 };
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 
 pub fn create_db(
@@ -44,5 +47,16 @@ fn validate_db_entry(db_entry: &DbEntry) -> Result<(), ManifestError> {
             return Err(ManifestError::InvalidKey(db_entry.full_key.clone()));
         }
     }
+    Ok(())
+}
+
+/// Ingests a manifest into the database
+pub fn ingest_manifest(csv_path: &Path, db_path: &Path) -> Result<(), ManifestError> {
+    let file = File::open(csv_path).map_err(|err| ManifestError::CsvOpenError(csv_path.to_path_buf(), err))?;
+    let csv_reader = CsvReader::new(BufReader::new(file));
+    if db_path.exists() {
+        return Err(ManifestError::DbExists);
+    }
+    create_db(db_path, csv_reader, 100000)?;
     Ok(())
 }

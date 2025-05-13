@@ -77,6 +77,13 @@ pub struct PartConfig {
 }
 
 impl PartConfig {
+    pub fn with_part_size(part_size: usize) -> Self {
+        Self {
+            read_size_bytes: part_size,
+            write_size_bytes: part_size,
+        }
+    }
+
     pub fn with_read_write_sizes(read_size_bytes: usize, write_size_bytes: usize) -> Self {
         Self {
             read_size_bytes,

@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::{error, trace};
 
@@ -9,6 +10,8 @@ mod csv_reader;
 mod db;
 
 pub use builder::create_db;
+pub use builder::ingest_manifest;
+
 #[cfg(feature = "manifest")]
 pub use csv_reader::CsvReader;
 use db::Db;
@@ -16,6 +19,10 @@ pub use db::DbEntry;
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
+    #[error("database exists")]
+    DbExists,
+    #[error("error opening manifest file at '{0}'")]
+    CsvOpenError(PathBuf, #[source] io::Error),
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
     #[error("key has no etag or size and will be unavailable: {0}")]
