@@ -9,14 +9,24 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
 use mountpoint_s3_fs::{
-    autoconfigure, data_cache::DataCacheConfig, fs::CacheConfig, fuse::config::FuseOptions,
-    fuse::config::FuseSessionConfig, fuse::config::MountPoint, fuse::session::FuseSession, logging::init_logging,
-    logging::LoggingConfig, logging::LoggingHandle, manifest::ingest_manifest, manifest::Manifest, metrics,
-    metrics::MetricsSinkHandle, prefix::Prefix, s3::config::ClientConfig, s3::config::PartConfig, s3::config::Region,
-    s3::config::S3Path, MountpointConfig, Runtime, S3FilesystemConfig,
+    autoconfigure,
+    data_cache::DataCacheConfig,
+    fs::CacheConfig,
+    fuse::{
+        config::{FuseOptions, FuseSessionConfig, MountPoint},
+        session::FuseSession,
+        ErrorCallback,
+    },
+    logging::{event_log::EventLogger, init_logging, LoggingConfig, LoggingHandle},
+    manifest::{ingest_manifest, Manifest},
+    metrics::{self, MetricsSinkHandle},
+    prefix::Prefix,
+    s3::config::{ClientConfig, PartConfig, Region, S3Path},
+    MountpointConfig, Runtime, S3FilesystemConfig,
 };
 use serde::{Deserialize, Serialize};
-use tempfile::tempdir;
+use tempfile::tempdir_in;
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChannelConfig {
@@ -47,6 +57,8 @@ struct ConfigOptions {
     throughput_config: ThroughputConfig,
     /// Directory where MP stores temporary files, such as cached metadata
     metadata_store_dir: String,
+    /// Directory where MP will create an event log
+    event_log_dir: String,
     /// List of channels
     channels: Vec<ChannelConfig>,
     #[serde(default)]
@@ -184,10 +196,10 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
     let csv_path = &channel.manifest_path;
     // Generate manifest path and check if it exists
     let db_path = database_directory.join("metadata.db");
-    println!("Creating manifest for channel {}", channel.directory_name);
+    info!("Creating manifest for channel {}", channel.directory_name);
     let start = Instant::now();
     ingest_manifest(csv_path, &db_path)?;
-    println!("Created manifest in {:?} stored at {:?}", start.elapsed(), db_path);
+    info!("Created manifest in {:?} stored at {:?}", start.elapsed(), db_path);
 
     Ok(Manifest::new(&db_path)?)
 }
@@ -198,11 +210,11 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
     Ok((logging, metrics))
 }
 
-fn mount_filesystem(config: &ConfigOptions, manifest_path: Manifest) -> Result<FuseSession> {
+fn mount_filesystem(config: &ConfigOptions, manifest: Manifest, error_callback: ErrorCallback) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
         config.build_fuse_session_config()?,
-        config.build_filesystem_config(manifest_path)?,
+        config.build_filesystem_config(manifest)?,
         config.build_data_cache_config(),
     );
     // Get S3 Path
@@ -217,7 +229,7 @@ fn mount_filesystem(config: &ConfigOptions, manifest_path: Manifest) -> Result<F
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(s3_path, client, runtime)
+        .create_fuse_session(s3_path, client, runtime, Some(error_callback))
         .context("Failed to create FUSE session")?;
 
     Ok(fuse_session)
@@ -235,14 +247,18 @@ fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
     // Read the config
-    let config = load_config(&args.config)?;
+    let config = load_config(&args.config).context("Failed to load config")?;
+    // Set up the event log
+    let event_logger = EventLogger::new(&config.event_log_dir).context("Failed to create an event log")?;
     // Set up logging
-    let (_logging, _metrics) = setup_logging(&config)?;
+    let (_logging, _metrics) = setup_logging(&config).context("Failed to setup logging")?;
     // Process manifests if needed
-    let temporary_dir = tempdir()?;
-    let manifest = process_manifests(&config, temporary_dir.path())?;
+    let temporary_dir =
+        tempdir_in(&config.metadata_store_dir).map_err(|err| anyhow!(err).context("Failed to create manifest"))?;
+    let manifest = process_manifests(&config, temporary_dir.path()).context("Failed to create manifest")?;
     // Build all configurations
-    let fuse_session = mount_filesystem(&config, manifest)?;
+    let fuse_session =
+        mount_filesystem(&config, manifest, event_logger.log_error_callback()).context("Failed to mount filesystem")?;
     // Join the session and wait until it completes
     fuse_session.join().context("Failed to join session")?;
     Ok(())
