@@ -148,10 +148,9 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use proptest::{prop_assert_eq, proptest};
     use test_case::test_case;
-    use proptest::prelude::*;
-
 
     #[test_case("no commas", Some(["no commas"].to_vec()))]
     #[test_case("simple,case", Some(["simple", "case"].to_vec()))]
@@ -263,20 +262,27 @@ mod tests {
         allow_delete: bool,
         allow_other: bool,
         debug: bool,
-        read_only: bool
+        read_only: bool,
     }
 
     impl Arbitrary for FstabCompatibleCliArgs {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-    
+
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             // "bucket-" + 3–10 lowercase letters = 10–17 total length
             let bucket_name = "[a-z]{3,10}".prop_map(|s| format!("bucket-{}", s));
             // "/mnt/test-" + 1–5 lowercase letters
             let mount_point = "[a-z]{1,5}".prop_map(|s| format!("/mnt/test-{}", s));
-    
-            (bucket_name, mount_point, 1..=u32::MAX, any::<bool>(),any::<bool>(), any::<bool>())
+
+            (
+                bucket_name,
+                mount_point,
+                1..=u32::MAX,
+                any::<bool>(),
+                any::<bool>(),
+                any::<bool>(),
+            )
                 .prop_map(|(bucket_name, mount_point, uid, allow_delete, allow_other, debug)| {
                     FstabCompatibleCliArgs {
                         bucket_name,
@@ -298,7 +304,7 @@ mod tests {
             cli_args.bucket_name.clone(),
             cli_args.mount_point.clone(),
         ];
-    
+
         let mut options = vec![format!("uid={}", cli_args.uid)];
         if cli_args.allow_delete {
             options.push("allow-delete".to_string());
@@ -309,12 +315,12 @@ mod tests {
         if cli_args.debug {
             options.push("debug".to_string());
         }
-    
+
         args.push("-o".to_string());
         args.push(options.join(","));
         args
     }
-    
+
     // This addresses the PR suggestion to test roundtrip from CliArgs -> FsTabCliArgs -> CliArgs
     proptest! {
         #[test]
@@ -322,7 +328,7 @@ mod tests {
             let args = serialize_to_fstab_args(&original);
             let fstab = FsTabCliArgs::try_parse_from(&args).unwrap();
             let roundtripped: CliArgs = fstab.try_into().unwrap();
-    
+
             prop_assert_eq!(roundtripped.bucket_name, original.bucket_name);
             prop_assert_eq!(roundtripped.mount_point.to_str().unwrap(), original.mount_point.as_str());
             prop_assert_eq!(roundtripped.uid, Some(original.uid));
