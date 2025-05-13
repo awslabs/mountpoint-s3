@@ -565,7 +565,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
@@ -729,7 +729,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let client = Arc::new(countdown_failure_client(
             client,
@@ -865,7 +865,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
@@ -1014,7 +1014,7 @@ mod tests {
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let mut get_failures = HashMap::new();
         get_failures.insert(
@@ -1084,7 +1084,7 @@ mod tests {
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let mut get_failures = HashMap::new();
         // On first request, terminate the stream without producing any data
@@ -1152,7 +1152,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
 
@@ -1187,7 +1187,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
 
