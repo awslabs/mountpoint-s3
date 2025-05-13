@@ -174,14 +174,10 @@ where
     let session_acl = fuser::SessionACL::All;
 
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let fs = S3FuseFilesystem::new(S3Filesystem::new(
-        client,
-        prefetcher_builder,
-        runtime,
-        bucket,
-        &prefix,
-        filesystem_config,
-    ));
+    let fs = S3FuseFilesystem::new(
+        S3Filesystem::new(client, prefetcher_builder, runtime, bucket, &prefix, filesystem_config),
+        None,
+    );
     let (session, mount) = if pass_fuse_fd {
         let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();

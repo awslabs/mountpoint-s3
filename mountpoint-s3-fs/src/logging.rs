@@ -29,6 +29,7 @@ mod testing;
 mod envfilter;
 use envfilter::{toggleable, ToggleableHandle};
 
+pub mod event_log;
 mod syslog;
 use self::syslog::SyslogLayer;
 

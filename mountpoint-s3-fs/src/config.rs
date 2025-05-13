@@ -5,7 +5,7 @@ use mountpoint_s3_client::ObjectClient;
 use crate::data_cache::{DataCacheConfig, DiskDataCache, ExpressDataCache, MultilevelDataCache};
 use crate::fuse::config::FuseSessionConfig;
 use crate::fuse::session::FuseSession;
-use crate::fuse::S3FuseFilesystem;
+use crate::fuse::{ErrorCallback, S3FuseFilesystem};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::s3::config::S3Path;
 use crate::sync::Arc;
@@ -38,6 +38,7 @@ impl MountpointConfig {
         s3_path: S3Path,
         client: Client,
         runtime: Runtime,
+        error_callback: Option<ErrorCallback>,
     ) -> anyhow::Result<FuseSession>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -53,7 +54,7 @@ impl MountpointConfig {
             self.filesystem_config,
         );
 
-        let fuse_fs = S3FuseFilesystem::new(fs);
+        let fuse_fs = S3FuseFilesystem::new(fs, error_callback);
         FuseSession::new(fuse_fs, self.fuse_session_config)
     }
 }

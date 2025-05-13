@@ -19,6 +19,8 @@ use fuser::{
 pub mod config;
 pub mod session;
 
+pub type ErrorCallback = Box<dyn Fn(&crate::fs::Error, &str, u64) + Send + Sync>;
+
 /// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
 /// requests based on their response status. https://github.com/tokio-rs/tracing/issues/372
 macro_rules! event {
@@ -36,12 +38,19 @@ macro_rules! event {
 /// Handle an error in a FUSE handler. This logs the appropriate error message and then calls
 /// `reply` on the given replier with the error's corresponding errno.
 macro_rules! fuse_error {
-    ($name:literal, $reply:expr, $err:expr) => {{
+    ($name:literal, $reply:expr, $err:expr, $error_callback:expr, $request_id:expr) => {{
         let err = $err;
         event!(err.level, "{} failed with errno {}: {:#}", $name, err.to_errno(), err);
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
+        if let Some(error_callback) = $error_callback {
+            let error_callback: &ErrorCallback = error_callback;
+            error_callback(&err, $name, $request_id);
+        }
         $reply.error(err.to_errno());
     }};
+    ($name:literal, $reply:expr, $err:expr) => {
+        fuse_error!($name, $reply, $err, None, 0)
+    };
 }
 
 /// Generic handler for unimplemented FUSE operations
@@ -67,14 +76,15 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     fs: S3Filesystem<Client>,
+    error_callback: Option<ErrorCallback>,
 }
 
 impl<Client> S3FuseFilesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    pub fn new(fs: S3Filesystem<Client>) -> Self {
-        Self { fs }
+    pub fn new(fs: S3Filesystem<Client>, error_callback: Option<ErrorCallback>) -> Self {
+        Self { fs, error_callback }
     }
 }
 
@@ -116,10 +126,10 @@ where
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, size=size, name=field::Empty))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, offset=offset, size=size, name=field::Empty))]
     fn read(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: InodeNo,
         fh: u64,
         offset: i64,
@@ -135,7 +145,7 @@ where
                 bytes_sent = data.len();
                 reply.data(&data);
             }
-            Err(err) => fuse_error!("read", reply, err),
+            Err(err) => fuse_error!("read", reply, err, self.error_callback.as_ref(), req.unique()),
         }
 
         metrics::counter!("fuse.total_bytes", "type" => "read").increment(bytes_sent as u64);
