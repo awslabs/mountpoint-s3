@@ -1399,7 +1399,7 @@ mod tests {
         }
 
         for key in keys {
-            client.remove_object(key);
+            client.remove_object(bucket, key);
         }
 
         for entry in entries {
@@ -1645,8 +1645,9 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_create_local_dir(prefix: &str) {
+        let bucket = "test_bucket";
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            bucket: bucket.to_owned(),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1683,7 +1684,7 @@ mod tests {
 
         // Check that local directories are not present in the client
         let prefix = format!("{prefix}{dirname}");
-        assert!(!client.contains_prefix(&prefix));
+        assert!(!client.contains_prefix(bucket, &prefix));
     }
 
     #[test_case(""; "unprefixed")]
