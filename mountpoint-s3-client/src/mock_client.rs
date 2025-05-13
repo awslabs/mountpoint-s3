@@ -122,6 +122,7 @@ impl MockClient {
         self.config.allowed_buckets.contains(bucket)
     }
 
+    #[cfg(test)]
     fn get_objects_for_default_bucket(&self) -> Arc<RwLock<BTreeMap<String, MockObject>>> {
         self.buckets
             .read()

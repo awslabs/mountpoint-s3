@@ -1243,7 +1243,7 @@ mod tests {
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
-            client.add_object("hello", object);
+            client.add_object("test-bucket", "hello", object);
 
             let prefetcher_config = PrefetcherConfig {
                 max_read_window_size,
@@ -1303,7 +1303,7 @@ mod tests {
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
-            client.add_object("hello", object);
+            client.add_object("test-bucket", "hello", object);
 
             let prefetcher_config = PrefetcherConfig {
                 max_read_window_size,
