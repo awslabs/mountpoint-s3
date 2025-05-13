@@ -69,8 +69,8 @@ impl ThroughputMockClient {
     }
 
     /// Add an object to this mock client's bucket
-    pub fn add_object(&self, key: &str, value: MockObject) {
-        self.inner.add_object(key, value);
+    pub fn add_object(&self, bucket: &str, key: &str, value: MockObject) {
+        self.inner.add_object(bucket, key, value);
     }
 }
 
@@ -263,9 +263,11 @@ mod tests {
                 };
                 let client = ThroughputMockClient::new(config, rate_gbps);
 
-                client
-                    .inner
-                    .add_object("testfile", MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests()));
+                client.inner.add_object(
+                    "test_bucket",
+                    "testfile",
+                    MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests()),
+                );
 
                 // Stream the entire object and drop it on the floor
                 let start = Instant::now();

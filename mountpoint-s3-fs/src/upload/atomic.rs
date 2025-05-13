@@ -251,13 +251,13 @@ mod tests {
 
         _ = request.write(0, &[]).await.unwrap();
 
-        assert!(!client.contains_key(key));
-        assert!(client.is_upload_in_progress(key));
+        assert!(!client.contains_key(bucket, key));
+        assert!(client.is_upload_in_progress(bucket, key));
 
         request.complete().await.unwrap();
 
-        assert!(client.contains_key(key));
-        assert!(!client.is_upload_in_progress(key));
+        assert!(client.contains_key(bucket, key));
+        assert!(!client.is_upload_in_progress(bucket, key));
     }
 
     #[tokio::test]
@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(offset, size as i64);
 
         request.complete().await.unwrap();
-        assert!(client.contains_key(key));
+        assert!(client.contains_key(bucket, key));
     }
 
     #[tokio::test]
@@ -335,8 +335,8 @@ mod tests {
             let data = b"foo";
             request.write(0, data).await.expect_err("first write should fail");
         }
-        assert!(!client.is_upload_in_progress(key));
-        assert!(!client.contains_key(key));
+        assert!(!client.is_upload_in_progress(bucket, key));
+        assert!(!client.contains_key(bucket, key));
 
         // Second request fails on complete (after one write).
         {
@@ -347,8 +347,8 @@ mod tests {
 
             request.complete().await.expect_err("complete should fail");
         }
-        assert!(!client.is_upload_in_progress(key));
-        assert!(!client.contains_key(key));
+        assert!(!client.is_upload_in_progress(bucket, key));
+        assert!(!client.contains_key(bucket, key));
     }
 
     #[test_case(8000; "divisible by max size")]
@@ -375,7 +375,7 @@ mod tests {
         for i in 0..successful_writes {
             let offset = i * write_size;
             request.write(offset as i64, &data).await.expect("object should fit");
-            assert!(client.is_upload_in_progress(key));
+            assert!(client.is_upload_in_progress(bucket, key));
         }
 
         let offset = successful_writes * write_size;
@@ -386,8 +386,8 @@ mod tests {
 
         drop(request);
 
-        assert!(!client.contains_key(key));
-        assert!(!client.is_upload_in_progress(key));
+        assert!(!client.contains_key(bucket, key));
+        assert!(!client.is_upload_in_progress(bucket, key));
     }
 
     #[test_case(Some("aws:kmr"), Some("some_key_alias"))]

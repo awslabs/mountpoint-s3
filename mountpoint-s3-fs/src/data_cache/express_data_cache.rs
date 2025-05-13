@@ -624,7 +624,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         assert!(get_result.is_none());
-        assert_eq!(client.object_count(), 0, "cache must be empty");
+        assert_eq!(client.object_count(bucket), 0, "cache must be empty");
     }
 
     #[tokio::test]

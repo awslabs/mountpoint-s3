@@ -393,7 +393,7 @@ async fn test_unlink_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    client.remove_object("file1.txt");
+    client.remove_object(&bucket, "file1.txt");
     let _entry = fs
         .lookup(parent_ino, "file1.txt".as_ref())
         .await
@@ -441,7 +441,7 @@ async fn test_mknod_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    client.remove_object("file1.txt");
+    client.remove_object(&bucket, "file1.txt");
 
     let err_no = fs
         .mknod(parent, "file1.txt".as_ref(), mode, 0, 0)
@@ -775,7 +775,7 @@ async fn test_upload_aborted_on_write_failure() {
         .await
         .expect("first write should succeed");
 
-    assert!(client.is_upload_in_progress(FILE_NAME));
+    assert!(client.is_upload_in_progress(BUCKET_NAME, FILE_NAME));
 
     let write_error = fs
         .write(file_ino, fh, written as i64, &[0xaa; 27], 0, 0, None)
@@ -792,8 +792,8 @@ async fn test_upload_aborted_on_write_failure() {
 
     assert_eq!(err, libc::EIO);
 
-    assert!(!client.is_upload_in_progress(FILE_NAME));
-    assert!(!client.contains_key(FILE_NAME));
+    assert!(!client.is_upload_in_progress(BUCKET_NAME, FILE_NAME));
+    assert!(!client.contains_key(BUCKET_NAME, FILE_NAME));
 
     let err = fs
         .fsync(file_ino, fh, true)
@@ -850,7 +850,7 @@ async fn test_upload_aborted_on_fsync_failure() {
         .await
         .expect("first write should succeed");
 
-    assert!(client.is_upload_in_progress(FILE_NAME));
+    assert!(client.is_upload_in_progress(BUCKET_NAME, FILE_NAME));
 
     let err = fs
         .fsync(file_ino, fh, true)
@@ -859,8 +859,8 @@ async fn test_upload_aborted_on_fsync_failure() {
         .to_errno();
     assert_eq!(err, libc::EIO);
 
-    assert!(!client.is_upload_in_progress(FILE_NAME));
-    assert!(!client.contains_key(FILE_NAME));
+    assert!(!client.is_upload_in_progress(BUCKET_NAME, FILE_NAME));
+    assert!(!client.contains_key(BUCKET_NAME, FILE_NAME));
 
     fs.release(file_ino, fh, 0, None, true)
         .await
@@ -910,7 +910,7 @@ async fn test_upload_aborted_on_release_failure() {
         .await
         .expect("first write should succeed");
 
-    assert!(client.is_upload_in_progress(FILE_NAME));
+    assert!(client.is_upload_in_progress(BUCKET_NAME, FILE_NAME));
 
     let err = fs
         .release(file_ino, fh, 0, None, true)
@@ -919,8 +919,8 @@ async fn test_upload_aborted_on_release_failure() {
         .to_errno();
     assert_eq!(err, libc::EIO);
 
-    assert!(!client.is_upload_in_progress(FILE_NAME));
-    assert!(!client.contains_key(FILE_NAME));
+    assert!(!client.is_upload_in_progress(BUCKET_NAME, FILE_NAME));
+    assert!(!client.contains_key(BUCKET_NAME, FILE_NAME));
 }
 
 #[tokio::test]
@@ -985,7 +985,7 @@ async fn test_lookup_removes_old_children(key: &str) {
     fs.lookup(FUSE_ROOT_INODE, child_name.as_ref()).await.unwrap();
 
     // Remove object on the client
-    client.remove_object(key);
+    client.remove_object(&bucket, key);
 
     fs.lookup(FUSE_ROOT_INODE, child_name.as_ref())
         .await
@@ -1008,6 +1008,7 @@ async fn test_lookup_removes_old_children(key: &str) {
 async fn test_local_dir(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let (client, fs) = make_test_filesystem("test_local_dir", &prefix, Default::default());
+    let bucket = client.get_default_bucket_name();
 
     // Create local directory
     let dirname = "local";
@@ -1019,7 +1020,7 @@ async fn test_local_dir(prefix: &str) {
     assert_eq!(dir_entry.attr.kind, FileType::Directory);
     let dir_ino = dir_entry.attr.ino;
 
-    assert!(!client.contains_prefix(&format!("{prefix}{dirname}")));
+    assert!(!client.contains_prefix(&bucket, &format!("{prefix}{dirname}")));
 
     let lookup_entry = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr, dir_entry.attr);
@@ -1034,7 +1035,7 @@ async fn test_local_dir(prefix: &str) {
     fs.release(file_ino, file_handle, 0, None, false).await.unwrap();
 
     // Remove the new object from the client
-    client.remove_object(&format!("{prefix}{dirname}/{filename}"));
+    client.remove_object(&bucket, &format!("{prefix}{dirname}/{filename}"));
 
     // Verify that the directory disappeared
     let lookup = fs.lookup(FUSE_ROOT_INODE, dirname.as_ref()).await;
@@ -1065,7 +1066,7 @@ async fn test_directory_shadowing_lookup() {
     assert_eq!(lookup_entry.attr.kind, FileType::Directory);
 
     // Remove the second object
-    client.remove_object(&nested);
+    client.remove_object(&bucket, &nested);
 
     let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
@@ -1128,7 +1129,7 @@ async fn test_directory_shadowing_readdir() {
     assert_eq!(bar_dir.attr.ino, bar_dentry_new.attr.ino);
 
     // Remove the second object, revealing the original `bar` file again
-    client.remove_object("foo/bar/baz");
+    client.remove_object(&bucket, "foo/bar/baz");
 
     let bar_dentry = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;

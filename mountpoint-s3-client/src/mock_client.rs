@@ -81,6 +81,7 @@ pub struct MockClientConfig {
 #[derive(Debug, Default, Clone)]
 pub struct MockBucket {
     objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
+    in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
 }
 
 /// A mock implementation of an object client that we can manually add objects to, and then query
@@ -89,7 +90,6 @@ pub struct MockBucket {
 pub struct MockClient {
     config: MockClientConfig,
     buckets: Arc<RwLock<BTreeMap<String, MockBucket>>>,
-    in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
     operation_counts: Arc<RwLock<HashMap<Operation, u64>>>,
 }
 
@@ -109,9 +109,12 @@ impl MockClient {
         Self {
             config,
             buckets: Arc::new(RwLock::new(buckets)),
-            in_progress_uploads: Default::default(),
             operation_counts: Default::default(),
         }
+    }
+
+    pub fn get_default_bucket_name(&self) -> String {
+        self.config.bucket.clone()
     }
 
     pub fn is_allowlisted_bucket(&self, bucket: &str) -> bool {
@@ -137,27 +140,27 @@ impl MockClient {
         self.buckets.read().unwrap().get(bucket).unwrap().clone()
     }
 
-    /// Add an object to this mock client's bucket
-    pub fn add_object(&self, key: &str, value: MockObject) {
-        let objects = self.get_objects_for_default_bucket();
+    /// Add an object to a bucket
+    pub fn add_object(&self, bucket: &str, key: &str, value: MockObject) {
+        let objects = self.get_objects_for_bucket(bucket);
         add_object(&objects, key, value);
     }
 
     /// Remove object for the mock client's bucket
-    pub fn remove_object(&self, key: &str) {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn remove_object(&self, bucket: &str, key: &str) {
+        let objects = self.get_objects_for_bucket(bucket);
         objects.write().unwrap().remove(key);
     }
 
     /// Remove all objects for the mock client's bucket
-    pub fn remove_all_objects(&self) {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn remove_all_objects(&self, bucket: &str) {
+        let objects = self.get_objects_for_bucket(bucket);
         objects.write().unwrap().clear();
     }
 
     /// Number of objects in the mock client's bucket
-    pub fn object_count(&self) -> usize {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn object_count(&self, bucket: &str) -> usize {
+        let objects = self.get_objects_for_bucket(bucket);
         let len = objects.write().unwrap().len();
         len
     }
@@ -170,23 +173,25 @@ impl MockClient {
     }
 
     /// Returns `true` if this mock client's bucket contains the specified key
-    pub fn contains_key(&self, key: &str) -> bool {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn contains_key(&self, bucket: &str, key: &str) -> bool {
+        let objects = self.get_objects_for_bucket(bucket);
         let result = objects.read().unwrap().contains_key(key);
         result
     }
 
     /// Returns `true` if this mock client's bucket contains the specified common prefix
-    pub fn contains_prefix(&self, prefix: &str) -> bool {
+    pub fn contains_prefix(&self, bucket: &str, prefix: &str) -> bool {
         let prefix = format!("{prefix}/");
-        let objects = self.get_objects_for_default_bucket();
+        let objects = self.get_objects_for_bucket(bucket);
         let result = objects.read().unwrap().keys().any(|k| k.starts_with(&prefix));
         result
     }
 
     /// Returns `true` if there is an upload in progress for the specified key
-    pub fn is_upload_in_progress(&self, key: &str) -> bool {
-        self.in_progress_uploads.read().unwrap().contains(key)
+    pub fn is_upload_in_progress(&self, bucket: &str, key: &str) -> bool {
+        let bucket = self.get_bucket(bucket);
+        let result = bucket.in_progress_uploads.read().unwrap().contains(key);
+        result
     }
 
     /// Returns the objects storage class
@@ -893,7 +898,7 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(DeleteObjectError::NoSuchBucket));
         }
 
-        self.remove_object(key);
+        self.remove_object(bucket, key);
 
         Ok(DeleteObjectResult {})
     }
@@ -1056,9 +1061,9 @@ impl ObjectClient for MockClient {
 
         let bucket_mock = self.get_bucket(bucket);
         let objects = bucket_mock.objects;
+        let in_progress_uploads = bucket_mock.in_progress_uploads;
 
-        let put_request =
-            MockPutObjectRequest::new(key, self.config.part_size, params, &objects, &self.in_progress_uploads);
+        let put_request = MockPutObjectRequest::new(key, self.config.part_size, params, &objects, &in_progress_uploads);
         Ok(put_request)
     }
 
@@ -1412,7 +1417,7 @@ mod tests {
 
         let mut object = MockObject::from_bytes(&body, ETag::for_tests());
         object.set_object_metadata(object_metadata.clone());
-        client.add_object(key, object);
+        client.add_object("test_bucket", key, object);
 
         let mut get_request = client
             .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
@@ -1468,7 +1473,7 @@ mod tests {
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
-        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+        client.add_object("test_bucket", key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_request = client
             .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
@@ -1517,7 +1522,7 @@ mod tests {
 
         let mut body = vec![0u8; 2000];
         rng.fill_bytes(&mut body);
-        client.add_object("key1", body[..].into());
+        client.add_object("test_bucket", "key1", body[..].into());
 
         assert!(matches!(
             client.get_object("wrong_bucket", "key1", &GetObjectParams::new()).await,
@@ -1585,7 +1590,11 @@ mod tests {
 
         let mut expected_body = vec![0u8; size];
         rng.fill_bytes(&mut expected_body);
-        client.add_object(key, MockObject::from_bytes(&expected_body, ETag::for_tests()));
+        client.add_object(
+            "test_bucket",
+            key,
+            MockObject::from_bytes(&expected_body, ETag::for_tests()),
+        );
 
         let mut get_request = client
             .get_object("test_bucket", key, &GetObjectParams::new().range(Some(range.clone())))
@@ -1618,7 +1627,7 @@ mod tests {
             ..Default::default()
         });
 
-        client.add_object(src_key, "test_body".into());
+        client.add_object(bucket, src_key, "test_body".into());
 
         client
             .copy_object(bucket, src_key, bucket, dst_key, &Default::default())
@@ -1668,7 +1677,7 @@ mod tests {
             keys.push(format!("dirs/dir2/file{i}.txt"));
         }
         for key in &keys {
-            client.add_object(key, MockObject::constant(0u8, 5, ETag::for_tests()));
+            client.add_object("test_bucket", key, MockObject::constant(0u8, 5, ETag::for_tests()));
         }
 
         macro_rules! check {
@@ -1757,7 +1766,7 @@ mod tests {
             keys.push(format!("dirs/😄🥹/file{i}.txt"));
         }
         for key in &keys {
-            client.add_object(key, MockObject::constant(0u8, 5, ETag::for_tests()));
+            client.add_object("test_bucket", key, MockObject::constant(0u8, 5, ETag::for_tests()));
         }
 
         macro_rules! check {
@@ -1799,16 +1808,19 @@ mod tests {
 
         for i in 0..20 {
             client.add_object(
+                "test_bucket",
                 &format!("{prefix}key{i}"),
                 MockObject::constant(0u8, 5, ETag::for_tests()),
             );
             if i % 3 == 0 {
                 client.add_object(
+                    "test_bucket",
                     &format!("{prefix}key{i}/file.txt"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
             } else if i % 5 == 0 {
                 client.add_object(
+                    "test_bucket",
                     &format!("{prefix}key{i}/"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
@@ -1873,16 +1885,19 @@ mod tests {
 
         for i in 0..20 {
             client.add_object(
+                "test_bucket",
                 &format!("{prefix}key{i}"),
                 MockObject::constant(0u8, 5, ETag::for_tests()),
             );
             if i % 3 == 0 {
                 client.add_object(
+                    "test_bucket",
                     &format!("{prefix}key{i}/file.txt"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
             } else if i % 5 == 0 {
                 client.add_object(
+                    "test_bucket",
                     &format!("{prefix}key{i}/"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
@@ -1932,8 +1947,9 @@ mod tests {
     #[test_case(50, "prefix/1/2/")]
     #[tokio::test]
     async fn list_objects_unordered_undelimited_page_size(page_size: usize, prefix: &str) {
+        let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            bucket: bucket.to_string(),
             part_size: 1024,
             unordered_list_seed: Some(1234),
             ..Default::default()
@@ -1941,16 +1957,19 @@ mod tests {
 
         for i in 0..20 {
             client.add_object(
+                bucket,
                 &format!("{prefix}key{i}"),
                 MockObject::constant(0u8, 5, ETag::for_tests()),
             );
             if i % 3 == 0 {
                 client.add_object(
+                    bucket,
                     &format!("{prefix}key{i}/file.txt"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
             } else if i % 5 == 0 {
                 client.add_object(
+                    bucket,
                     &format!("{prefix}key{i}/"),
                     MockObject::constant(0u8, 5, ETag::for_tests()),
                 );
@@ -2000,7 +2019,7 @@ mod tests {
             ..Default::default()
         });
 
-        client.add_object("a.txt", MockObject::constant(0u8, 5, ETag::for_tests()));
+        client.add_object("test_bucket", "a.txt", MockObject::constant(0u8, 5, ETag::for_tests()));
         let mut object_b = MockObject::constant(1u8, 5, ETag::for_tests());
         object_b.set_checksum(Checksum {
             checksum_crc64nvme: None,
@@ -2009,7 +2028,7 @@ mod tests {
             checksum_sha1: Some(String::from("QwzjTQIHJO11oZbfwq1nx3dy0Wk=")),
             checksum_sha256: None,
         });
-        client.add_object("b.txt", object_b);
+        client.add_object("test_bucket", "b.txt", object_b);
 
         let result = client
             .list_objects("test_bucket", None, "/", 1000, "")
@@ -2517,7 +2536,7 @@ mod tests {
         });
 
         let key = "test_object";
-        client.add_object(key, obj.clone());
+        client.add_object(bucket, key, obj.clone());
 
         let append_data = vec![42u8; 10];
         let params = PutObjectSingleParams::new_for_append(obj.len() as u64);
@@ -2559,7 +2578,7 @@ mod tests {
 
         let key = "test_object";
         let obj = MockObject::constant(0xab, original_size, ETag::for_tests());
-        client.add_object(key, obj.clone());
+        client.add_object(bucket, key, obj.clone());
 
         let append_data = vec![42u8; 10];
         let params = PutObjectSingleParams::new_for_append(append_offset);
@@ -2589,7 +2608,7 @@ mod tests {
         let key = "test_object";
         let content = [0xbb; 128];
         let obj = MockObject::from(content).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, obj.clone());
+        client.add_object(bucket, key, obj.clone());
 
         let append_data = vec![42u8; 10];
         let checksum = crc32c::checksum(&append_data);
@@ -2806,7 +2825,5 @@ mod tests {
         assert_eq!(1, objects_in_first, "Object should stay in first");
         assert_eq!(1, objects_in_second, "Object should be copied into second");
     }
-
-    // TODO: Test CopyObject in multi bucket setting
     // TODO: Test ListObjects in multi bucket setting
 }
