@@ -822,7 +822,7 @@ mod tests {
                 let client = Arc::new(MockClient::new(client_config));
 
                 let name = "foo";
-                client.add_object(name, b"foo".into());
+                client.add_object("test_bucket", name, b"foo".into());
 
                 let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
 
