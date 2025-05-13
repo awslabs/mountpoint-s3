@@ -79,9 +79,10 @@ impl Filesystem for MountpointFileSystem {
 
     fn put(&mut self, path: impl AsRef<Path>, contents: &[u8]) -> anyhow::Result<()> {
         let key = path.as_ref().to_str().unwrap();
+        let bucket = self.0.client().get_bucket_name();
         self.0
             .client()
-            .put_object(key, contents)
+            .put_object(&bucket, key, contents)
             .map_err(|e| anyhow::anyhow!("put failed: {:?}", e))
     }
 }

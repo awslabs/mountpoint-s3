@@ -50,18 +50,19 @@ fn list_dir_recursive(path: impl AsRef<Path>, files: bool) -> Result<Vec<String>
 ///     * `list.txt` (file)
 fn basic_directory_structure(creator_fn: impl TestSessionCreator) {
     let test_session = creator_fn("basic_directory_structure", Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     test_session
         .client()
-        .put_object("colors/blue/image.jpg", b"hello world")
+        .put_object(&bucket, "colors/blue/image.jpg", b"hello world")
         .unwrap();
     test_session
         .client()
-        .put_object("colors/red/image.jpg", b"hello world")
+        .put_object(&bucket, "colors/red/image.jpg", b"hello world")
         .unwrap();
     test_session
         .client()
-        .put_object("colors/list.txt", b"hello world")
+        .put_object(&bucket, "colors/list.txt", b"hello world")
         .unwrap();
 
     let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
@@ -91,20 +92,27 @@ fn basic_directory_structure_s3() {
 /// * `blue/`
 /// * `blue/image.jpg`
 /// * `red/`
-///   
+///
 /// then mounting your bucket would give a file system with a `blue` directory containing an
 /// `image.jpg` file, and an empty `red` directory. The `blue/` and `red/` objects will not be
 /// accessible. Note that the S3 Console creates zero-byte objects like `blue/` and `red/` when
 /// creating directories in a bucket, and so these directories will work as expected.
 fn keys_ending_in_delimiter(creator_fn: impl TestSessionCreator) {
     let test_session = creator_fn("keys_ending_in_delimiter", Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
-    test_session.client().put_object("blue/", b"hello world").unwrap();
     test_session
         .client()
-        .put_object("blue/image.jpg", b"hello world")
+        .put_object(&bucket, "blue/", b"hello world")
         .unwrap();
-    test_session.client().put_object("red/", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "blue/image.jpg", b"hello world")
+        .unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "red/", b"hello world")
+        .unwrap();
 
     let files = list_dir_recursive(test_session.mount_path(), true).unwrap();
     assert_eq!(&files[..], &["blue/image.jpg"]);
@@ -129,17 +137,21 @@ fn keys_ending_in_delimiter_s3() {
 ///
 /// * `blue`
 /// * `blue/image.jpg`
-///   
+///
 /// then mounting your bucket would give a file system with a `blue` directory, containing the file
 /// `image.jpg`. The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will
 /// remove the `blue` directory, and cause the `blue` file to become visible.
 fn files_shadowed_by_directories(creator_fn: impl TestSessionCreator) {
     let test_session = creator_fn("files_shadowed_by_directories", Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
-    test_session.client().put_object("blue", b"hello world").unwrap();
     test_session
         .client()
-        .put_object("blue/image.jpg", b"hello world")
+        .put_object(&bucket, "blue", b"hello world")
+        .unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "blue/image.jpg", b"hello world")
         .unwrap();
 
     let files = list_dir_recursive(test_session.mount_path(), true).unwrap();

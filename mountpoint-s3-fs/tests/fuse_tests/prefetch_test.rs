@@ -7,10 +7,11 @@ use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 
 fn read_test(creator_fn: impl TestSessionCreator, object_size: usize) {
     let test_session = creator_fn(Default::default(), Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     let file_name = "hello.bin";
     let object = vec![255u8; object_size];
-    test_session.client().put_object(file_name, &object).unwrap();
+    test_session.client().put_object(&bucket, file_name, &object).unwrap();
 
     let file_path = test_session.mount_path().join(file_name);
     let buf = {
@@ -82,12 +83,13 @@ fn prefetch_test_etag(
             ..Default::default()
         },
     );
+    let bucket = test_session.client().get_bucket_name();
 
     let original_data_buf = vec![0u8; object_size];
 
     test_session
         .client()
-        .put_object("dir/hello.txt", &original_data_buf)
+        .put_object(&bucket, "dir/hello.txt", &original_data_buf)
         .unwrap();
 
     let mut path = test_session.mount_path().join("dir/hello.txt");
@@ -105,7 +107,7 @@ fn prefetch_test_etag(
     let final_data_buf = vec![255u8; object_size];
     test_session
         .client()
-        .put_object("dir/hello.txt", &final_data_buf)
+        .put_object(&bucket, "dir/hello.txt", &final_data_buf)
         .unwrap();
     let mut dest_buf = vec![0u8; read_size];
 

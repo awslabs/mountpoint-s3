@@ -453,7 +453,7 @@ mod tests {
         };
         let mock_client = Arc::new(MockClient::new(config));
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
-        mock_client.add_object("test_bucket", key, object.clone());
+        mock_client.add_object("test-bucket", key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let stream = CachingPartStream::new(runtime, mock_client.clone(), mem_limiter.clone(), cache);

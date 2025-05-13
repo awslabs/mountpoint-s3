@@ -195,8 +195,8 @@ impl MockClient {
     }
 
     /// Returns the objects storage class
-    pub fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, MockClientError> {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn get_object_storage_class(&self, bucket: &str, key: &str) -> Result<Option<String>, MockClientError> {
+        let objects = self.get_objects_for_bucket(bucket);
         let result = if let Some(mock_object) = objects.read().unwrap().get(key) {
             Ok(mock_object.storage_class.to_owned())
         } else {
@@ -206,8 +206,8 @@ impl MockClient {
     }
 
     /// Returns error if object does not exist
-    pub fn restore_object(&self, key: &str) -> Result<(), MockClientError> {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn restore_object(&self, bucket: &str, key: &str) -> Result<(), MockClientError> {
+        let objects = self.get_objects_for_bucket(bucket);
         let result = match objects.write().unwrap().get_mut(key) {
             Some(mock_object) => {
                 mock_object.restore_status = Some(RestoreStatus::Restored {
@@ -220,8 +220,8 @@ impl MockClient {
         result
     }
 
-    pub fn is_object_restored(&self, key: &str) -> Result<bool, MockClientError> {
-        let objects = self.get_objects_for_default_bucket();
+    pub fn is_object_restored(&self, bucket: &str, key: &str) -> Result<bool, MockClientError> {
+        let objects = self.get_objects_for_bucket(bucket);
         let result = if let Some(mock_object) = objects.read().unwrap().get(key) {
             Ok(matches!(
                 mock_object.restore_status,

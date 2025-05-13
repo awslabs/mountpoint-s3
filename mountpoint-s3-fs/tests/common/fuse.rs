@@ -20,8 +20,11 @@ use tempfile::TempDir;
 use crate::common::{get_crt_client_auth_config, tokio_block_on};
 
 pub trait TestClient: Send {
-    fn put_object(&self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn get_bucket_name(&self) -> String;
+
+    fn put_object(&self, bucket: &str, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         self.put_object_single(
+            bucket,
             key,
             value,
             PutObjectSingleParams::new().checksum(Some(UploadChecksum::Crc32c(crc32c::checksum(value)))),
@@ -30,28 +33,29 @@ pub trait TestClient: Send {
 
     fn put_object_single(
         &self,
+        bucket: &str,
         key: &str,
         value: &[u8],
         params: PutObjectSingleParams,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>>;
+    fn remove_object(&self, bucket: &str, key: &str) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn contains_dir(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn contains_key(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn is_upload_in_progress(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
+    fn get_object_storage_class(&self, bucket: &str, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
 
-    fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>>;
+    fn get_object_checksums(&self, bucket: &str, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>>;
 
-    fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
+    fn get_object_size(&self, bucket: &str, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
 
-    fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
+    fn restore_object(&self, bucket: &str, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+    fn is_object_restored(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
 /// Checksum for the whole object, if present, and [Vec] of the checksum for each part, if present.
@@ -312,47 +316,56 @@ pub mod mock_session {
     }
 
     impl TestClient for MockTestClient {
+        fn get_bucket_name(&self) -> String {
+            BUCKET_NAME.to_string()
+        }
+
         fn put_object_single(
             &self,
+            bucket: &str,
             key: &str,
             value: &[u8],
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            _ = tokio_block_on(self.client.put_object_single(BUCKET_NAME, &full_key, &params, value))?;
+            _ = tokio_block_on(self.client.put_object_single(bucket, &full_key, &params, value))?;
             Ok(())
         }
 
-        fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        fn remove_object(&self, bucket: &str, key: &str) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            self.client.remove_object(&full_key);
+            self.client.remove_object(bucket, &full_key);
             Ok(())
         }
 
-        fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_dir(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.contains_prefix(&full_key))
+            Ok(self.client.contains_prefix(bucket, &full_key))
         }
 
-        fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_key(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.contains_key(&full_key))
+            Ok(self.client.contains_key(bucket, &full_key))
         }
 
-        fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_upload_in_progress(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.is_upload_in_progress(&full_key))
+            Ok(self.client.is_upload_in_progress(bucket, &full_key))
         }
 
-        fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        fn get_object_storage_class(
+            &self,
+            bucket: &str,
+            key: &str,
+        ) -> Result<Option<String>, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.get_object_storage_class(&full_key)?)
+            Ok(self.client.get_object_storage_class(bucket, &full_key)?)
         }
 
-        fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
+        fn get_object_checksums(&self, bucket: &str, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let attrs = tokio_block_on(self.client.get_object_attributes(
-                BUCKET_NAME,
+                bucket,
                 &full_key,
                 None,
                 None,
@@ -370,24 +383,20 @@ pub mod mock_session {
             Ok((attrs.checksum, part_checksums))
         }
 
-        fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
+        fn get_object_size(&self, bucket: &str, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.client.head_object(
-                BUCKET_NAME,
-                &full_key,
-                &HeadObjectParams::new(),
-            ))?;
+            let head_object = tokio_block_on(self.client.head_object(bucket, &full_key, &HeadObjectParams::new()))?;
             Ok(head_object.size as usize)
         }
 
-        fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
+        fn restore_object(&self, bucket: &str, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.restore_object(&full_key)?)
+            Ok(self.client.restore_object(bucket, &full_key)?)
         }
 
-        fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_object_restored(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            Ok(self.client.is_object_restored(&full_key)?)
+            Ok(self.client.is_object_restored(bucket, &full_key)?)
         }
     }
 }
@@ -520,8 +529,13 @@ pub mod s3_session {
     }
 
     impl TestClient for SDKTestClient {
+        fn get_bucket_name(&self) -> String {
+            self.bucket.clone()
+        }
+
         fn put_object_single(
             &self,
+            bucket: &str,
             key: &str,
             value: &[u8],
             params: PutObjectSingleParams,
@@ -538,7 +552,7 @@ pub mod s3_session {
             let mut request = self
                 .sdk_client
                 .put_object()
-                .bucket(&self.bucket)
+                .bucket(bucket)
                 .key(full_key)
                 .set_checksum_algorithm(checksum_algorithm)
                 .body(ByteStream::from(value.to_vec()));
@@ -550,23 +564,18 @@ pub mod s3_session {
             Ok(tokio_block_on(request.send()).map(|_| ())?)
         }
 
-        fn remove_object(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        fn remove_object(&self, bucket: &str, key: &str) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let request = self
-                .sdk_client
-                .delete_object()
-                .bucket(&self.bucket)
-                .key(full_key)
-                .send();
+            let request = self.sdk_client.delete_object().bucket(bucket).key(full_key).send();
             Ok(tokio_block_on(request).map(|_| ())?)
         }
 
-        fn contains_dir(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_dir(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key_suffixed = format!("{}{}/", self.prefix, key);
             let list = tokio_block_on(
                 self.sdk_client
                     .list_objects_v2()
-                    .bucket(&self.bucket)
+                    .bucket(bucket)
                     .delimiter('/')
                     .prefix(full_key_suffixed)
                     .send(),
@@ -574,9 +583,9 @@ pub mod s3_session {
             Ok(!(list.contents().is_empty() && list.common_prefixes().is_empty()))
         }
 
-        fn contains_key(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn contains_key(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let result = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send());
+            let result = tokio_block_on(self.sdk_client.head_object().bucket(bucket).key(full_key).send());
             match result {
                 Ok(_) => Ok(true),
                 Err(e) => match e.into_service_error() {
@@ -586,23 +595,27 @@ pub mod s3_session {
             }
         }
 
-        fn is_upload_in_progress(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_upload_in_progress(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let uploads = tokio_block_on(
                 self.sdk_client
                     .list_multipart_uploads()
-                    .bucket(&self.bucket)
+                    .bucket(bucket)
                     .prefix(self.prefix.clone())
                     .send(),
             )?;
             Ok(uploads.uploads().iter().any(|u| u.key().unwrap().ends_with(key)))
         }
 
-        fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        fn get_object_storage_class(
+            &self,
+            bucket: &str,
+            key: &str,
+        ) -> Result<Option<String>, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let attrs = tokio_block_on(
                 self.sdk_client
                     .get_object_attributes()
-                    .bucket(&self.bucket)
+                    .bucket(bucket)
                     .key(full_key)
                     .object_attributes(aws_sdk_s3::types::ObjectAttributes::StorageClass)
                     .send(),
@@ -610,12 +623,12 @@ pub mod s3_session {
             Ok(attrs.storage_class().map(|s| s.as_str().to_string()))
         }
 
-        fn get_object_checksums(&self, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
+        fn get_object_checksums(&self, bucket: &str, key: &str) -> Result<ObjectChecksums, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let attrs = tokio_block_on(
                 self.sdk_client
                     .get_object_attributes()
-                    .bucket(&self.bucket)
+                    .bucket(bucket)
                     .key(full_key)
                     .object_attributes(aws_sdk_s3::types::ObjectAttributes::ObjectParts)
                     .object_attributes(aws_sdk_s3::types::ObjectAttributes::Checksum)
@@ -652,21 +665,21 @@ pub mod s3_session {
             Ok((object_checksum, part_checksums))
         }
 
-        fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
+        fn get_object_size(&self, bucket: &str, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
+            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(bucket).key(&full_key).send())?;
             Ok(head_object.content_length().unwrap() as usize)
         }
 
         // Schedule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.
         // https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects-retrieval-options.html?icmpid=docs_amazons3_console#restoring-objects-upgrade-tier
-        fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
+        fn restore_object(&self, bucket: &str, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             let tier = if expedited { Tier::Expedited } else { Tier::Bulk };
             let request = self
                 .sdk_client
                 .restore_object()
-                .bucket(&self.bucket)
+                .bucket(bucket)
                 .key(full_key)
                 .set_restore_request(Some(
                     RestoreRequest::builder()
@@ -678,9 +691,9 @@ pub mod s3_session {
             Ok(tokio_block_on(request).map(|_| ())?)
         }
 
-        fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        fn is_object_restored(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(full_key).send())?;
+            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(bucket).key(full_key).send())?;
             Ok(head_object.restore().unwrap().contains("ongoing-request=\"false\""))
         }
     }

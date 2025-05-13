@@ -26,9 +26,10 @@ impl File {
 }
 
 fn prepare_fs(test_client: &dyn TestClient, map: &HashMap<String, File>) {
+    let bucket = test_client.get_bucket_name();
     for (name, file) in map {
         let content = vec![file.pat; file.len];
-        test_client.put_object(name, &content).unwrap();
+        test_client.put_object(&bucket, name, &content).unwrap();
     }
 }
 

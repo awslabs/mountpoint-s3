@@ -16,13 +16,17 @@ fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Add a file directly to the bucket
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
-    test_session.client().put_object("dir/foo.txt", b"bar").unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "dir/foo.txt", b"bar")
+        .unwrap();
 
     let main_dir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/hello.txt");
@@ -69,14 +73,18 @@ fn unlink_readhandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
     test_session
         .client()
-        .put_object("dir/this.txt", &[0u8; B_IN_MB * 128])
+        .put_object(&bucket, "dir/this.txt", &[0u8; B_IN_MB * 128])
         .unwrap();
-    test_session.client().put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_session
+        .client()
+        .put_object(&bucket, "dir/other.txt", &[0u8; 1024])
+        .unwrap(); // Persist implicit directory for test
 
     let main_dir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/this.txt");
@@ -125,9 +133,13 @@ fn unlink_writehandle_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Add a file directly to the bucket
-    test_session.client().put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_session
+        .client()
+        .put_object(&bucket, "dir/other.txt", &[0u8; 1024])
+        .unwrap(); // Persist implicit directory for test
 
     let main_dir = test_session.mount_path().join("dir");
     let path = main_dir.join("writing.txt");
@@ -189,8 +201,12 @@ fn unlink_fail_on_delete_not_allowed_test(creator_fn: impl TestSessionCreator) {
         ..Default::default()
     };
     let test_session = creator_fn(Default::default(), test_session_config);
+    let bucket = test_session.client().get_bucket_name();
 
-    test_session.client().put_object("dir/file.txt", &[0u8; 4]).unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "dir/file.txt", &[0u8; 4])
+        .unwrap();
 
     let main_dir = test_session.mount_path().join("dir");
     let path = main_dir.join("file.txt");
