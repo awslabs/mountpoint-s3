@@ -162,6 +162,13 @@ impl MockClient {
         len
     }
 
+    /// Number of objects a specific mock client bucket
+    pub fn object_count_for_bucket(&self, bucket: &str) -> usize {
+        let objects = self.get_objects_for_bucket(bucket);
+        let len = objects.write().unwrap().len();
+        len
+    }
+
     /// Returns `true` if this mock client's bucket contains the specified key
     pub fn contains_key(&self, key: &str) -> bool {
         let objects = self.get_objects_for_default_bucket();
@@ -911,7 +918,7 @@ impl ObjectClient for MockClient {
             if source_bucket == destination_bucket {
                 objects.insert(destination_key.to_owned(), cloned_object);
             } else {
-                let dest_bucket_objects = self.get_objects_for_bucket(source_bucket);
+                let dest_bucket_objects = self.get_objects_for_bucket(destination_bucket);
                 let mut dest_objects = dest_bucket_objects.write().unwrap();
                 dest_objects.insert(destination_key.to_owned(), cloned_object);
             }
@@ -2678,10 +2685,8 @@ mod tests {
         );
     }
 
-    // TODO: Test append in multi bucket setting
     #[tokio::test]
     async fn test_multi_bucket_append() {
-        debug!("Starting test");
         // Upload the same object into two buckets, append different content to each
         let first_bucket = "first_test_bucket";
         let second_bucket = "second_test_bucket";
@@ -2744,6 +2749,64 @@ mod tests {
             "object content should have been different"
         );
     }
+
+    #[tokio::test]
+    async fn test_multi_bucket_copyobject() {
+        // Upload the same object into two buckets, append different content to each
+        let first_bucket = "first_test_bucket";
+        let second_bucket = "second_test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: first_bucket.to_owned(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            allowed_buckets: HashSet::from([first_bucket.to_string(), second_bucket.to_string()]),
+            ..Default::default()
+        });
+
+        // Put two different objects under the same key, and assert that reading will give the correct object
+        let key = "example_key";
+        let content = vec![31u8; 1];
+        client
+            .put_object_single(first_bucket, key, &PutObjectSingleParams::new(), &content)
+            .await
+            .expect("putting object in first bucket failed");
+
+        client
+            .copy_object(first_bucket, key, second_bucket, key, &CopyObjectParams::new())
+            .await
+            .expect("Copy should work");
+        // Check that both buckets have the object
+        let first_get_result = client
+            .get_object(first_bucket, key, &GetObjectParams::new())
+            .await
+            .expect("getting object from first bucket failed");
+
+        let first_content = first_get_result
+            .collect()
+            .await
+            .expect("collecting object from first bucket failed");
+
+        let second_get_result = client
+            .get_object(second_bucket, key, &GetObjectParams::new())
+            .await
+            .expect("getting object from second bucket failed");
+
+        let second_content = second_get_result
+            .collect()
+            .await
+            .expect("collecting object from second bucket failed");
+        assert_eq!(
+            &*second_content, &*first_content,
+            "object content should have identical"
+        );
+        // Get object count in both buckets and check that they are both 1
+        let objects_in_first = client.object_count_for_bucket(first_bucket);
+        let objects_in_second = client.object_count_for_bucket(second_bucket);
+
+        assert_eq!(1, objects_in_first, "Object should stay in first");
+        assert_eq!(1, objects_in_second, "Object should be copied into second");
+    }
+
     // TODO: Test CopyObject in multi bucket setting
     // TODO: Test ListObjects in multi bucket setting
 }
