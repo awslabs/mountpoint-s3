@@ -25,9 +25,12 @@ use std::path::Path;
 use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fs::Error;
 use crate::sync::mpsc::{self, Receiver, SyncSender};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::thread::{self, JoinHandle};
 use time::{serde::rfc3339, OffsetDateTime};
+
+const EVENT_LOG_FILE_NAME: &str = "event_log";
+const VERSION: &str = "1";
 
 pub struct EventLogger {
     events_sender: Option<SyncSender<Event>>,
@@ -38,7 +41,7 @@ impl EventLogger {
     pub fn new<P: AsRef<Path>>(log_directory: P) -> anyhow::Result<Self> {
         let max_inflight_events = 1000;
         let (tx, rx) = mpsc::sync_channel(max_inflight_events);
-        let file = File::create(log_directory.as_ref().join("event_log"))?;
+        let file = File::create(log_directory.as_ref().join(EVENT_LOG_FILE_NAME))?;
         let writer_thread = thread::spawn(|| Self::write_to_file(rx, file));
         Ok(Self {
             events_sender: Some(tx),
@@ -67,16 +70,16 @@ impl EventLogger {
         let event = Event {
             timestamp: OffsetDateTime::now_utc(),
             operation: fuse_operation.to_string(),
-            fuse_request_id,
+            fuse_request_id: Some(fuse_request_id),
             error_code: error_code.to_string(),
-            errno: error.errno,
-            internal_message: format!("{:#}", error),
+            errno: Some(error.errno),
+            internal_message: Some(format!("{:#}", error)),
             s3_object_key: error.meta().s3_object_key.clone(),
             s3_bucket_name: error.meta().s3_bucket_name.clone(),
             s3_error_http_status: error.meta().client_error_meta.http_code,
             s3_error_code: error.meta().client_error_meta.error_code.clone(),
             s3_error_message: error.meta().client_error_meta.error_message.clone(),
-            version: "1".to_string(),
+            version: VERSION.to_string(),
         };
         sender.send(event).expect("must be able to send an event");
     }
@@ -113,15 +116,15 @@ impl std::fmt::Debug for EventLogger {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 struct Event {
     #[serde(with = "rfc3339")]
     timestamp: OffsetDateTime,
     operation: String,
-    fuse_request_id: u64,
+    fuse_request_id: Option<u64>,
     error_code: String,
-    errno: i32,
-    internal_message: String,
+    errno: Option<i32>,
+    internal_message: Option<String>,
     s3_object_key: Option<String>,
     s3_bucket_name: Option<String>,
     s3_error_http_status: Option<i32>,
@@ -135,5 +138,87 @@ impl Event {
         serde_json::to_writer(&mut writer, &self)?;
         writer.write_all(b"\n")?;
         writer.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT},
+        prefetch::PrefetchReadError,
+    };
+
+    use super::*;
+    use mountpoint_s3_client::{
+        error::{GetObjectError, ObjectClientError},
+        error_metadata::ClientErrorMetadata,
+    };
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_log_event() {
+        // define input and the expected output
+        let fs_errors = [Error {
+            errno: 6,
+            message: "fs error".to_string(),
+            source: Some(anyhow::anyhow!(PrefetchReadError::GetRequestFailed(
+                ObjectClientError::ClientError(GetObjectError::NoSuchKey)
+            ))),
+            level: tracing::Level::WARN,
+            metadata: ErrorMetadata {
+                client_error_meta: ClientErrorMetadata {
+                    http_code: Some(404),
+                    error_code: Some("NoSuchKey".to_string()),
+                    error_message: Some("The specified key does not exist.".to_string()),
+                },
+                error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+                s3_bucket_name: Some("amzn-s3-demo-bucket".to_string()),
+                s3_object_key: Some("key".to_string()),
+            },
+        }];
+        let mut expected_events = [Event {
+            timestamp: OffsetDateTime::now_utc(),
+            operation: "read".to_string(),
+            fuse_request_id: Some(10),
+            error_code: MOUNTPOINT_ERROR_CLIENT.to_string(),
+            errno: Some(6),
+            internal_message: Some(
+                "fs error: get object request failed: Client error: The key does not exist".to_string(),
+            ),
+            s3_bucket_name: Some("amzn-s3-demo-bucket".to_string()),
+            s3_object_key: Some("key".to_string()),
+            s3_error_http_status: Some(404),
+            s3_error_code: Some("NoSuchKey".to_string()),
+            s3_error_message: Some("The specified key does not exist.".to_string()),
+            version: VERSION.to_string(),
+        }];
+
+        // create the event logger and a callback to log errors
+        let log_dir = tempdir().expect("must create a log dir");
+        let event_logger = EventLogger::new(log_dir.path()).expect("must create the event logger");
+        let error_callback = event_logger.log_error_callback();
+
+        // log errors
+        for error in fs_errors.iter() {
+            error_callback(error, "read", 10);
+        }
+
+        // shutdown the event_logger
+        drop(error_callback);
+        drop(event_logger);
+
+        // check output
+        let event_log =
+            std::fs::read_to_string(log_dir.path().join(EVENT_LOG_FILE_NAME)).expect("must read the event log");
+        let written_events: Vec<Event> = event_log
+            .split("\n")
+            .filter(|line| !line.is_empty())
+            .map(|line| serde_json::from_str(line).expect("must be a valid event"))
+            .collect();
+        assert_eq!(written_events.len(), expected_events.len());
+        for (i, written_event) in written_events.iter().enumerate() {
+            expected_events[i].timestamp = written_event.timestamp; // do not validate the value of timestamp
+        }
+        assert_eq!(&written_events, &expected_events);
     }
 }
