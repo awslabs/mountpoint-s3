@@ -9,6 +9,7 @@
 //!
 //! This binary is intended only for use in testing and development of Mountpoint.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use clap::Parser;
@@ -58,7 +59,8 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
     };
 
     let config = MockClientConfig {
-        bucket: bucket_name,
+        bucket: bucket_name.clone(),
+        allowed_buckets: HashSet::from([bucket_name]),
         part_size: part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,

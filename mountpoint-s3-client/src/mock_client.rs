@@ -61,8 +61,10 @@ static RAMP_BYTES: LazyLock<Vec<u8>> = LazyLock::new(|| ramp_bytes(0, RAMP_BUFFE
 
 #[derive(Debug, Default, Clone)]
 pub struct MockClientConfig {
-    /// The bucket name this client will connect to
+    /// The bucket name this client will connect to as a default
     pub bucket: String,
+    /// Names of all buckets the client is allowed to connect to
+    pub allowed_buckets: HashSet<String>,
     /// The size of the parts that GetObject will respond with
     pub part_size: usize,
     /// A seed to randomize the order of ListObjectsV2 results, or None to use ordered list
@@ -75,12 +77,17 @@ pub struct MockClientConfig {
     pub enable_rename: bool,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct MockBucket {
+    objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
+}
+
 /// A mock implementation of an object client that we can manually add objects to, and then query
 /// via the [ObjectClient] APIs.
 #[derive(Debug, Clone)]
 pub struct MockClient {
     config: MockClientConfig,
-    objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
+    buckets: Arc<RwLock<BTreeMap<String, MockBucket>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
     operation_counts: Arc<RwLock<HashMap<Operation, u64>>>,
 }
@@ -92,43 +99,76 @@ fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, va
 impl MockClient {
     /// Create a new [MockClient] with the given config
     pub fn new(config: MockClientConfig) -> Self {
+        let mut buckets = BTreeMap::new();
+        for bucket_name in config.allowed_buckets.clone().into_iter() {
+            buckets.insert(bucket_name, Default::default());
+        }
+        buckets.insert(config.bucket.clone(), Default::default());
+
         Self {
             config,
-            objects: Default::default(),
+            buckets: Arc::new(RwLock::new(buckets)),
             in_progress_uploads: Default::default(),
             operation_counts: Default::default(),
         }
     }
 
+    fn get_objects_for_default_bucket(&self) -> Arc<RwLock<BTreeMap<String, MockObject>>> {
+        self.buckets
+            .read()
+            .unwrap()
+            .get(&self.config.bucket)
+            .unwrap()
+            .objects
+            .clone()
+    }
+
+    fn get_objects_for_bucket(&self, bucket: &str) -> Arc<RwLock<BTreeMap<String, MockObject>>> {
+        self.buckets.read().unwrap().get(bucket).unwrap().objects.clone()
+    }
+
+    fn get_bucket(&self, bucket: &str) -> MockBucket {
+        self.buckets.read().unwrap().get(bucket).unwrap().clone()
+    }
+
     /// Add an object to this mock client's bucket
     pub fn add_object(&self, key: &str, value: MockObject) {
-        add_object(&self.objects, key, value);
+        let objects = self.get_objects_for_default_bucket();
+        add_object(&objects, key, value);
     }
 
     /// Remove object for the mock client's bucket
     pub fn remove_object(&self, key: &str) {
-        self.objects.write().unwrap().remove(key);
+        let objects = self.get_objects_for_default_bucket();
+        objects.write().unwrap().remove(key);
     }
 
     /// Remove all objects for the mock client's bucket
     pub fn remove_all_objects(&self) {
-        self.objects.write().unwrap().clear();
+        let objects = self.get_objects_for_default_bucket();
+        objects.write().unwrap().clear();
     }
 
     /// Number of objects in the mock client's bucket
     pub fn object_count(&self) -> usize {
-        self.objects.write().unwrap().len()
+        let objects = self.get_objects_for_default_bucket();
+        let len = objects.write().unwrap().len();
+        len
     }
 
     /// Returns `true` if this mock client's bucket contains the specified key
     pub fn contains_key(&self, key: &str) -> bool {
-        self.objects.read().unwrap().contains_key(key)
+        let objects = self.get_objects_for_default_bucket();
+        let result = objects.read().unwrap().contains_key(key);
+        result
     }
 
     /// Returns `true` if this mock client's bucket contains the specified common prefix
     pub fn contains_prefix(&self, prefix: &str) -> bool {
         let prefix = format!("{prefix}/");
-        self.objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
+        let objects = self.get_objects_for_default_bucket();
+        let result = objects.read().unwrap().keys().any(|k| k.starts_with(&prefix));
+        result
     }
 
     /// Returns `true` if there is an upload in progress for the specified key
@@ -138,16 +178,19 @@ impl MockClient {
 
     /// Returns the objects storage class
     pub fn get_object_storage_class(&self, key: &str) -> Result<Option<String>, MockClientError> {
-        if let Some(mock_object) = self.objects.read().unwrap().get(key) {
+        let objects = self.get_objects_for_default_bucket();
+        let result = if let Some(mock_object) = objects.read().unwrap().get(key) {
             Ok(mock_object.storage_class.to_owned())
         } else {
             Err(MockClientError("object not found".into()))
-        }
+        };
+        result
     }
 
     /// Returns error if object does not exist
     pub fn restore_object(&self, key: &str) -> Result<(), MockClientError> {
-        match self.objects.write().unwrap().get_mut(key) {
+        let objects = self.get_objects_for_default_bucket();
+        let result = match objects.write().unwrap().get_mut(key) {
             Some(mock_object) => {
                 mock_object.restore_status = Some(RestoreStatus::Restored {
                     expiry: SystemTime::now() + Duration::from_secs(3600),
@@ -155,18 +198,21 @@ impl MockClient {
                 Ok(())
             }
             None => Err(MockClientError("object not found".into())),
-        }
+        };
+        result
     }
 
     pub fn is_object_restored(&self, key: &str) -> Result<bool, MockClientError> {
-        if let Some(mock_object) = self.objects.read().unwrap().get(key) {
+        let objects = self.get_objects_for_default_bucket();
+        let result = if let Some(mock_object) = objects.read().unwrap().get(key) {
             Ok(matches!(
                 mock_object.restore_status,
                 Some(RestoreStatus::Restored { expiry: _ })
             ))
         } else {
             Err(MockClientError("object not found".into()))
-        }
+        };
+        result
     }
 
     /// Create a new counter for the given operation, starting at 0.
@@ -201,7 +247,8 @@ impl MockClient {
         object.set_checksum(checksum);
 
         let etag = object.etag.clone();
-        add_object(&self.objects, key, object);
+        let objects = self.get_objects_for_default_bucket();
+        add_object(&objects, key, object);
         Ok(PutObjectResult {
             etag,
             sse_type: None,
@@ -226,7 +273,8 @@ impl MockClient {
         // TODO delimiter and prefix should be optional in the API
         let delimiter = (!delimiter.is_empty()).then_some(delimiter);
 
-        let objects = self.objects.read().unwrap();
+        let objects_for_default = self.get_objects_for_default_bucket();
+        let objects = objects_for_default.read().unwrap();
 
         let mut common_prefixes: BTreeSet<String> = BTreeSet::new();
         let mut object_vec: Vec<ObjectInfo> = Vec::new();
@@ -327,7 +375,8 @@ impl MockClient {
         let mut common_prefixes_set: HashSet<String> = HashSet::new();
         let mut object_vec: Vec<ObjectInfo> = Vec::new();
 
-        let objects = self.objects.read().unwrap();
+        let default_bucket_objects = self.get_objects_for_default_bucket();
+        let objects = default_bucket_objects.read().unwrap();
 
         // Shuffle the keys now before we construct an iterator over them. This won't be stable in
         // the presence of mutation, but that's the expected behavior anyway.
@@ -385,7 +434,8 @@ impl MockClient {
         contents: impl AsRef<[u8]> + Send,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
         let contents = contents.as_ref();
-        let mut objects = self.objects.write().unwrap();
+        let binding = self.get_objects_for_default_bucket();
+        let mut objects = binding.write().unwrap();
         let object = match objects.get_mut(key) {
             None => {
                 // Allow creating a new object if append at offset is 0, otherwise the request should fail
@@ -841,7 +891,8 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(CopyObjectError::NotFound));
         }
 
-        let mut objects = self.objects.write().unwrap();
+        let bucket_objects = self.get_objects_for_bucket(source_bucket);
+        let mut objects = bucket_objects.write().unwrap();
         if let Some(object) = objects.get(source_key) {
             let cloned_object = object.clone();
             objects.insert(destination_key.to_owned(), cloned_object);
@@ -853,20 +904,19 @@ impl ObjectClient for MockClient {
 
     async fn get_object(
         &self,
-        bucket: &str,
+        bucket_name: &str,
         key: &str,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
-        trace!(bucket, key, ?params.range, ?params.if_match, "GetObject");
+        trace!(bucket_name, key, ?params.range, ?params.if_match, "GetObject");
         self.inc_op_count(Operation::GetObject);
 
-        if bucket != self.config.bucket {
-            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket(
-                Default::default(),
-            )));
+        if bucket_name != self.config.bucket {
+            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
         }
 
-        let objects = self.objects.read().unwrap();
+        let bucket = self.get_bucket(bucket_name);
+        let objects = bucket.objects.read().unwrap();
 
         if let Some(object) = objects.get(key) {
             if let Some(etag_match) = params.if_match.as_ref() {
@@ -910,18 +960,18 @@ impl ObjectClient for MockClient {
 
     async fn head_object(
         &self,
-        bucket: &str,
+        bucket_name: &str,
         key: &str,
         params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
-        trace!(bucket, key, "HeadObject");
+        trace!(bucket_name, key, "HeadObject");
         self.inc_op_count(Operation::HeadObject);
 
-        if bucket != self.config.bucket {
+        if bucket_name != self.config.bucket {
             return Err(ObjectClientError::ServiceError(HeadObjectError::NotFound));
         }
-
-        let objects = self.objects.read().unwrap();
+        let bucket = self.get_bucket(bucket_name);
+        let objects = bucket.objects.read().unwrap();
         if let Some(object) = objects.get(key) {
             // Checksum information is opt-in
             let checksum = match params.checksum_mode {
@@ -979,13 +1029,11 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
-        let put_request = MockPutObjectRequest::new(
-            key,
-            self.config.part_size,
-            params,
-            &self.objects,
-            &self.in_progress_uploads,
-        );
+        let bucket_mock = self.get_bucket(bucket);
+        let objects = bucket_mock.objects;
+
+        let put_request =
+            MockPutObjectRequest::new(key, self.config.part_size, params, &objects, &self.in_progress_uploads);
         Ok(put_request)
     }
 
@@ -1021,7 +1069,9 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchBucket));
         }
 
-        let objects = self.objects.read().unwrap();
+        let bucket_mock = self.get_bucket(bucket);
+        let objects = bucket_mock.objects.read().unwrap();
+
         if let Some(object) = objects.get(key) {
             let mut result = GetObjectAttributesResult::default();
             for attribute in object_attributes.iter() {
@@ -1383,6 +1433,7 @@ mod tests {
 
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             enable_backpressure: true,
@@ -1495,6 +1546,7 @@ mod tests {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
         let client = MockClient::new(MockClientConfig {
             bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             enable_backpressure: true,
@@ -2035,7 +2087,8 @@ mod tests {
 
         // Now verify...
 
-        let objects = client.objects.read().unwrap();
+        let mock_bucket_objects = client.get_objects_for_default_bucket();
+        let objects = mock_bucket_objects.read().unwrap();
         let stored_object = objects.get(s3_key).expect("object should exist after PutObject");
 
         let mut expected_checksum = Checksum::empty();
@@ -2083,8 +2136,8 @@ mod tests {
             .expect("should be able to complete meta put_object");
 
         // Now verify...
-
-        let objects = client.objects.read().unwrap();
+        let mock_bucket_objects = client.get_objects_for_default_bucket();
+        let objects = mock_bucket_objects.read().unwrap();
         let stored_object = objects.get(s3_key).expect("object should exist after PutObject");
 
         match stored_object
