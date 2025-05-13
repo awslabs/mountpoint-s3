@@ -13,7 +13,7 @@ use bytes::Bytes;
 use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{
@@ -347,8 +347,13 @@ async fn test_get_object_403() {
     assert!(err.meta().error_message.is_some());
 }
 
+// Not sure how to trigger IncorrectRegion with directory buckets: failure occurs on dns resolution (CrtError / AWS_IO_DNS_INVALID_NAME).
+// So only run with S3 Standard.
+#[cfg(not(feature = "s3express_tests"))]
 #[tokio::test]
 async fn test_get_object_wrong_region() {
+    use mountpoint_s3_client::config::EndpointConfig;
+
     let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_wrong_region");
 
     let key = format!("{prefix}/nonexistent_key");
