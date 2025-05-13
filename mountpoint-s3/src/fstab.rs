@@ -150,6 +150,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use proptest::{prop_assert_eq, proptest};
+    use proptest_derive::Arbitrary;
     use test_case::test_case;
 
     #[test_case("no commas", Some(["no commas"].to_vec()))]
@@ -253,48 +254,32 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone)]
-    #[allow(dead_code)]
+    #[derive(Debug, Clone, Arbitrary, PartialEq)]
+    #[cfg_attr(test, proptest(no_params))]
     struct FstabCompatibleCliArgs {
+        #[proptest(regex = "bucket-[a-z]{3,10}")]
         bucket_name: String,
+        #[proptest(regex = "/mnt/test-[a-z]{1,5}")]
         mount_point: String,
         uid: u32,
         allow_delete: bool,
         allow_other: bool,
         debug: bool,
+        #[proptest(value = "false")]
         read_only: bool,
     }
 
-    impl Arbitrary for FstabCompatibleCliArgs {
-        type Parameters = ();
-        type Strategy = BoxedStrategy<Self>;
-
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-            // "bucket-" + 3–10 lowercase letters = 10–17 total length
-            let bucket_name = "[a-z]{3,10}".prop_map(|s| format!("bucket-{}", s));
-            // "/mnt/test-" + 1–5 lowercase letters
-            let mount_point = "[a-z]{1,5}".prop_map(|s| format!("/mnt/test-{}", s));
-
-            (
-                bucket_name,
-                mount_point,
-                1..=u32::MAX,
-                any::<bool>(),
-                any::<bool>(),
-                any::<bool>(),
-            )
-                .prop_map(|(bucket_name, mount_point, uid, allow_delete, allow_other, debug)| {
-                    FstabCompatibleCliArgs {
-                        bucket_name,
-                        mount_point,
-                        uid,
-                        allow_delete,
-                        allow_other,
-                        debug,
-                        read_only: false, // enforcing read_only = false
-                    }
-                })
-                .boxed()
+    impl From<CliArgs> for FstabCompatibleCliArgs {
+        fn from(cli: CliArgs) -> Self {
+            FstabCompatibleCliArgs {
+                bucket_name: cli.bucket_name,
+                mount_point: cli.mount_point.to_string_lossy().into_owned(),
+                uid: cli.uid.unwrap_or_default(),
+                allow_delete: cli.allow_delete,
+                allow_other: cli.allow_other,
+                debug: cli.debug,
+                read_only: cli.read_only,
+            }
         }
     }
 
@@ -329,13 +314,7 @@ mod tests {
             let fstab = FsTabCliArgs::try_parse_from(&args).unwrap();
             let roundtripped: CliArgs = fstab.try_into().unwrap();
 
-            prop_assert_eq!(roundtripped.bucket_name, original.bucket_name);
-            prop_assert_eq!(roundtripped.mount_point.to_str().unwrap(), original.mount_point.as_str());
-            prop_assert_eq!(roundtripped.uid, Some(original.uid));
-            prop_assert_eq!(roundtripped.allow_delete, original.allow_delete);
-            prop_assert_eq!(roundtripped.allow_other, original.allow_other);
-            prop_assert_eq!(roundtripped.debug, original.debug);
-            prop_assert_eq!(roundtripped.read_only, original.read_only);
+            prop_assert_eq!(FstabCompatibleCliArgs::from(roundtripped), original);
         }
     }
 }
