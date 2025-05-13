@@ -113,6 +113,11 @@ impl MockClient {
         }
     }
 
+    pub fn is_allowlisted_bucket(&self, bucket: &str) -> bool {
+        bucket == self.config.bucket || // TODO: Needed for legacy, as allowed_buckets defaults to []
+        self.config.allowed_buckets.contains(bucket)
+    }
+
     fn get_objects_for_default_bucket(&self) -> Arc<RwLock<BTreeMap<String, MockObject>>> {
         self.buckets
             .read()
@@ -230,6 +235,7 @@ impl MockClient {
     /// Mock implementation of PutObject.
     fn mock_put_object<'a>(
         &self,
+        bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send + 'a,
@@ -247,7 +253,7 @@ impl MockClient {
         object.set_checksum(checksum);
 
         let etag = object.etag.clone();
-        let objects = self.get_objects_for_default_bucket();
+        let objects = self.get_objects_for_bucket(bucket);
         add_object(&objects, key, object);
         Ok(PutObjectResult {
             etag,
@@ -887,10 +893,10 @@ impl ObjectClient for MockClient {
         destination_key: &str,
         _params: &CopyObjectParams,
     ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError> {
-        if destination_bucket != self.config.bucket && source_bucket != self.config.bucket {
+        if !self.is_allowlisted_bucket(destination_bucket) || !self.is_allowlisted_bucket(source_bucket) {
             return Err(ObjectClientError::ServiceError(CopyObjectError::NotFound));
         }
-
+        // TODO: For multi-bucket support correct the handling here
         let bucket_objects = self.get_objects_for_bucket(source_bucket);
         let mut objects = bucket_objects.write().unwrap();
         if let Some(object) = objects.get(source_key) {
@@ -911,7 +917,7 @@ impl ObjectClient for MockClient {
         trace!(bucket_name, key, ?params.range, ?params.if_match, "GetObject");
         self.inc_op_count(Operation::GetObject);
 
-        if bucket_name != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket_name) {
             return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
         }
 
@@ -967,7 +973,7 @@ impl ObjectClient for MockClient {
         trace!(bucket_name, key, "HeadObject");
         self.inc_op_count(Operation::HeadObject);
 
-        if bucket_name != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket_name) {
             return Err(ObjectClientError::ServiceError(HeadObjectError::NotFound));
         }
         let bucket = self.get_bucket(bucket_name);
@@ -1005,10 +1011,10 @@ impl ObjectClient for MockClient {
         trace!(bucket, ?continuation_token, delimiter, max_keys, prefix, "ListObjects");
         self.inc_op_count(Operation::ListObjectsV2);
 
-        if bucket != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket) {
             return Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket));
         }
-
+        // TODO Multi-bucket support: Parametrise the call with the bucket
         if let Some(seed) = self.config.unordered_list_seed {
             Ok(self.list_objects_unordered(continuation_token, delimiter, max_keys, prefix, seed))
         } else {
@@ -1025,7 +1031,7 @@ impl ObjectClient for MockClient {
         trace!(bucket, key, "PutObject");
         self.inc_op_count(Operation::PutObject);
 
-        if bucket != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket) {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
@@ -1047,11 +1053,11 @@ impl ObjectClient for MockClient {
         trace!(bucket, key, "PutObject");
         self.inc_op_count(Operation::PutObjectSingle);
 
-        if bucket != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket) {
             return Err(ObjectClientError::ServiceError(PutObjectError::NoSuchBucket));
         }
 
-        self.mock_put_object(key, params, contents)
+        self.mock_put_object(bucket, key, params, contents)
     }
 
     async fn get_object_attributes(
@@ -1065,7 +1071,7 @@ impl ObjectClient for MockClient {
         trace!(bucket, key, "GetObjectAttributes");
         self.inc_op_count(Operation::GetObjectAttributes);
 
-        if bucket != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket) {
             return Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchBucket));
         }
 
@@ -2597,5 +2603,66 @@ mod tests {
             err,
             ObjectClientError::ServiceError(PutObjectError::InvalidChecksumType)
         ));
+    }
+
+    #[tokio::test]
+    async fn test_multibucket_put_separation() {
+        let first_bucket = "first_test_bucket";
+        let second_bucket = "second_test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: first_bucket.to_owned(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            allowed_buckets: HashSet::from([first_bucket.to_string(), second_bucket.to_string()]),
+            ..Default::default()
+        });
+
+        // Put two different objects under the same key, and assert that reading will give the correct object
+        let key = "same_key_different_buckets";
+        let content_for_first = vec![42u8; 10];
+        let content_for_second = vec![22u8; 10];
+
+        // Put objects in different buckets
+        client
+            .put_object_single(first_bucket, key, &PutObjectSingleParams::new(), &content_for_first)
+            .await
+            .expect("putting object in first bucket failed");
+
+        client
+            .put_object_single(second_bucket, key, &PutObjectSingleParams::new(), &content_for_second)
+            .await
+            .expect("putting object in second bucket failed");
+
+        // Read from first bucket and verify
+        let first_get_result = client
+            .get_object(first_bucket, key, &GetObjectParams::new())
+            .await
+            .expect("getting object from first bucket failed");
+
+        let first_content = first_get_result
+            .collect()
+            .await
+            .expect("collecting object from first bucket failed");
+
+        assert_eq!(
+            &*first_content, &content_for_first,
+            "content from first bucket doesn't match"
+        );
+
+        // Read from second bucket and verify
+        let second_get_result = client
+            .get_object(second_bucket, key, &GetObjectParams::new())
+            .await
+            .expect("getting object from second bucket failed");
+
+        let second_content = second_get_result
+            .collect()
+            .await
+            .expect("collecting object from second bucket failed");
+
+        assert_eq!(
+            &*second_content, &content_for_second,
+            "content from second bucket doesn't match"
+        );
     }
 }
