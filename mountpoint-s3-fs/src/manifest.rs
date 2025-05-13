@@ -21,7 +21,7 @@ pub use db::DbEntry;
 pub enum ManifestError {
     #[error("database exists")]
     DbExists,
-    #[error("error opening manifest file at '{0}': {1}")]
+    #[error("error opening manifest file at '{0}'")]
     CsvOpenError(PathBuf, #[source] io::Error),
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
