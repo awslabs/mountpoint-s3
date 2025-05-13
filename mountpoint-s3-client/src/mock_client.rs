@@ -19,6 +19,7 @@ use rand::seq::SliceRandom;
 use rand_chacha::ChaCha20Rng;
 use thiserror::Error;
 use time::OffsetDateTime;
+use tracing::debug;
 use tracing::trace;
 
 use crate::checksums::{
@@ -242,7 +243,7 @@ impl MockClient {
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
         if let Some(offset) = params.write_offset_bytes {
             // Handle as an Append request.
-            return self.append_object(key, offset, params, contents);
+            return self.append_object(bucket, key, offset, params, contents);
         }
 
         let checksum = validate_checksum(contents.as_ref(), params.checksum.as_ref())?;
@@ -271,6 +272,7 @@ impl MockClient {
     /// Ordered list implementation
     fn list_objects_ordered(
         &self,
+        bucket: &str,
         continuation_token: Option<&str>,
         delimiter: &str,
         max_keys: usize,
@@ -279,7 +281,7 @@ impl MockClient {
         // TODO delimiter and prefix should be optional in the API
         let delimiter = (!delimiter.is_empty()).then_some(delimiter);
 
-        let objects_for_default = self.get_objects_for_default_bucket();
+        let objects_for_default = self.get_objects_for_bucket(bucket);
         let objects = objects_for_default.read().unwrap();
 
         let mut common_prefixes: BTreeSet<String> = BTreeSet::new();
@@ -368,6 +370,7 @@ impl MockClient {
 
     fn list_objects_unordered(
         &self,
+        bucket: &str,
         continuation_token: Option<&str>,
         delimiter: &str,
         max_keys: usize,
@@ -381,8 +384,8 @@ impl MockClient {
         let mut common_prefixes_set: HashSet<String> = HashSet::new();
         let mut object_vec: Vec<ObjectInfo> = Vec::new();
 
-        let default_bucket_objects = self.get_objects_for_default_bucket();
-        let objects = default_bucket_objects.read().unwrap();
+        let bucket_objects = self.get_objects_for_bucket(bucket);
+        let objects = bucket_objects.read().unwrap();
 
         // Shuffle the keys now before we construct an iterator over them. This won't be stable in
         // the presence of mutation, but that's the expected behavior anyway.
@@ -434,13 +437,14 @@ impl MockClient {
     // TODO: we may want to extend testing of failure conditions.
     fn append_object(
         &self,
+        bucket: &str,
         key: &str,
         offset: u64,
         params: &PutObjectSingleParams,
         contents: impl AsRef<[u8]> + Send,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
         let contents = contents.as_ref();
-        let binding = self.get_objects_for_default_bucket();
+        let binding = self.get_objects_for_bucket(bucket);
         let mut objects = binding.write().unwrap();
         let object = match objects.get_mut(key) {
             None => {
@@ -473,6 +477,8 @@ impl MockClient {
                 }
 
                 if object.len() as u64 != offset {
+                    let len = object.len() as u64;
+                    debug!("Expecting offset {len}");
                     return Err(ObjectClientError::ServiceError(PutObjectError::InvalidWriteOffset));
                 }
 
@@ -896,12 +902,19 @@ impl ObjectClient for MockClient {
         if !self.is_allowlisted_bucket(destination_bucket) || !self.is_allowlisted_bucket(source_bucket) {
             return Err(ObjectClientError::ServiceError(CopyObjectError::NotFound));
         }
-        // TODO: For multi-bucket support correct the handling here
-        let bucket_objects = self.get_objects_for_bucket(source_bucket);
-        let mut objects = bucket_objects.write().unwrap();
+
+        let src_bucket_objects = self.get_objects_for_bucket(source_bucket);
+        let mut objects = src_bucket_objects.write().unwrap();
+
         if let Some(object) = objects.get(source_key) {
             let cloned_object = object.clone();
-            objects.insert(destination_key.to_owned(), cloned_object);
+            if source_bucket == destination_bucket {
+                objects.insert(destination_key.to_owned(), cloned_object);
+            } else {
+                let dest_bucket_objects = self.get_objects_for_bucket(source_bucket);
+                let mut dest_objects = dest_bucket_objects.write().unwrap();
+                dest_objects.insert(destination_key.to_owned(), cloned_object);
+            }
             Ok(CopyObjectResult {})
         } else {
             Err(ObjectClientError::ServiceError(CopyObjectError::NotFound))
@@ -1014,11 +1027,10 @@ impl ObjectClient for MockClient {
         if !self.is_allowlisted_bucket(bucket) {
             return Err(ObjectClientError::ServiceError(ListObjectsError::NoSuchBucket));
         }
-        // TODO Multi-bucket support: Parametrise the call with the bucket
         if let Some(seed) = self.config.unordered_list_seed {
-            Ok(self.list_objects_unordered(continuation_token, delimiter, max_keys, prefix, seed))
+            Ok(self.list_objects_unordered(bucket, continuation_token, delimiter, max_keys, prefix, seed))
         } else {
-            Ok(self.list_objects_ordered(continuation_token, delimiter, max_keys, prefix))
+            Ok(self.list_objects_ordered(bucket, continuation_token, delimiter, max_keys, prefix))
         }
     }
 
@@ -2665,4 +2677,73 @@ mod tests {
             "content from second bucket doesn't match"
         );
     }
+
+    // TODO: Test append in multi bucket setting
+    #[tokio::test]
+    async fn test_multi_bucket_append() {
+        debug!("Starting test");
+        // Upload the same object into two buckets, append different content to each
+        let first_bucket = "first_test_bucket";
+        let second_bucket = "second_test_bucket";
+        let client = MockClient::new(MockClientConfig {
+            bucket: first_bucket.to_owned(),
+            part_size: 1024,
+            unordered_list_seed: None,
+            allowed_buckets: HashSet::from([first_bucket.to_string(), second_bucket.to_string()]),
+            ..Default::default()
+        });
+
+        // Put two different objects under the same key, and assert that reading will give the correct object
+        let key = "example_key";
+        let content = vec![31u8; 1];
+        let append_content_for_first = vec![42u8; 10];
+        let append_content_for_second = vec![22u8; 10];
+        client
+            .put_object_single(first_bucket, key, &PutObjectSingleParams::new(), &content)
+            .await
+            .expect("putting object in first bucket failed");
+
+        client
+            .put_object_single(second_bucket, key, &PutObjectSingleParams::new(), &content)
+            .await
+            .expect("putting object in second bucket failed");
+
+        let params = PutObjectSingleParams::new_for_append(1);
+        client
+            .put_object_single(first_bucket, key, &params, &append_content_for_first)
+            .await
+            .expect("append failed");
+
+        let params = PutObjectSingleParams::new_for_append(1);
+        client
+            .put_object_single(second_bucket, key, &params, &append_content_for_second)
+            .await
+            .expect("append failed");
+        let first_get_result = client
+            .get_object(first_bucket, key, &GetObjectParams::new())
+            .await
+            .expect("getting object from first bucket failed");
+
+        let first_content = first_get_result
+            .collect()
+            .await
+            .expect("collecting object from first bucket failed");
+
+        let second_get_result = client
+            .get_object(second_bucket, key, &GetObjectParams::new())
+            .await
+            .expect("getting object from second bucket failed");
+
+        let second_content = second_get_result
+            .collect()
+            .await
+            .expect("collecting object from second bucket failed");
+
+        assert_ne!(
+            &*second_content, &*first_content,
+            "object content should have been different"
+        );
+    }
+    // TODO: Test CopyObject in multi bucket setting
+    // TODO: Test ListObjects in multi bucket setting
 }
