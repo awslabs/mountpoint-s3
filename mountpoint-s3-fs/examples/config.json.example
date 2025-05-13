@@ -1,0 +1,17 @@
+{
+    "mountpoint": "/exmpl/mountpoint",
+    "metadata_store_dir": "/exmpl/tmpdir",
+    "allow_unmount": true,
+    "region": "us-west-2",
+    "channels": [
+        {
+            "directory_name": "example_dir",
+            "bucket_name": "amzn-s3-demo-bucket",
+            "manifest_path": "../output.csv"
+        }
+    ],
+    "loglevel": "debug,awscrt=off",
+    "throughput_config": {
+        "type": "IMDSAutoConfigure"
+    }
+}
