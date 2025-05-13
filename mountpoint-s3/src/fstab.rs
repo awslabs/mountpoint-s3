@@ -148,7 +148,6 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
     use proptest::{prop_assert_eq, proptest};
     use proptest_derive::Arbitrary;
     use test_case::test_case;
@@ -265,7 +264,6 @@ mod tests {
         allow_delete: bool,
         allow_other: bool,
         debug: bool,
-        #[proptest(value = "false")]
         read_only: bool,
     }
 
@@ -300,16 +298,19 @@ mod tests {
         if cli_args.debug {
             options.push("debug".to_string());
         }
+        if cli_args.read_only {
+            options.push("ro".to_string());
+        }
 
         args.push("-o".to_string());
         args.push(options.join(","));
         args
     }
 
-    // This addresses the PR suggestion to test roundtrip from CliArgs -> FsTabCliArgs -> CliArgs
+    // Test roundtrip conversion between CLI argument formats
     proptest! {
         #[test]
-        fn cli_args_roundtrip_from_fstab_args(original in any::<FstabCompatibleCliArgs>()) {
+        fn cli_args_roundtrip_from_fstab_args(original: FstabCompatibleCliArgs) {
             let args = serialize_to_fstab_args(&original);
             let fstab = FsTabCliArgs::try_parse_from(&args).unwrap();
             let roundtripped: CliArgs = fstab.try_into().unwrap();
