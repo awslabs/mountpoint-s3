@@ -79,11 +79,24 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         } else {
             format!("test-{}B", size)
         };
-        client.add_object(&key, MockObject::ramp(0x11, size as usize, ETag::for_tests()));
+        client.add_object(
+            &args.bucket_name,
+            &key,
+            MockObject::ramp(0x11, size as usize, ETag::for_tests()),
+        );
     }
-    client.add_object("hello.txt", MockObject::from_bytes(b"hello world", ETag::for_tests()));
-    client.add_object("empty", MockObject::from_bytes(b"", ETag::for_tests()));
     client.add_object(
+        &args.bucket_name,
+        "hello.txt",
+        MockObject::from_bytes(b"hello world", ETag::for_tests()),
+    );
+    client.add_object(
+        &args.bucket_name,
+        "empty",
+        MockObject::from_bytes(b"", ETag::for_tests()),
+    );
+    client.add_object(
+        &args.bucket_name,
         "dir/hello.txt",
         MockObject::from_bytes(b"hello world", ETag::for_tests()),
     );

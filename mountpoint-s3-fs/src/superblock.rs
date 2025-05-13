@@ -1258,7 +1258,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            client.add_object("test_bucket", key, obj);
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -1371,7 +1371,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            client.add_object(bucket, key, obj);
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -1461,7 +1461,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
             last_modified += Duration::days(1);
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            client.add_object(bucket, key, obj);
         }
 
         for entry in entries {
@@ -1503,7 +1503,7 @@ mod tests {
         for key in keys {
             let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            client.add_object("test_bucket", key, obj);
         }
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -1612,7 +1612,7 @@ mod tests {
             let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
             let key = format!("{prefix}{filename}");
-            client.add_object(&key, obj);
+            client.add_object("test_bucket", &key, obj);
             expected_list.push(filename.to_owned());
         }
 
@@ -1812,7 +1812,7 @@ mod tests {
         for key in keys {
             let mut obj = MockObject::constant(0xaa, 30, ETag::for_tests());
             obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
+            client.add_object("test_bucket", key, obj);
         }
 
         // And now walk the root directory to check it contains the right stuff
@@ -1946,7 +1946,11 @@ mod tests {
 
         let file_name = "file.txt";
         let file_key = format!("{prefix}{file_name}");
-        client.add_object(file_key.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+        client.add_object(
+            "test_bucket",
+            file_key.as_ref(),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
         let parent_ino = FUSE_ROOT_INODE;
 
         superblock
@@ -2030,7 +2034,11 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
+        client.add_object(
+            "test_bucket",
+            "dir1/file1.txt",
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
 
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
@@ -2073,10 +2081,12 @@ mod tests {
         // in lexicographical order, so `dir` will be the first common prefix when we do ListObjects
         // with prefix = ''.
         client.add_object(
+            "test_bucket",
             &format!("dir/{subdir}file1.txt"),
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
         client.add_object(
+            "test_bucket",
             &format!("dir-1/{subdir}file1.txt"),
             MockObject::constant(0xaa, 30, ETag::for_tests()),
         );
@@ -2099,8 +2109,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_names() {
+        let bucket = "test_bucket";
+
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            bucket: bucket.to_string(),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -2109,22 +2121,27 @@ mod tests {
         // The only valid key here is "dir1/a", so we should see a directory called "dir1" and a
         // file inside it called "a".
         client.add_object(
+            bucket,
             "dir1/",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_1").unwrap()),
         );
         client.add_object(
+            bucket,
             "dir1//",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_2").unwrap()),
         );
         client.add_object(
+            bucket,
             "dir1/a",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_3").unwrap()),
         );
         client.add_object(
+            bucket,
             "dir1/.",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_4").unwrap()),
         );
         client.add_object(
+            bucket,
             "dir1/./a",
             MockObject::constant(0xaa, 30, ETag::from_str("test_etag_5").unwrap()),
         );
