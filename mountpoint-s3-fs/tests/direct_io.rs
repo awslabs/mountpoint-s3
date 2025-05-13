@@ -33,12 +33,16 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_conf);
+    let bucket_name = test_session.client().get_bucket_name();
 
     let file_name = "file.bin";
 
     // Create the first version of the file
     let old_contents = vec![0x0fu8; OBJECT_SIZE];
-    test_session.client().put_object(file_name, &old_contents).unwrap();
+    test_session
+        .client()
+        .put_object(&bucket_name, file_name, &old_contents)
+        .unwrap();
 
     // Open and read fully the file before updating it remotely
     let old_file = File::open(test_session.mount_path().join(file_name)).unwrap();
@@ -47,7 +51,10 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     assert_eq!(buf, &old_contents[..buf.len()]);
 
     let new_contents = vec![0xffu8; OBJECT_SIZE];
-    test_session.client().put_object(file_name, &new_contents).unwrap();
+    test_session
+        .client()
+        .put_object(&bucket_name, file_name, &new_contents)
+        .unwrap();
 
     // Open the file again, which should be reading from cache
     for _ in 0..2 {

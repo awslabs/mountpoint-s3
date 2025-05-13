@@ -76,6 +76,7 @@ fn rmdir_local_dir_test_s3(prefix: &str) {
 
 fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     let main_dirname = "test_dir";
     let main_path = test_session.mount_path().join(main_dirname);
@@ -83,7 +84,11 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let remote_dirname = "remote_dir";
     test_session
         .client()
-        .put_object(&format!("{main_dirname}/{remote_dirname}/hello.txt"), b"hello world")
+        .put_object(
+            &bucket,
+            &format!("{main_dirname}/{remote_dirname}/hello.txt"),
+            b"hello world",
+        )
         .unwrap();
     let remote_path = main_path.join(remote_dirname);
     let err = fs::remove_dir(remote_path).expect_err("removing remote directory should fail");
@@ -98,7 +103,7 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     // adding zero byte directory marker
     test_session
         .client()
-        .put_object(&format!("{main_dirname}/{empty_remote_dirname}/"), b"")
+        .put_object(&bucket, &format!("{main_dirname}/{empty_remote_dirname}/"), b"")
         .unwrap();
     let empty_remote_path = main_path.join(empty_remote_dirname);
     let err = fs::remove_dir(empty_remote_path).expect_err("removing remote directory should fail");
@@ -107,7 +112,7 @@ fn rmdir_remote_dir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let remote_filename = "remote_file";
     test_session
         .client()
-        .put_object(&format!("{main_dirname}/{remote_filename}"), b"Hello World")
+        .put_object(&bucket, &format!("{main_dirname}/{remote_filename}"), b"Hello World")
         .unwrap();
     let remote_file_path = main_path.join(remote_filename);
     let err = fs::remove_dir(remote_file_path).expect_err("removing file through rmdir should fail");

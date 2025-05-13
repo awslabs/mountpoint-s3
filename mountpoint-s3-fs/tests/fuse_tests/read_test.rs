@@ -48,11 +48,18 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
 
     let test_session = creator_fn(prefix, TestSessionConfig::default().with_pass_fuse_fd(pass_fuse_fd));
+    let bucket = test_session.client().get_bucket_name();
 
-    test_session.client().put_object("hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "hello.txt", b"hello world")
+        .unwrap();
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
-    test_session.client().put_object("test2MiB.bin", &two_mib_body).unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "test2MiB.bin", &two_mib_body)
+        .unwrap();
 
     let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
@@ -302,8 +309,12 @@ fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
-    test_session.client().put_object("hello.txt", b"hello world").unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "hello.txt", b"hello world")
+        .unwrap();
 
     let file_path = test_session.mount_path().join("hello.txt");
 
@@ -354,11 +365,12 @@ fn read_errors_test_mock(prefix: BucketPrefix) {
 fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "data.bin";
     let test_session = creator_fn("read_after_flush_test", Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     let mut rng = ChaChaRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
-    test_session.client().put_object(KEY, &two_mib_body).unwrap();
+    test_session.client().put_object(&bucket, KEY, &two_mib_body).unwrap();
 
     let path = test_session.mount_path().join(KEY);
     let mut f = open_for_read(path, true).unwrap();
