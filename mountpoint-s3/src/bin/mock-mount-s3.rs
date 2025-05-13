@@ -10,6 +10,7 @@
 //!
 //! This binary is intended only for use in testing and development of Mountpoint.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -48,6 +49,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
 
     let config = MockClientConfig {
         bucket: args.bucket_name.clone(),
+        allowed_buckets: HashSet::from([args.bucket_name.clone()]),
         part_size: args.part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,
