@@ -47,16 +47,20 @@ use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
 async fn test_read_dir_root(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let (client, fs) = make_test_filesystem("test_read_dir", &prefix, Default::default());
+    let bucket = client.get_default_bucket_name();
 
     client.add_object(
+        &bucket,
         &format!("{prefix}file1.txt"),
         MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
     );
     client.add_object(
+        &bucket,
         &format!("{prefix}file2.txt"),
         MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
     );
     client.add_object(
+        &bucket,
         &format!("{prefix}file3.txt"),
         MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()),
     );
@@ -121,16 +125,20 @@ async fn test_read_dir_root(prefix: &str) {
 async fn test_read_dir_nested(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let (client, fs) = make_test_filesystem("test_read_dir_nested", &prefix, Default::default());
+    let bucket = client.get_default_bucket_name();
 
     client.add_object(
+        &bucket,
         &format!("{prefix}dir1/file1.txt"),
         MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
     );
     client.add_object(
+        &bucket,
         &format!("{prefix}dir1/file2.txt"),
         MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
     );
     client.add_object(
+        &bucket,
         &format!("{prefix}dir2/file3.txt"),
         MockObject::constant(0xa3, 15, ETag::from_str("test_etag_3").unwrap()),
     );
@@ -195,6 +203,7 @@ async fn test_lookup_negative_cached() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_negative_cached", &Default::default(), fs_config);
+    let bucket = client.get_default_bucket_name();
 
     let head_counter = client.new_counter(Operation::HeadObject);
     let list_counter = client.new_counter(Operation::ListObjectsV2);
@@ -214,7 +223,7 @@ async fn test_lookup_negative_cached() {
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(&bucket, "file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let _ = fs
         .lookup(FUSE_ROOT_INODE, "file1.txt".as_ref())
@@ -261,8 +270,9 @@ async fn test_lookup_then_open_cached() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
+    let bucket = client.get_default_bucket_name();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(&bucket, "file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let head_counter = client.new_counter(Operation::HeadObject);
     let list_counter = client.new_counter(Operation::ListObjectsV2);
@@ -290,8 +300,9 @@ async fn test_lookup_then_open_no_cache() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_then_open_no_cache", &Default::default(), fs_config);
+    let bucket = client.get_default_bucket_name();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(&bucket, "file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let head_counter = client.new_counter(Operation::HeadObject);
     let list_counter = client.new_counter(Operation::ListObjectsV2);
@@ -319,8 +330,9 @@ async fn test_readdir_then_open_cached() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_readdir_then_open_cached", &Default::default(), fs_config);
+    let bucket = client.get_default_bucket_name();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(&bucket, "file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     // Repeat to check readdir is not currently served from cache
     for _ in 0..2 {
@@ -366,8 +378,9 @@ async fn test_unlink_cached() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_lookup_then_open_cached", &Default::default(), fs_config);
+    let bucket = client.get_default_bucket_name();
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(&bucket, "file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let parent_ino = FUSE_ROOT_INODE;
     let head_counter = client.new_counter(Operation::HeadObject);
@@ -410,12 +423,13 @@ async fn test_mknod_cached() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), fs_config);
+    let bucket = client.get_default_bucket_name();
 
     let parent = FUSE_ROOT_INODE;
     let head_counter = client.new_counter(Operation::HeadObject);
     let list_counter = client.new_counter(Operation::ListObjectsV2);
 
-    client.add_object("file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(&bucket, "file1.txt", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
     let mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
     let err_no = fs
@@ -444,11 +458,16 @@ async fn test_mknod_cached() {
 #[tokio::test]
 async fn test_random_read(object_size: usize) {
     let (client, fs) = make_test_filesystem("test_random_read", &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
     let mut expected = vec![0; object_size];
     rng.fill(&mut expected[..]);
-    client.add_object("file", MockObject::from_bytes(&expected[..], ETag::for_tests()));
+    client.add_object(
+        &bucket,
+        "file",
+        MockObject::from_bytes(&expected[..], ETag::for_tests()),
+    );
 
     // Find the object
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -485,14 +504,17 @@ async fn test_random_read(object_size: usize) {
 async fn test_implicit_directory_shadow(prefix: &str) {
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let (client, fs) = make_test_filesystem("test_implicit_directory_shadow", &prefix, Default::default());
+    let bucket = client.get_default_bucket_name();
 
     // Make an object that matches a directory name. We want this object to be shadowed by the
     // directory.
     client.add_object(
+        &bucket,
         &format!("{prefix}dir1/"),
         MockObject::constant(0xa1, 15, ETag::from_str("test_etag_1").unwrap()),
     );
     client.add_object(
+        &bucket,
         &format!("{prefix}dir1/file2.txt"),
         MockObject::constant(0xa2, 15, ETag::from_str("test_etag_2").unwrap()),
     );
@@ -540,12 +562,17 @@ async fn test_sequential_write(write_size: usize) {
     const OBJECT_SIZE: usize = 50 * 1024;
 
     let (client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
-    client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
+    client.add_object(
+        &bucket,
+        "dir1/file1.bin",
+        MockObject::constant(0xa1, 15, ETag::for_tests()),
+    );
 
     // Find the dir1 directory
     let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
@@ -899,20 +926,25 @@ async fn test_upload_aborted_on_release_failure() {
 #[tokio::test]
 async fn test_stat_block_size() {
     let (client, fs) = make_test_filesystem("test_stat_block_size", &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
     client.add_object(
+        &bucket,
         "file0.txt",
         MockObject::constant(0xa1, 0, ETag::from_str("test_etag_1").unwrap()),
     );
     client.add_object(
+        &bucket,
         "file1.txt",
         MockObject::constant(0xa2, 1, ETag::from_str("test_etag_2").unwrap()),
     );
     client.add_object(
+        &bucket,
         "file4096.txt",
         MockObject::constant(0xa3, 4096, ETag::from_str("test_etag_3").unwrap()),
     );
     client.add_object(
+        &bucket,
         "file4097.txt",
         MockObject::constant(0xa3, 4097, ETag::from_str("test_etag_4").unwrap()),
     );
@@ -943,8 +975,9 @@ async fn test_lookup_removes_old_children(key: &str) {
         &Default::default(),
         Default::default(),
     );
+    let bucket = client.get_default_bucket_name();
 
-    client.add_object(key, MockObject::constant(0xa1, 0, ETag::for_tests()));
+    client.add_object(&bucket, key, MockObject::constant(0xa1, 0, ETag::for_tests()));
 
     let child_name = key.split_once('/').map(|(p, _)| p).unwrap_or(key);
 
@@ -1015,17 +1048,18 @@ async fn test_directory_shadowing_lookup() {
         &Default::default(),
         Default::default(),
     );
+    let bucket = client.get_default_bucket_name();
 
     // Add an object
     let name = "foo";
-    client.add_object(name, b"foo".into());
+    client.add_object(&bucket, name, b"foo".into());
 
     let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::RegularFile);
 
     // Add another object, whose prefix shadows the first
     let nested = format!("{name}/bar");
-    client.add_object(&nested, b"bar".into());
+    client.add_object(&bucket, &nested, b"bar".into());
 
     let lookup_entry = fs.lookup(FUSE_ROOT_INODE, name.as_ref()).await.unwrap();
     assert_eq!(lookup_entry.attr.kind, FileType::Directory);
@@ -1044,9 +1078,10 @@ async fn test_directory_shadowing_readdir() {
         &Default::default(),
         Default::default(),
     );
+    let bucket = client.get_default_bucket_name();
 
     // Add `foo/bar` as a file
-    client.add_object("foo/bar", b"foo/bar".into());
+    client.add_object(&bucket, "foo/bar", b"foo/bar".into());
 
     let foo_dir = fs.lookup(FUSE_ROOT_INODE, "foo".as_ref()).await.unwrap();
     assert_eq!(foo_dir.attr.kind, FileType::Directory);
@@ -1070,7 +1105,7 @@ async fn test_directory_shadowing_readdir() {
     assert_eq!(bar_file.attr.ino, bar_dentry.attr.ino);
 
     // Add another object that shadows the first `bar` file with a directory
-    client.add_object("foo/bar/baz", b"bar".into());
+    client.add_object(&bucket, "foo/bar/baz", b"bar".into());
 
     let bar_dentry_new = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
@@ -1120,9 +1155,10 @@ async fn test_directory_shadowing_readdir() {
 #[tokio::test]
 async fn test_readdir_vs_readdirplus() {
     let (client, fs) = make_test_filesystem("test_readdir_vs_readdirplus", &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
-    client.add_object("bar", b"bar".into());
-    client.add_object("baz/foo", b"foo".into());
+    client.add_object(&bucket, "bar", b"bar".into());
+    client.add_object(&bucket, "baz/foo", b"foo".into());
 
     let readdir_entries = {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -1191,6 +1227,8 @@ async fn test_flexible_retrieval_objects() {
         Default::default(),
     );
 
+    let bucket = client.get_default_bucket_name();
+
     for name in NAMES {
         let mut object = MockObject::from(b"hello world");
         object.set_storage_class(Some(name.to_string().replace("_RESTORED", "")));
@@ -1201,7 +1239,7 @@ async fn test_flexible_retrieval_objects() {
         } else {
             None
         });
-        client.add_object(name, object);
+        client.add_object(&bucket, name, object);
     }
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -1245,7 +1283,7 @@ async fn test_flexible_retrieval_objects() {
         } else {
             None
         });
-        client.add_object(&file_name, object);
+        client.add_object(&bucket, &file_name, object);
 
         let lookup = fs.lookup(FUSE_ROOT_INODE, file_name.as_ref()).await.unwrap();
 
@@ -1266,9 +1304,10 @@ async fn test_flexible_retrieval_objects() {
 #[tokio::test]
 async fn test_readdir_rewind_ordered() {
     let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
     for i in 0..10 {
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        client.add_object(&bucket, &format!("foo{i}"), b"foo".into());
     }
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -1351,9 +1390,10 @@ async fn test_readdir_rewind_unordered() {
         ..Default::default()
     };
     let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), config);
+    let bucket = client.get_default_bucket_name();
 
     for i in 0..10 {
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        client.add_object(&bucket, &format!("foo{i}"), b"foo".into());
     }
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -1382,9 +1422,10 @@ async fn test_readdir_rewind_unordered() {
 #[tokio::test]
 async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     let (client, fs) = make_test_filesystem("test_readdir_rewind", &Default::default(), s3_fs_config);
+    let bucket = client.get_default_bucket_name();
 
     for i in 0..10 {
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        client.add_object(&bucket, &format!("foo{i}"), b"foo".into());
     }
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -1394,7 +1435,7 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     new_local_file(&fs, file_name).await;
 
     // Let's add a new remote file
-    client.add_object("foo10", b"foo".into());
+    client.add_object(&bucket, "foo10", b"foo".into());
 
     // Requesting same offset (non zero) works fine by returning last response
     let _ = ls(&fs, dir_handle, 0, 5).await;
@@ -1469,10 +1510,11 @@ async fn test_readdir_rewind_with_local_files_only() {
 #[tokio::test]
 async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, second_repeated_offset: usize) {
     let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
     for i in 0..48 {
         // "." and ".." make it a round 50 in total
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        client.add_object(&bucket, &format!("foo{i}"), b"foo".into());
     }
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
@@ -1502,10 +1544,11 @@ async fn test_readdir_repeat_response_partial(first_repeated_offset: usize, seco
 #[tokio::test]
 async fn test_readdir_repeat_response_after_rewind() {
     let (client, fs) = make_test_filesystem("test_readdir_repeat_response", &Default::default(), Default::default());
+    let bucket = client.get_default_bucket_name();
 
     for i in 0..73 {
         // "." and ".." make it a round 75 in total
-        client.add_object(&format!("foo{i}"), b"foo".into());
+        client.add_object(&bucket, &format!("foo{i}"), b"foo".into());
     }
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;

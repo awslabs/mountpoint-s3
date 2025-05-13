@@ -91,18 +91,35 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         } else {
             format!("test-{size}B")
         };
-        client.add_object(&key, MockObject::ramp(0x11, size as usize, ETag::for_tests()));
+        client.add_object(
+            &bucket_name,
+            &key,
+            MockObject::ramp(0x11, size as usize, ETag::for_tests()),
+        );
     }
     // Some objects that are useful for benchmarking
     for job_num in 0..1024 {
         let size_gib = 100;
         let size_bytes = size_gib * 1024u64.pow(3);
         let key = format!("j{job_num}_{size_gib}GiB.bin");
-        client.add_object(&key, MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()));
+        client.add_object(
+            &bucket_name,
+            &key,
+            MockObject::constant(1u8, size_bytes as usize, ETag::for_tests()),
+        );
     }
-    client.add_object("hello.txt", MockObject::from_bytes(b"hello world", ETag::for_tests()));
-    client.add_object("empty", MockObject::from_bytes(b"", ETag::for_tests()));
     client.add_object(
+        &bucket_name,
+        "hello.txt",
+        MockObject::from_bytes(b"hello world", ETag::for_tests()),
+    );
+    client.add_object(
+        &bucket_name,
+        "empty",
+        MockObject::from_bytes(b"", ETag::for_tests()),
+    );
+    client.add_object(
+        &bucket_name,
         "dir/hello.txt",
         MockObject::from_bytes(b"hello world", ETag::for_tests()),
     );

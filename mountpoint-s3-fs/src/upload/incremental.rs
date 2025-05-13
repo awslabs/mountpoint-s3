@@ -508,7 +508,7 @@ mod tests {
         // Create the "before append" object for the test
         let mut existing_object = existing_object;
         if let Some(object) = &mut existing_object {
-            client.add_object(key, object.clone());
+            client.add_object(bucket, key, object.clone());
             expected_content.extend_from_slice(&object.read(0, object.len()));
         }
 
@@ -582,7 +582,7 @@ mod tests {
         // Create the "before append" object for the test
         let mut existing_object = existing_object;
         if let Some(object) = &mut existing_object {
-            client.add_object(key, object.clone());
+            client.add_object(bucket, key, object.clone());
             expected_content.extend_from_slice(&object.read(0, object.len()));
         }
 
@@ -667,7 +667,7 @@ mod tests {
             offset = object.len() as u64;
             initial_etag = Some(object.etag());
             // Create the "before append" object for the test
-            client.add_object(key, object);
+            client.add_object(bucket, key, object);
         }
 
         let buffer_size = 256;
@@ -725,7 +725,7 @@ mod tests {
         // Create the "before append" object for the test
         let mut existing_object = existing_object;
         if let Some(object) = &mut existing_object {
-            client.add_object(key, object.clone());
+            client.add_object(bucket, key, object.clone());
             expected_content.extend_from_slice(&object.read(0, object.len()));
         }
 
@@ -762,7 +762,7 @@ mod tests {
         }));
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
@@ -809,7 +809,7 @@ mod tests {
 
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
         expected_content.extend_from_slice(&existing_object.read(0, existing_object.len()));
 
         let buffer_size = 256;
@@ -852,7 +852,7 @@ mod tests {
         }));
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
@@ -919,7 +919,7 @@ mod tests {
 
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
         expected_content.extend_from_slice(&existing_object.read(0, existing_object.len()));
 
         let buffer_size = 256;
@@ -984,7 +984,7 @@ mod tests {
         }));
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
@@ -997,7 +997,7 @@ mod tests {
 
         // Replace the existing object
         let replacing_object = MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, replacing_object.clone());
+        client.add_object(bucket, key, replacing_object.clone());
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
@@ -1084,7 +1084,7 @@ mod tests {
         }));
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
 
         let buffer_size = 256;
         let server_side_encryption =
@@ -1127,7 +1127,7 @@ mod tests {
         }));
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, existing_object.clone());
+        client.add_object(bucket, key, existing_object.clone());
         expected_content.extend_from_slice(&existing_object.read(0, existing_object.len()));
 
         let buffer_size = 256;

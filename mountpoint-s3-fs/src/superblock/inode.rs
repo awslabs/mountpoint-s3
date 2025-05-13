@@ -533,7 +533,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
-        client.add_object(name, b"foo".into());
+        client.add_object("test_bucket", name, b"foo".into());
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
@@ -571,7 +571,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
-        client.add_object(name, b"foo".into());
+        client.add_object("test_bucket", name, b"foo".into());
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
@@ -581,7 +581,7 @@ mod tests {
         let ino = lookup.inode.ino();
         drop(lookup);
 
-        client.add_object(&format!("{name}/bar"), b"bar".into());
+        client.add_object("test_bucket", &format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
         let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
@@ -603,7 +603,11 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let file_name = "corrupted";
-        client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+        client.add_object(
+            "test_bucket",
+            file_name.as_ref(),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 

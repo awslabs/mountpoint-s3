@@ -956,7 +956,11 @@ mod tests {
             ..Default::default()
         }));
         // Create "dir1" in the client to avoid creating it locally
-        client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
+        client.add_object(
+            bucket,
+            "dir1/file1.bin",
+            MockObject::constant(0xa1, 15, ETag::for_tests()),
+        );
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
