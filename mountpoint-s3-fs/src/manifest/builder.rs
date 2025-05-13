@@ -52,10 +52,7 @@ fn validate_db_entry(db_entry: &DbEntry) -> Result<(), ManifestError> {
 
 /// Ingests a manifest into the database
 pub fn ingest_manifest(csv_path: &Path, db_path: &Path) -> Result<(), ManifestError> {
-    let file = File::open(csv_path).map_err(|err| ManifestError::ManifestOpenError {
-        path: csv_path.to_path_buf(),
-        source: err,
-    })?;
+    let file = File::open(csv_path).map_err(|err| ManifestError::CsvOpenError(csv_path.to_path_buf(), err))?;
     let csv_reader = CsvReader::new(BufReader::new(file));
     if db_path.exists() {
         return Err(ManifestError::DbExists);
