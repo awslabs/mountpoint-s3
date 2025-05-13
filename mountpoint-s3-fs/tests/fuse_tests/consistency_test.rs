@@ -11,10 +11,13 @@ fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     const OBJECT_SIZE: usize = 512 * 1024;
 
     let test_session = creator_fn(prefix, Default::default());
-
     // Create the first version of the file
     let old_contents = vec![0xaau8; OBJECT_SIZE];
-    test_session.client().put_object("file.bin", &old_contents).unwrap();
+    let bucket = test_session.client().get_bucket_name();
+    test_session
+        .client()
+        .put_object(&bucket, "file.bin", &old_contents)
+        .unwrap();
 
     // Open the file before updating it remotely
     let old_file = File::open(test_session.mount_path().join("file.bin")).unwrap();
@@ -23,7 +26,10 @@ fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     assert_eq!(buf, &old_contents[..buf.len()]);
 
     let new_contents = vec![0xbbu8; OBJECT_SIZE];
-    test_session.client().put_object("file.bin", &new_contents).unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "file.bin", &new_contents)
+        .unwrap();
 
     // Open the file again, should see the new contents this time
     let new_file = File::open(test_session.mount_path().join("file.bin")).unwrap();

@@ -120,11 +120,12 @@ fn sequential_write_test(
         ..Default::default()
     };
     let test_session = creator_fn("sequential_write_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let subdir = test_session.mount_path().join("dir");
@@ -201,10 +202,11 @@ fn write_errors_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMod
         ..Default::default()
     };
     let test_session = creator_fn("write_errors_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let existing_file_path = test_session.mount_path().join("dir/hello.txt");
@@ -302,11 +304,12 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
     const KEY: &str = "dir/new.txt";
 
     let test_session = creator_fn("sequential_write_streaming_test", Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let path = test_session.mount_path().join(KEY);
@@ -336,7 +339,7 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
         // The upload starts after the first write at the latest
         let status = test_session
             .client()
-            .is_upload_in_progress(KEY)
+            .is_upload_in_progress(&bucket, KEY)
             .expect("the upload should be in-progress");
         assert!(status);
     }
@@ -379,6 +382,7 @@ fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, uploa
     };
     let test_session = creator_fn("fsync_test", config);
     let path = test_session.mount_path().join(KEY);
+    let bucket = test_session.client().get_bucket_name();
 
     let mut f = File::options().rw_mode(rw_mode).create(true).open(&path).unwrap();
 
@@ -392,11 +396,11 @@ fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, uploa
 
     f.write_all(&body).unwrap();
 
-    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(&bucket, KEY).unwrap());
 
     f.sync_all().unwrap();
 
-    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(&bucket, KEY).unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), body.len() as u64);
@@ -702,7 +706,7 @@ fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, uplo
         ..Default::default()
     };
     let test_session = creator_fn("flush_test", config);
-
+    let bucket = test_session.client().get_bucket_name();
     let path = test_session.mount_path().join(KEY);
 
     let mut f = File::options()
@@ -719,12 +723,12 @@ fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, uplo
         f.write_all(part).unwrap();
     }
 
-    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || test_session.client().is_upload_in_progress(&bucket, KEY).unwrap());
 
     // Close the file. Will trigger a call to flush.
     drop(f);
 
-    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(KEY).unwrap());
+    assert!(upload_mode.is_incremental() || !test_session.client().is_upload_in_progress(&bucket, KEY).unwrap());
 
     // Now it's closed, we can stat or read it
     let m = metadata(&path).unwrap();
@@ -759,6 +763,7 @@ fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         ..Default::default()
     };
     let test_session = creator_fn("touch_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let path = test_session.mount_path().join(KEY);
 
@@ -775,8 +780,8 @@ fn touch_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         if st.elapsed() > MAX_WAIT_DURATION {
             panic!("wait for result timeout")
         }
-        if !test_session.client().is_upload_in_progress(KEY).unwrap()
-            && test_session.client().contains_key(KEY).unwrap()
+        if !test_session.client().is_upload_in_progress(&bucket, KEY).unwrap()
+            && test_session.client().contains_key(&bucket, KEY).unwrap()
         {
             break;
         }
@@ -813,6 +818,7 @@ fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         ..Default::default()
     };
     let test_session = creator_fn("dd_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let path = test_session.mount_path().join(KEY);
 
@@ -825,8 +831,8 @@ fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
         .expect("Unable to spawn dd");
     assert!(exit_status.success());
 
-    assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
-    assert!(test_session.client().contains_key(KEY).unwrap());
+    assert!(!test_session.client().is_upload_in_progress(&bucket, KEY).unwrap());
+    assert!(test_session.client().contains_key(&bucket, KEY).unwrap());
 
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), SIZE);
@@ -883,6 +889,7 @@ fn multi_thread_test(upload_mode: UploadMode) {
         ..Default::default()
     };
     let test_session = fuse::mock_session::new("multi_thread_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let path = test_session.mount_path().join(KEY);
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
@@ -894,8 +901,8 @@ fn multi_thread_test(upload_mode: UploadMode) {
         f.write_all(&data).unwrap();
         drop(f);
 
-        assert!(!test_session.client().is_upload_in_progress(KEY).unwrap());
-        assert!(test_session.client().contains_key(KEY).unwrap());
+        assert!(!test_session.client().is_upload_in_progress(&bucket, KEY).unwrap());
+        assert!(test_session.client().contains_key(&bucket, KEY).unwrap());
 
         let m = metadata(&path).unwrap();
         assert_eq!(m.len(), (data.len() * 2) as u64);
@@ -915,11 +922,12 @@ fn overwrite_test(creator_fn: impl TestSessionCreator, prefix: &str, rw_mode: Re
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -967,11 +975,12 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1029,11 +1038,12 @@ fn overwrite_fail_on_write_without_truncate_test(
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1092,11 +1102,12 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1138,11 +1149,12 @@ fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) 
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
@@ -1192,9 +1204,10 @@ fn write_handle_no_update_existing_empty_file(
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Make sure there's an existing directory and a file
-    test_session.client().put_object("dir/hello.txt", b"").unwrap();
+    test_session.client().put_object(&bucket, "dir/hello.txt", b"").unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
     let path = test_session.mount_path().join("dir/hello.txt");
@@ -1317,6 +1330,7 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 #[test_case(200)]
 fn concurrent_open_for_write_test(max_files: usize) {
     let test_session = fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
 
@@ -1345,7 +1359,7 @@ fn concurrent_open_for_write_test(max_files: usize) {
 
     for file_name in file_names {
         assert!(
-            test_session.client().contains_key(&file_name).unwrap(),
+            test_session.client().contains_key(&bucket, &file_name).unwrap(),
             "object must exist in S3"
         );
     }
@@ -1377,11 +1391,11 @@ fn write_checksums_test(
         ..Default::default()
     };
     let test_session = creator_fn("write_checksums_test", config);
-
+    let bucket = test_session.client().get_bucket_name();
     // Make sure there's an existing directory
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&bucket, "dir/hello.txt", b"hello world")
         .unwrap();
 
     let path = test_session.mount_path().join(KEY);
@@ -1402,7 +1416,7 @@ fn write_checksums_test(
     drop(f);
 
     // Now it's fsync'ed and closed, it should be present in S3
-    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).unwrap();
+    let (object_checksum, part_checksums) = test_session.client().get_object_checksums(&bucket, KEY).unwrap();
     match checksums_mode {
         UploadChecksumsMode::Enabled => {
             // We should get the correct checksum on the whole object or on the parts.
@@ -1474,6 +1488,7 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
         ..Default::default()
     };
     let test_session = creator_fn("append_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let path = test_session.mount_path().join(KEY);
 
@@ -1482,7 +1497,7 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
         expected.extend_from_slice(initial_content.as_bytes());
 
         // Create the file with the initial content
-        test_session.client().put_object(KEY, &expected).unwrap();
+        test_session.client().put_object(&bucket, KEY, &expected).unwrap();
 
         // Check the file already exists and has the expected size
         let m = metadata(&path).unwrap();
@@ -1511,7 +1526,7 @@ fn append_test(creator_fn: impl TestSessionCreator, append_config: AppendTestCon
             let m = metadata(&path).unwrap();
             assert_eq!(m.len(), expected.len() as u64);
 
-            let new_size = test_session.client().get_object_size(KEY).unwrap();
+            let new_size = test_session.client().get_object_size(&bucket, KEY).unwrap();
             assert_eq!(new_size, expected.len());
         }
     }
@@ -1561,6 +1576,7 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
         ..Default::default()
     };
     let test_session = creator_fn("append_with_checksums", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let path = test_session.mount_path().join(KEY);
 
@@ -1588,7 +1604,7 @@ fn append_with_checksums(creator_fn: impl TestSessionCreator, checksum_algorithm
     let params = PutObjectSingleParams::new().checksum(checksum);
     test_session
         .client()
-        .put_object_single(KEY, INITIAL_CONTENT, params)
+        .put_object_single(&bucket, KEY, INITIAL_CONTENT, params)
         .unwrap();
 
     let mut f = File::options().read(false).append(true).open(&path).unwrap();
@@ -1635,18 +1651,21 @@ fn append_fails_on_object_replaced(creator_fn: impl TestSessionCreator) {
         ..Default::default()
     };
     let test_session = creator_fn("append_fails_on_object_replaced", config);
-
+    let bucket = test_session.client().get_bucket_name();
     let path = test_session.mount_path().join(KEY);
 
     // Create the file with the initial content
     const INITIAL_CONTENT: &[u8] = b"original";
-    test_session.client().put_object(KEY, INITIAL_CONTENT).unwrap();
+    test_session.client().put_object(&bucket, KEY, INITIAL_CONTENT).unwrap();
 
     let f = File::options().read(false).append(true).open(&path).unwrap();
 
     // Replace the original file
     const REPLACED_CONTENT: &[u8] = b"replaced";
-    test_session.client().put_object(KEY, REPLACED_CONTENT).unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, KEY, REPLACED_CONTENT)
+        .unwrap();
 
     fn append_to_file(mut f: File) -> std::io::Result<()> {
         f.write_all(b"append")?;
