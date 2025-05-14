@@ -358,8 +358,9 @@ async fn test_get_object_wrong_region() {
 
     let key = format!("{prefix}/nonexistent_key");
 
-    let client = S3CrtClient::new(S3ClientConfig::new().endpoint_config(EndpointConfig::new("us-west-1")))
-        .expect("must create a client");
+    let endpoint_config = EndpointConfig::new(&get_secondary_test_region());
+    let client =
+        S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("must create a client");
 
     let err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
