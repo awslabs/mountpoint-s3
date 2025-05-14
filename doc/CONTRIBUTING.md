@@ -76,8 +76,12 @@ For `mountpoint-s3` (i.e. Mountpoint itself), new features and very minor breaki
 For the crates, both we and Cargo treat the middle number (0.Y.z) as breaking changes and all new additions or bug fixes should update the latter number (0.y.Z).
 
 When a pull request is submitted, we consider whether the changes it contains should trigger a version number increment
-by comparing the latest released version with the one on `main`.
+by comparing the latest published version with the one on `main`.
 Ultimately, we want both the crate version and the changelog to reflect all changes since the last published release.
+
+We should ensure that the dependent packages (for example, `mountpoint-s3-client` is a dependent of `mountpoint-s3-crt`) declare a dependency on the latest version number.
+In other words, when updating `mountpoint-s3-crt` from `0.1.0` to `0.1.1`,
+we should update `mountpoint-s3-client`'s dependency on that package to `0.1.1` also.
 
 Mountpoint (`mountpoint-s3`) change example:
 
@@ -92,6 +96,11 @@ Mountpoint (`mountpoint-s3`) change example:
 * The latest release, as reported on the changelog, is `0.14.0`.
 * The patch version number should be incremented compared to the published version as this is new behavior for an unstable crate,
   so the new version should be `0.14.1`.
+* The dependents of this package - both `mountpoint-s3` and `mountpoint-s3-fs` - should update their declared dependency
+  from `0.14.0` to `0.14.1`.
+
+For any versioning change, we should ensure that the workspace lock file is updated and committed.
+This can be done by running a build, or something like `cargo check`.
 
 ## Finding contributions to work on
 
