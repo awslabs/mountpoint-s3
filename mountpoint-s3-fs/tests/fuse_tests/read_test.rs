@@ -172,6 +172,7 @@ fn read_flexible_retrieval_test(
     use mountpoint_s3_client::types::PutObjectSingleParams;
 
     let test_session = creator_fn(prefix, Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     for file in files {
         let mut put_params = PutObjectSingleParams::default();
@@ -181,19 +182,19 @@ fn read_flexible_retrieval_test(
         let key = format!("{file}.txt");
         test_session
             .client()
-            .put_object_single(&key, b"hello world", put_params)
+            .put_object_single(&bucket, &key, b"hello world", put_params)
             .unwrap();
         match restore {
             RestorationOptions::None => (),
             RestorationOptions::RestoreAndWait => {
-                test_session.client().restore_object(&key, true).unwrap();
+                test_session.client().restore_object(&bucket, &key, true).unwrap();
                 let timeout = Duration::from_secs(300);
                 let start = Instant::now();
                 let mut timeouted = true;
                 while start.elapsed() < timeout {
                     if test_session
                         .client()
-                        .is_object_restored(&key)
+                        .is_object_restored(&bucket, &key)
                         .expect("failed to check restoration status")
                     {
                         timeouted = false;
@@ -203,7 +204,9 @@ fn read_flexible_retrieval_test(
                 }
                 assert!(!timeouted, "timeouted while waiting for object become restored");
             }
-            RestorationOptions::RestoreInProgress => test_session.client().restore_object(&key, false).unwrap(),
+            RestorationOptions::RestoreInProgress => {
+                test_session.client().restore_object(&bucket, &key, false).unwrap()
+            }
         }
     }
 
