@@ -10,7 +10,7 @@ use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{default_prefetch, Prefetch, PrefetchResult};
+use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::Runtime;
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::fmt::Subscriber;
@@ -23,6 +23,7 @@ fn init_tracing_subscriber() {
 
     let subscriber = Subscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(supports_color::on(supports_color::Stream::Stderr).is_some())
         .with_writer(std::io::stderr)
         .finish();
 
@@ -144,7 +145,8 @@ fn main() {
 
     for i in 0..args.iterations {
         let runtime = Runtime::new(client.event_loop_group());
-        let manager = default_prefetch(runtime, Default::default());
+        let manager =
+            Prefetcher::default_builder(client.clone()).build(runtime, mem_limiter.clone(), Default::default());
         let received_bytes = Arc::new(AtomicU64::new(0));
 
         let start = Instant::now();
@@ -153,13 +155,7 @@ fn main() {
         thread::scope(|scope| {
             for _ in 0..args.downloads {
                 let received_bytes = received_bytes.clone();
-                let mut request = manager.prefetch(
-                    client.clone(),
-                    mem_limiter.clone(),
-                    bucket.to_string(),
-                    object_id.clone(),
-                    size,
-                );
+                let mut request = manager.prefetch(bucket.to_string(), object_id.clone(), size);
 
                 scope.spawn(|| {
                     futures::executor::block_on(async move {
@@ -178,11 +174,11 @@ fn main() {
 
         let received_size = received_bytes.load(Ordering::SeqCst);
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2}MiB/s",
+            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
             i,
             received_size,
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024) as f64
+            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
     }
 }

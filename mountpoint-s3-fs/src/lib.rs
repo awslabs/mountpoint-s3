@@ -1,11 +1,12 @@
 mod async_util;
 pub mod autoconfigure;
 mod checksums;
-pub mod cli;
+mod config;
 pub mod data_cache;
 pub mod fs;
 pub mod fuse;
 pub mod logging;
+#[cfg(feature = "manifest")]
 pub mod manifest;
 pub mod mem_limiter;
 pub mod metrics;
@@ -18,6 +19,7 @@ mod sync;
 pub mod upload;
 
 pub use async_util::Runtime;
+pub use config::MountpointConfig;
 pub use fs::{S3Filesystem, S3FilesystemConfig, ServerSideEncryption};
 
 /// Enable tracing and CRT logging when running unit tests.

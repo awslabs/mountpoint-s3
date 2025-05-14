@@ -1385,6 +1385,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acdc4883a9c96732e4733212c01447ebd805833b7275a73ca3ee080fd77afdaf"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "ctor"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2785,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3"
-version = "1.17.0"
+version = "1.17.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2801,6 +2822,7 @@ dependencies = [
  "mountpoint-s3-fs",
  "mountpoint-s3-fuser",
  "nix",
+ "owo-colors 4.2.0",
  "predicates",
  "proptest",
  "rand",
@@ -2808,6 +2830,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sysinfo",
  "tempfile",
  "test-case",
  "tokio",
@@ -2847,6 +2870,7 @@ dependencies = [
  "rusty-fork",
  "serde_json",
  "static_assertions",
+ "supports-color 3.0.2",
  "tempfile",
  "test-case",
  "thiserror 2.0.12",
@@ -2859,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -2881,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
@@ -2893,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-fs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2912,6 +2936,7 @@ dependencies = [
  "clap",
  "const_format",
  "crc32c",
+ "csv",
  "ctor",
  "ctrlc",
  "dashmap",
@@ -2927,7 +2952,6 @@ dependencies = [
  "mountpoint-s3-client",
  "mountpoint-s3-fuser",
  "nix",
- "owo-colors 4.2.0",
  "predicates",
  "procfs",
  "proptest",

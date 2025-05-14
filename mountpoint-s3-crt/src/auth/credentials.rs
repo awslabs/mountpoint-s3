@@ -4,8 +4,9 @@ use std::fmt::Debug;
 use std::ptr::NonNull;
 
 use mountpoint_s3_crt_sys::{
-    aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_chain_default_options,
-    aws_credentials_provider_new_anonymous, aws_credentials_provider_new_chain_default,
+    aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_cached_options,
+    aws_credentials_provider_chain_default_options, aws_credentials_provider_new_anonymous,
+    aws_credentials_provider_new_cached, aws_credentials_provider_new_chain_default,
     aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
     aws_credentials_provider_profile_options, aws_credentials_provider_release,
     aws_credentials_provider_static_options,
@@ -105,6 +106,8 @@ impl CredentialsProvider {
 
         // SAFETY: aws_credentials_provider_new_profile makes a copy of bootstrap
         // and contents of profile_name_override.
+        // SAFETY: aws_credentials_provider_new_cached increments the reference counter of
+        // profile_provider.
         let inner = unsafe {
             let inner_options = aws_credentials_provider_profile_options {
                 bootstrap: options.bootstrap.inner.as_ptr(),
@@ -112,7 +115,22 @@ impl CredentialsProvider {
                 ..Default::default()
             };
 
-            aws_credentials_provider_new_profile(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
+            let profile_provider =
+                aws_credentials_provider_new_profile(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?;
+
+            let inner_options = aws_credentials_provider_cached_options {
+                source: profile_provider.as_ptr(),
+                refresh_time_in_milliseconds: 900_000, // Same as `aws_credentials_provider_new_chain_default`, 15 minutes
+                ..Default::default()
+            };
+
+            let cached_provider =
+                aws_credentials_provider_new_cached(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?;
+
+            // transfer ownership
+            aws_credentials_provider_release(profile_provider.as_ptr());
+
+            cached_provider
         };
 
         Ok(Self { inner })

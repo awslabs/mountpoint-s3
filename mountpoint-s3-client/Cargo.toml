@@ -1,6 +1,6 @@
 [package]
 name = "mountpoint-s3-client"
-# See `/mountpoint-s3-client/PUBLISHING_CRATES.md` to read how to publish new versions.
+# See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
 version = "0.14.1"
 edition = "2021"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ repository = "https://github.com/awslabs/mountpoint-s3"
 description = "High-performance Amazon S3 client for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.12.2" }
+mountpoint-s3-crt = { path = "../mountpoint-s3-crt", version = "0.12.3" }
 
 async-trait = "0.1.85"
 auto_impl = "1.2.1"
@@ -53,6 +53,7 @@ tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
 # default, so we take a dev-dependency on ourself with that feature enabled.
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
 mountpoint-s3-client = { path = ".", features = ["mock"] }
+supports-color = "3.0.2"
 
 [build-dependencies]
 built = { version = "0.7.5", features = ["git2"] }

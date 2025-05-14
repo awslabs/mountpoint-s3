@@ -150,7 +150,7 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
             .field("key", &self.key)
             .field("next_request_offset", &self.next_request_offset)
             .field("hasher", &self.hasher)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

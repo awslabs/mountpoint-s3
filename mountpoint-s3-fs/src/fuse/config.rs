@@ -75,6 +75,10 @@ impl FuseSessionConfig {
             max_threads,
         })
     }
+
+    pub fn mount_point(&self) -> &MountPoint {
+        &self.mount_point
+    }
 }
 
 /// OS mount point where S3 file system should be mounted.

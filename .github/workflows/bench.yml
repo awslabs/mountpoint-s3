@@ -86,7 +86,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         # Make sure to add this chart to the step provisioning static content and pushing the changes
         auto-push: false
-        comment-on-alert: true
+        comment-on-alert: false
         max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Check resource utilization
