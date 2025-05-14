@@ -637,6 +637,7 @@ fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_cl
         ..Default::default()
     };
     let test_session = creator_fn("write_with_storage_class_test", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let path = test_session.mount_path().join(KEY);
 
@@ -644,7 +645,7 @@ fn write_with_storage_class_test(creator_fn: impl TestSessionCreator, storage_cl
 
     assert_eq!(
         storage_class.map(String::from),
-        test_session.client().get_object_storage_class(KEY).unwrap()
+        test_session.client().get_object_storage_class(&bucket, KEY).unwrap()
     );
 }
 
@@ -1321,7 +1322,10 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
         "filesystem must report correct size for the file"
     );
     assert!(
-        test_session.client().contains_key(file_name).unwrap(),
+        test_session
+            .client()
+            .contains_key(&test_session.client().get_bucket_name(), file_name)
+            .unwrap(),
         "object must exist in S3"
     );
 }
