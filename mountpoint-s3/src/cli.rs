@@ -387,6 +387,9 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         value_name = "NETWORK_INTERFACE",
     )]
     pub bind: Option<Vec<String>>,
+
+    #[clap(skip)]
+    pub is_fstab: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -675,6 +678,9 @@ impl CliArgs {
         let mut user_agent = UserAgent::new_with_instance_info(Some(user_agent_prefix), instance_info);
         if self.read_only {
             user_agent.value("mp-readonly");
+        }
+        if self.is_fstab {
+            user_agent.value("mp-fstab");
         }
         match (&self.cache, self.cache_express_bucket_name()) {
             (None, None) => (),
