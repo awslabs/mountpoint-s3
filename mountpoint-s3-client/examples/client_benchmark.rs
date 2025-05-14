@@ -166,7 +166,11 @@ fn main() {
             let client = ThroughputMockClient::new(config, args.throughput_target_gbps);
             let client = Arc::new(client);
 
-            client.add_object(KEY, MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()));
+            client.add_object(
+                BUCKET,
+                KEY,
+                MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()),
+            );
 
             run_benchmark(client, args.iterations, args.downloads, BUCKET, KEY);
         }

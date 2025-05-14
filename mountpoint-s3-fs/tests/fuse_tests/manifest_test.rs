@@ -245,9 +245,12 @@ fn manifest_test_session_config(db_path: &Path) -> TestSessionConfig {
 }
 
 fn put_dummy_objects<T: AsRef<str>>(test_client: &dyn TestClient, manifest_keys: &[T], excluded_keys: &[T]) {
+    let bucket = test_client.get_bucket_name();
     for name in manifest_keys.iter().chain(excluded_keys.iter()) {
         let content = vec![b'0'; 1024];
-        test_client.put_object(name.as_ref(), &content).unwrap();
+        test_client
+            .put_object(bucket.as_ref(), name.as_ref(), &content)
+            .unwrap();
     }
 }
 
