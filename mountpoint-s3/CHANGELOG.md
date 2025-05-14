@@ -1,5 +1,9 @@
 ## Unreleased
 
+### New features
+
+* Add `mp-fstab` tag to the User-Agent header when Mountpoint is launched via an fstab entry. This enables detection and analysis of fstab-based usage in product analytics. ([#1420](https://github.com/awslabs/mountpoint-s3/pull/1420))
+
 ## v1.17.0 (May 12, 2025)
 
 ### New features
