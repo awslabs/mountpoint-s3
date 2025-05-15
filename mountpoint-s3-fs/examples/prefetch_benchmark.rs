@@ -160,6 +160,13 @@ fn main() {
                 scope.spawn(|| {
                     futures::executor::block_on(async move {
                         let mut offset = 0;
+                        // Initial event so we can plot a start time
+                        tracing::info!(
+                            target: "benchmarking_instrumentation",
+                            offset,
+                            length = 0,
+                            "consuming data",
+                        );
                         while offset < size {
                             let bytes = request.read(offset, args.read_size).await.unwrap();
                             let length = bytes.len() as u64;
