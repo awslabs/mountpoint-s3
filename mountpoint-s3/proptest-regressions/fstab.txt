@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0f845f1bdd8577c9701386f5f670cb06bfa06cbebad721a40530a4593f47cbc6 # shrinks to original = CliArgs { bucket_name: "bucket-aaa", mount_point: "/mnt/test-a", prefix: None, region: None, endpoint_url: None, force_path_style: false, transfer_acceleration: false, dual_stack: false, requester_pays: false, bucket_type: None, no_sign_request: false, profile: None, read_only: false, storage_class: None, allow_delete: false, allow_overwrite: false, incremental_upload: false, auto_unmount: false, allow_root: false, allow_other: false, maximum_throughput_gbps: None, max_threads: 16, part_size: 8388608, read_part_size: None, write_part_size: None, uid: Some(0), gid: None, dir_mode: None, file_mode: None, foreground: false, expected_bucket_owner: None, log_directory: None, log_metrics: false, debug: false, debug_crt: false, no_log: false, cache: None, metadata_ttl: None, negative_metadata_ttl: None, max_cache_size: None, cache_xz: None, user_agent_prefix: None, sse: None, sse_kms_key_id: None, upload_checksums: None, bind: None }

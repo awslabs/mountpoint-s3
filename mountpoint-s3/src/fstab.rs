@@ -150,6 +150,7 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
 mod tests {
     use super::*;
     use proptest::{prop_assert_eq, proptest};
+    use proptest_derive::Arbitrary;
     use test_case::test_case;
 
     #[test_case("no commas", Some(["no commas"].to_vec()))]
@@ -250,6 +251,72 @@ mod tests {
 
                 prop_assert_eq!(string, reconstructed, "\n split string was {:?}", split);
             }
+        }
+    }
+
+    #[derive(Debug, Clone, Arbitrary, PartialEq)]
+    #[cfg_attr(test, proptest(no_params))]
+    struct FstabCompatibleCliArgs {
+        #[proptest(regex = "bucket-[a-z]{3,10}")]
+        bucket_name: String,
+        #[proptest(regex = "/mnt/test-[a-z]{1,5}")]
+        mount_point: String,
+        uid: u32,
+        allow_delete: bool,
+        allow_other: bool,
+        debug: bool,
+        read_only: bool,
+    }
+
+    impl From<CliArgs> for FstabCompatibleCliArgs {
+        fn from(cli: CliArgs) -> Self {
+            FstabCompatibleCliArgs {
+                bucket_name: cli.bucket_name,
+                mount_point: cli.mount_point.to_string_lossy().into_owned(),
+                uid: cli.uid.unwrap_or_default(),
+                allow_delete: cli.allow_delete,
+                allow_other: cli.allow_other,
+                debug: cli.debug,
+                read_only: cli.read_only,
+            }
+        }
+    }
+
+    fn serialize_to_fstab_args(cli_args: &FstabCompatibleCliArgs) -> Vec<String> {
+        let mut args = vec![
+            "mount-s3".to_string(),
+            cli_args.bucket_name.clone(),
+            cli_args.mount_point.clone(),
+        ];
+
+        let mut options = vec![format!("uid={}", cli_args.uid)];
+        if cli_args.allow_delete {
+            options.push("allow-delete".to_string());
+        }
+        if cli_args.allow_other {
+            options.push("allow-other".to_string());
+        }
+        if cli_args.debug {
+            options.push("debug".to_string());
+        }
+        if cli_args.read_only {
+            options.push("ro".to_string());
+        }
+
+        args.push("-o".to_string());
+        args.push(options.join(","));
+        args
+    }
+
+    // Test roundtrip conversion between CLI argument formats
+    proptest! {
+        #[test]
+        fn cli_args_roundtrip_from_fstab_args(original: FstabCompatibleCliArgs) {
+            let args = serialize_to_fstab_args(&original);
+            let fstab = FsTabCliArgs::try_parse_from(&args).unwrap();
+            let roundtripped: CliArgs = fstab.try_into().unwrap();
+
+            prop_assert_eq!(FstabCompatibleCliArgs::from(roundtripped), original);
         }
     }
 }
