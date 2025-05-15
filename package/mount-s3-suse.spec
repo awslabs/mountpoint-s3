@@ -27,7 +27,9 @@ interface.
 rm -rf %{buildroot}/*
 cp -r %{_builddir}/%{name}-%{version}/* %{buildroot}/
 mkdir -p %{buildroot}/%{_bindir}
+mkdir -p %{buildroot}/%{_prefix}/sbin
 ln -f -s /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3
+ln -f -s /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
 %files
 %dir /opt/aws/mountpoint-s3
@@ -38,3 +40,4 @@ ln -f -s /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 /opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
 /opt/aws/mountpoint-s3/VERSION
 %{_bindir}/mount-s3
+%{_prefix}/sbin/mount.mount-s3
