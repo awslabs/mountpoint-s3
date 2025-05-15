@@ -178,6 +178,8 @@ impl ToErrno for InodeError {
             InodeError::CorruptedMetadata(_) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::StaleInode { .. } => libc::ESTALE,
+            InodeError::OutOfOrderReadDir => libc::EINVAL,
+            InodeError::NoSuchDirHandle => libc::EINVAL,
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
         }

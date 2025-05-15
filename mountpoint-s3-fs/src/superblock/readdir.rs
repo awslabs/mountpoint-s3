@@ -41,8 +41,8 @@
 //!   These children are listed only once, at the start of the readdir operation, and so are a
 //!   snapshot in time of the directory.
 
-use std::cmp::Ordering;
 use std::collections::VecDeque;
+use std::{cmp::Ordering, sync::RwLock};
 
 #[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
@@ -57,16 +57,17 @@ use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, 
 
 /// Handle for an inflight directory listing
 #[derive(Debug)]
-pub struct ReaddirHandle<OC: ObjectClient> {
-    inner: Arc<SuperblockInner<OC>>,
+pub struct ReaddirHandle {
     dir_ino: InodeNo,
     parent_ino: InodeNo,
-    iter: AsyncMutex<ReaddirIter>,
-    readded: Mutex<Option<LookedUp>>,
+    iter: Arc<AsyncMutex<ReaddirIter>>,
+    readded: Arc<Mutex<Option<LookedUp>>>,
 }
 
-impl<OC: ObjectClient> ReaddirHandle<OC> {
-    pub(super) fn new(
+unsafe impl Send for ReaddirHandle {}
+
+impl ReaddirHandle {
+    pub(super) fn new<OC: ObjectClient + Send + Sync>(
         inner: Arc<SuperblockInner<OC>>,
         dir_ino: InodeNo,
         parent_ino: InodeNo,
@@ -117,10 +118,9 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
         };
 
         Ok(Self {
-            inner,
             dir_ino,
             parent_ino,
-            iter: AsyncMutex::new(iter),
+            iter: AsyncMutex::new(iter).into(),
             readded: Default::default(),
         })
     }
@@ -128,7 +128,11 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub async fn next(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
+    pub async fn next<OC: ObjectClient + Send + Sync>(
+        &self,
+        inner: Arc<SuperblockInner<OC>>,
+        client: &OC,
+    ) -> Result<Option<LookedUp>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
@@ -147,8 +151,8 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
                     warn!("{} has an invalid name and will be unavailable", next.description());
                     continue;
                 };
-                let remote_lookup = self.remote_lookup_from_entry(&next);
-                let lookup = self.inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
+                let remote_lookup = self.remote_lookup_from_entry(inner.clone(), &next);
+                let lookup = inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
                 return Ok(Some(lookup));
             } else {
                 return Ok(None);
@@ -164,8 +168,8 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
 
     /// Increase the lookup count of the looked up inode and
     /// ensure it is registered with the superblock.
-    pub fn remember(&self, entry: &LookedUp) {
-        self.inner.remember(&entry.inode);
+    pub fn remember<OC: ObjectClient + Send + Sync>(&self, inner: Arc<SuperblockInner<OC>>, entry: &LookedUp) {
+        inner.remember(&entry.inode);
     }
 
     /// Return the inode number of the parent directory of this directory handle
@@ -174,14 +178,18 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
     }
 
     /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
-    fn remote_lookup_from_entry(&self, entry: &ReaddirEntry) -> Option<RemoteLookup> {
+    fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync>(
+        &self,
+        inner: Arc<SuperblockInner<OC>>,
+        entry: &ReaddirEntry,
+    ) -> Option<RemoteLookup> {
         match entry {
             // If we made it this far with a local inode, we know there's nothing on the remote with
             // the same name, because [LocalInode] is last in the ordering and so otherwise would
             // have been deduplicated by now.
             ReaddirEntry::LocalInode { .. } => None,
             ReaddirEntry::RemotePrefix { .. } => {
-                let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.config.cache_config.dir_ttl);
+                let stat = InodeStat::for_directory(inner.mount_time, inner.config.cache_config.dir_ttl);
                 Some(RemoteLookup {
                     stat,
                     kind: InodeKind::Directory,
@@ -201,7 +209,7 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
                     Some(etag.as_str().into()),
                     storage_class.as_deref(),
                     *restore_status,
-                    self.inner.config.cache_config.file_ttl,
+                    inner.config.cache_config.file_ttl,
                 );
                 Some(RemoteLookup {
                     stat,
@@ -212,9 +220,13 @@ impl<OC: ObjectClient> ReaddirHandle<OC> {
     }
 
     #[cfg(test)]
-    pub(super) async fn collect(&self, client: &OC) -> Result<Vec<LookedUp>, InodeError> {
+    pub(super) async fn collect<OC: ObjectClient + Send + Sync>(
+        &self,
+        inner: Arc<SuperblockInner<OC>>,
+        client: &OC,
+    ) -> Result<Vec<LookedUp>, InodeError> {
         let mut result = vec![];
-        while let Some(entry) = self.next(client).await? {
+        while let Some(entry) = self.next(inner.clone(), client).await? {
             result.push(entry);
         }
         Ok(result)
