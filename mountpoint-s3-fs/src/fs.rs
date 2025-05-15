@@ -9,6 +9,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, trace, Level};
 
+use crate::mountspace::MountspaceDirectoryReplier;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
@@ -17,9 +18,10 @@ use mountpoint_s3_client::ObjectClient;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::mountspace::Mountspace;
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
-use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
+use crate::superblock::{InodeError, InodeKind, LookedUp, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::Uploader;
@@ -40,7 +42,7 @@ mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
-use handles::{DirHandle, FileHandle, FileHandleState};
+pub use handles::{DirHandle, FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};
@@ -57,12 +59,12 @@ where
 {
     config: S3FilesystemConfig,
     client: Client,
-    superblock: Superblock<Client>,
+    superblock: Arc<dyn Mountspace>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
     bucket: String,
     next_handle: AtomicU64,
-    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle<Client>>>>,
+    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
 
@@ -103,7 +105,7 @@ pub struct DirectoryEntry {
     pub attr: FileAttr,
     pub generation: u64,
     pub ttl: Duration,
-    lookup: LookedUp,
+    pub lookup: LookedUp,
 }
 
 /// Reply to a 'statfs' call
@@ -179,7 +181,7 @@ where
         Self {
             config,
             client,
-            superblock,
+            superblock: Arc::new(superblock),
             prefetcher,
             uploader,
             bucket: bucket.to_string(),
@@ -416,7 +418,7 @@ where
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let full_key = self.superblock.full_key_for_inode(&lookup.inode);
+        let full_key = self.superblock.full_key_for_inode(lookup.inode.ino());
         let handle = FileHandle {
             ino,
             full_key,
@@ -556,8 +558,8 @@ where
     }
 
     /// Creates a new ReaddirHandle for the provided parent and default page size
-    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle<Client>, InodeError> {
-        self.superblock.readdir(parent, 1000).await
+    async fn readdir_handle(&self, parent: InodeNo) -> Result<u64, InodeError> {
+        self.superblock.new_readdir_handle(parent, 1000).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
@@ -568,7 +570,7 @@ where
         let fh = self.next_handle();
         let mut dir_handles = self.dir_handles.write().await;
         dir_handles.insert(fh, Arc::new(handle));
-
+        debug!("Filehandle {} iopened with handle {} ", fh, readdir_handle);
         Ok(Opened { fh, flags: 0 })
     }
 
@@ -580,7 +582,20 @@ where
         reply: R,
     ) -> Result<R, Error> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
-        self.readdir_impl(parent, fh, offset, false, reply).await
+        // Lookup the handle number
+        let num = self
+            .dir_handles
+            .read()
+            .await
+            .get(&fh)
+            .unwrap()
+            .handleNo
+            .load(Ordering::Relaxed);
+        let mut re: Box<(dyn DirectoryReplier)> = Box::new(reply);
+        self.superblock
+            .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(re))
+            .await;
+        Ok(())
     }
 
     pub async fn readdirplus<R: DirectoryReplier>(
@@ -588,167 +603,24 @@ where
         parent: InodeNo,
         fh: u64,
         offset: i64,
-        reply: R,
-    ) -> Result<R, Error> {
+        reply: &R,
+    ) -> Result<(), Error> {
         trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
-        self.readdir_impl(parent, fh, offset, true, reply).await
-    }
+        //self.readdir_impl(parent, fh, offset, true, reply).await
+        let num = self
+            .dir_handles
+            .read()
+            .await
+            .get(&fh)
+            .unwrap()
+            .handleNo
+            .load(Ordering::Relaxed);
 
-    async fn readdir_impl<R: DirectoryReplier>(
-        &self,
-        parent: InodeNo,
-        fh: u64,
-        offset: i64,
-        is_readdirplus: bool,
-        mut reply: R,
-    ) -> Result<R, Error> {
-        let dir_handle = {
-            let dir_handles = self.dir_handles.read().await;
-            dir_handles
-                .get(&fh)
-                .cloned()
-                .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
-        };
-
-        // special case where we need to rewind and restart the streaming but only when it is not the first time we see offset 0
-        if offset == 0 && dir_handle.offset() != 0 {
-            let new_handle = self.readdir_handle(parent).await?;
-            *dir_handle.handle.lock().await = new_handle;
-            dir_handle.rewind_offset();
-            // drop any cached entries, as new response may be unordered and cache would be stale
-            *dir_handle.last_response.lock().await = None;
-        }
-
-        let readdir_handle = dir_handle.handle.lock().await;
-
-        // If offset is 0 we've already restarted the request and do not use cache, otherwise we're using the same request
-        // and it is safe to repeat the response. We do not repeat the response if negative offset was provided.
-        if offset != dir_handle.offset() && offset > 0 {
-            // POSIX allows seeking an open directory. That's a pain for us since we are streaming
-            // the directory entries and don't want to keep them all in memory. But one common case
-            // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
-            // request offset 0 twice in a row. So we remember the last response and, if repeated,
-            // we return it again. Last response may also be used partially, if an interrupt occured
-            // (https://github.com/awslabs/mountpoint-s3/issues/955), which caused entries from it to
-            // be only partially fetched by kernel.
-
-            let last_response = dir_handle.last_response.lock().await;
-            if let Some((last_offset, entries)) = last_response.as_ref() {
-                let offset = offset as usize;
-                let last_offset = *last_offset as usize;
-                if (last_offset..last_offset + entries.len()).contains(&offset) {
-                    trace!(offset, "repeating readdir response");
-                    for entry in entries[offset - last_offset..].iter() {
-                        if reply.add(entry.clone()) {
-                            break;
-                        }
-                        // We are returning this result a second time, so the contract is that we
-                        // must remember it again, except that readdirplus specifies that . and ..
-                        // are never incremented.
-                        if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            readdir_handle.remember(&entry.lookup);
-                        }
-                    }
-                    return Ok(reply);
-                }
-            }
-
-            return Err(err!(
-                libc::EINVAL,
-                "out-of-order readdir, expected={}, actual={}",
-                dir_handle.offset(),
-                offset
-            ));
-        }
-
-        /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
-        /// we can re-use them if the directory handle rewinds
-        struct Reply<R: DirectoryReplier> {
-            reply: R,
-            entries: Vec<DirectoryEntry>,
-        }
-
-        impl<R: DirectoryReplier> Reply<R> {
-            async fn finish<O: ObjectClient>(self, offset: i64, dir_handle: &DirHandle<O>) -> R {
-                *dir_handle.last_response.lock().await = Some((offset, self.entries));
-                self.reply
-            }
-        }
-
-        impl<R: DirectoryReplier> DirectoryReplier for Reply<R> {
-            fn add(&mut self, entry: DirectoryEntry) -> bool {
-                let result = self.reply.add(entry.clone());
-                if !result {
-                    self.entries.push(entry);
-                }
-                result
-            }
-        }
-
-        let mut reply = Reply { reply, entries: vec![] };
-
-        if dir_handle.offset() < 1 {
-            let lookup = self.superblock.getattr(parent, false).await?;
-            let attr = self.make_attr(&lookup);
-            let entry = DirectoryEntry {
-                ino: parent,
-                offset: dir_handle.offset() + 1,
-                name: ".".into(),
-                attr,
-                generation: 0,
-                ttl: lookup.validity(),
-                lookup,
-            };
-            if reply.add(entry) {
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            dir_handle.next_offset();
-        }
-        if dir_handle.offset() < 2 {
-            let lookup = self.superblock.getattr(readdir_handle.parent(), false).await?;
-            let attr = self.make_attr(&lookup);
-            let entry = DirectoryEntry {
-                ino: readdir_handle.parent(),
-                offset: dir_handle.offset() + 1,
-                name: "..".into(),
-                attr,
-                generation: 0,
-                ttl: lookup.validity(),
-                lookup,
-            };
-            if reply.add(entry) {
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            dir_handle.next_offset();
-        }
-
-        loop {
-            let next = match readdir_handle.next(&self.client).await? {
-                None => return Ok(reply.finish(offset, &dir_handle).await),
-                Some(next) => next,
-            };
-            trace!(next_inode = ?next.inode, "new inode yielded by readdir handle");
-
-            let attr = self.make_attr(&next);
-            let entry = DirectoryEntry {
-                ino: attr.ino,
-                offset: dir_handle.offset() + 1,
-                name: next.inode.name().into(),
-                attr,
-                generation: 0,
-                ttl: next.validity(),
-                lookup: next.clone(),
-            };
-
-            if reply.add(entry) {
-                readdir_handle.readd(next);
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            if is_readdirplus {
-                readdir_handle.remember(&next);
-            }
-            dir_handle.next_offset();
-        }
+        self.superblock
+            .readdir(parent, num, offset, true, MountspaceDirectoryReplier::new(Box::new(re)))
+            .await
+            .map_err(|x| err!(libc::EINVAL,source: x, "error "));
+        Ok(())
     }
 
     pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {

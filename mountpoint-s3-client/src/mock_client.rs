@@ -88,7 +88,7 @@ pub struct MockClient {
 fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, value: MockObject) {
     objects.write().unwrap().insert(key.to_owned(), value);
 }
-
+unsafe impl Send for MockClient {}
 impl MockClient {
     /// Create a new [MockClient] with the given config
     pub fn new(config: MockClientConfig) -> Self {
