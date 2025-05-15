@@ -57,12 +57,12 @@ where
 {
     config: S3FilesystemConfig,
     client: Client,
-    superblock: Superblock,
+    superblock: Superblock<Client>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
     bucket: String,
     next_handle: AtomicU64,
-    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
+    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle<Client>>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
 
@@ -163,7 +163,7 @@ where
             #[cfg(feature = "manifest")]
             manifest: config.manifest.clone(),
         };
-        let superblock = Superblock::new(bucket, prefix, superblock_config);
+        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config);
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
@@ -304,7 +304,7 @@ where
 
         let lookup = self
             .superblock
-            .lookup(&self.client, parent, name)
+            .lookup(parent, name)
             .await
             .map_err(|err| match err {
                 InodeError::FileDoesNotExist(_, _) => {
@@ -324,7 +324,7 @@ where
     pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, Error> {
         trace!("fs:getattr with ino {:?}", ino);
 
-        let lookup = self.superblock.getattr(&self.client, ino, false).await?;
+        let lookup = self.superblock.getattr(ino, false).await?;
         let attr = self.make_attr(&lookup);
 
         Ok(Attr {
@@ -349,7 +349,7 @@ where
             mtime,
             size
         );
-        let setattr_result = self.superblock.setattr(&self.client, ino, atime, mtime).await;
+        let setattr_result = self.superblock.setattr(ino, atime, mtime).await;
         let lookup = match (setattr_result, size) {
             (Ok(lookup), _) => lookup,
             (Err(InodeError::SetAttrNotPermittedOnRemoteInode(_)), Some(0)) if !self.config.allow_overwrite => {
@@ -389,7 +389,7 @@ where
         }
 
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
-        let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
+        let lookup = self.superblock.getattr(ino, force_revalidate).await?;
 
         match lookup.inode.kind() {
             InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
@@ -494,10 +494,7 @@ where
             ));
         }
 
-        let lookup = self
-            .superblock
-            .create(&self.client, parent, name, InodeKind::File)
-            .await?;
+        let lookup = self.superblock.create(parent, name, InodeKind::File).await?;
         debug!(ino = lookup.inode.ino(), "new inode created");
         let attr = self.make_attr(&lookup);
         Ok(Entry {
@@ -508,10 +505,7 @@ where
     }
 
     pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
-        let lookup = self
-            .superblock
-            .create(&self.client, parent, name, InodeKind::Directory)
-            .await?;
+        let lookup = self.superblock.create(parent, name, InodeKind::Directory).await?;
         let attr = self.make_attr(&lookup);
         Ok(Entry {
             ttl: lookup.validity(),
@@ -562,8 +556,8 @@ where
     }
 
     /// Creates a new ReaddirHandle for the provided parent and default page size
-    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle, InodeError> {
-        self.superblock.readdir(&self.client, parent, 1000).await
+    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle<Client>, InodeError> {
+        self.superblock.readdir(parent, 1000).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
@@ -675,7 +669,7 @@ where
         }
 
         impl<R: DirectoryReplier> Reply<R> {
-            async fn finish(self, offset: i64, dir_handle: &DirHandle) -> R {
+            async fn finish<O: ObjectClient>(self, offset: i64, dir_handle: &DirHandle<O>) -> R {
                 *dir_handle.last_response.lock().await = Some((offset, self.entries));
                 self.reply
             }
@@ -694,7 +688,7 @@ where
         let mut reply = Reply { reply, entries: vec![] };
 
         if dir_handle.offset() < 1 {
-            let lookup = self.superblock.getattr(&self.client, parent, false).await?;
+            let lookup = self.superblock.getattr(parent, false).await?;
             let attr = self.make_attr(&lookup);
             let entry = DirectoryEntry {
                 ino: parent,
@@ -711,10 +705,7 @@ where
             dir_handle.next_offset();
         }
         if dir_handle.offset() < 2 {
-            let lookup = self
-                .superblock
-                .getattr(&self.client, readdir_handle.parent(), false)
-                .await?;
+            let lookup = self.superblock.getattr(readdir_handle.parent(), false).await?;
             let attr = self.make_attr(&lookup);
             let entry = DirectoryEntry {
                 ino: readdir_handle.parent(),
@@ -873,7 +864,7 @@ where
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
-        self.superblock.rmdir(&self.client, parent_ino, name).await?;
+        self.superblock.rmdir(parent_ino, name).await?;
         Ok(())
     }
 
@@ -892,7 +883,7 @@ where
                 "Deletes are disabled. Use '--allow-delete' mount option to enable it."
             ));
         }
-        Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
+        Ok(self.superblock.unlink(parent_ino, name).await?)
     }
 
     pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
@@ -945,14 +936,7 @@ where
         }
 
         self.superblock
-            .rename(
-                &self.client,
-                old_parent_ino,
-                old_name,
-                new_parent_ino,
-                new_name,
-                overwrites_allowed,
-            )
+            .rename(old_parent_ino, old_name, new_parent_ino, new_name, overwrites_allowed)
             .await?;
         tracing::trace!("rename complete");
         Ok(())
