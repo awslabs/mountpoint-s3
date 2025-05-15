@@ -63,6 +63,8 @@ def _mount_mp(
 
     Returns Mountpoint version string.
     """
+    bucket = cfg['s3_bucket']
+    stub_mode = str(cfg["stub_mode"]).lower()
 
     if cfg['mountpoint_binary'] is None:
         mountpoint_args = [
@@ -70,14 +72,22 @@ def _mount_mp(
             "run",
             "--quiet",
             "--release",
-            "--",
+            "--features=mock",
         ]
+
+        if stub_mode == "s3_client":
+            # `mock-mount-s3` requires bucket to be prefixed with `sthree-` to verify we're not actually reaching S3
+            logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")
+            bucket = f"sthree-{cfg['s3_bucket']}"
+
+            mountpoint_args.append("--bin=mock-mount-s3")
+
+        # End Cargo command, begin passing arguments to Mountpoint
+        mountpoint_args.append("--")
     else:
         mountpoint_args = [cfg['mountpoint_binary']]
 
     os.makedirs(MP_LOGS_DIRECTORY, exist_ok=True)
-
-    bucket = cfg['s3_bucket']
 
     mountpoint_version_output = subprocess.check_output([*mountpoint_args, "--version"]).decode("utf-8")
     log.info("Mountpoint version: %s", mountpoint_version_output.strip())
@@ -118,6 +128,10 @@ def _mount_mp(
     for network_interface in cfg['network']['interface_names']:
         subprocess_args.append(f"--bind={network_interface}")
     if (max_throughput := cfg['network']['maximum_throughput_gbps']) is not None:
+        if stub_mode == "s3_client":
+            raise ValueError(
+                "should not use `stub_mode=s3_client` with `maximum_throughput_gbps`, throughput will be limited"
+            )
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
     if cfg['mountpoint_max_background'] is not None:
@@ -126,7 +140,6 @@ def _mount_mp(
     if cfg['mountpoint_congestion_threshold'] is not None:
         subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg["mountpoint_congestion_threshold"])
 
-    stub_mode = str(cfg["stub_mode"]).lower()
     if stub_mode != "off" and cfg["mountpoint_binary"] is not None:
         raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
     match stub_mode:
@@ -134,6 +147,9 @@ def _mount_mp(
             pass
         case "fs_handler":
             subprocess_env["MOUNTPOINT_BUILD_STUB_FS_HANDLER"] = "1"
+        case "s3_client":
+            # Already handled when building cargo command
+            pass
         case _:
             raise ValueError(f"Unknown stub_mode: {stub_mode}")
 
