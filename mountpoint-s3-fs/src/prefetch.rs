@@ -32,7 +32,6 @@
 //! as a mean to block ObjectPartStream thread to fetch more data.
 
 use std::fmt::Debug;
-use std::time::Duration;
 
 use metrics::{counter, histogram};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
@@ -89,8 +88,6 @@ pub struct PrefetcherConfig {
     pub max_read_window_size: usize,
     /// Factor to increase the request size by whenever the reader continues making sequential reads
     pub sequential_prefetch_multiplier: usize,
-    /// Timeout to wait for a part to become available
-    pub read_timeout: Duration,
     /// The maximum amount of unavailable data the prefetcher will tolerate during a seek operation
     /// before resetting and starting a new S3 request.
     pub max_forward_seek_wait_distance: u64,
@@ -105,7 +102,6 @@ impl Default for PrefetcherConfig {
         Self {
             max_read_window_size: determine_max_read_size(),
             sequential_prefetch_multiplier: 2,
-            read_timeout: Duration::from_secs(60),
             // We want these large enough to tolerate a single out-of-order Linux readahead, which
             // is at most 256KiB backwards and then 512KiB forwards. For forwards seeks, we're also
             // making a guess about where the optimal cut-off point is before it would be faster to
@@ -557,7 +553,6 @@ mod tests {
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            read_timeout: Duration::from_secs(5),
             max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
         };
@@ -860,7 +855,6 @@ mod tests {
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
-            ..Default::default()
         };
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
@@ -1239,7 +1233,6 @@ mod tests {
                 sequential_prefetch_multiplier,
                 max_forward_seek_wait_distance,
                 max_backward_seek_distance,
-                ..Default::default()
             };
 
             let prefetcher =
@@ -1300,7 +1293,6 @@ mod tests {
                 sequential_prefetch_multiplier,
                 max_forward_seek_wait_distance,
                 max_backward_seek_distance,
-                ..Default::default()
             };
 
             let prefetcher =

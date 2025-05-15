@@ -25,6 +25,7 @@ impl TryFrom<FsTabCliArgs> for CliArgs {
 
         let mut cli_args = CliArgs::try_parse_from(cli_arg_list)?;
         cli_args.foreground = true;
+        cli_args.is_fstab = true;
         Ok(cli_args)
     }
 }

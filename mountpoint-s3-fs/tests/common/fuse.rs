@@ -96,6 +96,7 @@ impl TestSessionConfig {
 pub struct TestSession {
     mount_dir: TempDir,
     test_client: Box<dyn TestClient>,
+    prefix: String,
     // Option so we can explicitly unmount
     session: Option<BackgroundSession>,
     // Only set if `pass_fuse_fd` is true, will unmount the filesystem on drop.
@@ -107,6 +108,7 @@ impl TestSession {
         mount_dir: TempDir,
         session: BackgroundSession,
         test_client: impl TestClient + 'static,
+        prefix: String,
         mount: Option<Mount>,
     ) -> Self {
         Self {
@@ -114,6 +116,7 @@ impl TestSession {
             test_client: Box::new(test_client),
             session: Some(session),
             mount,
+            prefix,
         }
     }
 
@@ -123,6 +126,10 @@ impl TestSession {
 
     pub fn client(&self) -> &dyn TestClient {
         self.test_client.as_ref()
+    }
+
+    pub fn prefix(&self) -> &str {
+        &self.prefix
     }
 }
 
@@ -247,7 +254,7 @@ pub mod mock_session {
         );
         let test_client = create_test_client(client, &prefix);
 
-        TestSession::new(mount_dir, session, test_client, mount)
+        TestSession::new(mount_dir, session, test_client, prefix, mount)
     }
 
     /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
@@ -286,7 +293,7 @@ pub mod mock_session {
             );
             let test_client = create_test_client(client, &prefix);
 
-            TestSession::new(mount_dir, session, test_client, mount)
+            TestSession::new(mount_dir, session, test_client, prefix, mount)
         }
     }
 
@@ -442,7 +449,7 @@ pub mod s3_session {
             bucket: bucket.to_owned(),
             sdk_client,
         };
-        TestSession::new(mount_dir, session, test_client, mount)
+        TestSession::new(mount_dir, session, test_client, prefix.to_owned(), mount)
     }
 
     /// Create a FUSE mount backed by a real S3 client, with caching
@@ -475,7 +482,7 @@ pub mod s3_session {
             );
             let test_client = create_test_client(&region, &bucket, &prefix);
 
-            TestSession::new(mount_dir, session, test_client, mount)
+            TestSession::new(mount_dir, session, test_client, prefix, mount)
         }
     }
 
