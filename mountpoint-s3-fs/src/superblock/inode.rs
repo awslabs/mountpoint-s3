@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use tracing::{debug, trace};
 
 use crate::prefix::Prefix;
+use crate::superblock::ObjectClient;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -465,15 +466,15 @@ impl WriteMode {
 
 /// Handle for a file writing that we use to interact with [Superblock]
 #[derive(Debug, Clone)]
-pub struct WriteHandle {
-    inner: Arc<SuperblockInner>,
+pub struct WriteHandle<OC: ObjectClient + Send + Sync> {
+    inner: Arc<SuperblockInner<OC>>,
     inode: Inode,
 }
 
-impl WriteHandle {
+impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
     /// Create a new write handle
     pub(super) fn new(
-        inner: Arc<SuperblockInner>,
+        inner: Arc<SuperblockInner<OC>>,
         inode: Inode,
         mode: &WriteMode,
         is_truncate: bool,
@@ -608,7 +609,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget() {
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
         let ino = 42;
         let inode_name = "made-up-inode";
         let inode = Inode::new(
@@ -666,9 +674,9 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
-        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
@@ -683,12 +691,12 @@ mod tests {
         drop(lookup);
 
         let err = superblock
-            .getattr(&client, ino, false)
+            .getattr(ino, false)
             .await
             .expect_err("Inode should not be valid");
         assert!(matches!(err, InodeError::InodeDoesNotExist(_)));
 
-        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
     }
@@ -705,9 +713,9 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
-        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
@@ -716,13 +724,13 @@ mod tests {
         client.add_object(&format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
-        let new_lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         assert_ne!(ino, new_lookup.inode.ino());
 
         superblock.forget(ino, 1);
 
         // Lookup still works after forgetting the old inode
-        let new_lookup2 = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let new_lookup2 = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         assert_eq!(new_lookup.inode.ino(), new_lookup2.inode.ino());
     }
 
@@ -737,7 +745,7 @@ mod tests {
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         // Create an inode with "corrupted" metadata, i.e.
         // checksum not matching ino + full key.
@@ -781,7 +789,7 @@ mod tests {
         }
 
         let err = superblock
-            .unlink(&client, parent_ino, file_name.as_ref())
+            .unlink(parent_ino, file_name.as_ref())
             .await
             .expect_err("unlink of a corrupted inode should fail");
         assert!(matches!(err, InodeError::CorruptedMetadata(_)));
@@ -795,7 +803,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let ino: u64 = 42;
         let inode_name = "made-up-inode";
@@ -832,7 +840,7 @@ mod tests {
         let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
         let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
         let lookup = superblock
-            .setattr(&client, ino, Some(atime), Some(mtime))
+            .setattr(ino, Some(atime), Some(mtime))
             .await
             .expect("setattr should be successful");
         let stat = lookup.stat;
@@ -862,9 +870,14 @@ mod tests {
                 let name = "foo";
                 client.add_object(name, b"foo".into());
 
-                let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
+                let superblock = Arc::new(Superblock::new(
+                    client.clone(),
+                    "test_bucket",
+                    &Default::default(),
+                    Default::default(),
+                ));
 
-                let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+                let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
                 let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
                 assert_eq!(lookup_count, 1);
                 let ino = lookup.inode.ino();
@@ -876,7 +889,7 @@ mod tests {
 
                 let file_name = "bar";
                 superblock
-                    .create(&client, ROOT_INODE_NO, file_name.as_ref(), InodeKind::File)
+                    .create(ROOT_INODE_NO, file_name.as_ref(), InodeKind::File)
                     .await
                     .unwrap();
 
@@ -901,7 +914,12 @@ mod tests {
                 let client = Arc::new(MockClient::new(client_config));
 
                 // Create directories first
-                let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
+                let superblock = Arc::new(Superblock::new(
+                    client.clone(),
+                    "test_bucket",
+                    &Default::default(),
+                    Default::default(),
+                ));
 
                 // Create initial files and directories
                 let dir = "dir";
@@ -914,18 +932,15 @@ mod tests {
                 client.add_object("dirtwo/source", b"content".into());
 
                 // Lookup directories to get inodes
-                let dir_lookup = superblock.lookup(&client, ROOT_INODE_NO, dir.as_ref()).await.unwrap();
+                let dir_lookup = superblock.lookup(ROOT_INODE_NO, dir.as_ref()).await.unwrap();
                 let dir_ino = dir_lookup.inode.ino();
 
-                let dirtwo_lookup = superblock
-                    .lookup(&client, ROOT_INODE_NO, dirtwo.as_ref())
-                    .await
-                    .unwrap();
+                let dirtwo_lookup = superblock.lookup(ROOT_INODE_NO, dirtwo.as_ref()).await.unwrap();
                 let dirtwo_ino = dirtwo_lookup.inode.ino();
 
                 // Verify source files exist before rename
-                let source1_lookup = superblock.lookup(&client, dir_ino, source_name.as_ref()).await;
-                let source2_lookup = superblock.lookup(&client, dirtwo_ino, source_name.as_ref()).await;
+                let source1_lookup = superblock.lookup(dir_ino, source_name.as_ref()).await;
+                let source2_lookup = superblock.lookup(dirtwo_ino, source_name.as_ref()).await;
                 assert!(
                     source1_lookup.is_ok() && source2_lookup.is_ok(),
                     "Source files should exist before rename"
@@ -934,11 +949,9 @@ mod tests {
                 // Spawn concurrent rename operations
                 let superblock_clone1 = superblock.clone();
                 let superblock_clone2 = superblock.clone();
-                let client_clone = client.clone();
 
                 let rename_task1 = thread::spawn(move || {
                     block_on(superblock_clone1.rename(
-                        &client_clone,
                         dir_ino,
                         source_name.as_ref(),
                         dir_ino,
@@ -947,10 +960,8 @@ mod tests {
                     ))
                 });
 
-                let client_clone = client.clone();
                 let rename_task2 = thread::spawn(move || {
                     block_on(superblock_clone2.rename(
-                        &client_clone,
                         dirtwo_ino,
                         source_name.as_ref(),
                         dirtwo_ino,
@@ -968,8 +979,8 @@ mod tests {
                 assert!(result2.is_ok(), "Second rename failed: {:?}", result2.err());
 
                 // Verify both destination files exist
-                let dest1_lookup = superblock.lookup(&client, dir_ino, dest_name.as_ref()).await;
-                let dest2_lookup = superblock.lookup(&client, dirtwo_ino, dest_name.as_ref()).await;
+                let dest1_lookup = superblock.lookup(dir_ino, dest_name.as_ref()).await;
+                let dest2_lookup = superblock.lookup(dirtwo_ino, dest_name.as_ref()).await;
 
                 assert!(
                     dest1_lookup.is_ok() && dest2_lookup.is_ok(),
@@ -977,8 +988,8 @@ mod tests {
                 );
 
                 // Verify source files no longer exist
-                let source1_after = superblock.lookup(&client, dir_ino, source_name.as_ref()).await;
-                let source2_after = superblock.lookup(&client, dirtwo_ino, source_name.as_ref()).await;
+                let source1_after = superblock.lookup(dir_ino, source_name.as_ref()).await;
+                let source2_after = superblock.lookup(dirtwo_ino, source_name.as_ref()).await;
 
                 assert!(
                     source1_after.is_err() && source2_after.is_err(),
@@ -1007,26 +1018,23 @@ mod tests {
                 let dest_name = "dest";
                 client.add_object(dest_name, b"dest".into());
 
-                let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    "test_bucket",
+                    &Default::default(),
+                    Default::default(),
+                ));
                 // Create two threads, one that renames and one that tries to open the destination
                 let superblock_clone1 = superblock.clone();
-                let client_clone = client.clone();
-                let dest_lookup = superblock
-                    .lookup(&client, ROOT_INODE_NO, dest_name.as_ref())
-                    .await
-                    .unwrap();
+                let dest_lookup = superblock.lookup(ROOT_INODE_NO, dest_name.as_ref()).await.unwrap();
                 let _dest_ino = dest_lookup.inode.ino();
-                let src_lookup = superblock
-                    .lookup(&client, ROOT_INODE_NO, source_name.as_ref())
-                    .await
-                    .unwrap();
+                let src_lookup = superblock.lookup(ROOT_INODE_NO, source_name.as_ref()).await.unwrap();
                 let _src_ino = src_lookup.inode.ino();
 
                 let rename_task1 = thread::spawn(move || {
                     block_on(async {
                         superblock_clone1
                             .rename(
-                                &client_clone,
                                 FUSE_ROOT_INODE,
                                 source_name.as_ref(),
                                 FUSE_ROOT_INODE,
@@ -1038,12 +1046,11 @@ mod tests {
                     });
                 });
                 let superblock_clone2 = superblock.clone();
-                let client_clone = client.clone();
 
                 let lookup_task = thread::spawn(move || {
                     block_on(async {
                         let lookup = superblock_clone2
-                            .lookup(&client_clone, ROOT_INODE_NO, dest_name.as_ref())
+                            .lookup(ROOT_INODE_NO, dest_name.as_ref())
                             .await
                             .expect("should succeed as object will be in S3");
                         lookup.inode.ino()

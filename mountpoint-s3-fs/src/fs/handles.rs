@@ -14,16 +14,16 @@ use crate::upload::{AppendUploadRequest, UploadRequest};
 use super::{DirectoryEntry, Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 
 #[derive(Debug)]
-pub struct DirHandle {
+pub struct DirHandle<OC: ObjectClient + Send + Sync> {
     #[allow(unused)]
     ino: InodeNo,
-    pub handle: AsyncMutex<ReaddirHandle>,
+    pub handle: AsyncMutex<ReaddirHandle<OC>>,
     offset: AtomicI64,
     pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
 }
 
-impl DirHandle {
-    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle) -> Self {
+impl<OC: ObjectClient + Send + Sync> DirHandle<OC> {
+    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle<OC>) -> Self {
         Self {
             ino,
             handle: AsyncMutex::new(readdir_handle),
@@ -138,16 +138,16 @@ where
 }
 
 #[derive(Debug)]
-pub enum UploadState<Client: ObjectClient> {
+pub enum UploadState<Client: ObjectClient + Send + Sync> {
     AppendInProgress {
         request: AppendUploadRequest<Client>,
-        handle: WriteHandle,
+        handle: WriteHandle<Client>,
         initial_etag: Option<ETag>,
         written_bytes: usize,
     },
     MPUInProgress {
         request: UploadRequest<Client>,
-        handle: WriteHandle,
+        handle: WriteHandle<Client>,
     },
     Completed,
     // Remember the failure reason to respond to retries
@@ -321,7 +321,11 @@ where
         }
     }
 
-    async fn complete_upload(upload: UploadRequest<Client>, key: &str, handle: WriteHandle) -> Result<(), Error> {
+    async fn complete_upload(
+        upload: UploadRequest<Client>,
+        key: &str,
+        handle: WriteHandle<Client>,
+    ) -> Result<(), Error> {
         let size = upload.size();
         let (put_result, etag) = match upload.complete().await {
             Ok(result) => {
@@ -340,7 +344,7 @@ where
     async fn complete_append(
         upload: AppendUploadRequest<Client>,
         key: &str,
-        handle: WriteHandle,
+        handle: WriteHandle<Client>,
         initial_etag: Option<ETag>,
     ) -> Result<(), Error> {
         match Self::commit_append(upload, key).await {
@@ -369,7 +373,7 @@ where
         }
     }
 
-    fn finish(handle: WriteHandle, etag: Option<ETag>) {
+    fn finish(handle: WriteHandle<Client>, etag: Option<ETag>) {
         if let Err(err) = handle.finish(etag) {
             // Log the issue but still return put_result.
             error!(?err, "error updating the inode status");
