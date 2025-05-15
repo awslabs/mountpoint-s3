@@ -1,6 +1,5 @@
 ## Unreleased
 
-
 ## v1.17.0 (May 12, 2025)
 
 ### New features
