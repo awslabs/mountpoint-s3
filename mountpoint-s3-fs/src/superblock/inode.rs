@@ -436,7 +436,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget() {
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let client_config = MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            part_size: 1024 * 1024,
+            ..Default::default()
+        };
+        let client = Arc::new(MockClient::new(client_config));
+
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
         let ino = 42;
         let inode_name = "made-up-inode";
         let inode = Inode::new(
@@ -494,9 +501,9 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
-        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
@@ -511,12 +518,12 @@ mod tests {
         drop(lookup);
 
         let err = superblock
-            .getattr(&client, ino, false)
+            .getattr(ino, false)
             .await
             .expect_err("Inode should not be valid");
         assert!(matches!(err, InodeError::InodeDoesNotExist(_)));
 
-        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
     }
@@ -533,9 +540,9 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
-        let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
@@ -544,13 +551,13 @@ mod tests {
         client.add_object(&format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
-        let new_lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         assert_ne!(ino, new_lookup.inode.ino());
 
         superblock.forget(ino, 1);
 
         // Lookup still works after forgetting the old inode
-        let new_lookup2 = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+        let new_lookup2 = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         assert_eq!(new_lookup.inode.ino(), new_lookup2.inode.ino());
     }
 
@@ -565,7 +572,7 @@ mod tests {
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         // Create an inode with "corrupted" metadata, i.e.
         // checksum not matching ino + full key.
@@ -609,7 +616,7 @@ mod tests {
         }
 
         let err = superblock
-            .unlink(&client, parent_ino, file_name.as_ref())
+            .unlink(parent_ino, file_name.as_ref())
             .await
             .expect_err("unlink of a corrupted inode should fail");
         assert!(matches!(err, InodeError::CorruptedMetadata(_)));
@@ -623,7 +630,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let ino: u64 = 42;
         let inode_name = "made-up-inode";
@@ -660,7 +667,7 @@ mod tests {
         let atime = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
         let mtime = OffsetDateTime::UNIX_EPOCH + Duration::days(60);
         let lookup = superblock
-            .setattr(&client, ino, Some(atime), Some(mtime))
+            .setattr(ino, Some(atime), Some(mtime))
             .await
             .expect("setattr should be successful");
         let stat = lookup.stat;
@@ -690,9 +697,14 @@ mod tests {
                 let name = "foo";
                 client.add_object(name, b"foo".into());
 
-                let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
+                let superblock = Arc::new(Superblock::new(
+                    client.clone(),
+                    "test_bucket",
+                    &Default::default(),
+                    Default::default(),
+                ));
 
-                let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
+                let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
                 let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
                 assert_eq!(lookup_count, 1);
                 let ino = lookup.inode.ino();
@@ -704,7 +716,7 @@ mod tests {
 
                 let file_name = "bar";
                 superblock
-                    .create(&client, ROOT_INODE_NO, file_name.as_ref(), InodeKind::File)
+                    .create(ROOT_INODE_NO, file_name.as_ref(), InodeKind::File)
                     .await
                     .unwrap();
 
