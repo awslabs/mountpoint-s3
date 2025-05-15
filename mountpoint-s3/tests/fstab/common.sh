@@ -1,7 +1,7 @@
 function build_mountpoint() {
   build_out=$(cargo build --bin mount-s3 --release --features=fstab --message-format=json-render-diagnostics)
 
-  MOUNTPOINT_ROOT=$(dirname "$(which "$0")")/../../..
+  PROJECT_ROOT=$(dirname "$(which "$0")")/../../..
   MOUNTPOINT_PATH=$(printf "%s" "$build_out" | jq -js '[.[] | select(.reason == "compiler-artifact") | select(.executable != null)] | last | .executable')
   echo "Mountpoint path: $MOUNTPOINT_PATH"
 }
@@ -11,7 +11,7 @@ function spawn_mounts() {
   export SYSTEMD_FSTAB=$(mktemp)
   export SYSTEMD_PROC_CMDLINE=""
 
-  OUTPUT_DIR="$MOUNTPOINT_ROOT/out"
+  OUTPUT_DIR="$PROJECT_ROOT/out"
   GENERATOR_BIN="/usr/lib/systemd/system-generators/systemd-fstab-generator"
   SYSTEMD_MOUNT_DIR=/etc/systemd/system/
   UNIT_SOURCE_DIR=$OUTPUT_DIR/normal
@@ -31,13 +31,14 @@ function spawn_mounts() {
     echo -e "\nSystemd unit file $unit:"
     cat "$UNIT_SOURCE_DIR/$unit"
 
-    trap "sudo journalctl -u \"$unit\" | cat" ERR
+    # Emit logs only if Mountpoint fails to start
+    trap "sudo journalctl -u \"$unit\" --since \"$(date '+%Y-%m-%d %H:%M:%S')\" | cat" ERR
     sudo systemctl start "$unit"
 
     echo -e "\nStatus of systemd unit $unit:"
     sudo systemctl status "$unit" | cat
+    trap - ERR
   done
-  trap - ERR
 
   trap cleanup EXIT
 }
@@ -45,7 +46,7 @@ function spawn_mounts() {
 function cleanup {
   rm "$SYSTEMD_FSTAB"
   for unit in "$UNIT_SOURCE_DIR"/*.mount; do
-    sudo journalctl -u "$(basename "$unit")" | cat
+    sudo journalctl -u "$(basename "$unit")" --since "$(date '+%Y-%m-%d %H:%M:%S')" | cat
     sudo systemctl stop "$(basename "$unit")"
     sudo rm "$unit"
   done

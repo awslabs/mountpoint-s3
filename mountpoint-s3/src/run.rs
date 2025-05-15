@@ -16,7 +16,7 @@ use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 
 use crate::cli::CliArgs;
-use crate::{build_info, get_cli_args};
+use crate::{build_info, parse_cli_args};
 
 /// Run Mountpoint with the given [CliArgs].
 pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
@@ -62,7 +62,7 @@ where
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                let args = get_cli_args();
+                let args = parse_cli_args();
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();

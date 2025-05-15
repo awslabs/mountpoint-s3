@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Exit on errors
-set -e -x
+set -e
 
 source "$(dirname "$(which "$0")")/common.sh"
 

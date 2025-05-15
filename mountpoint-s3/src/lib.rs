@@ -10,7 +10,7 @@ pub use cli::CliArgs;
 pub use fstab::FsTabCliArgs;
 pub use run::{create_s3_client, run};
 
-pub fn get_cli_args() -> CliArgs {
+pub fn parse_cli_args() -> CliArgs {
     let is_fstab = env::args_os().len() == 5 && env::args_os().nth(3).as_deref() == Some("-o".as_ref());
 
     let cli_args = if is_fstab && cfg!(feature = "fstab") {
