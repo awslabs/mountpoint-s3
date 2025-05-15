@@ -937,4 +937,22 @@ mod tests {
             .expect_err("should fail with invalid checksum");
         assert!(matches!(err, DiskBlockAccessError::ChecksumError));
     }
+
+    #[test]
+    fn read_corrupted_block_should_fail() {
+        let original_length = 42;
+        let data = ChecksummedBytes::new(vec![0u8; original_length].into());
+        let cache_key = ObjectId::new("k".into(), ETag::from_str("e").unwrap());
+        let block = DiskBlock::new(cache_key.clone(), 0, 0, data).expect("should have no checksum err");
+        
+        let mut buf = Vec::new();
+        bincode::serialize_into(&mut buf, &block).unwrap();
+
+        let offset = 40 + cache_key.key().len() + cache_key.etag().as_str().len();
+        assert_eq!(usize::from_le_bytes(buf[offset..(offset + 8)].try_into().unwrap()), original_length);
+
+        buf[offset..(offset + 8)].copy_from_slice(&u64::MAX.to_le_bytes());
+
+        bincode::deserialize_from::<_, DiskBlock>(buf.as_slice()).expect_err("deserialization should fail");
+    }
 }
