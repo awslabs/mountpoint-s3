@@ -56,9 +56,10 @@ impl FsTabCliArgs {
     /// The hard-coded options listed aren't relevant to Mountpoint, but means we can't add them in the future.
     /// Options prefixed with `x-` are 'comments' in fstab, and can be ignored by us.
     fn option_allowed(option: &str) -> bool {
-        // Same as from https://github.com/libfuse/sshfs/blob/ed0825440c48895b7e20cc1440bbafd8d9c88eb8/sshfs.c#L533-L538 with addition of `rw` argument
+        // "auto" - "_netdev" from https://github.com/libfuse/sshfs/blob/ed0825440c48895b7e20cc1440bbafd8d9c88eb8/sshfs.c#L533-L538
+        // "nodev", "nosuid", & "rw" can be automatically added by systemd, which are our defaults, so we ignore them
         !([
-            "auto", "noauto", "user", "nouser", "users", "nodev", "nosuid", "_netdev", "rw",
+            "auto", "noauto", "user", "nouser", "users", "_netdev", "nodev", "nosuid", "rw",
         ]
         .contains(&option)
             || option.starts_with("x-"))
