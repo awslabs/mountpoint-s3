@@ -62,7 +62,7 @@ where
         let pid = unsafe { nix::unistd::fork() };
         match pid.expect("Failed to fork mount process") {
             ForkResult::Child => {
-                let args = parse_cli_args();
+                let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
                 let _metrics = metrics::install();
