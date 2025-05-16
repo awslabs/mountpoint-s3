@@ -5,7 +5,9 @@ set -e
 
 source "$(dirname "$(which "$0")")/common.sh"
 
-build_mountpoint
+build_out=$(cargo build --bin mount-s3 --release --features=fstab --message-format=json-render-diagnostics)
+MOUNTPOINT_PATH=$(printf "%s" "$build_out" | jq -js '[.[] | select(.reason == "compiler-artifact") | select(.executable != null)] | last | .executable')
+echo "Mountpoint path: $MOUNTPOINT_PATH"
 
 FSTAB_CONTENT="
 ${MOUNTPOINT_PATH}#${S3_BUCKET_NAME} /mnt/mountpoint_ro fuse allow-other,_netdev,nosuid,nodev,prefix=${S3_BUCKET_TEST_PREFIX},ro 0 0
