@@ -15,6 +15,7 @@ use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::pin_project;
 use tracing::trace;
 
+use crate::error_metadata::ClientErrorMetadata;
 use crate::object_client::{
     Checksum, ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
     ObjectClientResult, ObjectMetadata,
@@ -263,6 +264,7 @@ impl Stream for S3GetObjectResponse {
 }
 
 fn parse_get_object_error(result: &MetaRequestResult) -> Option<GetObjectError> {
+    let client_error_metadata = ClientErrorMetadata::from_meta_request_result(result);
     match result.response_status {
         404 => {
             let body = result.error_response_body.as_ref()?;
@@ -270,12 +272,12 @@ fn parse_get_object_error(result: &MetaRequestResult) -> Option<GetObjectError> 
             let error_code = root.get_child("Code")?;
             let error_str = error_code.get_text()?;
             match error_str.deref() {
-                "NoSuchBucket" => Some(GetObjectError::NoSuchBucket),
-                "NoSuchKey" => Some(GetObjectError::NoSuchKey),
+                "NoSuchBucket" => Some(GetObjectError::NoSuchBucket(client_error_metadata)),
+                "NoSuchKey" => Some(GetObjectError::NoSuchKey(client_error_metadata)),
                 _ => None,
             }
         }
-        412 => Some(GetObjectError::PreconditionFailed),
+        412 => Some(GetObjectError::PreconditionFailed(client_error_metadata)),
         _ => None,
     }
 }
@@ -300,7 +302,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Key>not-a-real-key</Key><RequestId>NTKJWKHQBYNS73A9</RequestId><HostId>Nc9kWNrf4kGoq5NIUnQ4t7u04ZZXGm/i463v+jwCI8sIrZBqeYI8uffLHQ+/qusdMWNuUwqeXHU=</HostId></Error>"#;
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_get_object_error(&result);
-        assert_eq!(result, Some(GetObjectError::NoSuchKey));
+        assert!(matches!(result, Some(GetObjectError::NoSuchKey(_))));
     }
 
     #[test]
@@ -308,7 +310,7 @@ mod tests {
         let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>amzn-s3-demo-bucket</BucketName><RequestId>4VAGDP5HMYTDNB3Y</RequestId><HostId>JMgGqpVKIaaTieG68IODiV2piWw/q9VCTowGvWP36BEz6oIVEXiesn8cDE5ph7if0gpY5WU1Wc8=</HostId></Error>"#;
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_get_object_error(&result);
-        assert_eq!(result, Some(GetObjectError::NoSuchBucket));
+        assert!(matches!(result, Some(GetObjectError::NoSuchBucket(_))));
     }
 
     #[test]

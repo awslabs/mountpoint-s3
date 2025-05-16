@@ -8,7 +8,7 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3_fs::fs::{OpenFlags, ToErrno, FUSE_ROOT_INODE};
 
 use mountpoint_s3_fs::S3Filesystem;
 use test_case::test_case;
@@ -86,8 +86,8 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
         ErrorMetadata {
             client_error_meta: ClientErrorMetadata {
                 http_code: Some(503),
-                error_code: None,
-                error_message: None,
+                error_code: Some("SlowDown".to_string()),
+                error_message: Some("Please reduce your request rate.".to_string()),
             },
             error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),
@@ -125,6 +125,70 @@ async fn test_lookup_unhandled_error_mock() {
                 http_code: Some(409),
                 error_code: None,
                 error_message: None,
+            },
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string())
+        }
+    );
+}
+
+#[tokio::test]
+async fn test_read_unhandled_error_mock() {
+    let bucket = "bucket";
+    let key = "unhandled";
+    let head_object_ok_headers = [
+        ("ETag", "71a5b8dcb22444f1b2b899dedc1e4122"),
+        ("Date", "Thu, 12 Jan 2023 00:04:21 GMT"),
+        ("Last-Modified", "Tue, 10 Jan 2023 23:39:32 GMT"),
+        ("Accept-Ranges", "bytes"),
+        ("Content-Range", "bytes 0-65535/65536"),
+        ("Content-Type", "binary/octet-stream"),
+        ("Content-Length", "1024"),
+    ];
+    let get_object_error_resp = r#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>NotARealError</Code><Message>This error is made up.</Message><RequestId>CM0R497NB0WAQ977</RequestId><HostId>w1TqUKGaIuNAIgzqm/L2azuzgEBINxTngWPbV1iH2IvpLsVCCTKHJTh4HsGp4JnggHqVkA+KN1MGqHDw1+WEuA==</HostId></Error>"#;
+
+    let (fs, server) = create_fs_with_mock_s3(bucket);
+
+    // set up a mock for a successful lookup but a failed read
+    server.mock(|when, then| {
+        when.method(Method::GET)
+            .path(format!("/{}/", bucket))
+            .query_param("list-type", "2")
+            .query_param("prefix", format!("{key}/"));
+        then.status(200).body(list_empty_response(bucket, key));
+    });
+    server.mock(|when, then| {
+        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
+        set_response_headers(then.status(200), &head_object_ok_headers);
+    });
+    server.mock(|when, then| {
+        when.method(Method::GET).path(format!("/{}/{}", bucket, key));
+        then.status(418).body(get_object_error_resp);
+    });
+
+    // perform a read
+    let entry = fs
+        .lookup(FUSE_ROOT_INODE, key.as_ref())
+        .await
+        .expect("lookup must succeed");
+    let fh = fs
+        .open(entry.attr.ino, OpenFlags::empty(), 0)
+        .await
+        .expect("open must succeed")
+        .fh;
+    let err = fs
+        .read(entry.attr.ino, fh, 0, 4096, 0, None)
+        .await
+        .expect_err("read must fail");
+    let metadata = err.meta();
+    assert_eq!(
+        *metadata,
+        ErrorMetadata {
+            client_error_meta: ClientErrorMetadata {
+                http_code: Some(418),
+                error_code: Some("NotARealError".to_string()),
+                error_message: Some("This error is made up.".to_string()),
             },
             error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
             s3_bucket_name: Some(bucket.to_string()),

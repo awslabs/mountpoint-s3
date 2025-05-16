@@ -474,7 +474,7 @@ async fn test_put_review(pass_review: bool) {
         let err = get_result.expect_err("getobject should fail for aborted put");
         assert!(matches!(
             err,
-            ObjectClientError::ServiceError(GetObjectError::NoSuchKey)
+            ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_))
         ));
 
         let sdk_client = get_test_sdk_client().await;

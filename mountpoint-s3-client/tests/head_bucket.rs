@@ -30,7 +30,7 @@ async fn test_head_bucket_wrong_region() {
     let result = client.head_bucket(&bucket).await;
 
     match result {
-        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(actual_region))) => {
+        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(actual_region, _))) => {
             assert_eq!(actual_region, expected_region, "wrong region returned")
         }
         _ => panic!("incorrect result {result:?}"),

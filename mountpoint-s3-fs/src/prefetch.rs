@@ -35,12 +35,13 @@ use std::fmt::Debug;
 
 use metrics::{counter, histogram};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::{error_metadata::ProvideErrorMetadata, ObjectClient};
 use thiserror::Error;
 use tracing::trace;
 
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::object::ObjectId;
 
 mod backpressure_controller;
@@ -61,7 +62,10 @@ use task::RequestTask;
 #[derive(Debug, Error)]
 pub enum PrefetchReadError<E> {
     #[error("get object request failed")]
-    GetRequestFailed(#[source] ObjectClientError<GetObjectError, E>),
+    GetRequestFailed {
+        source: ObjectClientError<GetObjectError, E>,
+        metadata: Box<ErrorMetadata>,
+    },
 
     #[error("get object request returned wrong offset")]
     GetRequestReturnedWrongOffset { offset: u64, expected_offset: u64 },
@@ -80,6 +84,19 @@ pub enum PrefetchReadError<E> {
 
     #[error("read window increment failed")]
     ReadWindowIncrement,
+}
+
+impl<E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static> PrefetchReadError<E> {
+    fn get_request_failed(err: ObjectClientError<GetObjectError, E>, bucket: &str, key: &str) -> Self {
+        let metadata = ErrorMetadata {
+            client_error_meta: err.meta(),
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+            s3_bucket_name: Some(bucket.to_string()),
+            s3_object_key: Some(key.to_string()),
+        };
+        let metadata = Box::new(metadata);
+        Self::GetRequestFailed { source: err, metadata }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

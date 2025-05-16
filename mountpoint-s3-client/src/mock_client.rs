@@ -857,7 +857,9 @@ impl ObjectClient for MockClient {
         self.inc_op_count(Operation::GetObject);
 
         if bucket != self.config.bucket {
-            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
+            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket(
+                Default::default(),
+            )));
         }
 
         let objects = self.objects.read().unwrap();
@@ -865,7 +867,9 @@ impl ObjectClient for MockClient {
         if let Some(object) = objects.get(key) {
             if let Some(etag_match) = params.if_match.as_ref() {
                 if etag_match != &object.etag {
-                    return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed));
+                    return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(
+                        Default::default(),
+                    )));
                 }
             }
 
@@ -894,7 +898,9 @@ impl ObjectClient for MockClient {
                 backpressure_handle,
             })
         } else {
-            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(
+                Default::default(),
+            )))
         }
     }
 
@@ -1377,14 +1383,14 @@ mod tests {
 
         assert!(matches!(
             client.get_object("wrong_bucket", "key1", &GetObjectParams::new()).await,
-            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket))
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket(_)))
         ));
 
         assert!(matches!(
             client
                 .get_object("test_bucket", "wrong_key", &GetObjectParams::new())
                 .await,
-            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey))
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_)))
         ));
 
         assert_client_error!(

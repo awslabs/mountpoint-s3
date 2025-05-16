@@ -186,7 +186,7 @@ where
             .await
         {
             Ok(result) => result,
-            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => {
+            Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_))) => {
                 return Ok(None);
             }
             Err(e) => {
@@ -219,7 +219,7 @@ where
                     // Ensure the flow-control window is large enough.
                     self.ensure_read_window(backpressure_handle.as_mut());
                 }
-                Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey)) => {
+                Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_))) => {
                     return Ok(None);
                 }
                 Err(e) => {
