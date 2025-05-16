@@ -169,7 +169,7 @@ fn mount_file_system(
         &Default::default(),
         filesystem_config,
     );
-    let session = Session::new(S3FuseFilesystem::new(fs), mountpoint, &options)
+    let session = Session::new(S3FuseFilesystem::new(fs, None), mountpoint, &options)
         .expect("Should have created FUSE session successfully");
 
     BackgroundSession::new(session).expect("Should have started FUSE session successfully")
