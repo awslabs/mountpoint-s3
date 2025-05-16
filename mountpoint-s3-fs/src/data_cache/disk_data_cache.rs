@@ -1,16 +1,18 @@
 //! Module for the on-disk data cache implementation.
 
 use std::fs;
-use std::io::{ErrorKind, Read, Seek, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use async_trait::async_trait;
+use bincode::config::{Configuration, Fixint, LittleEndian};
+use bincode::error::{DecodeError, EncodeError};
+use bincode::{Decode, Encode};
 use bytes::Bytes;
 use linked_hash_map::LinkedHashMap;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tracing::{trace, warn};
@@ -23,7 +25,7 @@ use crate::sync::Mutex;
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
 /// Disk and file-layout versioning.
-const CACHE_VERSION: &str = "V1";
+const CACHE_VERSION: &str = "V2";
 
 /// Index where hashed directory names for the cache are split to avoid FS-specific limits.
 const HASHED_DIR_SPLIT_INDEX: usize = 2;
@@ -63,15 +65,21 @@ impl Default for CacheLimit {
 ///
 /// It should be written alongside the block's data
 /// and used to verify it contains the correct contents to avoid blocks being mixed up.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Encode, Decode, Debug)]
 struct DiskBlockHeader {
     block_idx: BlockIndex,
     block_offset: u64,
+    block_size: u64,
     etag: String,
     s3_key: String,
     data_checksum: u32,
     header_checksum: u32,
 }
+
+/// Binary encoding configuration for the block header.
+const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, bincode::config::Limit<10000>> = bincode::config::standard()
+    .with_fixed_int_encoding()
+    .with_limit::<10000>();
 
 /// Error during creation of a [DiskBlock]
 #[derive(Debug, Error)]
@@ -90,14 +98,36 @@ enum DiskBlockAccessError {
     FieldMismatchError,
 }
 
+/// Error when reading or writing a [DiskBlock]
+#[derive(Debug, Error)]
+enum DiskBlockReadWriteError {
+    #[error("Invalid block size: {0}")]
+    InvalidBlockSize(u64),
+    #[error("Error decoding the block")]
+    DecodeError(DecodeError),
+    #[error("Error encoding the block")]
+    EncodeError(EncodeError),
+    #[error("IO error")]
+    IOError(#[from] std::io::Error),
+}
+
 impl DiskBlockHeader {
     /// Creates a new [DiskBlockHeader]
-    pub fn new(block_idx: BlockIndex, block_offset: u64, etag: String, s3_key: String, data_checksum: Crc32c) -> Self {
+    pub fn new(
+        block_idx: BlockIndex,
+        block_offset: u64,
+        block_size: usize,
+        etag: String,
+        s3_key: String,
+        data_checksum: Crc32c,
+    ) -> Self {
         let data_checksum = data_checksum.value();
-        let header_checksum = Self::compute_checksum(block_idx, block_offset, &etag, &s3_key, data_checksum).value();
+        let header_checksum =
+            Self::compute_checksum(block_idx, block_offset, block_size, &etag, &s3_key, data_checksum).value();
         DiskBlockHeader {
             block_idx,
             block_offset,
+            block_size: block_size as u64,
             etag,
             s3_key,
             data_checksum,
@@ -108,6 +138,7 @@ impl DiskBlockHeader {
     fn compute_checksum(
         block_idx: BlockIndex,
         block_offset: u64,
+        block_size: usize,
         etag: &str,
         s3_key: &str,
         data_checksum: u32,
@@ -115,6 +146,7 @@ impl DiskBlockHeader {
         let mut hasher = crc32c::Hasher::new();
         hasher.update(&block_idx.to_be_bytes());
         hasher.update(&block_offset.to_be_bytes());
+        hasher.update(&block_size.to_be_bytes());
         hasher.update(etag.as_bytes());
         hasher.update(s3_key.as_bytes());
         hasher.update(&data_checksum.to_be_bytes());
@@ -130,15 +162,17 @@ impl DiskBlockHeader {
         etag: &str,
         block_idx: BlockIndex,
         block_offset: u64,
+        block_size: usize,
     ) -> Result<Crc32c, DiskBlockAccessError> {
         let s3_key_match = s3_key == self.s3_key;
         let etag_match = etag == self.etag;
         let block_idx_match = block_idx == self.block_idx;
         let block_offset_match = block_offset == self.block_offset;
+        let block_size_match = block_size == self.block_size as usize;
 
         let data_checksum = self.data_checksum;
-        if s3_key_match && etag_match && block_idx_match && block_offset_match {
-            if Self::compute_checksum(block_idx, block_offset, etag, s3_key, data_checksum).value()
+        if s3_key_match && etag_match && block_idx_match && block_offset_match && block_size_match {
+            if Self::compute_checksum(block_idx, block_offset, block_size, etag, s3_key, data_checksum).value()
                 != self.header_checksum
             {
                 Err(DiskBlockAccessError::ChecksumError)
@@ -148,7 +182,7 @@ impl DiskBlockHeader {
         } else {
             warn!(
                 s3_key_match,
-                etag_match, block_idx_match, "block data did not match expected values",
+                etag_match, block_idx_match, block_size_match, "block data did not match expected values",
             );
             Err(DiskBlockAccessError::FieldMismatchError)
         }
@@ -156,7 +190,7 @@ impl DiskBlockHeader {
 }
 
 /// Represents a fixed-size chunk of data that can be serialized.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 struct DiskBlock {
     /// Information describing the content of `data`, to be used to verify correctness
     header: DiskBlockHeader,
@@ -178,7 +212,7 @@ impl DiskBlock {
         let s3_key = cache_key.key().to_owned();
         let etag = cache_key.etag().as_str().to_owned();
         let (data, data_checksum) = bytes.into_inner()?;
-        let header = DiskBlockHeader::new(block_idx, block_offset, etag, s3_key, data_checksum);
+        let header = DiskBlockHeader::new(block_idx, block_offset, data.len(), etag, s3_key, data_checksum);
 
         Ok(DiskBlock { data, header })
     }
@@ -192,17 +226,70 @@ impl DiskBlock {
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> Result<ChecksummedBytes, DiskBlockAccessError> {
-        let data_checksum =
-            self.header
-                .validate(cache_key.key(), cache_key.etag().as_str(), block_idx, block_offset)?;
+        let data_checksum = self.header.validate(
+            cache_key.key(),
+            cache_key.etag().as_str(),
+            block_idx,
+            block_offset,
+            self.data.len(),
+        )?;
         let bytes = ChecksummedBytes::new_from_inner_data(self.data.clone(), data_checksum);
         Ok(bytes)
+    }
+
+    fn read(reader: &mut impl Read, block_size: u64) -> Result<Self, DiskBlockReadWriteError> {
+        let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
+
+        if header.block_size > block_size {
+            return Err(DiskBlockReadWriteError::InvalidBlockSize(header.block_size));
+        }
+
+        let mut buffer = vec![0u8; header.block_size as usize];
+        reader.read_exact(&mut buffer)?;
+
+        Ok(Self {
+            header,
+            data: buffer.into(),
+        })
+    }
+
+    fn write(&self, writer: &mut impl Write) -> Result<usize, DiskBlockReadWriteError> {
+        let header_length = bincode::encode_into_std_write(&self.header, writer, BINCODE_CONFIG)?;
+        writer.write_all(&self.data)?;
+        Ok(header_length + self.data.len())
+    }
+}
+
+impl From<DecodeError> for DiskBlockReadWriteError {
+    fn from(value: DecodeError) -> Self {
+        match value {
+            DecodeError::Io { inner, .. } => DiskBlockReadWriteError::IOError(inner),
+            value => DiskBlockReadWriteError::DecodeError(value),
+        }
+    }
+}
+
+impl From<EncodeError> for DiskBlockReadWriteError {
+    fn from(value: EncodeError) -> Self {
+        match value {
+            EncodeError::Io { inner, .. } => DiskBlockReadWriteError::IOError(inner),
+            value => DiskBlockReadWriteError::EncodeError(value),
+        }
     }
 }
 
 impl From<std::io::Error> for DataCacheError {
     fn from(e: std::io::Error) -> Self {
         DataCacheError::IoFailure(e.into())
+    }
+}
+
+impl From<DiskBlockReadWriteError> for DataCacheError {
+    fn from(value: DiskBlockReadWriteError) -> Self {
+        match value {
+            DiskBlockReadWriteError::IOError(e) => DataCacheError::IoFailure(e.into()),
+            _ => DataCacheError::InvalidBlockContent,
+        }
     }
 }
 
@@ -246,13 +333,8 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block: DiskBlock = match bincode::deserialize_from(&file) {
-            Ok(block) => block,
-            Err(e) => {
-                warn!("block could not be deserialized: {:?}", e);
-                return Err(DataCacheError::InvalidBlockContent);
-            }
-        };
+        let block = DiskBlock::read(&mut file, self.block_size())
+            .inspect_err(|e| warn!(path = ?path.as_ref(), "block could not be deserialized: {:?}", e))?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
             .map_err(|err| match err {
@@ -287,14 +369,7 @@ impl DiskDataCache {
             .mode(0o600)
             .open(path.as_ref())?;
         file.write_all(CACHE_VERSION.as_bytes())?;
-        let serialize_result = bincode::serialize_into(&mut file, &block);
-        if let Err(err) = serialize_result {
-            return match *err {
-                bincode::ErrorKind::Io(io_err) => return Err(DataCacheError::from(io_err)),
-                _ => Err(DataCacheError::InvalidBlockContent),
-            };
-        };
-        Ok(file.stream_position()? as usize)
+        Ok(block.write(&mut file)?)
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
@@ -353,7 +428,7 @@ fn hash_cache_key_raw(cache_key: &ObjectId) -> [u8; 32] {
     let etag = cache_key.etag();
 
     let mut hasher = Sha256::new();
-    hasher.update(CACHE_VERSION.as_bytes());
+    hasher.update(CACHE_VERSION);
     hasher.update(s3_key);
     hasher.update(etag.as_str());
     hasher.finalize().into()
@@ -541,8 +616,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use std::str::FromStr;
+    use std::{ffi::OsString, io::Cursor};
 
     use super::*;
 
@@ -550,6 +625,7 @@ mod tests {
     use mountpoint_s3_client::types::ETag;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
+    use test_case::test_case;
 
     #[test]
     fn test_block_format_version_requires_update() {
@@ -557,11 +633,12 @@ mod tests {
         let data = ChecksummedBytes::new("Foo".into());
         let block = DiskBlock::new(cache_key, 100, 100 * 10, data).expect("should succeed as data checksum is valid");
         let expected_bytes: Vec<u8> = vec![
-            100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116, 101, 115, 116, 95, 101,
-            116, 97, 103, 11, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114, 108, 100, 9, 85, 128,
-            46, 29, 32, 6, 192, 3, 0, 0, 0, 0, 0, 0, 0, 70, 111, 111,
+            100, 0, 0, 0, 0, 0, 0, 0, 232, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 116,
+            101, 115, 116, 95, 101, 116, 97, 103, 11, 0, 0, 0, 0, 0, 0, 0, 104, 101, 108, 108, 111, 45, 119, 111, 114,
+            108, 100, 9, 85, 128, 46, 13, 202, 106, 46, 70, 111, 111,
         ];
-        let serialized_bytes = bincode::serialize(&block).unwrap();
+        let mut serialized_bytes = Vec::new();
+        block.write(&mut serialized_bytes).unwrap();
         assert_eq!(
             expected_bytes, serialized_bytes,
             "serialized disk format appears to have changed, version bump required"
@@ -573,7 +650,7 @@ mod tests {
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
         let key = ObjectId::new(s3_key, etag);
-        let expected_hash = "b717d5a78ed63238b0778e7295d83e963758aa54db6e969a822f2b13ce9a3067";
+        let expected_hash = "1cfd611a26062b33e98d48a84e967ddcc2a42957479a8abd541e29cfa3258639";
         let actual_hash = hex::encode(hash_cache_key_raw(&key));
         assert_eq!(expected_hash, actual_hash);
     }
@@ -896,63 +973,86 @@ mod tests {
     fn validate_block_header() {
         let block_idx = 0;
         let block_offset = 0;
+        let block_size = 4;
         let etag = ETag::for_tests();
         let s3_key = String::from("s3/key");
         let data_checksum = Crc32c::new(42);
         let mut header = DiskBlockHeader::new(
             block_idx,
             block_offset,
+            block_size,
             etag.as_str().to_owned(),
             s3_key.clone(),
             data_checksum,
         );
 
         let checksum = header
-            .validate(&s3_key, etag.as_str(), block_idx, block_offset)
+            .validate(&s3_key, etag.as_str(), block_idx, block_offset, block_size)
             .expect("should be OK with valid fields and checksum");
         assert_eq!(data_checksum, checksum);
 
         // Bad fields
         let err = header
-            .validate("hello", etag.as_str(), block_idx, block_offset)
+            .validate("hello", etag.as_str(), block_idx, block_offset, block_size)
             .expect_err("should fail with invalid s3_key");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
         let err = header
-            .validate(&s3_key, "bad etag", block_idx, block_offset)
+            .validate(&s3_key, "bad etag", block_idx, block_offset, block_size)
             .expect_err("should fail with invalid etag");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
         let err = header
-            .validate(&s3_key, etag.as_str(), 5, block_offset)
+            .validate(&s3_key, etag.as_str(), 5, block_offset, block_size)
             .expect_err("should fail with invalid block idx");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
         let err = header
-            .validate(&s3_key, etag.as_str(), block_idx, 1024)
+            .validate(&s3_key, etag.as_str(), block_idx, 1024, block_size)
             .expect_err("should fail with invalid block offset");
+        assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
+        let err = header
+            .validate(&s3_key, etag.as_str(), block_idx, block_offset, 42)
+            .expect_err("should fail with invalid block length");
         assert!(matches!(err, DiskBlockAccessError::FieldMismatchError));
 
         // Bad checksum
         header.header_checksum = 23;
         let err = header
-            .validate(&s3_key, etag.as_str(), block_idx, block_offset)
+            .validate(&s3_key, etag.as_str(), block_idx, block_offset, block_size)
             .expect_err("should fail with invalid checksum");
         assert!(matches!(err, DiskBlockAccessError::ChecksumError));
     }
 
-    #[test]
-    fn read_corrupted_block_should_fail() {
+    #[test_case("key")]
+    #[test_case("etag")]
+    #[test_case("data")]
+    fn read_corrupted_block_should_fail(length_to_corrupt: &str) {
+        const MAX_LENGTH: u64 = 1024;
+
+        fn get_u64_at(slice: &[u8], offset: usize) -> u64 {
+            u64::from_le_bytes(slice[offset..(offset + 8)].try_into().unwrap())
+        }
+
+        fn replace_u64_at(slice: &mut [u8], offset: usize, new_value: u64) {
+            slice[offset..(offset + 8)].copy_from_slice(&new_value.to_le_bytes());
+        }
+
         let original_length = 42;
         let data = ChecksummedBytes::new(vec![0u8; original_length].into());
         let cache_key = ObjectId::new("k".into(), ETag::from_str("e").unwrap());
         let block = DiskBlock::new(cache_key.clone(), 0, 0, data).expect("should have no checksum err");
-        
+
         let mut buf = Vec::new();
-        bincode::serialize_into(&mut buf, &block).unwrap();
+        block.write(&mut buf).unwrap();
 
-        let offset = 40 + cache_key.key().len() + cache_key.etag().as_str().len();
-        assert_eq!(usize::from_le_bytes(buf[offset..(offset + 8)].try_into().unwrap()), original_length);
+        let (offset, expected) = match length_to_corrupt {
+            "key" => (24, cache_key.key().len()),
+            "etag" => (32 + cache_key.key().len(), cache_key.etag().as_str().len()),
+            "data" => (16, original_length),
+            _ => panic!("invalid length: {}", length_to_corrupt),
+        };
 
-        buf[offset..(offset + 8)].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert_eq!(get_u64_at(&buf, offset) as usize, expected);
+        replace_u64_at(&mut buf, offset, u64::MAX);
 
-        bincode::deserialize_from::<_, DiskBlock>(buf.as_slice()).expect_err("deserialization should fail");
+        DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH).expect_err("deserialization should fail");
     }
 }
