@@ -8,7 +8,7 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::FUSE_ROOT_INODE;
+use mountpoint_s3_fs::fs::{ToErrno, FUSE_ROOT_INODE};
 
 use mountpoint_s3_fs::S3Filesystem;
 use test_case::test_case;
@@ -17,6 +17,7 @@ mod common;
 
 #[test_case(true, false; "head object")]
 #[test_case(false, true; "list object")]
+#[test_case(true, true; "both list and head")]
 #[tokio::test]
 async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_throttled: bool) {
     let bucket = "bucket";
@@ -72,6 +73,13 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
         .lookup(FUSE_ROOT_INODE, key.as_ref())
         .await
         .expect_err("lookup must fail");
+    let actual_errno = nix::errno::Errno::from_raw(err.to_errno());
+    let expected_errno = nix::errno::Errno::EIO;
+    assert_eq!(
+        actual_errno, expected_errno,
+        "lookup failure due to HTTP 503 must return {:?}",
+        expected_errno,
+    );
     let metadata = err.meta();
     assert_eq!(
         *metadata,
