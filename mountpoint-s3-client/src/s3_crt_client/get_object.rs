@@ -171,6 +171,7 @@ pub struct S3BackpressureHandle {
 impl ClientBackpressureHandle for S3BackpressureHandle {
     fn increment_read_window(&mut self, len: usize) {
         self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+        tracing::info!(target: "benchmarking_instrumentation", len, "on_meta_inc_window");
         self.meta_request.increment_read_window(len as u64);
     }
 
