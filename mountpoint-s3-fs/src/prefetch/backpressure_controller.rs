@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::{env::VarError, ops::Range};
 
-use async_channel::{unbounded, Receiver, Sender, TryRecvError};
+use async_channel::{unbounded, Receiver, RecvError, Sender, TryRecvError};
 use humansize::make_format;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
@@ -353,26 +353,17 @@ impl BackpressureLimiter {
     ) -> Result<Option<u64>, PrefetchReadError<E>> {
         // There is already enough read window so no need to block
         if self.read_window_end_offset > offset {
-            let mut changed = false;
-            let new_read_window_offset = loop {
-                // Drain the read window incrementing queue while we're here
-                match self.read_window_incrementing_queue.try_recv() {
-                    Ok(len) => {
-                        self.read_window_end_offset += len as u64;
-                        changed = true;
-                    }
-                    Err(TryRecvError::Empty) => {
-                        if changed {
-                            break Some(self.read_window_end_offset);
-                        } else {
-                            break None;
-                        }
-                    }
-                    Err(TryRecvError::Closed) => break None,
-                }
-            };
+            // Drain increment queue
+            let old_offset = self.read_window_end_offset;
+            while let Ok(len) = self.read_window_incrementing_queue.try_recv() {
+                self.read_window_end_offset += len as u64
+            }
 
-            return Ok(new_read_window_offset);
+            if old_offset != self.read_window_end_offset {
+                return Ok(Some(self.read_window_end_offset));
+            } else {
+                return Ok(None);
+            }
         }
 
         // Reaching here means there is not enough read window, so we block until it is large enough
@@ -385,7 +376,7 @@ impl BackpressureLimiter {
             let recv = self.read_window_incrementing_queue.recv().await;
             match recv {
                 Ok(len) => self.read_window_end_offset += len as u64,
-                Err(_) => return Err(PrefetchReadError::ReadWindowIncrement),
+                Err(RecvError) => return Err(PrefetchReadError::ReadWindowIncrement),
             }
         }
         Ok(Some(self.read_window_end_offset))
