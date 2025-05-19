@@ -15,6 +15,7 @@ use futures::pin_mut;
 use futures::stream::StreamExt;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
+use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{
     Checksum, ChecksumMode, ClientBackpressureHandle, ETag, GetBodyPart, GetObjectParams, GetObjectResponse,
 };
@@ -195,7 +196,7 @@ async fn test_mutated_during_get_object_backpressure() {
     let next = get_request.next().await.expect("result should not be empty");
     assert!(matches!(
         next,
-        Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed))
+        Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_)))
     ));
 }
 
@@ -211,14 +212,24 @@ async fn test_get_object_404_key() {
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect_err("get_object should fail");
+
     assert!(matches!(
         err,
-        ObjectClientError::ServiceError(GetObjectError::NoSuchKey)
+        ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_))
     ));
+    assert_eq!(
+        err.meta(),
+        ClientErrorMetadata {
+            http_code: Some(404),
+            error_code: Some("NoSuchKey".to_string()),
+            error_message: Some("The specified key does not exist.".to_string())
+        }
+    );
 
     // TODO: what happens if the object is deleted mid-GET? the CRT does lots of ranged GETs, so they
     // will start failing. need a way to test that.
 }
+
 #[tokio::test]
 async fn test_get_object_404_bucket() {
     let (_bucket, prefix) = get_test_bucket_and_prefix("test_get_object_404_bucket");
@@ -231,10 +242,19 @@ async fn test_get_object_404_bucket() {
         .get_object("amzn-s3-demo-bucket", &key, &GetObjectParams::new())
         .await
         .expect_err("get_object should fail");
+
     assert!(matches!(
         err,
-        ObjectClientError::ServiceError(GetObjectError::NoSuchBucket)
+        ObjectClientError::ServiceError(GetObjectError::NoSuchBucket(_))
     ));
+    assert_eq!(
+        err.meta(),
+        ClientErrorMetadata {
+            http_code: Some(404),
+            error_code: Some("NoSuchBucket".to_string()),
+            error_message: Some("The specified bucket does not exist".to_string())
+        }
+    );
 }
 
 #[tokio::test]
@@ -292,8 +312,68 @@ async fn test_get_object_412_if_match() {
 
     assert!(matches!(
         err,
-        ObjectClientError::ServiceError(GetObjectError::PreconditionFailed)
+        ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_))
     ));
+    assert_eq!(
+        err.meta(),
+        ClientErrorMetadata {
+            http_code: Some(412),
+            error_code: Some("PreconditionFailed".to_string()),
+            error_message: Some("At least one of the pre-conditions you specified did not hold".to_string())
+        }
+    );
+}
+
+#[tokio::test]
+async fn test_get_object_403() {
+    let (_bucket, prefix) = get_test_bucket_and_prefix("test_get_object_403");
+    let bucket = get_test_bucket_without_permissions();
+
+    let key = format!("{prefix}/nonexistent_key");
+
+    let client: S3CrtClient = get_test_client();
+
+    let err = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect_err("get_object should fail");
+
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
+    ));
+    assert_eq!(err.meta().http_code, Some(403));
+    assert_eq!(err.meta().error_code, Some("AccessDenied".to_string()));
+    assert!(err.meta().error_message.is_some());
+}
+
+// Not sure how to trigger IncorrectRegion with directory buckets: failure occurs on dns resolution (CrtError / AWS_IO_DNS_INVALID_NAME).
+// So only run with S3 Standard.
+#[cfg(not(feature = "s3express_tests"))]
+#[tokio::test]
+async fn test_get_object_wrong_region() {
+    use mountpoint_s3_client::config::EndpointConfig;
+
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_wrong_region");
+
+    let key = format!("{prefix}/nonexistent_key");
+
+    let endpoint_config = EndpointConfig::new(&get_secondary_test_region());
+    let client =
+        S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("must create a client");
+
+    let err = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect_err("get_object should fail");
+
+    assert!(matches!(
+        err,
+        ObjectClientError::ClientError(S3RequestError::IncorrectRegion(_, _))
+    ));
+    assert_eq!(err.meta().http_code, Some(301));
+    assert_eq!(err.meta().error_code, Some("PermanentRedirect".to_string()));
+    assert!(err.meta().error_message.is_some());
 }
 
 #[test_case(false; "early")]
