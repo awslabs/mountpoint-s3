@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::{env::VarError, ops::Range};
 
-use async_channel::{unbounded, Receiver, Sender};
+use async_channel::{unbounded, Receiver, Sender, TryRecvError};
 use humansize::make_format;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
@@ -353,13 +353,25 @@ impl BackpressureLimiter {
     ) -> Result<Option<u64>, PrefetchReadError<E>> {
         // There is already enough read window so no need to block
         if self.read_window_end_offset > offset {
-            // Check the read window incrementing queue to see there is an early request to increase read window
-            let new_read_window_offset = if let Ok(len) = self.read_window_incrementing_queue.try_recv() {
-                self.read_window_end_offset += len as u64;
-                Some(self.read_window_end_offset)
-            } else {
-                None
+            let mut changed = false;
+            let new_read_window_offset = loop {
+                // Drain the read window incrementing queue while we're here
+                match self.read_window_incrementing_queue.try_recv() {
+                    Ok(len) => {
+                        self.read_window_end_offset += len as u64;
+                        changed = true;
+                    }
+                    Err(TryRecvError::Empty) => {
+                        if changed {
+                            break Some(self.read_window_end_offset);
+                        } else {
+                            break None;
+                        }
+                    }
+                    Err(TryRecvError::Closed) => break None,
+                }
             };
+
             return Ok(new_read_window_offset);
         }
 
