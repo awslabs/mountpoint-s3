@@ -31,22 +31,31 @@ pub struct BackpressureConfig {
     pub request_range: Range<u64>,
 }
 
+/// A [BackpressureController] should be given to consumers of a byte stream.
+/// It is used to send feedback ([Self::send_feedback]) to its corresponding [BackpressureLimiter],
+/// the counterpart which should be leveraged by the stream producer.
 #[derive(Debug)]
 pub struct BackpressureController<Client: ObjectClient> {
+    /// Sender for the [BackpressureLimiter] to receive size increments from the controller.
     read_window_updater: Sender<usize>,
+    /// Size by which the producer should be proactively producing data.
     preferred_read_window_size: usize,
     min_read_window_size: usize,
     max_read_window_size: usize,
+    /// Multiplier by which [Self::preferred_read_window_size] is scaled.
     read_window_size_multiplier: usize,
     /// Upper bound of the current read window. The request can return data up to this
     /// offset *exclusively*. This value must be advanced to continue fetching new data.
     read_window_end_offset: u64,
-    /// Next offset of the data to be read. It is used for tracking how many bytes of
-    /// data has been read out of the stream.
+    /// Next offset of the data to be read, relative to the start of the object (not range).
+    ///
+    /// It is used to track the number of bytes read from the stream.
     next_read_offset: u64,
-    /// End offset for the request we want to apply backpressure. The request can return
-    /// data up to this offset *exclusively*.
+    /// End object offset for the request.
+    ///
+    /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
+    /// Memory limiter is used to guide decisions on how much backpressure to apply.
     mem_limiter: Arc<MemoryLimiter<Client>>,
     increment_heuristic: BackpressureIncrementHeuristic,
 }
@@ -65,6 +74,31 @@ enum BackpressureIncrementHeuristicLinearStep {
     PartSize,
 }
 
+impl BackpressureIncrementHeuristic {
+    /// Determines the heuristic used by [BackpressureController] to manage a read ahead window.
+    ///
+    /// Panics when given an unexpected value.
+    fn from_env() -> Self {
+        match std::env::var("UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC")
+            .as_ref()
+            .map(|string| string.as_str())
+        {
+            Ok("LINEAR_PARTSIZE") | Err(VarError::NotPresent) => BackpressureIncrementHeuristic::Linear {
+                step: BackpressureIncrementHeuristicLinearStep::PartSize,
+            },
+            Ok("LINEAR_READSIZE") => BackpressureIncrementHeuristic::Linear {
+                step: BackpressureIncrementHeuristicLinearStep::ReadSize,
+            },
+            Ok("HALF_CONSUMED") => BackpressureIncrementHeuristic::AfterHalfConsumed,
+            Ok(_) | Err(_) => panic!("unexpected value for UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC, oh no!"),
+        }
+    }
+}
+
+/// The [BackpressureLimiter] is used on producer side of a stream, for example,
+/// any [super::part_stream::ObjectPartStream] that supports backpressure.
+///
+/// The producer can call [Self::wait_for_read_window_increment] to wait for feedback from the consumer.
 #[derive(Debug)]
 pub struct BackpressureLimiter {
     read_window_incrementing_queue: Receiver<usize>,
@@ -78,39 +112,23 @@ pub struct BackpressureLimiter {
 }
 
 /// Creates a [BackpressureController] and its related [BackpressureLimiter].
-/// We use a pair of these to for providing feedback to backpressure stream.
 ///
-/// [BackpressureLimiter] is used on producer side of the object stream, that is, any
-/// [super::part_stream::ObjectPartStream] that support backpressure. The producer can call
-/// `wait_for_read_window_increment` to wait for feedback from the consumer. This method
-/// could block when they know that the producer requires read window incrementing.
-///
-/// [BackpressureController] will be given to the consumer side of the object stream.
-/// It can be used anywhere to set preferred read window size for the stream and tell the
-/// producer when its read window should be increased.
+/// This pair allows a consumer to send feedback ([BackpressureFeedbackEvent]) when starved or bytes are consumed,
+/// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
 pub fn new_backpressure_controller<Client: ObjectClient>(
     config: BackpressureConfig,
     mem_limiter: Arc<MemoryLimiter<Client>>,
 ) -> (BackpressureController<Client>, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
+
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
     let (read_window_updater, read_window_incrementing_queue) = unbounded();
     mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
-    let increment_heuristic = match std::env::var("UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC")
-        .as_ref()
-        .map(|string| string.as_str())
-    {
-        Ok("LINEAR_PARTSIZE") | Err(VarError::NotPresent) => BackpressureIncrementHeuristic::Linear {
-            step: BackpressureIncrementHeuristicLinearStep::PartSize,
-        },
-        Ok("LINEAR_READSIZE") => BackpressureIncrementHeuristic::Linear {
-            step: BackpressureIncrementHeuristicLinearStep::ReadSize,
-        },
-        Ok("HALF_CONSUMED") => BackpressureIncrementHeuristic::AfterHalfConsumed,
-        Ok(_) | Err(_) => panic!("unexpected value for UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC, oh no!"),
-    };
-    tracing::trace!("using backpressure heuristic {increment_heuristic:?}");
+
+    let increment_heuristic = BackpressureIncrementHeuristic::from_env();
+    tracing::debug!("using backpressure heuristic {increment_heuristic:?}");
+
     let controller = BackpressureController {
         read_window_updater,
         preferred_read_window_size: config.initial_read_window_size,
@@ -253,8 +271,9 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         self.read_window_end_offset += len as u64;
     }
 
-    // Scale up preferred read window size with a multiplier configured at initialization.
-    // Scaling up fails silently if there is no enough free memory to perform it.
+    /// Scale up preferred read window size with a multiplier configured at initialization.
+    ///
+    /// Fails silently if there is insufficient free memory to perform it according to [Self::mem_limiter].
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
             let new_read_window_size = (self.preferred_read_window_size * self.read_window_size_multiplier)
@@ -285,7 +304,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         }
     }
 
-    // Scale down preferred read window size by a multiplier configured at initialization.
+    /// Scale down [Self::preferred_read_window_size] by a multiplier configured at initialization.
     fn scale_down(&mut self) {
         if self.preferred_read_window_size > self.min_read_window_size {
             assert!(self.read_window_size_multiplier > 1);
@@ -325,10 +344,9 @@ impl BackpressureLimiter {
         self.read_window_end_offset
     }
 
-    /// Checks if there is enough read window to put the next item with a given offset to the stream.
-    /// It blocks until receiving enough incrementing read window requests to serve the next part.
+    /// Wait until the backpressure window moves ahead of the given offset.
     ///
-    /// Returns the new read window offset.
+    /// Returns the new read window offset if it has changed, otherwise [None].
     pub async fn wait_for_read_window_increment<E>(
         &mut self,
         offset: u64,
