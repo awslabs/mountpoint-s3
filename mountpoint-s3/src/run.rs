@@ -194,7 +194,7 @@ where
     let mount_point_path = format!("{}", fuse_session_config.mount_point());
 
     let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)
-        .create_fuse_session(s3_path, client, runtime, None)?;
+        .create_fuse_session(s3_path, client, runtime)?;
     tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
 
     if let Some(managed_cache_dir) = managed_cache_dir {

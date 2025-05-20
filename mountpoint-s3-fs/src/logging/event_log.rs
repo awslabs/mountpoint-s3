@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
-/// Provides callback ([EventLogger::log_error_callback]) for logging events in a structured format to a file.
+/// Provides callback ([LogErrorCallback]) for logging events in a structured format to a file.
 ///
 /// The output format is `\n`-separated `json`'s, where each `json` describes a single event. Currently,
 /// only errors occurring on fuse operations are logged as events. For some failed fuse operations an event
@@ -24,6 +24,7 @@ use std::path::Path;
 /// `s3_error_http_status == 503`
 use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fs::Error;
+use crate::fuse::ErrorCallback;
 use crate::sync::mpsc::{self, Receiver, SyncSender};
 use serde::{Deserialize, Serialize};
 use std::thread::{self, JoinHandle};
@@ -32,34 +33,34 @@ use time::{serde::rfc3339, OffsetDateTime};
 const EVENT_LOG_FILE_NAME: &str = "event_log";
 const VERSION: &str = "1";
 
-pub struct EventLogger {
-    events_sender: Option<SyncSender<Event>>,
+pub struct LogErrorCallback {
+    event_sender: Option<SyncSender<Event>>,
     writer_thread: Option<JoinHandle<()>>,
 }
 
-impl EventLogger {
+impl ErrorCallback for LogErrorCallback {
+    fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64) {
+        self.log_error(err, fuse_operation, fuse_request_id);
+    }
+}
+
+impl LogErrorCallback {
+    /// Spawns a new thread writing events to a file and return a callback which may be used to send events to this thread
+    /// in a non blocking manner.
     pub fn new<P: AsRef<Path>>(log_directory: P) -> anyhow::Result<Self> {
         let max_inflight_events = 1000;
-        let (tx, rx) = mpsc::sync_channel(max_inflight_events);
+        let (event_sender, receiver) = mpsc::sync_channel(max_inflight_events);
         let file = File::create(log_directory.as_ref().join(EVENT_LOG_FILE_NAME))?;
-        let writer_thread = thread::spawn(|| Self::write_to_file(rx, file));
+        let writer_thread = thread::spawn(|| Self::write_to_file(receiver, file));
         Ok(Self {
-            events_sender: Some(tx),
+            event_sender: Some(event_sender),
             writer_thread: Some(writer_thread),
-        })
-    }
-
-    pub fn log_error_callback(&self) -> crate::fuse::ErrorCallback {
-        // todo: overhead of [SyncSender::clone]?
-        let sender = self.events_sender.clone().expect("sender must be set");
-        Box::new(move |error, fuse_operation, fuse_request_id| {
-            Self::log_error(&sender, error, fuse_operation, fuse_request_id);
         })
     }
 
     /// Logs a failed fuse operation. The field `error_code` is set to `MOUNTPOINT_ERROR_INTERNAL` if it
     /// is missing in the input `fs::Error`.
-    fn log_error(sender: &SyncSender<Event>, error: &Error, fuse_operation: &str, fuse_request_id: u64) {
+    fn log_error(&self, error: &Error, fuse_operation: &str, fuse_request_id: u64) {
         let error_code = match &error.meta().error_code {
             Some(error_code) => error_code,
             None => MOUNTPOINT_ERROR_INTERNAL,
@@ -81,38 +82,41 @@ impl EventLogger {
             s3_error_message: error.meta().client_error_meta.error_message.clone(),
             version: VERSION.to_string(),
         };
-        sender.send(event).expect("must be able to send an event");
+        self.event_sender
+            .as_ref()
+            .unwrap()
+            .send(event)
+            .expect("must be able to send an event");
     }
 
     fn write_to_file(events_receiver: Receiver<Event>, file: File) {
-        // todo: what to do on errors?
-        // todo: overhead of flush?
         let mut writer = BufWriter::new(file);
         for event in events_receiver {
             if let Err(err) = event.write(&mut writer) {
+                // todo: what to do on errors?
                 tracing::warn!("failed to write to the event log: {}, event: {:?}", err, event);
             }
         }
     }
 }
 
-impl Drop for EventLogger {
-    /// [Self::writer_thread] terminates when there are no [SyncSender]-s left. We assume that no [ErrorCallback] will be alive
-    /// when [EventLogger] is dropped so, last [SyncSender] is dropped just before joining the thread.
+impl Drop for LogErrorCallback {
+    /// Signal the [Self::writer_thread] to shutdown by dropping [Self::event_sender] and wait for the thread to
+    /// actually shutdown to ensure all events were processed.
     fn drop(&mut self) {
-        self.events_sender.take();
+        self.event_sender.take().expect("must be set");
         self.writer_thread
             .take()
             .expect("writer must be set")
             .join()
             .expect("must wait for writer thread");
-        tracing::warn!("writer done");
+        tracing::debug!("writer done");
     }
 }
 
-impl std::fmt::Debug for EventLogger {
+impl std::fmt::Debug for LogErrorCallback {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EventLogger")
+        write!(f, "LogErrorCallback")
     }
 }
 
@@ -194,19 +198,16 @@ mod tests {
             version: VERSION.to_string(),
         }];
 
-        // create the event logger and a callback to log errors
         let log_dir = tempdir().expect("must create a log dir");
-        let event_logger = EventLogger::new(log_dir.path()).expect("must create the event logger");
-        let error_callback = event_logger.log_error_callback();
 
-        // log errors
-        for error in fs_errors.iter() {
-            error_callback(error, "read", 10);
+        {
+            // log errors and drop the callback to ensure data was written to the disk
+            let error_callback = LogErrorCallback::new(log_dir.path()).expect("must create the event logger");
+
+            for error in fs_errors.iter() {
+                error_callback.error(error, "read", 10);
+            }
         }
-
-        // shutdown the event_logger
-        drop(error_callback);
-        drop(event_logger);
 
         // check output
         let event_log =

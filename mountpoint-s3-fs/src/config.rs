@@ -17,6 +17,7 @@ pub struct MountpointConfig {
     fuse_session_config: FuseSessionConfig,
     data_cache_config: DataCacheConfig,
     filesystem_config: S3FilesystemConfig,
+    error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>,
 }
 
 impl MountpointConfig {
@@ -29,7 +30,14 @@ impl MountpointConfig {
             fuse_session_config,
             data_cache_config,
             filesystem_config,
+            error_callback: None,
         }
+    }
+
+    /// Set the [Self::error_callback] field
+    pub fn error_callback(mut self, error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>) -> Self {
+        self.error_callback = error_callback;
+        self
     }
 
     /// Create a new FUSE session
@@ -38,7 +46,6 @@ impl MountpointConfig {
         s3_path: S3Path,
         client: Client,
         runtime: Runtime,
-        error_callback: Option<ErrorCallback>,
     ) -> anyhow::Result<FuseSession>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -54,7 +61,7 @@ impl MountpointConfig {
             self.filesystem_config,
         );
 
-        let fuse_fs = S3FuseFilesystem::new(fs, error_callback);
+        let fuse_fs = S3FuseFilesystem::new(fs, self.error_callback);
         FuseSession::new(fuse_fs, self.fuse_session_config)
     }
 }

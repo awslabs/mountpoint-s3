@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
 
 use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno};
+use crate::sync::Arc;
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
@@ -19,7 +20,9 @@ use fuser::{
 pub mod config;
 pub mod session;
 
-pub type ErrorCallback = Box<dyn Fn(&crate::fs::Error, &str, u64) + Send + Sync>;
+pub trait ErrorCallback: std::fmt::Debug {
+    fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64);
+}
 
 /// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
 /// requests based on their response status. https://github.com/tokio-rs/tracing/issues/372
@@ -38,19 +41,15 @@ macro_rules! event {
 /// Handle an error in a FUSE handler. This logs the appropriate error message and then calls
 /// `reply` on the given replier with the error's corresponding errno.
 macro_rules! fuse_error {
-    ($name:literal, $reply:expr, $err:expr, $error_callback:expr, $request_id:expr) => {{
+    ($name:literal, $reply:expr, $err:expr, $fs:expr, $request:expr) => {{
         let err = $err;
         event!(err.level, "{} failed with errno {}: {:#}", $name, err.to_errno(), err);
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
-        if let Some(error_callback) = $error_callback {
-            let error_callback: &ErrorCallback = error_callback;
-            error_callback(&err, $name, $request_id);
+        if let Some(error_callback) = $fs.error_callback.as_ref() {
+            error_callback.error(&err, $name, $request.unique());
         }
         $reply.error(err.to_errno());
     }};
-    ($name:literal, $reply:expr, $err:expr) => {
-        fuse_error!($name, $reply, $err, None, 0)
-    };
 }
 
 /// Generic handler for unimplemented FUSE operations
@@ -76,14 +75,14 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     fs: S3Filesystem<Client>,
-    error_callback: Option<ErrorCallback>,
+    error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>,
 }
 
 impl<Client> S3FuseFilesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    pub fn new(fs: S3Filesystem<Client>, error_callback: Option<ErrorCallback>) -> Self {
+    pub fn new(fs: S3Filesystem<Client>, error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>) -> Self {
         Self { fs, error_callback }
     }
 }
@@ -92,29 +91,29 @@ impl<Client> Filesystem for S3FuseFilesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    #[instrument(level="warn", skip_all, fields(req=_req.unique()))]
-    fn init(&self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+    #[instrument(level="warn", skip_all, fields(req=req.unique()))]
+    fn init(&self, req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         block_on(self.fs.init(config).in_current_span())
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, name=?name))]
-    fn lookup(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEntry) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=parent, name=?name))]
+    fn lookup(&self, req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEntry) {
         match block_on(self.fs.lookup(parent, name).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => fuse_error!("lookup", reply, e),
+            Err(e) => fuse_error!("lookup", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, name=field::Empty))]
-    fn getattr(&self, _req: &Request<'_>, ino: InodeNo, _fh: Option<u64>, reply: ReplyAttr) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, name=field::Empty))]
+    fn getattr(&self, req: &Request<'_>, ino: InodeNo, _fh: Option<u64>, reply: ReplyAttr) {
         match block_on(self.fs.getattr(ino).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
-            Err(e) => fuse_error!("getattr", reply, e),
+            Err(e) => fuse_error!("getattr", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino, nlookup, name=field::Empty))]
-    fn forget(&self, _req: &Request<'_>, ino: u64, nlookup: u64) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino, nlookup, name=field::Empty))]
+    fn forget(&self, req: &Request<'_>, ino: u64, nlookup: u64) {
         block_on(self.fs.forget(ino, nlookup));
     }
 
@@ -122,7 +121,7 @@ where
     fn open(&self, req: &Request<'_>, ino: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.open(ino, flags.into(), req.pid()).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
-            Err(e) => fuse_error!("open", reply, e),
+            Err(e) => fuse_error!("open", reply, e, self, req),
         }
     }
 
@@ -145,23 +144,23 @@ where
                 bytes_sent = data.len();
                 reply.data(&data);
             }
-            Err(err) => fuse_error!("read", reply, err, self.error_callback.as_ref(), req.unique()),
+            Err(err) => fuse_error!("read", reply, err, self, req),
         }
 
         metrics::counter!("fuse.total_bytes", "type" => "read").increment(bytes_sent as u64);
         metrics::histogram!("fuse.io_size", "type" => "read").record(bytes_sent as f64);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, name=field::Empty))]
-    fn opendir(&self, _req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=parent, name=field::Empty))]
+    fn opendir(&self, req: &Request<'_>, parent: InodeNo, flags: i32, reply: ReplyOpen) {
         match block_on(self.fs.opendir(parent, flags).in_current_span()) {
             Ok(opened) => reply.opened(opened.fh, opened.flags),
-            Err(e) => fuse_error!("opendir", reply, e),
+            Err(e) => fuse_error!("opendir", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
-    fn readdir(&self, _req: &Request<'_>, parent: InodeNo, fh: u64, offset: i64, mut reply: fuser::ReplyDirectory) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=parent, fh=fh, offset=offset))]
+    fn readdir(&self, req: &Request<'_>, parent: InodeNo, fh: u64, offset: i64, mut reply: fuser::ReplyDirectory) {
         struct ReplyDirectory<'a> {
             inner: &'a mut fuser::ReplyDirectory,
             count: &'a mut usize,
@@ -188,14 +187,14 @@ where
                 reply.ok();
                 metrics::counter!("fuse.readdir.entries").increment(count as u64);
             }
-            Err(e) => fuse_error!("readdir", reply, e),
+            Err(e) => fuse_error!("readdir", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=parent, fh=fh, offset=offset))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=parent, fh=fh, offset=offset))]
     fn readdirplus(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: InodeNo,
         fh: u64,
         offset: i64,
@@ -234,15 +233,15 @@ where
                 reply.ok();
                 metrics::counter!("fuse.readdirplus.entries").increment(count as u64);
             }
-            Err(e) => fuse_error!("readdirplus", reply, e),
+            Err(e) => fuse_error!("readdirplus", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, datasync=datasync, name=field::Empty))]
-    fn fsync(&self, _req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, datasync=datasync, name=field::Empty))]
+    fn fsync(&self, req: &Request<'_>, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         match block_on(self.fs.fsync(ino, fh, datasync).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => fuse_error!("fsync", reply, e),
+            Err(e) => fuse_error!("fsync", reply, e, self, req),
         }
     }
 
@@ -250,14 +249,14 @@ where
     fn flush(&self, req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
         match block_on(self.fs.flush(ino, fh, lock_owner, req.pid()).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => fuse_error!("flush", reply, e),
+            Err(e) => fuse_error!("flush", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, name=field::Empty))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, name=field::Empty))]
     fn release(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: InodeNo,
         fh: u64,
         flags: i32,
@@ -267,22 +266,22 @@ where
     ) {
         match block_on(self.fs.release(ino, fh, flags, lock_owner, flush).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => fuse_error!("release", reply, e),
+            Err(e) => fuse_error!("release", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh))]
-    fn releasedir(&self, _req: &Request<'_>, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh))]
+    fn releasedir(&self, req: &Request<'_>, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
         match block_on(self.fs.releasedir(ino, fh, flags).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => fuse_error!("releasedir", reply, e),
+            Err(e) => fuse_error!("releasedir", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name))]
     fn mknod(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: InodeNo,
         name: &OsStr,
         mode: u32,
@@ -295,25 +294,25 @@ where
 
         match block_on(self.fs.mknod(parent, name, mode, umask, rdev).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => fuse_error!("mknod", reply, e),
+            Err(e) => fuse_error!("mknod", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
-    fn mkdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, mode: u32, umask: u32, reply: ReplyEntry) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name))]
+    fn mkdir(&self, req: &Request<'_>, parent: u64, name: &OsStr, mode: u32, umask: u32, reply: ReplyEntry) {
         // mode_t is u32 on Linux but u16 on macOS, so cast it here
         let mode = mode as libc::mode_t;
 
         match block_on(self.fs.mkdir(parent, name, mode, umask).in_current_span()) {
             Ok(entry) => reply.entry(&entry.ttl, &entry.attr, entry.generation),
-            Err(e) => fuse_error!("mkdir", reply, e),
+            Err(e) => fuse_error!("mkdir", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=data.len(), pid=_req.pid(), name=field::Empty))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=fh, offset=offset, length=data.len(), pid=req.pid(), name=field::Empty))]
     fn write(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: InodeNo,
         fh: u64,
         offset: i64,
@@ -333,30 +332,30 @@ where
                 metrics::counter!("fuse.total_bytes", "type" => "write").increment(bytes_written as u64);
                 metrics::histogram!("fuse.io_size", "type" => "write").record(bytes_written as f64);
             }
-            Err(e) => fuse_error!("write", reply, e),
+            Err(e) => fuse_error!("write", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
-    fn rmdir(&self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name))]
+    fn rmdir(&self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.rmdir(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => fuse_error!("rmdir", reply, e),
+            Err(e) => fuse_error!("rmdir", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name))]
-    fn unlink(&self, _req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEmpty) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name))]
+    fn unlink(&self, req: &Request<'_>, parent: InodeNo, name: &OsStr, reply: ReplyEmpty) {
         match block_on(self.fs.unlink(parent, name).in_current_span()) {
             Ok(()) => reply.ok(),
-            Err(e) => fuse_error!("unlink", reply, e),
+            Err(e) => fuse_error!("unlink", reply, e, self, req),
         }
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, name=field::Empty))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, name=field::Empty))]
     fn setattr(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
         _mode: Option<u32>,
         _uid: Option<u32>,
@@ -382,7 +381,7 @@ where
         });
         match block_on(self.fs.setattr(ino, atime, mtime, size, flags).in_current_span()) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
-            Err(e) => fuse_error!("setattr", reply, e),
+            Err(e) => fuse_error!("setattr", reply, e, self, req),
         }
     }
 
@@ -588,8 +587,8 @@ where
         fuse_unsupported!("getxtimes", reply);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino))]
-    fn statfs(&self, _req: &Request<'_>, ino: u64, reply: ReplyStatfs) {
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino))]
+    fn statfs(&self, req: &Request<'_>, ino: u64, reply: ReplyStatfs) {
         match block_on(self.fs.statfs(ino).in_current_span()) {
             Ok(statfs) => reply.statfs(
                 statfs.total_blocks,
@@ -601,7 +600,7 @@ where
                 statfs.maximum_name_length,
                 statfs.fragment_size,
             ),
-            Err(e) => fuse_error!("statfs", reply, e),
+            Err(e) => fuse_error!("statfs", reply, e, self, req),
         }
     }
 }

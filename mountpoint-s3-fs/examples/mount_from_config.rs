@@ -17,11 +17,12 @@ use mountpoint_s3_fs::{
         session::FuseSession,
         ErrorCallback,
     },
-    logging::{event_log::EventLogger, init_logging, LoggingConfig, LoggingHandle},
+    logging::{event_log::LogErrorCallback, init_logging, LoggingConfig, LoggingHandle},
     manifest::{ingest_manifest, Manifest},
     metrics::{self, MetricsSinkHandle},
     prefix::Prefix,
     s3::config::{ClientConfig, PartConfig, Region, S3Path},
+    sync::Arc,
     MountpointConfig, Runtime, S3FilesystemConfig,
 };
 use serde::{Deserialize, Serialize};
@@ -210,13 +211,19 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
     Ok((logging, metrics))
 }
 
-fn mount_filesystem(config: &ConfigOptions, manifest: Manifest, error_callback: ErrorCallback) -> Result<FuseSession> {
+fn mount_filesystem(
+    config: &ConfigOptions,
+    manifest: Manifest,
+    error_callback: Arc<dyn ErrorCallback + Send + Sync>,
+) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
         config.build_fuse_session_config()?,
         config.build_filesystem_config(manifest)?,
         config.build_data_cache_config(),
-    );
+    )
+    .error_callback(Some(error_callback));
+
     // Get S3 Path
     let s3_path = config.build_s3_path()?;
 
@@ -229,7 +236,7 @@ fn mount_filesystem(config: &ConfigOptions, manifest: Manifest, error_callback: 
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(s3_path, client, runtime, Some(error_callback))
+        .create_fuse_session(s3_path, client, runtime)
         .context("Failed to create FUSE session")?;
 
     Ok(fuse_session)
@@ -249,16 +256,16 @@ fn main() -> Result<()> {
     // Read the config
     let config = load_config(&args.config).context("Failed to load config")?;
     // Set up the event log
-    let event_logger = EventLogger::new(&config.event_log_dir).context("Failed to create an event log")?;
+    let error_callback =
+        Arc::new(LogErrorCallback::new(&config.event_log_dir).context("Failed to create an event log")?);
     // Set up logging
     let (_logging, _metrics) = setup_logging(&config).context("Failed to setup logging")?;
     // Process manifests if needed
-    let temporary_dir =
-        tempdir_in(&config.metadata_store_dir).map_err(|err| anyhow!(err).context("Failed to create manifest"))?;
+    let temporary_dir = tempdir_in(&config.metadata_store_dir).context("Failed to create manifest")?;
     let manifest = process_manifests(&config, temporary_dir.path()).context("Failed to create manifest")?;
     // Build all configurations
     let fuse_session =
-        mount_filesystem(&config, manifest, event_logger.log_error_callback()).context("Failed to mount filesystem")?;
+        mount_filesystem(&config, manifest, error_callback.clone()).context("Failed to mount filesystem")?;
     // Join the session and wait until it completes
     fuse_session.join().context("Failed to join session")?;
     Ok(())
