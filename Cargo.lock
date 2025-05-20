@@ -2823,6 +2823,7 @@ dependencies = [
  "owo-colors 4.2.0",
  "predicates",
  "proptest",
+ "proptest-derive",
  "rand",
  "rand_chacha",
  "regex",
