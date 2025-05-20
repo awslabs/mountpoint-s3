@@ -390,7 +390,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Run as the specified user instead of root",
+        help = "Run Mountpoint process as the specified user",
         help_heading = MOUNT_OPTIONS_HEADER,
         value_name = "USERNAME"
     )]
