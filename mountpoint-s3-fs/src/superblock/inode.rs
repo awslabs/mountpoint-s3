@@ -483,7 +483,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
         let ino = 42;
         let inode_name = "made-up-inode";
         let inode = Inode::new(
@@ -541,7 +541,7 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
@@ -580,7 +580,7 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
@@ -612,7 +612,7 @@ mod tests {
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
 
         // Create an inode with "corrupted" metadata, i.e.
         // checksum not matching ino + full key.
@@ -670,7 +670,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
 
         let ino: u64 = 42;
         let inode_name = "made-up-inode";

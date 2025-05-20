@@ -18,7 +18,7 @@ pub struct MountspaceDirectoryReplier<'a> {
 
 impl<'a> MountspaceDirectoryReplier<'a> {
     pub fn new<R: DirectoryReplier + 'a + Send + Sync>(reply: &'a mut R) -> Self {
-        return MountspaceDirectoryReplier {reply: Box::new(reply)};
+        return MountspaceDirectoryReplier { reply: Box::new(reply) };
     }
 
     pub fn add(&mut self, entry: DirectoryEntry) -> bool {
@@ -71,6 +71,15 @@ pub trait Mountspace: Send + Sync + Debug {
         is_readdirplus: bool,
         reply: MountspaceDirectoryReplier<'a>,
     ) -> Result<MountspaceDirectoryReplier<'a>, InodeError>;
+
+    async fn rename(
+        &self,
+        src_parent_ino: InodeNo,
+        src_name: &OsStr,
+        dst_parent_ino: InodeNo,
+        dst_name: &OsStr,
+        allow_overwrite: bool,
+    ) -> Result<(), InodeError>;
 
     async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
 

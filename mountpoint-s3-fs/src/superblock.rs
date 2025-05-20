@@ -52,6 +52,7 @@ use mountpoint_s3_client::types::{
     ETag, HeadObjectParams, HeadObjectResult, RenameObjectParams, RenamePreconditionTypes,
 };
 use mountpoint_s3_client::ObjectClient;
+use std::sync::RwLockWriteGuard;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
@@ -124,6 +125,27 @@ impl RenameCache {
 }
 
 #[derive(Debug)]
+pub struct MakeAttrConfig {
+    pub uid: u32,
+    pub gid: u32,
+    pub file_mode: u16,
+    pub dir_mode: u16,
+}
+
+impl Default for MakeAttrConfig {
+    fn default() -> Self {
+        Self {
+            // Default to current user's UID/GID
+            uid: 700,
+            gid: 1,
+            // Default file permissions: rw-r--r-- (644)
+            file_mode: 0o644,
+            // Default directory permissions: rwxr-xr-x (755)
+            dir_mode: 0o755,
+        }
+    }
+}
+
 struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     bucket: String,
     prefix: Prefix,
@@ -137,9 +159,10 @@ struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     read_dir_handles: RwLock<HashMap<u64, Arc<ReaddirHandle>>>,
     dir_handles: RwLock<HashMap<u64, Arc<DirHandle>>>,
     next_dir_handle_id: AtomicU64,
+    make_attr_config: MakeAttrConfig,
 }
 impl<OC: ObjectClient + Send + Sync> fmt::Debug for SuperblockInner<OC> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         Ok(())
     }
 }
@@ -199,7 +222,7 @@ pub struct RenameLockGuard<'a> {
 
 /// A manager for automatically locking two inodes in filesysyem locking order.
 impl<'a> RenameLockGuard<'a> {
-    fn new<OC: ObjectClient>(
+    fn new<OC: ObjectClient + Send + Sync>(
         source_parent: &'a Inode,
         dest_parent: &'a Inode,
         superblock_inner: &'a SuperblockInner<OC>,
@@ -246,9 +269,14 @@ impl<'a> RenameLockGuard<'a> {
     }
 }
 
-impl<OC: ObjectClient> Superblock<OC> {
-    /// Create a new Superblock that targets the given bucket/prefix
-    pub fn new(client: OC, bucket: &str, prefix: &Prefix, config: SuperblockConfig) -> Self {
+impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
+    pub fn new(
+        client: OC,
+        bucket: &str,
+        prefix: &Prefix,
+        config: SuperblockConfig,
+        make_attr_config: MakeAttrConfig,
+    ) -> Self {
         let mount_time = OffsetDateTime::now_utc();
         let root = Inode::new_root(prefix, mount_time);
 
@@ -273,6 +301,7 @@ impl<OC: ObjectClient> Superblock<OC> {
             next_dir_handle_id: AtomicU64::new(1),
             read_dir_handles: Default::default(),
             dir_handles: Default::default(),
+            make_attr_config,
         };
         Self { inner: Arc::new(inner) }
     }
@@ -291,12 +320,12 @@ impl<OC: ObjectClient> Superblock<OC> {
         let (perm, nlink) = match lookup.inode.kind() {
             InodeKind::File => {
                 if lookup.stat.is_readable {
-                    (493, 1)
+                    (self.inner.make_attr_config.file_mode, 1)
                 } else {
                     (0o000, 1)
                 }
             }
-            InodeKind::Directory => (493, 2),
+            InodeKind::Directory => (self.inner.make_attr_config.file_mode, 2),
         };
 
         FileAttr {
@@ -310,8 +339,8 @@ impl<OC: ObjectClient> Superblock<OC> {
             kind: lookup.inode.kind().into(),
             perm,
             nlink,
-            uid: 1000,
-            gid: 1001,
+            uid: self.inner.make_attr_config.uid,
+            gid: self.inner.make_attr_config.gid,
             rdev: 0,
             flags: 0,
             blksize: PREFERRED_IO_BLOCK_SIZE,
@@ -662,6 +691,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         is_readdirplus: bool,
         mut reply: MountspaceDirectoryReplier<'a>,
     ) -> Result<MountspaceDirectoryReplier<'a>, InodeError> {
+        trace!("Readdir in suoerblock with {fh} offset: {offset}");
         let dir_handle = {
             let dir_handles = self.inner.dir_handles.read().unwrap();
             dir_handles.get(&fh).cloned().ok_or(InodeError::NoSuchDirHandle)
@@ -693,6 +723,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             if let Some((last_offset, entries)) = last_response.as_ref() {
                 let offset = offset as usize;
                 let last_offset = *last_offset as usize;
+                debug!("Is within offset?");
                 if (last_offset..last_offset + entries.len()).contains(&offset) {
                     trace!(offset, "repeating readdir response");
                     for entry in entries[offset - last_offset..].iter() {
@@ -716,6 +747,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 dir_handle.offset(),
                 offset
             ) */
+            debug!("OOO");
             return Err(InodeError::OutOfOrderReadDir);
             //unreachable!("This should not be reached");
         }
@@ -1019,7 +1051,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
     /// File systems against other buckets will reject `rename` file system operations within the same file system.
     ///
     /// As part of this operation, we update the local file system state.
-    pub async fn rename(
+    async fn rename(
         &self,
         src_parent_ino: InodeNo,
         src_name: &OsStr,
@@ -1065,7 +1097,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             .map(|inode| {
                 if !allow_overwrite {
                     return Err(InodeError::RenameDestinationExists {
-                        dest_key: self.full_key_for_inode(inode).to_owned(),
+                        dest_key: self.inner.full_key_for_inode(inode).to_owned(),
                         src_inode: src_inode.err(),
                     });
                 }
@@ -1074,7 +1106,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             })
             .transpose()?;
 
-        let src_key = self.full_key_for_inode(&src_inode);
+        let src_key = self.inner.full_key_for_inode(&src_inode);
         let dest_name = ValidName::parse_os_str(dst_name)?;
         let dest_full_valid_name = dst_parent
             .valid_key()
@@ -1952,7 +1984,7 @@ mod tests {
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(client.clone(), bucket, &prefix, Default::default());
+        let superblock = Superblock::new(client.clone(), bucket, &prefix, Default::default(), Default::default());
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -2084,6 +2116,7 @@ mod tests {
                 s3_personality: S3Personality::Standard,
                 ..Default::default()
             },
+            Default::default(),
         );
 
         let entries = ["file0.txt", "sdir0"];
@@ -2136,6 +2169,7 @@ mod tests {
                 s3_personality: S3Personality::Standard,
                 ..Default::default()
             },
+            Default::default(),
         );
 
         let entries = ["file0.txt", "sdir0"];
@@ -2673,7 +2707,13 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            "test_bucket",
+            &Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         let nested_dirs = (0..5).map(|i| format!("level{i}")).collect::<Vec<_>>();
         let leaf_dir_ino = {
@@ -2730,7 +2770,13 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            "test_bucket",
+            &Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         for _ in 0..2 {
             let dir1_1 = superblock.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
@@ -2853,7 +2899,13 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            "test_bucket",
+            &prefix,
+            Default::default(),
+            Default::default(),
+        );
 
         // Create a new file
         let filename = "newfile.txt";
