@@ -25,6 +25,7 @@ use crate::superblock::{InodeError, InodeKind, LookedUp, Superblock, SuperblockC
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::Uploader;
+use crate::superblock::MakeAttrConfig;
 
 pub use crate::superblock::InodeNo;
 
@@ -165,7 +166,13 @@ where
             #[cfg(feature = "manifest")]
             manifest: config.manifest.clone(),
         };
-        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config);
+        let make_attr_config = MakeAttrConfig {
+            uid: config.uid,
+            gid: config.gid,
+            file_mode: config.file_mode,
+            dir_mode: config.dir_mode
+        };
+        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
@@ -593,7 +600,8 @@ where
             .load(Ordering::Relaxed);
         self.superblock
             .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(&mut reply))
-            .await;
+            .await.map_err(|x| err!(libc::EINVAL,source: x, "error "));
+
         Ok(())
     }
 
@@ -618,7 +626,7 @@ where
         self.superblock
             .readdir(parent, num, offset, true, MountspaceDirectoryReplier::new(&mut reply))
             .await
-            .map_err(|x| err!(libc::EINVAL,source: x, "error "));
+            .map_err(|x| err!(libc::EINVAL,source: x, "error "))?;
         Ok(())
     }
 

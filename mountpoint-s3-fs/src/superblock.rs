@@ -81,6 +81,29 @@ impl<OC: ObjectClient + Send + Sync> fmt::Debug for Superblock<OC> {
     }
 }
 
+pub struct MakeAttrConfig {
+    pub uid: u32,
+    pub gid: u32,
+    pub file_mode: u16,
+    pub dir_mode: u16,
+}
+
+impl Default for MakeAttrConfig {
+    fn default() -> Self {
+        Self {
+            // Default to current user's UID/GID
+            uid: 700,
+            gid: 1,
+            // Default file permissions: rw-r--r-- (644)
+            file_mode: 0o644,
+            // Default directory permissions: rwxr-xr-x (755)
+            dir_mode: 0o755,
+        }
+    }
+}
+
+
+
 struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     bucket: String,
     prefix: Prefix,
@@ -93,9 +116,10 @@ struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     read_dir_handles: RwLock<HashMap<u64, Arc<ReaddirHandle>>>,
     dir_handles: RwLock<HashMap<u64, Arc<DirHandle>>>,
     next_dir_handle_id: AtomicU64,
+    make_attr_config: MakeAttrConfig
 }
 impl<OC: ObjectClient + Send + Sync> fmt::Debug for SuperblockInner<OC> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         Ok(())
     }
 }
@@ -110,7 +134,7 @@ pub struct SuperblockConfig {
 }
 
 impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
-    pub fn new(client: OC, bucket: &str, prefix: &Prefix, config: SuperblockConfig) -> Self {
+    pub fn new(client: OC, bucket: &str, prefix: &Prefix, config: SuperblockConfig, make_attr_config: MakeAttrConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
         let root = Inode::new_root(prefix, mount_time);
 
@@ -134,6 +158,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             next_dir_handle_id: AtomicU64::new(1),
             read_dir_handles: Default::default(),
             dir_handles: Default::default(),
+            make_attr_config
         };
         Self { inner: Arc::new(inner) }
     }
@@ -152,12 +177,12 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let (perm, nlink) = match lookup.inode.kind() {
             InodeKind::File => {
                 if lookup.stat.is_readable {
-                    (493, 1)
+                    (self.inner.make_attr_config.file_mode, 1)
                 } else {
                     (0o000, 1)
                 }
             }
-            InodeKind::Directory => (493, 2),
+            InodeKind::Directory => (self.inner.make_attr_config.file_mode, 2),
         };
 
         FileAttr {
@@ -171,8 +196,8 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             kind: lookup.inode.kind().into(),
             perm,
             nlink,
-            uid: 1000,
-            gid: 1001,
+            uid: self.inner.make_attr_config.uid,
+            gid: self.inner.make_attr_config.gid,
             rdev: 0,
             flags: 0,
             blksize: PREFERRED_IO_BLOCK_SIZE,
@@ -523,6 +548,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         is_readdirplus: bool,
         mut reply: MountspaceDirectoryReplier<'a>,
     ) -> Result<MountspaceDirectoryReplier<'a>, InodeError> {
+        trace!("Readdir in suoerblock with {fh} offset: {offset}");
         let dir_handle = {
             let dir_handles = self.inner.dir_handles.read().unwrap();
             dir_handles.get(&fh).cloned().ok_or(InodeError::NoSuchDirHandle)
@@ -554,6 +580,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             if let Some((last_offset, entries)) = last_response.as_ref() {
                 let offset = offset as usize;
                 let last_offset = *last_offset as usize;
+                debug!("Is within offset?");
                 if (last_offset..last_offset + entries.len()).contains(&offset) {
                     trace!(offset, "repeating readdir response");
                     for entry in entries[offset - last_offset..].iter() {
@@ -577,6 +604,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 dir_handle.offset(),
                 offset
             ) */
+            debug!("OOO");
             return Err(InodeError::OutOfOrderReadDir);
             //unreachable!("This should not be reached");
         }
@@ -1602,7 +1630,7 @@ mod tests {
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(client.clone(), bucket, &prefix, Default::default());
+        let superblock = Superblock::new(client.clone(), bucket, &prefix, Default::default(), Default::default());
 
         // Try it twice to test the inode reuse path too
         for _ in 0..2 {
@@ -1734,6 +1762,7 @@ mod tests {
                 s3_personality: S3Personality::Standard,
                 ..Default::default()
             },
+            Default::default()
         );
 
         let entries = ["file0.txt", "sdir0"];
@@ -1786,6 +1815,7 @@ mod tests {
                 s3_personality: S3Personality::Standard,
                 ..Default::default()
             },
+            Default::default()
         );
 
         let entries = ["file0.txt", "sdir0"];
@@ -2323,7 +2353,7 @@ mod tests {
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
 
         let nested_dirs = (0..5).map(|i| format!("level{i}")).collect::<Vec<_>>();
         let leaf_dir_ino = {
@@ -2380,7 +2410,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default(), Default::default());
 
         for _ in 0..2 {
             let dir1_1 = superblock.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
@@ -2503,7 +2533,7 @@ mod tests {
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
+        let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default(), Default::default());
 
         // Create a new file
         let filename = "newfile.txt";
