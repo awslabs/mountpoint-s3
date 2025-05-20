@@ -60,35 +60,28 @@ pub struct BackpressureController<Client: ObjectClient> {
     increment_heuristic: BackpressureIncrementHeuristic,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum BackpressureIncrementHeuristic {
+    /// The [BackpressureController] will wait until at least half of its current read window has been consumed
+    /// before sending a read increment via its corresponding [BackpressureLimiter].
     AfterHalfConsumed,
-    Linear {
-        step: BackpressureIncrementHeuristicLinearStep,
-    },
-}
-
-#[derive(Debug)]
-enum BackpressureIncrementHeuristicLinearStep {
-    ReadSize,
-    PartSize,
+    /// Backpressure is incremented directly by the values provided in [BackpressureController::send_feedback],
+    /// which is typically the way the value was read by the consumer.
+    #[default]
+    Linear,
 }
 
 impl BackpressureIncrementHeuristic {
     /// Determines the heuristic used by [BackpressureController] to manage a read ahead window.
     ///
-    /// Panics when given an unexpected value.
+    /// Panics when finding an unexpected value for the environment variable.
     fn from_env() -> Self {
         match std::env::var("UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC")
             .as_ref()
             .map(|string| string.as_str())
         {
-            Ok("LINEAR_PARTSIZE") | Err(VarError::NotPresent) => BackpressureIncrementHeuristic::Linear {
-                step: BackpressureIncrementHeuristicLinearStep::PartSize,
-            },
-            Ok("LINEAR_READSIZE") => BackpressureIncrementHeuristic::Linear {
-                step: BackpressureIncrementHeuristicLinearStep::ReadSize,
-            },
+            Err(VarError::NotPresent) => BackpressureIncrementHeuristic::default(),
+            Ok("LINEAR_READSIZE") => BackpressureIncrementHeuristic::Linear,
             Ok("HALF_CONSUMED") => BackpressureIncrementHeuristic::AfterHalfConsumed,
             Ok(_) | Err(_) => panic!("unexpected value for UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC, oh no!"),
         }
@@ -165,24 +158,11 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                 let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
 
                 match &self.increment_heuristic {
-                    BackpressureIncrementHeuristic::Linear { step } => {
-                        // TODO: Fix scaling up of the window.
-                        // I suspect that it currently scales up immediately due to not waiting until 50% consumption.
-
-                        let mut new_read_window_end_offset = self
+                    BackpressureIncrementHeuristic::Linear => {
+                        let new_read_window_end_offset = self
                             .next_read_offset
                             .saturating_add(self.preferred_read_window_size as u64)
                             .min(self.request_end_offset);
-                        if matches!(step, BackpressureIncrementHeuristicLinearStep::PartSize) {
-                            // TODO: Take configured part size into account, rather than hardcoded.
-                            const TEMP_PART_SIZE: u64 = 8 * 1024 * 1024;
-                            if TEMP_PART_SIZE < self.preferred_read_window_size as u64 {
-                                new_read_window_end_offset =
-                                    (new_read_window_end_offset / TEMP_PART_SIZE) * TEMP_PART_SIZE;
-                            }
-                        }
-                        // Cap it at the end if needed.
-                        new_read_window_end_offset = new_read_window_end_offset.min(self.request_end_offset);
                         let to_increase =
                             new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
                         if to_increase > 0 {
