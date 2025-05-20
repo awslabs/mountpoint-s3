@@ -44,14 +44,16 @@ pub struct BackpressureController<Client: ObjectClient> {
     max_read_window_size: usize,
     /// Multiplier by which [Self::preferred_read_window_size] is scaled.
     read_window_size_multiplier: usize,
-    /// Upper bound of the current read window. The request can return data up to this
-    /// offset *exclusively*. This value must be advanced to continue fetching new data.
+    /// Upper bound of the current read window, relative to the S3 object.
+    ///
+    /// The request can return data up to this offset *exclusively*.
+    /// This value must be advanced to continue fetching new data.
     read_window_end_offset: u64,
-    /// Next offset of the data to be read, relative to the start of the object (not range).
+    /// Next offset of the data to be read, relative to the start of the S3 object.
     ///
     /// It is used to track the number of bytes read from the stream.
     next_read_offset: u64,
-    /// End object offset for the request.
+    /// End offset within the S3 object for the request.
     ///
     /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
