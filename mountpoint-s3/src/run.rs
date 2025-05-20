@@ -1,4 +1,4 @@
-use std::ffi::{CString, OsString};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
@@ -12,9 +12,8 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{metrics, MountpointConfig, Runtime};
-use nix::libc::{getgrnam, getpwnam};
 use nix::sys::signal::Signal;
-use nix::unistd::{setgid, setuid, ForkResult, Gid, Uid};
+use nix::unistd::ForkResult;
 
 use crate::cli::CliArgs;
 use crate::{build_info, parse_cli_args};
@@ -177,12 +176,6 @@ where
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
 
-    let user_switcher = if let Some(username) = &args.as_user {
-        Some(UserSwitcher::new(username)?)
-    } else {
-        None
-    };
-
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
@@ -191,17 +184,7 @@ where
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
-    let mut filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
-
-    if let Some(switcher) = &user_switcher {
-        filesystem_config.uid = switcher.uid().as_raw();
-        filesystem_config.gid = switcher.gid().as_raw();
-    }
-
-    //  Switch user before mounting
-    if let Some(switcher) = user_switcher {
-        switcher.switch_user()?;
-    }
+    let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
 
     let s3_path = args.s3_path();
     let mut data_cache_config = args.data_cache_config(sse);
@@ -270,52 +253,4 @@ fn create_pid_file() -> anyhow::Result<()> {
         tracing::trace!("PID ({pid}) written to file {val:?}");
     }
     Ok(())
-}
-
-pub struct UserSwitcher {
-    uid: Uid,
-    gid: Gid,
-}
-
-impl UserSwitcher {
-    pub fn new(username: &str) -> anyhow::Result<Self> {
-        let username = CString::new(username)?;
-
-        // Get user info
-        let passwd_ptr = unsafe { getpwnam(username.as_ptr()) };
-        if passwd_ptr.is_null() {
-            return Err(anyhow!("User '{}' not found", username.to_string_lossy()));
-        }
-        let passwd = unsafe { &*passwd_ptr };
-
-        // Get group info
-        let group_ptr = unsafe { getgrnam(passwd.pw_name) };
-        if group_ptr.is_null() {
-            return Err(anyhow!("Group for user '{}' not found", username.to_string_lossy()));
-        }
-        let group = unsafe { &*group_ptr };
-
-        Ok(Self {
-            uid: Uid::from_raw(passwd.pw_uid),
-            gid: Gid::from_raw(group.gr_gid),
-        })
-    }
-
-    pub fn switch_user(&self) -> anyhow::Result<()> {
-        // First set the group ID
-        setgid(self.gid)?;
-
-        // Then set the user ID
-        setuid(self.uid)?;
-
-        Ok(())
-    }
-
-    pub fn uid(&self) -> Uid {
-        self.uid
-    }
-
-    pub fn gid(&self) -> Gid {
-        self.gid
-    }
 }

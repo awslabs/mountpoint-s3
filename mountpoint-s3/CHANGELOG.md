@@ -1,5 +1,11 @@
 ## Unreleased
 
+## v1.18.0 (May 13, 2025)
+
+### New features
+
+* Add support for running Mountpoint as a specific user with the `--run-as-user` CLI argument. This allows Mountpoint to run as an unprivileged user even when launched by root, such as via fstab or systemd. ([#1428](https://github.com/awslabs/mountpoint-s3/pull/1428))
+
 ## v1.17.0 (May 12, 2025)
 
 ### New features

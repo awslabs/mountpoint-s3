@@ -1,7 +1,3 @@
-use std::fmt::Debug;
-use std::path::PathBuf;
-use std::time::Duration;
-
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser, ValueEnum};
 use mountpoint_s3_client::config::{AddressingStyle, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
@@ -16,7 +12,11 @@ use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, S3Path};
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
+use nix::unistd::{setgid, setuid, Gid, Uid};
 use regex::Regex;
+use std::fmt::Debug;
+use std::path::PathBuf;
+use std::time::Duration;
 use sysinfo::{RefreshKind, System};
 
 use crate::build_info;
@@ -394,7 +394,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help_heading = MOUNT_OPTIONS_HEADER,
         value_name = "USERNAME"
     )]
-    pub as_user: Option<String>,
+    pub run_as_user: Option<String>,
 
     #[clap(skip)]
     pub is_fstab: bool,
@@ -519,7 +519,44 @@ impl CliArgs {
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+
+        if let Some(username) = &self.run_as_user {
+            match Self::resolve_user_group(username) {
+                Ok((uid, gid)) => {
+                    filesystem_config.uid = uid; // Sets filesystem operations to run as this user
+                    filesystem_config.gid = gid;
+                    tracing::info!("Running Mountpoint as user: {}", username);
+
+                    // Convert to proper types for setuid/setgid
+                    let gid = Gid::from_raw(gid);
+                    let uid = Uid::from_raw(uid);
+
+                    // Handle errors
+                    if let Err(e) = setgid(gid) {
+                        tracing::error!(error=?e, "Failed to set GID");
+                    }
+                    if let Err(e) = setuid(uid) {
+                        tracing::error!(error=?e, "Failed to set UID");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error=?e, username=%username, "Failed to resolve user/group");
+                }
+            }
+        }
+
         filesystem_config
+    }
+
+    fn resolve_user_group(username: &str) -> anyhow::Result<(u32, u32)> {
+        // Get user info using the safe nix API
+        let user = nix::unistd::User::from_name(username)?.ok_or_else(|| anyhow!("User '{}' not found", username))?;
+
+        // Get group info using the safe nix API
+        let group = nix::unistd::Group::from_gid(user.gid)?
+            .ok_or_else(|| anyhow!("Group for user '{}' not found", username))?;
+
+        Ok((user.uid.as_raw(), group.gid.as_raw()))
     }
 
     fn cache_block_size_in_bytes(&self) -> u64 {
