@@ -1,7 +1,10 @@
 use std::fs;
+use std::hint::black_box;
+use std::path::Path;
 
 use criterion::async_executor::{AsyncExecutor, FuturesExecutor};
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::measurement::WallTime;
+use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
 
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::data_cache::{ChecksummedBytes, DataCache, DiskDataCache, DiskDataCacheConfig};
@@ -14,11 +17,13 @@ const OBJECT_SIZE: usize = 10 * BLOCK_SIZE as usize;
 
 #[inline]
 async fn read_cache_block(cache: &DiskDataCache, cache_key: &ObjectId) {
-    _ = cache
-        .get_block(cache_key, 0, 0, OBJECT_SIZE)
-        .await
-        .expect("is able to read")
-        .expect("data is there");
+    _ = black_box(
+        cache
+            .get_block(cache_key, 0, 0, OBJECT_SIZE)
+            .await
+            .expect("is able to read")
+            .expect("data is there"),
+    );
 }
 
 fn random_bytes(length: usize) -> Vec<u8> {
@@ -28,11 +33,9 @@ fn random_bytes(length: usize) -> Vec<u8> {
     random_bytes
 }
 
-fn cache_read_benchmark(c: &mut Criterion) {
-    let temp_dir = TempDir::with_prefix("mp-cache-benchmarks").unwrap();
-    let data = random_bytes(BLOCK_SIZE.try_into().unwrap());
+fn cache_read_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Path, data: &[u8]) {
     let config = DiskDataCacheConfig {
-        cache_directory: temp_dir.path().to_path_buf(),
+        cache_directory: dir_path.to_path_buf(),
         block_size: BLOCK_SIZE,
         limit: mountpoint_s3_fs::data_cache::CacheLimit::Unbounded,
     };
@@ -47,22 +50,32 @@ fn cache_read_benchmark(c: &mut Criterion) {
             .expect("is able to write to cache")
     });
 
-    c.bench_function("read_cache_block", |b| {
+    group.bench_function("read_cache_block", |b| {
         b.to_async(FuturesExecutor)
             .iter(|| read_cache_block(&cache, &cache_key))
     });
 }
 
-fn file_read_benchmark(c: &mut Criterion) {
-    let temp_dir = TempDir::with_prefix("mp-file-benchmarks").unwrap();
-    let data = random_bytes(BLOCK_SIZE.try_into().unwrap());
-    let file_path = temp_dir.path().join("file");
-    fs::write(&file_path, &data).expect("can write to file");
+fn file_read_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Path, data: &[u8]) {
+    let file_path = dir_path.join("file");
+    fs::write(&file_path, data).expect("can write to file");
 
-    c.bench_function("read_file", |b| {
-        b.iter(|| _ = fs::read(&file_path).expect("is able to read file"))
+    group.bench_function("read_file", |b| {
+        b.iter(|| _ = black_box(fs::read(&file_path).expect("is able to read file")))
     });
 }
 
-criterion_group!(benches, cache_read_benchmark, file_read_benchmark);
+fn read_benchmark(c: &mut Criterion) {
+    let temp_dir = TempDir::with_prefix("mp-cache-benchmarks").unwrap();
+    let data = random_bytes(BLOCK_SIZE.try_into().unwrap());
+
+    let mut group = c.benchmark_group("Block Read");
+
+    file_read_benchmark(&mut group, temp_dir.path(), &data);
+    cache_read_benchmark(&mut group, temp_dir.path(), &data);
+
+    group.finish();
+}
+
+criterion_group!(benches, read_benchmark);
 criterion_main!(benches);
