@@ -388,6 +388,14 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub bind: Option<Vec<String>>,
 
+    #[clap(
+        long,
+        help = "Run as the specified user instead of root",
+        help_heading = MOUNT_OPTIONS_HEADER,
+        value_name = "USERNAME"
+    )]
+    pub as_user: Option<String>,
+
     #[clap(skip)]
     pub is_fstab: bool,
 }
