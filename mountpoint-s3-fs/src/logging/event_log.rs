@@ -161,9 +161,10 @@ mod tests {
         let fs_errors = [Error {
             errno: 6,
             message: "fs error".to_string(),
-            source: Some(anyhow::anyhow!(PrefetchReadError::GetRequestFailed(
-                ObjectClientError::ClientError(GetObjectError::NoSuchKey)
-            ))),
+            source: Some(anyhow::anyhow!(PrefetchReadError::GetRequestFailed {
+                source: ObjectClientError::ClientError(GetObjectError::NoSuchKey(Default::default())),
+                metadata: Box::default(),
+            })),
             level: tracing::Level::WARN,
             metadata: ErrorMetadata {
                 client_error_meta: ClientErrorMetadata {
