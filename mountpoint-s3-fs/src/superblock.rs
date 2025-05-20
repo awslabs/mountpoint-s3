@@ -39,6 +39,7 @@ use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
 #[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
+use crate::mountspace;
 use crate::mountspace::{Mountspace, MountspaceDirectoryReplier};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -64,8 +65,9 @@ mod expiry;
 use expiry::Expiry;
 
 mod inode;
+pub use inode::InodeStat;
 pub use inode::{Inode, InodeKind, InodeNo, WriteMode};
-use inode::{InodeErrorInfo, InodeKindData, InodeStat, InodeState, WriteStatus};
+use inode::{InodeErrorInfo, InodeKindData, InodeState, WriteStatus};
 
 mod negative_cache;
 use negative_cache::NegativeCache;
@@ -306,7 +308,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         Self { inner: Arc::new(inner) }
     }
 
-    fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
+    fn make_attr(&self, lookup: &mountspace::LookedUp) -> FileAttr {
         /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
         /// the file, in 512-byte units."
         const STAT_BLOCK_SIZE: u64 = 512;
@@ -317,7 +319,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         // We don't implement hard links, and don't want to have to list a directory to count its
         // hard links, so we just assume one link for files (itself) and two links for directories
         // (itself + the "." link).
-        let (perm, nlink) = match lookup.inode.kind() {
+        let (perm, nlink) = match lookup.kind {
             InodeKind::File => {
                 if lookup.stat.is_readable {
                     (self.inner.make_attr_config.file_mode, 1)
@@ -329,14 +331,14 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         };
 
         FileAttr {
-            ino: lookup.inode.ino(),
+            ino: lookup.ino,
             size: lookup.stat.size as u64,
             blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
             atime: lookup.stat.atime.into(),
             mtime: lookup.stat.mtime.into(),
             ctime: lookup.stat.ctime.into(),
             crtime: UNIX_EPOCH,
-            kind: lookup.inode.kind().into(),
+            kind: lookup.kind.into(),
             perm,
             nlink,
             uid: self.inner.make_attr_config.uid,
@@ -344,6 +346,56 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             rdev: 0,
             flags: 0,
             blksize: PREFERRED_IO_BLOCK_SIZE,
+        }
+    }
+
+    fn readd_to_handle(&self, readdir_handle: u64, entry: LookedUp) -> () {
+        self.inner
+            .read_dir_handles
+            .read()
+            .unwrap()
+            .get(&readdir_handle)
+            .unwrap()
+            .readd(entry);
+    }
+
+    fn remember_from_handle(&self, readdir_handle: u64, entry: &mountspace::LookedUp) {
+        // TODO: We here get the iode by number, we should have some additional check that this is the currect Inode (i.e., generation number or similiar)
+        let inode = self.inner.get(entry.ino).unwrap();
+        self.inner.remember(&inode);
+    }
+
+    async fn read_next_from_handle(&self, readdir_handle: u64) -> Result<Option<LookedUp>, InodeError> {
+        let handle = self
+            .inner
+            .read_dir_handles
+            .read()
+            .unwrap()
+            .get(&readdir_handle)
+            .unwrap()
+            .clone();
+
+        handle.next(self.inner.clone(), &self.inner.client).await
+    }
+
+    fn get_handle_parent(&self, readdir_handle: u64) -> u64 {
+        self.inner
+            .read_dir_handles
+            .read()
+            .unwrap()
+            .get(&readdir_handle)
+            .unwrap()
+            .parent()
+    }
+
+    fn into_lookedup_mountspace(&self, looked_up: crate::superblock::LookedUp) -> crate::mountspace::LookedUp {
+        let kind = looked_up.inode.kind();
+
+        crate::mountspace::LookedUp {
+            ino: looked_up.inode.ino(),
+            stat: looked_up.stat,
+            kind,
+            is_remote: looked_up.inode.is_remote().unwrap(),
         }
     }
 }
@@ -414,18 +466,18 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
 
     /// Lookup an inode in the parent directory with the given name and
     /// increments its lookup count.
-    async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<LookedUp, InodeError> {
+    async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<mountspace::LookedUp, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
         let lookup = self
             .inner
             .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
             .await?;
         self.inner.remember(&lookup.inode);
-        Ok(lookup)
+        Ok(self.into_lookedup_mountspace(lookup))
     }
 
     /// Retrieve the attributes for an inode
-    async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<LookedUp, InodeError> {
+    async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<mountspace::LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
         logging::record_name(inode.name());
 
@@ -434,7 +486,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             if sync.stat.is_valid() {
                 let stat = sync.stat.clone();
                 drop(sync);
-                return Ok(LookedUp { inode, stat });
+                return Ok(self.into_lookedup_mountspace(LookedUp { inode, stat }));
             }
         }
 
@@ -449,7 +501,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 new_inode: lookup.inode.err(),
             })
         } else {
-            Ok(lookup)
+            Ok(self.into_lookedup_mountspace(lookup))
         }
     }
 
@@ -459,7 +511,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         ino: InodeNo,
         atime: Option<OffsetDateTime>,
         mtime: Option<OffsetDateTime>,
-    ) -> Result<LookedUp, InodeError> {
+    ) -> Result<mountspace::LookedUp, InodeError> {
         let inode = self.inner.get(ino)?;
         logging::record_name(inode.name());
         let mut sync = inode.get_mut_inode_state()?;
@@ -485,7 +537,8 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
 
         let stat = sync.stat.clone();
         drop(sync);
-        Ok(LookedUp { inode, stat })
+        let internal_result = LookedUp { inode, stat };
+        Ok(self.into_lookedup_mountspace(internal_result))
     }
 
     /// Prepare an inode to start writing.
@@ -646,43 +699,6 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         Ok(handle_id)
     }
 
-    fn remember_from_handle(&self, readdir_handle: u64, entry: &LookedUp) {
-        self.inner.remember(&entry.inode);
-    }
-
-    async fn read_next_from_handle(&self, readdir_handle: u64) -> Result<Option<LookedUp>, InodeError> {
-        let handle = self
-            .inner
-            .read_dir_handles
-            .read()
-            .unwrap()
-            .get(&readdir_handle)
-            .unwrap()
-            .clone();
-
-        handle.next(self.inner.clone(), &self.inner.client).await
-    }
-
-    fn get_handle_parent(&self, readdir_handle: u64) -> u64 {
-        self.inner
-            .read_dir_handles
-            .read()
-            .unwrap()
-            .get(&readdir_handle)
-            .unwrap()
-            .parent()
-    }
-
-    fn readd_to_handle(&self, readdir_handle: u64, entry: LookedUp) -> () {
-        self.inner
-            .read_dir_handles
-            .read()
-            .unwrap()
-            .get(&readdir_handle)
-            .unwrap()
-            .readd(entry);
-    }
-
     async fn readdir<'a>(
         &self,
         parent: InodeNo,
@@ -822,8 +838,8 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 Some(next) => next,
             };
             trace!(next_inode = ?next.inode, "new inode yielded by readdir handle");
-
-            let attr = self.make_attr(&next);
+            let converted_lookup = self.into_lookedup_mountspace(next.clone());
+            let attr = self.make_attr(&converted_lookup);
             let entry = DirectoryEntry {
                 ino: attr.ino,
                 offset: dir_handle.offset() + 1,
@@ -831,7 +847,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 attr,
                 generation: 0,
                 ttl: next.validity(),
-                lookup: next.clone(),
+                lookup: converted_lookup,
             };
 
             if reply.add(entry) {
@@ -840,7 +856,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 return Ok(reply.finish(offset, &dir_handle).await);
             }
             if is_readdirplus {
-                self.remember_from_handle(readdir_handle, &next);
+                self.remember_from_handle(readdir_handle, &self.into_lookedup_mountspace(next));
                 //readdir_handle.remember(&next);
             }
             dir_handle.next_offset();
@@ -848,7 +864,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
     }
 
     /// Create a new regular file or directory inode ready to be opened in write-only mode
-    async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<LookedUp, InodeError> {
+    async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<mountspace::LookedUp, InodeError> {
         trace!(parent=?dir, ?name, "create");
 
         let existing = self
@@ -902,7 +918,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         };
 
         self.inner.remember(&lookup.inode);
-        Ok(lookup)
+        Ok(self.into_lookedup_mountspace(lookup))
     }
 
     /// Remove local-only empty directory, i.e., the ones created by mkdir.

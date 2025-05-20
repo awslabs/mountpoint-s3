@@ -4,11 +4,11 @@ use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
 use tracing::{debug, error};
 
+use crate::mountspace::LookedUp;
 use crate::mountspace::Mountspace;
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
 use crate::superblock::path::ValidKey;
-use crate::superblock::LookedUp;
 use crate::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use crate::sync::AsyncMutex;
 use crate::upload::{AppendUploadRequest, UploadRequest};
@@ -100,7 +100,7 @@ where
         let write_mode = fs.config.write_mode();
         fs.superblock.start_writing(ino, &write_mode, is_truncate).await?;
         let bucket = fs.bucket.clone();
-        let key = fs.superblock.full_key_for_inode(lookup.inode.ino());
+        let key = fs.superblock.full_key_for_inode(lookup.ino);
         let handle = if write_mode.incremental_upload {
             let initial_etag = if is_truncate {
                 None
@@ -137,11 +137,11 @@ where
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        fs.superblock.start_reading(lookup.inode.ino()).await?;
-        let full_key = fs.superblock.full_key_for_inode(lookup.inode.ino());
+        fs.superblock.start_reading(lookup.ino).await?;
+        let full_key = fs.superblock.full_key_for_inode(lookup.ino);
         let object_size = lookup.stat.size as u64;
         let etag = match &lookup.stat.etag {
-            None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
+            None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.ino)),
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
         let object_id = ObjectId::new(full_key.into(), etag);

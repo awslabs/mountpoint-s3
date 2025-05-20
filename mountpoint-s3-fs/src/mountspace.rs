@@ -4,12 +4,14 @@ use crate::superblock::path::ValidKey;
 use crate::superblock::InodeError;
 use crate::superblock::InodeKind;
 use crate::superblock::InodeNo;
-use crate::superblock::LookedUp;
+use crate::superblock::InodeStat;
+use crate::superblock::LookedUp as SuperblockLookedUp;
 use crate::superblock::WriteMode;
 use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::time::Duration;
 use time::OffsetDateTime;
 
 pub struct MountspaceDirectoryReplier<'a> {
@@ -23,6 +25,21 @@ impl<'a> MountspaceDirectoryReplier<'a> {
 
     pub fn add(&mut self, entry: DirectoryEntry) -> bool {
         return self.reply.add(entry);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LookedUp {
+    pub ino: InodeNo,
+    pub stat: InodeStat,
+    pub kind: InodeKind,
+    pub is_remote: bool,
+}
+
+impl LookedUp {
+    /// How much longer this lookup will be valid for
+    pub fn validity(&self) -> Duration {
+        self.stat.expiry.remaining_ttl()
     }
 }
 
@@ -54,14 +71,6 @@ pub trait Mountspace: Send + Sync + Debug {
     fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
 
     async fn new_readdir_handle(&self, dir_ino: InodeNo, page_size: usize) -> Result<u64, InodeError>;
-
-    async fn read_next_from_handle(&self, readdir_handle: u64) -> Result<Option<LookedUp>, InodeError>;
-
-    fn remember_from_handle(&self, readdir_handle: u64, entry: &LookedUp);
-
-    fn readd_to_handle(&self, readdir_handle: u64, entry: LookedUp);
-
-    fn get_handle_parent(&self, readdir_handle: u64) -> u64;
 
     async fn readdir<'a>(
         &self,

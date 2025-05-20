@@ -18,14 +18,15 @@ use mountpoint_s3_client::ObjectClient;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::mountspace::LookedUp;
 use crate::mountspace::Mountspace;
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
-use crate::superblock::{InodeError, InodeKind, LookedUp, Superblock, SuperblockConfig};
+use crate::superblock::MakeAttrConfig;
+use crate::superblock::{InodeError, InodeKind, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::Uploader;
-use crate::superblock::MakeAttrConfig;
 
 pub use crate::superblock::InodeNo;
 
@@ -170,7 +171,7 @@ where
             uid: config.uid,
             gid: config.gid,
             file_mode: config.file_mode,
-            dir_mode: config.dir_mode
+            dir_mode: config.dir_mode,
         };
         let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
@@ -278,7 +279,7 @@ where
         // We don't implement hard links, and don't want to have to list a directory to count its
         // hard links, so we just assume one link for files (itself) and two links for directories
         // (itself + the "." link).
-        let (perm, nlink) = match lookup.inode.kind() {
+        let (perm, nlink) = match lookup.kind {
             InodeKind::File => {
                 if lookup.stat.is_readable {
                     (self.config.file_mode, 1)
@@ -290,14 +291,14 @@ where
         };
 
         FileAttr {
-            ino: lookup.inode.ino(),
+            ino: lookup.ino,
             size: lookup.stat.size as u64,
             blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
             atime: lookup.stat.atime.into(),
             mtime: lookup.stat.mtime.into(),
             ctime: lookup.stat.ctime.into(),
             crtime: UNIX_EPOCH,
-            kind: lookup.inode.kind().into(),
+            kind: lookup.kind.into(),
             perm,
             nlink,
             uid: self.config.uid,
@@ -400,32 +401,34 @@ where
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
         let lookup = self.superblock.getattr(ino, force_revalidate).await?;
 
-        match lookup.inode.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
+        match lookup.kind {
+            // TODO: Recapture this
+            InodeKind::Directory => return Err(InodeError::NoSuchDirHandle.into()),
+            //InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
             InodeKind::File => (),
         }
 
         let state = if flags.contains(OpenFlags::O_RDWR) {
-            if !lookup.inode.is_remote()?
+            if !lookup.is_remote
                 || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
                 || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
             {
                 // If the file is new or if it was opened in truncate or in append mode,
                 // we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+                FileHandleState::new_write_handle(&lookup, lookup.ino, flags, self).await?
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+            FileHandleState::new_write_handle(&lookup, lookup.ino, flags, self).await?
         } else {
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let full_key = self.superblock.full_key_for_inode(lookup.inode.ino());
+        let full_key = self.superblock.full_key_for_inode(lookup.ino);
         let handle = FileHandle {
             ino,
             full_key,
@@ -504,7 +507,7 @@ where
         }
 
         let lookup = self.superblock.create(parent, name, InodeKind::File).await?;
-        debug!(ino = lookup.inode.ino(), "new inode created");
+        debug!(ino = lookup.ino, "new inode created");
         let attr = self.make_attr(&lookup);
         Ok(Entry {
             ttl: lookup.validity(),
@@ -600,7 +603,8 @@ where
             .load(Ordering::Relaxed);
         self.superblock
             .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(&mut reply))
-            .await.map_err(|x| err!(libc::EINVAL,source: x, "error "));
+            .await
+            .map_err(|x| err!(libc::EINVAL,source: x, "error "))?;
 
         Ok(())
     }
