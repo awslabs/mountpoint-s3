@@ -574,13 +574,13 @@ where
         Ok(Opened { fh, flags: 0 })
     }
 
-    pub async fn readdir<R: DirectoryReplier>(
+    pub async fn readdir<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
-        reply: R,
-    ) -> Result<R, Error> {
+        mut reply: R,
+    ) -> Result<(), Error> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         // Lookup the handle number
         let num = self
@@ -591,19 +591,18 @@ where
             .unwrap()
             .handleNo
             .load(Ordering::Relaxed);
-        let mut re: Box<(dyn DirectoryReplier)> = Box::new(reply);
         self.superblock
-            .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(re))
+            .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(&mut reply))
             .await;
         Ok(())
     }
 
-    pub async fn readdirplus<R: DirectoryReplier>(
+    pub async fn readdirplus<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
-        reply: &R,
+        mut reply: R,
     ) -> Result<(), Error> {
         trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         //self.readdir_impl(parent, fh, offset, true, reply).await
@@ -617,7 +616,7 @@ where
             .load(Ordering::Relaxed);
 
         self.superblock
-            .readdir(parent, num, offset, true, MountspaceDirectoryReplier::new(Box::new(re)))
+            .readdir(parent, num, offset, true, MountspaceDirectoryReplier::new(&mut reply))
             .await
             .map_err(|x| err!(libc::EINVAL,source: x, "error "));
         Ok(())

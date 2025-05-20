@@ -515,14 +515,14 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             .readd(entry);
     }
 
-    async fn readdir(
+    async fn readdir<'a>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
-        mut reply: MountspaceDirectoryReplier,
-    ) -> Result<(MountspaceDirectoryReplier), InodeError> {
+        mut reply: MountspaceDirectoryReplier<'a>,
+    ) -> Result<MountspaceDirectoryReplier<'a>, InodeError> {
         let dir_handle = {
             let dir_handles = self.inner.dir_handles.read().unwrap();
             dir_handles.get(&fh).cloned().ok_or(InodeError::NoSuchDirHandle)
@@ -583,19 +583,19 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
 
         /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
         /// we can re-use them if the directory handle rewinds
-        struct Reply {
-            reply: MountspaceDirectoryReplier,
+        struct Reply<'a> {
+            reply: MountspaceDirectoryReplier<'a>,
             entries: Vec<DirectoryEntry>,
         }
 
-        impl Reply {
-            async fn finish(self, offset: i64, dir_handle: &DirHandle) -> MountspaceDirectoryReplier {
+        impl<'a> Reply<'a> {
+            async fn finish(self, offset: i64, dir_handle: &DirHandle) -> MountspaceDirectoryReplier<'a> {
                 *dir_handle.last_response.lock().await = Some((offset, self.entries));
                 self.reply
             }
         }
 
-        impl DirectoryReplier for Reply {
+        impl DirectoryReplier for Reply<'_> {
             fn add(&mut self, entry: DirectoryEntry) -> bool {
                 let result = self.reply.add(entry.clone());
                 if !result {
