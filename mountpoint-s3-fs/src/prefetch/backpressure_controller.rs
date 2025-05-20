@@ -152,6 +152,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
     /// Send a feedback to the backpressure controller when reading data out of the stream. The backpressure controller
     /// will ensure that the read window size is enough to read this offset and that it is always close to `preferred_read_window_size`.
     pub async fn send_feedback<E>(&mut self, event: BackpressureFeedbackEvent) -> Result<(), PrefetchReadError<E>> {
+        tracing::trace!(?event, "received feedback event");
         match event {
             // Note, that this may come from a backwards seek, so offsets observed by this method are not necessarily ascending
             BackpressureFeedbackEvent::DataRead { offset, length } => {
@@ -351,9 +352,9 @@ impl BackpressureLimiter {
         // Reaching here means there is not enough read window, so we block until it is large enough
         while self.read_window_end_offset <= offset && self.read_window_end_offset < self.request_end_offset {
             trace!(
-                offset,
-                read_window_offset = self.read_window_end_offset,
-                "blocking for read window increment"
+                desired_offset = offset,
+                current_offset = self.read_window_end_offset,
+                "blocking for read window increment",
             );
             let recv = self.read_window_incrementing_queue.recv().await;
             match recv {
