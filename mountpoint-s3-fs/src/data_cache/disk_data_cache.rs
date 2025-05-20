@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -14,6 +14,7 @@ use bytes::Bytes;
 use linked_hash_map::LinkedHashMap;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use sha2::{Digest, Sha256};
+use tempfile::NamedTempFile;
 use thiserror::Error;
 use tracing::{trace, warn};
 
@@ -355,7 +356,7 @@ impl DiskDataCache {
         Ok(Some(bytes))
     }
 
-    fn write_block(&self, path: impl AsRef<Path>, block: DiskBlock) -> DataCacheResult<usize> {
+    fn write_block(&self, path: impl AsRef<Path>, block: DiskBlock) -> DataCacheResult<(NamedTempFile, usize)> {
         let cache_path_for_key = path
             .as_ref()
             .parent()
@@ -365,21 +366,18 @@ impl DiskDataCache {
             .recursive(true)
             .create(cache_path_for_key)?;
 
+        let mut temp_file = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o600))
+            .tempfile_in(cache_path_for_key)?;
         trace!(
             key = block.header.s3_key,
             offset = block.header.block_offset,
             "writing block at {}",
             path.as_ref().display()
         );
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path.as_ref())?;
-        file.write_all(CACHE_VERSION.as_bytes())?;
-        let bytes_written = block.write(&mut file)?;
-        Ok(bytes_written)
+        temp_file.write_all(CACHE_VERSION.as_bytes())?;
+        let bytes_written = block.write(&mut temp_file)?;
+        Ok((temp_file, bytes_written))
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
@@ -409,8 +407,12 @@ impl DiskDataCache {
             return Ok(());
         };
 
-        while self.is_limit_exceeded(usage.lock().unwrap().size) {
-            let Some(to_remove) = usage.lock().unwrap().evict_lru() else {
+        loop {
+            let mut usage = usage.lock().unwrap();
+            if !self.is_limit_exceeded(usage.size) {
+                break;
+            }
+            let Some(to_remove) = usage.evict_lru() else {
                 warn!("cache limit exceeded but nothing to evict");
                 return Err(DataCacheError::EvictionFailure);
             };
@@ -423,12 +425,6 @@ impl DiskDataCache {
             }
         }
         Ok(())
-    }
-
-    fn remove_block_from_usage(&self, block_key: &DiskBlockKey) {
-        if let Some(usage) = &self.usage {
-            usage.lock().unwrap().remove(block_key);
-        }
     }
 }
 
@@ -479,17 +475,6 @@ impl DataCache for DiskDataCache {
                 // Invalid block. Count as cache miss.
                 metrics::counter!("disk_data_cache.block_hit").increment(0);
                 metrics::counter!("disk_data_cache.block_err").increment(1);
-                match fs::remove_file(&path) {
-                    Ok(()) => self.remove_block_from_usage(&block_key),
-                    Err(remove_err) => {
-                        // We failed to delete the block.
-                        if remove_err.kind() == ErrorKind::NotFound {
-                            // No need to report or try again.
-                            self.remove_block_from_usage(&block_key);
-                        }
-                        warn!("unable to remove invalid block: {:?}", remove_err);
-                    }
-                }
                 Err(err)
             }
         }
@@ -525,11 +510,15 @@ impl DataCache for DiskDataCache {
         }?;
 
         let write_start = Instant::now();
-        let size = self.write_block(path, block)?;
+        let (temp_file, size) = self.write_block(&path, block)?;
         metrics::histogram!("disk_data_cache.write_duration_us").record(write_start.elapsed().as_micros() as f64);
         metrics::counter!("disk_data_cache.total_bytes", "type" => "write").increment(bytes_len as u64);
         if let Some(usage) = &self.usage {
-            usage.lock().unwrap().add(block_key, size);
+            let mut usage = usage.lock().unwrap();
+            _ = temp_file.persist(path).map_err(|e| e.error)?;
+            usage.add(block_key, size);
+        } else {
+            _ = temp_file.persist(path).map_err(|e| e.error)?;
         }
 
         Ok(())
@@ -606,13 +595,6 @@ where
         }
 
         self.size = self.size.saturating_add(size);
-    }
-
-    /// Remove a key if present and update the total size.
-    fn remove(&mut self, key: &K) {
-        if let Some(size) = self.entries.remove(key) {
-            self.size = self.size.saturating_sub(size);
-        }
     }
 
     /// Remove the least recently used key and update the total size.
