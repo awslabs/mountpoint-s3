@@ -2,10 +2,11 @@
 //! https://github.com/tokio-rs/tokio/blob/1c823093cb685c421ea614a2931e4b6db3918b22/benches/spawn.rs
 
 use std::future::Future;
+use std::hint::black_box;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures::executor::block_on;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;

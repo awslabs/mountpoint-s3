@@ -61,6 +61,7 @@ assert_fs = "1.1.2"
 aws-config = "1.5.15"
 aws-credential-types = "1.2.1"
 aws-sdk-s3 = "1.71.0"
+criterion = { version = "0.6.0", features = ["async", "async_futures"] }
 ctor = "0.2.9"
 filetime = "0.2.25"
 futures = { version = "0.3.31", features = ["thread-pool"] }
@@ -99,3 +100,7 @@ required-features = ["manifest"]
 [[example]]
 name = "mount_from_config"
 required-features = ["manifest"]
+
+[[bench]]
+name = "cache_serialization"
+harness = false
