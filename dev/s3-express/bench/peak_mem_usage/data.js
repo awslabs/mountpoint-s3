@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1747844621331,
+  "lastUpdate": 1747851808842,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "28278732ffe316bba78560829259cd1590d9c172",
-          "message": "Use manifest in readdir and lookup operations (#1383)\n\nUse metadata stored in an sqlite database instead of s3, when performing\nlookup and readdir.\n\n### Does this change impact existing behavior?\n\nNo, only used in tests.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, only used in tests.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
-          "timestamp": "2025-04-28T09:07:25Z",
-          "tree_id": "6a8e4cbdd5b12523180c4fa1104f10fd5db0acab",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/28278732ffe316bba78560829259cd1590d9c172"
-        },
-        "date": 1745839505817,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 14416.8671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 22762.46484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 37656.5859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 146.39453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 396.68359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 199.68359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 401.80078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 80.58984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 328.5625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 87.6015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 324.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 41112.17578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 395.56640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 40400.86328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 382.71484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 12069.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 259.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 15391.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11582.2265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 262.2421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 352.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 254.0625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 237.4140625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3015fcd94e6e8dd595d4d97175acfe17dcc6bd5",
+          "message": "Add \"nofail\" to list of ignored arguments in fstab (#1429)\n\nAdded \"nofail\" to the list of ignored arguments with fstab. Whilst\n`systemd` removed `nofail` when launching Mountpoint, `mount` did not,\nwhich meant `mount -a` could fail when systemd launched Mountpoint fine.\n\n### Does this change impact existing behavior?\n\nYes, Mountpoint no longer crashes if given `nofail` with fstab\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2025-05-21T16:09:48Z",
+          "tree_id": "5d6a698e7fe81c4d495c45964192fba4cce9a2c8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f3015fcd94e6e8dd595d4d97175acfe17dcc6bd5"
+        },
+        "date": 1747851808790,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 14579.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 24360.90625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 40029.0546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 154.88671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 410.96484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 222.2421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 408.8984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 88.1953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 329.17578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 87.9765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 328.1640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 35014.97265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 401.73828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 38992.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 399.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13370.46484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 258.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 11528.58984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10619.05859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 265.671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 371.29296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 234.57421875,
             "unit": "MiB"
           }
         ]
