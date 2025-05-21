@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
 use std::time::{Duration, SystemTime};
 
-use crate::mountspace::Mountspace;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};

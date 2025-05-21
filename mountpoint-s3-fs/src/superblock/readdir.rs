@@ -41,8 +41,8 @@
 //!   These children are listed only once, at the start of the readdir operation, and so are a
 //!   snapshot in time of the directory.
 
+use std::cmp::Ordering;
 use std::collections::VecDeque;
-use std::{cmp::Ordering, sync::RwLock};
 
 #[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
@@ -164,12 +164,6 @@ impl ReaddirHandle {
     pub fn readd(&self, entry: LookedUp) {
         let old = self.readded.lock().unwrap().replace(entry);
         assert!(old.is_none(), "cannot readd more than one entry");
-    }
-
-    /// Increase the lookup count of the looked up inode and
-    /// ensure it is registered with the superblock.
-    pub fn remember<OC: ObjectClient + Send + Sync>(&self, inner: Arc<SuperblockInner<OC>>, entry: &LookedUp) {
-        inner.remember(&entry.inode);
     }
 
     /// Return the inode number of the parent directory of this directory handle
