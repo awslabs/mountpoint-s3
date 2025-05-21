@@ -36,7 +36,7 @@ env:
   S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL }}
   KMS_TEST_KEY_ID: ${{ vars.KMS_TEST_KEY_ID }}
   S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS }}
-  RUST_FEATURES: fuse_tests,s3_tests,fips_tests,event_log,second_account_tests,manifest
+  RUST_FEATURES: fuse_tests,s3_tests,fips_tests,event_log,second_account_tests,manifest,fstab
 
 permissions:
   id-token: write
@@ -146,6 +146,53 @@ jobs:
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
+
+  fstab:
+    name: fstab tests (${{ matrix.runner.name }}
+    runs-on: ${{ matrix.runner.tags }}
+
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        fuseVersion: [2]
+        runner:
+          - name: Ubuntu x86
+            tags: [ubuntu-22.04] # GitHub-hosted
+          - name: Amazon Linux arm
+            tags: [self-hosted, linux, arm64]
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+          aws-region: ${{ vars.S3_REGION }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+          persist-credentials: false
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+          # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+          rustflags: ""
+      - name: Install operating system dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          fuseVersion: ${{ matrix.fuseVersion }}
+      - name: Create aws profile
+        # Run the aws configuration as root, as fstab runs Mountpoint as root by default.
+        run: |
+          sudo aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+          sudo aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+          sudo aws configure set aws_session_token $AWS_SESSION_TOKEN
+      - name: Run fstab integration tests
+        run: ./mountpoint-s3/tests/fstab/basic_checks.sh
 
   asan:
     name: Address sanitizer
