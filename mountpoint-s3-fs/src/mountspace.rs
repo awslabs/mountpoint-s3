@@ -5,7 +5,6 @@ use crate::superblock::InodeError;
 use crate::superblock::InodeKind;
 use crate::superblock::InodeNo;
 use crate::superblock::InodeStat;
-use crate::superblock::LookedUp as SuperblockLookedUp;
 use crate::superblock::WriteMode;
 use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
@@ -15,16 +14,16 @@ use std::time::Duration;
 use time::OffsetDateTime;
 
 pub struct MountspaceDirectoryReplier<'a> {
-    reply: Box<&'a mut (dyn DirectoryReplier + Send + Sync)>,
+    reply: &'a mut (dyn DirectoryReplier + Send + Sync),
 }
 
 impl<'a> MountspaceDirectoryReplier<'a> {
     pub fn new<R: DirectoryReplier + 'a + Send + Sync>(reply: &'a mut R) -> Self {
-        return MountspaceDirectoryReplier { reply: Box::new(reply) };
+        MountspaceDirectoryReplier { reply }
     }
 
     pub fn add(&mut self, entry: DirectoryEntry) -> bool {
-        return self.reply.add(entry);
+        self.reply.add(entry)
     }
 }
 

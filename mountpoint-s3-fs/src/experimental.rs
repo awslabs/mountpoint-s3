@@ -13,7 +13,6 @@ use crate::superblock::WriteMode;
 use async_trait::async_trait;
 use fuser::FileAttr;
 use mountpoint_s3_client::types::ETag;
-use nix::sys::stat::FileStat;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::sync::RwLock;
@@ -39,10 +38,6 @@ impl HyperNode {
 
 #[derive(Debug)]
 pub struct HyperBlock {
-    channels: RwLock<HashMap<String, HyperblockChannel>>,
-    // Map from s3://bucket/file to index
-    file_index: RwLock<BTreeMap<String, usize>>,
-    channel_count: usize,
     nodes: RwLock<BTreeMap<InodeNo, HyperNode>>,
 }
 
@@ -57,8 +52,6 @@ struct HyperblockChannel {
 impl HyperBlock {
     pub fn new(channel_configs: Vec<(String, String, Vec<(String, String, usize)>)>) -> Self {
         let channel_count = channel_configs.len();
-        let mut channels = HashMap::new();
-        let mut file_index = BTreeMap::new();
         let mut nodes = BTreeMap::new();
 
         // Create root directory (inode 1)
@@ -94,27 +87,13 @@ impl HyperBlock {
                 bucket: Some(name.clone()),
             };
 
-            // Create the channel struct for our channels map
-            // Extract just filenames for the channel struct
-            let file_names: Vec<String> = files_with_etags.iter().map(|(name, _, _)| name.clone()).collect();
-            let hyperblock_channel = HyperblockChannel {
-                files: file_names.clone(),
-                name: name.clone(),
-                bucket: bucket.clone(),
-                inode: channel_inode,
-            };
-
             // Second pass: create all file nodes for this channel
             //created_files = created_files + (files_with_etags.len() as u64);
-            for (file_idx, (file, etag_str, size)) in files_with_etags.iter().enumerate() {
+            for (_file_idx, (file, etag_str, size)) in files_with_etags.iter().enumerate() {
                 let file_inode = next_file_ino as u64;
 
                 // Add file to channel's children
                 channel_node.children.insert(file.clone(), file_inode);
-
-                // Add to file index
-                let s3_uri = format!("s3://{}/{}", bucket, file);
-                file_index.insert(s3_uri, idx);
 
                 // Create file node with ETag
                 let file_stat = InodeStat::for_file(
@@ -143,18 +122,12 @@ impl HyperBlock {
 
             // Store the channel node in our nodes map
             nodes.insert(channel_inode, channel_node);
-
-            // Store in channels map
-            channels.insert(name.clone(), hyperblock_channel);
         }
 
         // Finally, add root to nodes map
         nodes.insert(1, root);
 
         HyperBlock {
-            channels: RwLock::new(channels),
-            file_index: RwLock::new(file_index),
-            channel_count,
             nodes: RwLock::new(nodes),
         }
     }
@@ -338,9 +311,9 @@ impl Mountspace for HyperBlock {
     }
     async fn setattr(
         &self,
-        ino: InodeNo,
-        atime: Option<OffsetDateTime>,
-        mtime: Option<OffsetDateTime>,
+        _ino: InodeNo,
+        _atime: Option<OffsetDateTime>,
+        _mtime: Option<OffsetDateTime>,
     ) -> Result<LookedUp, InodeError> {
         Err(InodeError::OperationNotPermitted)
     }
@@ -376,10 +349,10 @@ impl Mountspace for HyperBlock {
                 ino: fh,
                 offset: 1, // Next entry will be at offset 1
                 name: ".".into(),
-                attr: attr, // Simplified attribute for testing
+                attr, // Simplified attribute for testing
                 generation: 0,
                 ttl: lookup.validity(),
-                lookup: lookup,
+                lookup,
             };
 
             if reply.add(entry) {
@@ -418,7 +391,7 @@ impl Mountspace for HyperBlock {
         }
 
         // Sort child entries for consistency
-        let mut entries: Vec<_> = dir.children.iter().collect();
+        let entries: Vec<_> = dir.children.iter().collect();
 
         // Calculate where in the children array we should start based on offset
         let start_idx = if offset <= 2 { 0 } else { (offset - 2) as usize };
@@ -442,7 +415,7 @@ impl Mountspace for HyperBlock {
             let entry = DirectoryEntry {
                 ino: child.ino,
                 offset: (idx as i64) + start_idx as i64 + 3, // +3 for "." and ".." entries
-                name: name.clone().into(),
+                name: name.into(),
                 attr: attr, // Simplified attribute for testing
                 generation: 0,
                 ttl: lookup.validity(),

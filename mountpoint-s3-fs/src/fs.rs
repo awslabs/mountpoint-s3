@@ -16,7 +16,6 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::async_util::Runtime;
-use crate::experimental::HyperBlock;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::mountspace::LookedUp;
@@ -634,7 +633,7 @@ where
             .await
             .get(&fh)
             .unwrap()
-            .handleNo
+            .handle_no
             .load(Ordering::Relaxed);
         self.superblock
             .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(&mut reply))
@@ -659,7 +658,7 @@ where
             .await
             .get(&fh)
             .unwrap()
-            .handleNo
+            .handle_no
             .load(Ordering::Relaxed);
 
         self.superblock

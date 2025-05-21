@@ -5,7 +5,6 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::{debug, error};
 
 use crate::mountspace::LookedUp;
-use crate::mountspace::Mountspace;
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
 use crate::superblock::path::ValidKey;
@@ -19,16 +18,16 @@ use super::{DirectoryEntry, Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 pub struct DirHandle {
     #[allow(unused)]
     ino: InodeNo,
-    pub handleNo: AtomicU64,
+    pub handle_no: AtomicU64,
     offset: AtomicI64,
     pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
 }
 
 impl DirHandle {
-    pub fn new(ino: InodeNo, handleNo: u64) -> Self {
+    pub fn new(ino: InodeNo, handle_no: u64) -> Self {
         Self {
             ino,
-            handleNo: AtomicU64::new(handleNo),
+            handle_no: AtomicU64::new(handle_no),
             offset: AtomicI64::new(0),
             last_response: AsyncMutex::new(None),
         }
@@ -45,12 +44,12 @@ impl DirHandle {
         self.offset.store(0, Ordering::SeqCst);
     }
 
-    pub fn handleNo(&self) -> u64 {
-        self.handleNo.load(Ordering::SeqCst)
+    pub fn handle_no(&self) -> u64 {
+        self.handle_no.load(Ordering::SeqCst)
     }
 
-    pub fn set_handleNo(&self, new: u64) {
-        self.handleNo.store(new, Ordering::SeqCst);
+    pub fn set_handle_no(&self, new: u64) {
+        self.handle_no.store(new, Ordering::SeqCst);
     }
 }
 
@@ -99,7 +98,7 @@ where
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
         fs.superblock.start_writing(ino, &write_mode, is_truncate).await?;
-        let bucket = fs.bucket.clone();
+        let bucket = lookup.bucket.clone();
         let key = fs.superblock.full_key_for_inode(lookup.ino);
         let handle = if write_mode.incremental_upload {
             let initial_etag = if is_truncate {
@@ -145,7 +144,7 @@ where
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
         let object_id = ObjectId::new(full_key.into(), etag);
-        let request = fs.prefetcher.prefetch(fs.bucket.clone(), object_id, object_size);
+        let request = fs.prefetcher.prefetch(lookup.bucket.clone(), object_id, object_size);
         let handle = FileHandleState::Read(request);
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)

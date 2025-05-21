@@ -54,8 +54,6 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
-use std::sync::Mutex;
-
 mod expiry;
 use expiry::Expiry;
 
@@ -71,14 +69,13 @@ pub mod path;
 use path::{ValidKey, ValidName};
 use std::fmt;
 mod readdir;
-use crate::err;
 pub use readdir::ReaddirHandle;
 /// Superblock is the root object of the file system
 pub struct Superblock<OC: ObjectClient + Send + Sync> {
     inner: Arc<SuperblockInner<OC>>,
 }
 impl<OC: ObjectClient + Send + Sync> fmt::Debug for Superblock<OC> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         Ok(())
     }
 }
@@ -220,13 +217,15 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .readd(entry);
     }
 
-    fn remember_from_handle(&self, readdir_handle: u64, entry: &mountspace::LookedUp) {
+    fn remember_from_handle(&self, _readdir_handle: u64, entry: &mountspace::LookedUp) {
         // TODO: We here get the iode by number, we should have some additional check that this is the currect Inode (i.e., generation number or similiar)
         match self.inner.get(entry.ino) {
             Ok(inode) => {
                 self.inner.remember(&inode);
             }
-            _ => {}
+            _ => {
+                unreachable!("This should not be reached")
+            }
         }
     }
 
@@ -582,13 +581,13 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         // special case where we need to rewind and restart the streaming but only when it is not the first time we see offset 0
         if offset == 0 && dir_handle.offset() != 0 {
             let new_handle = self.new_readdir_handle(parent, 1000).await?;
-            dir_handle.set_handleNo(new_handle);
+            dir_handle.set_handle_no(new_handle);
             dir_handle.rewind_offset();
             // drop any cached entries, as new response may be unordered and cache would be stale
             *dir_handle.last_response.lock().await = None;
         }
 
-        let readdir_handle: u64 = dir_handle.handleNo();
+        let readdir_handle: u64 = dir_handle.handle_no();
 
         // If offset is 0 we've already restarted the request and do not use cache, otherwise we're using the same request
         // and it is safe to repeat the response. We do not repeat the response if negative offset was provided.
@@ -1059,7 +1058,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             return Err(InodeError::NotADirectory(parent.err()));
         }
 
-        let parent_full_path = self.inner.full_key_for_inode(&parent);
+        let parent_full_path = self.full_key_for_inode(&parent);
         let Some(manifest_entry) = manifest.manifest_lookup(parent_full_path.to_string(), name)? else {
             return Ok(None);
         };
@@ -1606,7 +1605,7 @@ mod tests {
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
-    use crate::fs::{TimeToLive, ToErrno, FUSE_ROOT_INODE};
+    use crate::fs::{TimeToLive, FUSE_ROOT_INODE};
 
     use super::*;
 
