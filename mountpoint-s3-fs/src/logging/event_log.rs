@@ -4,9 +4,8 @@ use std::path::Path;
 
 /// Provides callback ([LogErrorCallback]) for logging events in a structured format to a file.
 ///
-/// The output format is `\n`-separated `json`'s, where each `json` describes a single event. Currently,
-/// only errors occurring on fuse operations are logged as events. For some failed fuse operations an event
-/// will be present in the log. On contrary, errors occurring before the mount won't be logged (yet).
+/// The output format is `\n`-separated `json`'s, where each `json` describes a single event. Errors
+/// occurring on fuse operations are logged as events.
 ///
 /// Fields `error_code`, `s3_error_http_status` and `s3_error_code` may be used to detect specific
 /// failure conditions, for instance, errors caused by throttling or a lack of permissions. Fields
@@ -25,12 +24,12 @@ use std::path::Path;
 use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fs::Error;
 use crate::fuse::ErrorCallback;
+use crate::logging::log_file_name_time_suffix;
 use crate::sync::mpsc::{self, Receiver, SyncSender};
 use serde::{Deserialize, Serialize};
 use std::thread::{self, JoinHandle};
 use time::{serde::rfc3339, OffsetDateTime};
 
-const EVENT_LOG_FILE_NAME: &str = "event_log";
 const VERSION: &str = "1";
 
 pub struct LogErrorCallback {
@@ -50,7 +49,8 @@ impl LogErrorCallback {
     pub fn new<P: AsRef<Path>>(log_directory: P) -> anyhow::Result<Self> {
         let max_inflight_events = 1000;
         let (event_sender, receiver) = mpsc::sync_channel(max_inflight_events);
-        let file = File::create(log_directory.as_ref().join(EVENT_LOG_FILE_NAME))?;
+        let event_log_file_name = format!("mountpoint-s3-event-log-{}.log", log_file_name_time_suffix());
+        let file = File::create(log_directory.as_ref().join(event_log_file_name))?;
         let writer_thread = thread::spawn(|| Self::write_to_file(receiver, file));
         Ok(Self {
             event_sender: Some(event_sender),
@@ -147,6 +147,8 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::PathBuf};
+
     use crate::{
         fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT},
         prefetch::PrefetchReadError,
@@ -210,8 +212,7 @@ mod tests {
         }
 
         // check output
-        let event_log =
-            std::fs::read_to_string(log_dir.path().join(EVENT_LOG_FILE_NAME)).expect("must read the event log");
+        let event_log = fs::read_to_string(find_event_log_file_path(log_dir.path())).expect("must read the event log");
         let written_events: Vec<Event> = event_log
             .split("\n")
             .filter(|line| !line.is_empty())
@@ -222,5 +223,14 @@ mod tests {
             expected_events[i].timestamp = written_event.timestamp; // do not validate the value of timestamp
         }
         assert_eq!(&written_events, &expected_events);
+    }
+
+    fn find_event_log_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
+        fs::read_dir(dir)
+            .expect("readdir must succeed")
+            .map(|entry| entry.expect("readdir must succeed"))
+            .find(|e| e.path().is_file())
+            .expect("expected an event log file in the directory")
+            .path()
     }
 }
