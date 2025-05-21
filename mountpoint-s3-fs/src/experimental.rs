@@ -3,6 +3,7 @@ use crate::mountspace::LookedUp;
 use crate::mountspace::Mountspace;
 use crate::mountspace::MountspaceDirectoryReplier;
 use crate::superblock::path::ValidKey;
+use crate::superblock::path::ValidName;
 use crate::superblock::InodeError;
 use crate::superblock::InodeErrorInfo;
 use crate::superblock::InodeKind;
@@ -27,6 +28,7 @@ struct HyperNode {
     name: String,
     children: HashMap<String, InodeNo>, // Only used for directories
     stat: InodeStat,
+    bucket: Option<String>, // Add bucket field
 }
 
 impl HyperNode {
@@ -53,7 +55,7 @@ struct HyperblockChannel {
 }
 
 impl HyperBlock {
-    pub fn new(channel_configs: Vec<(String, String, Vec<String>)>) -> Self {
+    pub fn new(channel_configs: Vec<(String, String, Vec<(String, String, usize)>)>) -> Self {
         let channel_count = channel_configs.len();
         let mut channels = HashMap::new();
         let mut file_index = BTreeMap::new();
@@ -68,10 +70,13 @@ impl HyperBlock {
             stat: root_stat,
             children: HashMap::new(),
             name: "/".to_string(),
+            bucket: None,
         };
-
         // First pass: create all channel nodes and set up their relationships
-        for (idx, (name, bucket, files)) in channel_configs.iter().enumerate() {
+        //
+        let mut next_file_ino = channel_count as InodeNo + 2 + 1; // Start after all channels
+
+        for (idx, (name, bucket, files_with_etags)) in channel_configs.iter().enumerate() {
             let channel_inode = (idx + 2) as u64; // +2 because root is 1
 
             // Add channel to root's children
@@ -86,21 +91,23 @@ impl HyperBlock {
                 kind: InodeKind::Directory,
                 stat: channel_stat,
                 children: HashMap::new(),
+                bucket: Some(name.clone()),
             };
 
             // Create the channel struct for our channels map
+            // Extract just filenames for the channel struct
+            let file_names: Vec<String> = files_with_etags.iter().map(|(name, _, _)| name.clone()).collect();
             let hyperblock_channel = HyperblockChannel {
-                files: files.clone(),
+                files: file_names.clone(),
                 name: name.clone(),
                 bucket: bucket.clone(),
                 inode: channel_inode,
             };
 
             // Second pass: create all file nodes for this channel
-            let mut next_file_ino = channel_count as InodeNo + 2; // Start after all channels
-
-            for (file_idx, file) in files.iter().enumerate() {
-                let file_inode = next_file_ino + file_idx as u64;
+            //created_files = created_files + (files_with_etags.len() as u64);
+            for (file_idx, (file, etag_str, size)) in files_with_etags.iter().enumerate() {
+                let file_inode = next_file_ino as u64;
 
                 // Add file to channel's children
                 channel_node.children.insert(file.clone(), file_inode);
@@ -109,11 +116,11 @@ impl HyperBlock {
                 let s3_uri = format!("s3://{}/{}", bucket, file);
                 file_index.insert(s3_uri, idx);
 
-                // Create file node
+                // Create file node with ETag
                 let file_stat = InodeStat::for_file(
-                    1024,
+                    *size,
                     OffsetDateTime::now_utc(),
-                    None, // etag
+                    Some(etag_str.clone().into()), // Include the ETag here
                     None,
                     None,
                     Duration::from_secs(120000),
@@ -125,6 +132,7 @@ impl HyperBlock {
                     stat: file_stat,
                     children: HashMap::new(), // Files don't have children
                     name: file.clone(),
+                    bucket: Some(bucket.clone()),
                 };
 
                 // Add file to nodes map
@@ -150,7 +158,6 @@ impl HyperBlock {
             nodes: RwLock::new(nodes),
         }
     }
-
     fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
         /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
         /// the file, in 512-byte units."
@@ -223,6 +230,7 @@ impl Mountspace for HyperBlock {
             stat: child.stat.clone(),
             kind: child.kind.clone(),
             is_remote: true,
+            bucket: child.bucket.clone().unwrap_or("".to_string()),
         })
     }
 
@@ -235,6 +243,7 @@ impl Mountspace for HyperBlock {
             stat: node.stat.clone(),
             kind: node.kind.clone(),
             is_remote: false,
+            bucket: node.bucket.clone().unwrap_or("".to_string()),
         })
     }
 
@@ -299,10 +308,34 @@ impl Mountspace for HyperBlock {
     }
 
     fn full_key_for_inode(&self, inode: InodeNo) -> ValidKey {
-        // This can be improved to return actual S3 keys based on the channel info
-        unimplemented!("Not implemented")
-    }
+        let nodes = self.nodes.read().unwrap();
 
+        // Try to get the node for this inode
+        if let Some(node) = nodes.get(&inode) {
+            if node.kind == InodeKind::Directory {
+                if inode == 1 {
+                    // Root directory - return empty string
+                    return ValidKey::root();
+                } else {
+                    // For directories, we need a trailing slash
+                    // Use ValidKey::new since we need to validate
+
+                    return ValidKey::root();
+                }
+            } else {
+                // For files, just return the filename directly
+                return ValidKey::root()
+                    .new_child(ValidName::parse_str(&node.name).unwrap(), InodeKind::File)
+                    .unwrap_or_else(|_| {
+                        // Fallback
+                        ValidKey::root()
+                    });
+            }
+        }
+
+        // Fallback if inode not found
+        ValidKey::root()
+    }
     async fn setattr(
         &self,
         ino: InodeNo,
@@ -335,6 +368,7 @@ impl Mountspace for HyperBlock {
                 stat: dir.stat.clone(),
                 kind: InodeKind::Directory,
                 is_remote: false,
+                bucket: dir.bucket.clone().unwrap_or("".to_string()),
             };
             let attr = self.make_attr(&lookup);
 
@@ -364,6 +398,7 @@ impl Mountspace for HyperBlock {
                 stat: parent_node.stat.clone(),
                 kind: InodeKind::Directory,
                 is_remote: false,
+                bucket: "".to_string(),
             };
             let attr = self.make_attr(&lookup);
 
@@ -400,6 +435,7 @@ impl Mountspace for HyperBlock {
                 stat: child.stat.clone(),
                 kind: child.kind,
                 is_remote: false, // For testing simplicity
+                bucket: child.bucket.clone().unwrap_or("".to_string()),
             };
             let attr = self.make_attr(&lookup);
 

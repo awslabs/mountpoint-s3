@@ -175,25 +175,40 @@ where
             dir_mode: config.dir_mode,
         };
 
-        // let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
-        let channel_configs = vec![
+        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
+        /*let channel_configs = vec![
             // Channel A
             (
                 "channelA".to_string(),
                 "chagem-test-bucket".to_string(),
-                vec!["file1.txt".to_string(), "file2.txt".to_string()],
+                vec![
+                    (
+                        "cast.txt".to_string(),
+                        "c11b7ade74c878a58d6480e387417164".to_string(),
+                        114,
+                    ),
+                    (
+                        "dfa.txt".to_string(),
+                        "c11b7ade74c878a58d6480e387417164".to_string(),
+                        114,
+                    ),
+                ],
             ),
             // Channel B
             (
                 "channelB".to_string(),
-                "chagem-test-bucket".to_string(),
-                vec!["document.pdf".to_string()],
+                "mp-semantics-test".to_string(),
+                vec![(
+                    "key.txt".to_string(),
+                    "643306233e4b256d682bb9dff6c63708-4".to_string(),
+                    20,
+                )],
             ),
         ];
 
         // Initialize the HyperBlock with our test configuration
         let superblock = HyperBlock::new(channel_configs);
-
+        */
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(

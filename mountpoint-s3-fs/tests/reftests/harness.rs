@@ -728,7 +728,7 @@ impl Harness {
                                 "file name must be in the set of child names in the reference fs",
                             );
                         }
-                        None => panic!("file {name:?} not found in the reference"),
+                        None => panic!("file {name:?} not found in the reference in dir {fs_dir}"),
                     }
                 }
                 reply.clear();

@@ -34,6 +34,7 @@ pub struct LookedUp {
     pub stat: InodeStat,
     pub kind: InodeKind,
     pub is_remote: bool,
+    pub bucket: String,
 }
 
 impl LookedUp {
