@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.3.0)
+
+* Improve safety checks when reading disk cache blocks. ([#1427](https://github.com/awslabs/mountpoint-s3/pull/1427))
 
 ## v0.2.0 (May 9, 2025)
 
