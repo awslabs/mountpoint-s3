@@ -184,9 +184,8 @@ where
     let bucket_description = args.bucket_description();
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
-    let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
-
     let s3_path = args.s3_path();
+    let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
     let mut data_cache_config = args.data_cache_config(sse);
 
     let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;

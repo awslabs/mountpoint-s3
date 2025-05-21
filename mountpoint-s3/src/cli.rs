@@ -12,7 +12,7 @@ use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, S3Path};
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
-use nix::unistd::{setgid, setuid, Gid, Uid};
+use nix::unistd::{setgid, setuid, Gid, Group, Uid, User};
 use regex::Regex;
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -42,7 +42,7 @@ Arguments:
           fstab style options. Comma separated list of CLI options, with backslash escapes for commas, backslashes, and double quotes.
           Use of `--` to prefix arguments is not allowed.";
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
@@ -523,13 +523,9 @@ impl CliArgs {
         if let Some(username) = &self.run_as_user {
             match Self::resolve_user_group(username) {
                 Ok((uid, gid)) => {
-                    filesystem_config.uid = uid; // Sets filesystem operations to run as this user
-                    filesystem_config.gid = gid;
+                    filesystem_config.uid = uid.as_raw();
+                    filesystem_config.gid = gid.as_raw();
                     tracing::info!("Running Mountpoint as user: {}", username);
-
-                    // Convert to proper types for setuid/setgid
-                    let gid = Gid::from_raw(gid);
-                    let uid = Uid::from_raw(uid);
 
                     // Handle errors
                     if let Err(e) = setgid(gid) {
@@ -541,6 +537,7 @@ impl CliArgs {
                 }
                 Err(e) => {
                     tracing::error!(error=?e, username=%username, "Failed to resolve user/group");
+                    std::process::exit(1);
                 }
             }
         }
@@ -548,15 +545,12 @@ impl CliArgs {
         filesystem_config
     }
 
-    fn resolve_user_group(username: &str) -> anyhow::Result<(u32, u32)> {
-        // Get user info using the safe nix API
-        let user = nix::unistd::User::from_name(username)?.ok_or_else(|| anyhow!("User '{}' not found", username))?;
+    fn resolve_user_group(username: &str) -> anyhow::Result<(Uid, Gid)> {
+        let user = User::from_name(username)?.ok_or_else(|| anyhow!("User '{}' not found", username))?;
 
-        // Get group info using the safe nix API
-        let group = nix::unistd::Group::from_gid(user.gid)?
-            .ok_or_else(|| anyhow!("Group for user '{}' not found", username))?;
+        let group = Group::from_gid(user.gid)?.ok_or_else(|| anyhow!("Group for user '{}' not found", username))?;
 
-        Ok((user.uid.as_raw(), group.gid.as_raw()))
+        Ok((user.uid, group.gid))
     }
 
     fn cache_block_size_in_bytes(&self) -> u64 {
@@ -894,6 +888,29 @@ mod tests {
             assert_eq!(parsed.expect("valid kms key identifier"), kms_key_id);
         } else {
             parsed.expect_err("invalid kms key identifier");
+        }
+    }
+
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: None, gid: None, ..Default::default() }, "run_as_user alone" )]
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: Some(1000), gid: Some(1000), ..Default::default() }, "run_as_user with explicit uid/gid" )]
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: Some(1000), gid: None, ..Default::default() }, "run_as_user with explicit uid only" )]
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: None, gid: Some(1000), ..Default::default() }, "run_as_user with explicit gid only" )]
+    fn test_run_as_user_interaction(args: CliArgs, _test_name: &str) {
+        let config = args.filesystem_config(ServerSideEncryption::default(), S3Personality::default());
+
+        // Get the expected UID/GID from the user
+        if let Some(username) = &args.run_as_user {
+            match CliArgs::resolve_user_group(username) {
+                Ok((expected_uid, expected_gid)) => {
+                    // Seeing that run_as_user overrides any explicit uid/gid settings
+                    assert_eq!(config.uid, expected_uid.as_raw(), "UID should be set to user's UID");
+                    assert_eq!(config.gid, expected_gid.as_raw(), "GID should be set to user's GID");
+                }
+                Err(e) => {
+                    // Skipping the test if user doesn't exist
+                    tracing::warn!("Skipping test - user {} not found: {}", username, e);
+                }
+            }
         }
     }
 }
