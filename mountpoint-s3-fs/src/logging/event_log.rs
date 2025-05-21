@@ -1,3 +1,5 @@
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
@@ -93,8 +95,9 @@ impl LogErrorCallback {
         let mut writer = BufWriter::new(file);
         for event in events_receiver {
             if let Err(err) = event.write(&mut writer) {
-                // todo: what to do on errors?
-                tracing::warn!("failed to write to the event log: {}, event: {:?}", err, event);
+                tracing::error!("failed to write to the event log: {}, event: {:?}", err, event);
+                // trigger graceful shutdown (with umount) by sending a signal to self
+                signal::kill(Pid::this(), Signal::SIGINT).expect("kill must succeed");
             }
         }
     }
