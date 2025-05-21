@@ -16,6 +16,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::async_util::Runtime;
+use crate::experimental::HyperBlock;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::mountspace::LookedUp;
@@ -173,7 +174,26 @@ where
             file_mode: config.file_mode,
             dir_mode: config.dir_mode,
         };
-        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
+
+        // let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
+        let channel_configs = vec![
+            // Channel A
+            (
+                "channelA".to_string(),
+                "chagem-test-bucket".to_string(),
+                vec!["file1.txt".to_string(), "file2.txt".to_string()],
+            ),
+            // Channel B
+            (
+                "channelB".to_string(),
+                "chagem-test-bucket".to_string(),
+                vec!["document.pdf".to_string()],
+            ),
+        ];
+
+        // Initialize the HyperBlock with our test configuration
+        let superblock = HyperBlock::new(channel_configs);
+
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(

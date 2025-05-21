@@ -61,8 +61,8 @@ use expiry::Expiry;
 
 mod inode;
 pub use inode::InodeStat;
-pub use inode::{Inode, InodeKind, InodeNo, WriteMode};
-use inode::{InodeErrorInfo, InodeKindData, InodeState, WriteStatus};
+pub use inode::{Inode, InodeErrorInfo, InodeKind, InodeNo, WriteMode};
+use inode::{InodeKindData, InodeState, WriteStatus};
 
 mod negative_cache;
 use negative_cache::NegativeCache;
@@ -1551,6 +1551,8 @@ pub enum InodeError {
     OutOfOrderReadDir,
     #[error("DearHandle not found")]
     NoSuchDirHandle,
+    #[error("Attempted forbidden operation on Hyperblock")]
+    OperationNotPermitted,
 }
 
 impl InodeError {
