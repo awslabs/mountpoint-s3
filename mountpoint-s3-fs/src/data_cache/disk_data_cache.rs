@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use bincode::config::{Configuration, Fixint, LittleEndian};
+use bincode::config::{Configuration, Fixint, Limit, LittleEndian};
 use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use bytes::Bytes;
@@ -69,17 +69,24 @@ impl Default for CacheLimit {
 struct DiskBlockHeader {
     block_idx: BlockIndex,
     block_offset: u64,
-    block_size: u64,
+    block_len: u64,
     etag: String,
     s3_key: String,
     data_checksum: u32,
     header_checksum: u32,
 }
 
+/// Max size of header after encoding.
+/// 10000 should easily accommodate any block header:
+/// - S3 key should always be less than or equal to 1024
+/// - Allow 1024 for ETag, even though its always much smaller
+/// - Integers should be up to 8 bytes each
+const BINCODE_HEADER_MAX_SIZE: usize = 10000;
+
 /// Binary encoding configuration for the block header.
-const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, bincode::config::Limit<10000>> = bincode::config::standard()
+const BINCODE_CONFIG: Configuration<LittleEndian, Fixint, Limit<BINCODE_HEADER_MAX_SIZE>> = bincode::config::standard()
     .with_fixed_int_encoding()
-    .with_limit::<10000>();
+    .with_limit::<BINCODE_HEADER_MAX_SIZE>();
 
 /// Error during creation of a [DiskBlock]
 #[derive(Debug, Error)]
@@ -101,13 +108,13 @@ enum DiskBlockAccessError {
 /// Error when reading or writing a [DiskBlock]
 #[derive(Debug, Error)]
 enum DiskBlockReadWriteError {
-    #[error("Invalid block size: {0}")]
-    InvalidBlockSize(u64),
-    #[error("Error decoding the block")]
+    #[error("Invalid block length: {0}")]
+    InvalidBlockLength(u64),
+    #[error("Error decoding the block: {0}")]
     DecodeError(DecodeError),
-    #[error("Error encoding the block")]
+    #[error("Error encoding the block: {0}")]
     EncodeError(EncodeError),
-    #[error("IO error")]
+    #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
 }
 
@@ -116,18 +123,18 @@ impl DiskBlockHeader {
     pub fn new(
         block_idx: BlockIndex,
         block_offset: u64,
-        block_size: usize,
+        block_len: usize,
         etag: String,
         s3_key: String,
         data_checksum: Crc32c,
     ) -> Self {
         let data_checksum = data_checksum.value();
         let header_checksum =
-            Self::compute_checksum(block_idx, block_offset, block_size, &etag, &s3_key, data_checksum).value();
+            Self::compute_checksum(block_idx, block_offset, block_len, &etag, &s3_key, data_checksum).value();
         DiskBlockHeader {
             block_idx,
             block_offset,
-            block_size: block_size as u64,
+            block_len: block_len as u64,
             etag,
             s3_key,
             data_checksum,
@@ -138,7 +145,7 @@ impl DiskBlockHeader {
     fn compute_checksum(
         block_idx: BlockIndex,
         block_offset: u64,
-        block_size: usize,
+        block_len: usize,
         etag: &str,
         s3_key: &str,
         data_checksum: u32,
@@ -146,7 +153,7 @@ impl DiskBlockHeader {
         let mut hasher = crc32c::Hasher::new();
         hasher.update(&block_idx.to_be_bytes());
         hasher.update(&block_offset.to_be_bytes());
-        hasher.update(&block_size.to_be_bytes());
+        hasher.update(&block_len.to_be_bytes());
         hasher.update(etag.as_bytes());
         hasher.update(s3_key.as_bytes());
         hasher.update(&data_checksum.to_be_bytes());
@@ -162,17 +169,17 @@ impl DiskBlockHeader {
         etag: &str,
         block_idx: BlockIndex,
         block_offset: u64,
-        block_size: usize,
+        block_len: usize,
     ) -> Result<Crc32c, DiskBlockAccessError> {
         let s3_key_match = s3_key == self.s3_key;
         let etag_match = etag == self.etag;
         let block_idx_match = block_idx == self.block_idx;
         let block_offset_match = block_offset == self.block_offset;
-        let block_size_match = block_size == self.block_size as usize;
+        let block_size_match = block_len == self.block_len as usize;
 
         let data_checksum = self.data_checksum;
         if s3_key_match && etag_match && block_idx_match && block_offset_match && block_size_match {
-            if Self::compute_checksum(block_idx, block_offset, block_size, etag, s3_key, data_checksum).value()
+            if Self::compute_checksum(block_idx, block_offset, block_len, etag, s3_key, data_checksum).value()
                 != self.header_checksum
             {
                 Err(DiskBlockAccessError::ChecksumError)
@@ -237,14 +244,15 @@ impl DiskBlock {
         Ok(bytes)
     }
 
+    /// Deserialize an instance from `reader`.
     fn read(reader: &mut impl Read, block_size: u64) -> Result<Self, DiskBlockReadWriteError> {
         let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
 
-        if header.block_size > block_size {
-            return Err(DiskBlockReadWriteError::InvalidBlockSize(header.block_size));
+        if header.block_len > block_size {
+            return Err(DiskBlockReadWriteError::InvalidBlockLength(header.block_len));
         }
 
-        let mut buffer = vec![0u8; header.block_size as usize];
+        let mut buffer = vec![0u8; header.block_len as usize];
         reader.read_exact(&mut buffer)?;
 
         Ok(Self {
@@ -253,6 +261,7 @@ impl DiskBlock {
         })
     }
 
+    /// Serialize this instance to `writer` and return the number of bytes written on success.
     fn write(&self, writer: &mut impl Write) -> Result<usize, DiskBlockReadWriteError> {
         let header_length = bincode::encode_into_std_write(&self.header, writer, BINCODE_CONFIG)?;
         writer.write_all(&self.data)?;
@@ -369,7 +378,8 @@ impl DiskDataCache {
             .mode(0o600)
             .open(path.as_ref())?;
         file.write_all(CACHE_VERSION.as_bytes())?;
-        Ok(block.write(&mut file)?)
+        let bytes_written = block.write(&mut file)?;
+        Ok(bytes_written)
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
@@ -1027,10 +1037,12 @@ mod tests {
     fn read_corrupted_block_should_fail(length_to_corrupt: &str) {
         const MAX_LENGTH: u64 = 1024;
 
+        /// Read the `u64` value at the given offset.
         fn get_u64_at(slice: &[u8], offset: usize) -> u64 {
             u64::from_le_bytes(slice[offset..(offset + 8)].try_into().unwrap())
         }
 
+        /// Replace the `u64` value at `offset` with `new_value`.
         fn replace_u64_at(slice: &mut [u8], offset: usize, new_value: u64) {
             slice[offset..(offset + 8)].copy_from_slice(&new_value.to_le_bytes());
         }
@@ -1043,6 +1055,8 @@ mod tests {
         let mut buf = Vec::new();
         block.write(&mut buf).unwrap();
 
+        // Determine the offset and expected value for the length field under test.
+        // These values depends on the serialization format for `DiskBlock` and `DiskBlockHeader`.
         let (offset, expected) = match length_to_corrupt {
             "key" => (24, cache_key.key().len()),
             "etag" => (32 + cache_key.key().len(), cache_key.etag().as_str().len()),
@@ -1050,9 +1064,23 @@ mod tests {
             _ => panic!("invalid length: {}", length_to_corrupt),
         };
 
-        assert_eq!(get_u64_at(&buf, offset) as usize, expected);
+        assert_eq!(
+            get_u64_at(&buf, offset) as usize,
+            expected,
+            "serialized length should match the expected value (have we changed the serialization format?)"
+        );
+
+        // "Corrupt" the serialized value with an invalid length.
         replace_u64_at(&mut buf, offset, u64::MAX);
 
-        DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH).expect_err("deserialization should fail");
+        let err = DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH).expect_err("deserialization should fail");
+        match length_to_corrupt {
+            "key" | "etag" => assert!(matches!(
+                err,
+                DiskBlockReadWriteError::DecodeError(DecodeError::LimitExceeded)
+            )),
+            "data" => assert!(matches!(err, DiskBlockReadWriteError::InvalidBlockLength(_))),
+            _ => panic!("invalid length: {}", length_to_corrupt),
+        }
     }
 }
