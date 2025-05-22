@@ -10,7 +10,7 @@ use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_fs::data_cache::DataCache;
-use mountpoint_s3_fs::fuse::S3FuseFilesystem;
+use mountpoint_s3_fs::fuse::{ErrorCallback, S3FuseFilesystem};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
@@ -65,6 +65,7 @@ pub struct TestSessionConfig {
     // If true, the test session will be created by opening and passing
     // FUSE device using `Session::from_fd`, otherwise `Session::new` will be used.
     pub pass_fuse_fd: bool,
+    pub error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>,
 }
 
 impl Default for TestSessionConfig {
@@ -76,6 +77,7 @@ impl Default for TestSessionConfig {
             filesystem_config: Default::default(),
             auth_config: Default::default(),
             pass_fuse_fd: false,
+            error_callback: None,
         }
     }
 }
@@ -160,6 +162,7 @@ pub fn create_fuse_session<Client>(
     mount_dir: &Path,
     filesystem_config: S3FilesystemConfig,
     pass_fuse_fd: bool,
+    error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>,
 ) -> (BackgroundSession, Option<Mount>)
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -176,7 +179,7 @@ where
     let prefix = Prefix::new(prefix).expect("valid prefix");
     let fs = S3FuseFilesystem::new(
         S3Filesystem::new(client, prefetcher_builder, runtime, bucket, &prefix, filesystem_config),
-        None,
+        error_callback,
     );
     let (session, mount) = if pass_fuse_fd {
         let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
@@ -247,6 +250,7 @@ pub mod mock_session {
             mount_dir.path(),
             test_config.filesystem_config,
             test_config.pass_fuse_fd,
+            test_config.error_callback,
         );
         let test_client = create_test_client(client, &prefix);
 
@@ -286,6 +290,7 @@ pub mod mock_session {
                 mount_dir.path(),
                 test_config.filesystem_config,
                 test_config.pass_fuse_fd,
+                test_config.error_callback,
             );
             let test_client = create_test_client(client, &prefix);
 
@@ -438,6 +443,7 @@ pub mod s3_session {
             mount_dir.path(),
             test_config.filesystem_config,
             test_config.pass_fuse_fd,
+            test_config.error_callback,
         );
 
         let test_client = SDKTestClient {
@@ -475,6 +481,7 @@ pub mod s3_session {
                 mount_dir.path(),
                 test_config.filesystem_config,
                 test_config.pass_fuse_fd,
+                test_config.error_callback,
             );
             let test_client = create_test_client(&region, &bucket, &prefix);
 

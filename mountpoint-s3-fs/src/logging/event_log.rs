@@ -124,20 +124,20 @@ impl std::fmt::Debug for LogErrorCallback {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
-struct Event {
+pub struct Event {
     #[serde(with = "rfc3339")]
-    timestamp: OffsetDateTime,
-    operation: String,
-    fuse_request_id: Option<u64>,
-    error_code: String,
-    errno: Option<i32>,
-    internal_message: Option<String>,
-    s3_object_key: Option<String>,
-    s3_bucket_name: Option<String>,
-    s3_error_http_status: Option<i32>,
-    s3_error_code: Option<String>,
-    s3_error_message: Option<String>,
-    version: String,
+    pub timestamp: OffsetDateTime,
+    pub operation: String,
+    pub fuse_request_id: Option<u64>,
+    pub error_code: String,
+    pub errno: Option<i32>,
+    pub internal_message: Option<String>,
+    pub s3_object_key: Option<String>,
+    pub s3_bucket_name: Option<String>,
+    pub s3_error_http_status: Option<i32>,
+    pub s3_error_code: Option<String>,
+    pub s3_error_message: Option<String>,
+    pub version: String,
 }
 
 impl Event {
