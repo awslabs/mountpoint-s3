@@ -100,6 +100,12 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
+                    tracing::info!(
+                        target: "benchmarking_instrumentation",
+                        offset,
+                        length = data.len(),
+                        "S3 request on_body",
+                    );
                     _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
                         offset,
                         data: Bytes::copy_from_slice(data),
@@ -166,6 +172,7 @@ pub struct S3BackpressureHandle {
 impl ClientBackpressureHandle for S3BackpressureHandle {
     fn increment_read_window(&mut self, len: usize) {
         self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+        tracing::info!(target: "benchmarking_instrumentation", len, "on_meta_inc_window");
         self.meta_request.increment_read_window(len as u64);
     }
 

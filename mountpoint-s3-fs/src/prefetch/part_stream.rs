@@ -408,10 +408,11 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
 
-        let mut backpressure_handle = request.backpressure_handle().cloned();
-        if let Some(handle) = backpressure_handle.as_mut() {
-            handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
-        }
+        let mut client_backpressure_handle = request.backpressure_handle()
+            .expect("S3 client backpressure should always be enabled in Mountpoint")
+            .clone();
+        // TODO: Should the intial client window be a per-request setting, so that this isn't necessary? (CRT changes)
+        client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
 
         pin_mut!(request);
         while let Some(next) = request.next().await {
@@ -437,11 +438,11 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             if excess_bytes > 0 {
                 metrics::histogram!("s3.client.read_window_excess_bytes").record(excess_bytes as f64);
             }
-            // Blocks if read window increment if it's not enough to read the next offset
+
+            // Block until limiter indicates it is OK to read this far ahead
             if let Some(next_read_window_end_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
-                if let Some(handle) = backpressure_handle.as_mut() {
-                    handle.ensure_read_window(next_read_window_end_offset);
-                }
+                // TODO: Should this be moved instead into the BackPressure limiter? The limiter (or implementations) should figure out how to advance things.
+                client_backpressure_handle.ensure_read_window(next_read_window_end_offset);
             }
         }
         trace!("request finished");
