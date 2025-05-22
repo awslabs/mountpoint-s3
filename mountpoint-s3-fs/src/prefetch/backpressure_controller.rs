@@ -202,19 +202,18 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                             let to_increase =
                                 new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
 
-                            tracing::info!(
-                                target: "benchmarking_instrumentation",
-                                preferred_read_window_size = ?self.preferred_read_window_size,
-                                prev_read_window_end_offset = self.read_window_end_offset,
-                                new_read_window_end_offset,
-                                to_increase,
-                                "advancing read window",
-                            );
-
                             // Force incrementing read window regardless of available memory when we are already at minimum
                             // read window size.
                             if self.preferred_read_window_size <= self.min_read_window_size {
                                 self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
+                                tracing::info!(
+                                    target: "benchmarking_instrumentation",
+                                    preferred_read_window_size = ?self.preferred_read_window_size,
+                                    prev_read_window_end_offset = self.read_window_end_offset,
+                                    new_read_window_end_offset,
+                                    to_increase,
+                                    "advancing read window",
+                                );
                                 self.increment_read_window(to_increase).await;
                                 break;
                             }
@@ -222,6 +221,14 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                             // Try to reserve the memory for the length we want to increase before sending the request,
                             // scale down the read window if it fails.
                             if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                                tracing::info!(
+                                    target: "benchmarking_instrumentation",
+                                    preferred_read_window_size = ?self.preferred_read_window_size,
+                                    prev_read_window_end_offset = self.read_window_end_offset,
+                                    new_read_window_end_offset,
+                                    to_increase,
+                                    "advancing read window",
+                                );
                                 self.increment_read_window(to_increase).await;
                                 break;
                             } else {
