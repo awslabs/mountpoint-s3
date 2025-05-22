@@ -9,7 +9,6 @@ use time::OffsetDateTime;
 use tracing::{field, instrument, Instrument};
 
 use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno};
-use crate::sync::Arc;
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
@@ -20,7 +19,10 @@ use fuser::{
 pub mod config;
 pub mod session;
 
-pub trait ErrorCallback: std::fmt::Debug {
+/// The trait may be implemented to log failed fuse operations.
+pub trait ErrorLogger: std::fmt::Debug {
+    /// This method will be invoked for each failed fuse operation with an exception of those
+    /// operations which are not implemented.
     fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64);
 }
 
@@ -45,8 +47,8 @@ macro_rules! fuse_error {
         let err = $err;
         event!(err.level, "{} failed with errno {}: {:#}", $name, err.to_errno(), err);
         ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
-        if let Some(error_callback) = $fs.error_callback.as_ref() {
-            error_callback.error(&err, $name, $request.unique());
+        if let Some(error_logger) = $fs.error_logger.as_ref() {
+            error_logger.error(&err, $name, $request.unique());
         }
         $reply.error(err.to_errno());
     }};
@@ -75,15 +77,15 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     fs: S3Filesystem<Client>,
-    error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>,
+    error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>,
 }
 
 impl<Client> S3FuseFilesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    pub fn new(fs: S3Filesystem<Client>, error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>) -> Self {
-        Self { fs, error_callback }
+    pub fn new(fs: S3Filesystem<Client>, error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>) -> Self {
+        Self { fs, error_logger }
     }
 }
 

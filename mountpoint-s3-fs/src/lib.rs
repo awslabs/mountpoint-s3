@@ -15,7 +15,7 @@ pub mod prefetch;
 pub mod prefix;
 pub mod s3;
 mod superblock;
-pub mod sync;
+mod sync;
 pub mod upload;
 
 pub use async_util::Runtime;

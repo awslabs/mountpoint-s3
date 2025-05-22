@@ -5,7 +5,7 @@ use mountpoint_s3_client::ObjectClient;
 use crate::data_cache::{DataCacheConfig, DiskDataCache, ExpressDataCache, MultilevelDataCache};
 use crate::fuse::config::FuseSessionConfig;
 use crate::fuse::session::FuseSession;
-use crate::fuse::{ErrorCallback, S3FuseFilesystem};
+use crate::fuse::{ErrorLogger, S3FuseFilesystem};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::s3::config::S3Path;
 use crate::sync::Arc;
@@ -17,7 +17,7 @@ pub struct MountpointConfig {
     fuse_session_config: FuseSessionConfig,
     data_cache_config: DataCacheConfig,
     filesystem_config: S3FilesystemConfig,
-    error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>,
+    error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>,
 }
 
 impl MountpointConfig {
@@ -30,13 +30,13 @@ impl MountpointConfig {
             fuse_session_config,
             data_cache_config,
             filesystem_config,
-            error_callback: None,
+            error_logger: None,
         }
     }
 
-    /// Set the [Self::error_callback] field
-    pub fn error_callback(mut self, error_callback: Option<Arc<dyn ErrorCallback + Send + Sync>>) -> Self {
-        self.error_callback = error_callback;
+    /// Set the [Self::error_logger] field
+    pub fn error_logger(mut self, error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>) -> Self {
+        self.error_logger = error_logger;
         self
     }
 
@@ -61,7 +61,7 @@ impl MountpointConfig {
             self.filesystem_config,
         );
 
-        let fuse_fs = S3FuseFilesystem::new(fs, self.error_callback);
+        let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);
         FuseSession::new(fuse_fs, self.fuse_session_config)
     }
 }

@@ -2,7 +2,7 @@
 mod cache_test;
 mod consistency_test;
 #[cfg(feature = "manifest")]
-mod event_log_test;
+mod error_logger_test;
 mod fs_perm_test;
 mod iam_perm_test;
 mod lookup_test;

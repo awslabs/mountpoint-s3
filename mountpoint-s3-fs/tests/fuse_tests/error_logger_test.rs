@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::common::fuse::{self, TestSessionConfig};
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_INTERNAL;
 use mountpoint_s3_fs::{
-    logging::event_log::{Event, LogErrorCallback},
+    logging::error_logger::{Event, FileErrorLogger},
     manifest::Manifest,
     S3FilesystemConfig,
 };
@@ -36,15 +36,14 @@ fn test_manifest_error_logged() {
     // create a fuse session with a non existent manifest
     let tmp_dir = tempdir().expect("must create a tmp dir");
     let manifest_db_path = tmp_dir.path().join("non_existent.db");
-    let error_callback =
-        std::sync::Arc::new(LogErrorCallback::new(tmp_dir.path()).expect("must create a error callback"));
+    let error_logger = Box::new(FileErrorLogger::new(tmp_dir.path(), || ()).expect("must create a error callback"));
     let manifest = Manifest::new(&manifest_db_path).unwrap();
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
             manifest: Some(manifest),
             ..Default::default()
         },
-        error_callback: Some(error_callback.clone()),
+        error_logger: Some(error_logger),
         ..Default::default()
     };
 
@@ -58,7 +57,7 @@ fn test_manifest_error_logged() {
     drop(test_session);
 
     // check output
-    check_event_log(tmp_dir.path(), expected_events);
+    check_error_log(tmp_dir.path(), expected_events);
 }
 
 #[test]
@@ -68,10 +67,9 @@ fn test_not_found_error_not_logged() {
 
     // create a fuse session with a non existent manifest
     let tmp_dir = tempdir().expect("must create a tmp dir");
-    let error_callback =
-        std::sync::Arc::new(LogErrorCallback::new(tmp_dir.path()).expect("must create a error callback"));
+    let error_logger = Box::new(FileErrorLogger::new(tmp_dir.path(), || ()).expect("must create a error callback"));
     let test_session_config = TestSessionConfig {
-        error_callback: Some(error_callback.clone()),
+        error_logger: Some(error_logger),
         ..Default::default()
     };
 
@@ -85,11 +83,11 @@ fn test_not_found_error_not_logged() {
     drop(test_session);
 
     // check output
-    check_event_log(tmp_dir.path(), expected_events);
+    check_error_log(tmp_dir.path(), expected_events);
 }
 
-fn check_event_log(log_dir_path: &Path, mut expected_events: Vec<Event>) {
-    let event_log = fs::read_to_string(find_event_log_file_path(log_dir_path)).expect("must read the event log");
+fn check_error_log(log_dir_path: &Path, mut expected_events: Vec<Event>) {
+    let event_log = fs::read_to_string(find_error_log_file_path(log_dir_path)).expect("must read the event log");
     let written_events: Vec<Event> = event_log
         .split("\n")
         .filter(|line| !line.is_empty())
@@ -103,7 +101,7 @@ fn check_event_log(log_dir_path: &Path, mut expected_events: Vec<Event>) {
     assert_eq!(&written_events, &expected_events);
 }
 
-fn find_event_log_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
+fn find_error_log_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
     fs::read_dir(dir)
         .expect("readdir must succeed")
         .map(|entry| entry.expect("readdir must succeed"))

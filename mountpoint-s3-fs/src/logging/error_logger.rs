@@ -1,13 +1,23 @@
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
-/// Provides callback ([LogErrorCallback]) for logging events in a structured format to a file.
+use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
+use crate::fs::Error;
+use crate::fuse::ErrorLogger;
+use crate::logging::log_file_name_time_suffix;
+use crate::sync::mpsc::{self, Receiver, SyncSender};
+use serde::{Deserialize, Serialize};
+use std::thread::{self, JoinHandle};
+use time::{serde::rfc3339, OffsetDateTime};
+
+const VERSION: &str = "1";
+
+/// [FileErrorLogger] provides a callback for logging errors in a structured format to a file. Logging
+/// is done in a separate thread which is launched in [FileErrorLogger::new],
 ///
-/// The output format is `\n`-separated `json`'s, where each `json` describes a single event. Errors
-/// occurring on fuse operations are logged as events.
+/// The output format is `\n`-separated `json`'s, where each `json` describes a single error. Namely,
+/// errors occurring on fuse operations are logged to the file.
 ///
 /// Fields `error_code`, `s3_error_http_status` and `s3_error_code` may be used to detect specific
 /// failure conditions, for instance, errors caused by throttling or a lack of permissions. Fields
@@ -23,37 +33,26 @@ use std::path::Path;
 ///
 /// And the following rule for throttling errors:
 /// `s3_error_http_status == 503`
-use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
-use crate::fs::Error;
-use crate::fuse::ErrorCallback;
-use crate::logging::log_file_name_time_suffix;
-use crate::sync::mpsc::{self, Receiver, SyncSender};
-use serde::{Deserialize, Serialize};
-use std::thread::{self, JoinHandle};
-use time::{serde::rfc3339, OffsetDateTime};
-
-const VERSION: &str = "1";
-
-pub struct LogErrorCallback {
+pub struct FileErrorLogger {
     event_sender: Option<SyncSender<Event>>,
     writer_thread: Option<JoinHandle<()>>,
 }
 
-impl ErrorCallback for LogErrorCallback {
+impl ErrorLogger for FileErrorLogger {
     fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64) {
         self.log_error(err, fuse_operation, fuse_request_id);
     }
 }
 
-impl LogErrorCallback {
+impl FileErrorLogger {
     /// Spawns a new thread writing events to a file and return a callback which may be used to send events to this thread
     /// in a non blocking manner.
-    pub fn new<P: AsRef<Path>>(log_directory: P) -> anyhow::Result<Self> {
+    pub fn new<P: AsRef<Path>>(log_directory: P, on_write_failure: impl Fn() + Send + 'static) -> anyhow::Result<Self> {
         let max_inflight_events = 1000;
         let (event_sender, receiver) = mpsc::sync_channel(max_inflight_events);
         let event_log_file_name = format!("mountpoint-s3-event-log-{}.log", log_file_name_time_suffix());
         let file = File::create(log_directory.as_ref().join(event_log_file_name))?;
-        let writer_thread = thread::spawn(|| Self::write_to_file(receiver, file));
+        let writer_thread = thread::spawn(|| Self::write_to_file(receiver, file, on_write_failure));
         Ok(Self {
             event_sender: Some(event_sender),
             writer_thread: Some(writer_thread),
@@ -91,22 +90,21 @@ impl LogErrorCallback {
             .expect("must be able to send an event");
     }
 
-    fn write_to_file(events_receiver: Receiver<Event>, file: File) {
+    fn write_to_file(events_receiver: Receiver<Event>, file: File, on_write_failure: impl Fn() + Send + 'static) {
         let mut writer = BufWriter::new(file);
         for event in events_receiver {
             if let Err(err) = event.write(&mut writer) {
                 tracing::error!("failed to write to the event log: {}, event: {:?}", err, event);
-                // trigger graceful shutdown (with umount) by sending a signal to self
-                signal::kill(Pid::this(), Signal::SIGINT).expect("kill must succeed");
+                on_write_failure();
             }
         }
     }
 }
 
-impl Drop for LogErrorCallback {
-    /// Signal the [Self::writer_thread] to shutdown by dropping [Self::event_sender] and wait for the thread to
-    /// actually shutdown to ensure all events were processed.
+impl Drop for FileErrorLogger {
     fn drop(&mut self) {
+        // Signal the [Self::writer_thread] to shutdown by dropping [Self::event_sender] and wait for the thread to
+        // actually shutdown to ensure all events were processed.
         self.event_sender.take().expect("must be set");
         self.writer_thread
             .take()
@@ -117,9 +115,9 @@ impl Drop for LogErrorCallback {
     }
 }
 
-impl std::fmt::Debug for LogErrorCallback {
+impl std::fmt::Debug for FileErrorLogger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "LogErrorCallback")
+        write!(f, "FileErrorLogger")
     }
 }
 
@@ -206,11 +204,11 @@ mod tests {
         let log_dir = tempdir().expect("must create a log dir");
 
         {
-            // log errors and drop the callback to ensure data was written to the disk
-            let error_callback = LogErrorCallback::new(log_dir.path()).expect("must create the event logger");
+            // log errors and drop the logger to ensure data was written to the disk
+            let error_logger = FileErrorLogger::new(log_dir.path(), || ()).expect("must create the event logger");
 
             for error in fs_errors.iter() {
-                error_callback.error(error, "read", 10);
+                error_logger.error(error, "read", 10);
             }
         }
 
