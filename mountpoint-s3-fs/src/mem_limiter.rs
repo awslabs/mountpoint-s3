@@ -89,7 +89,13 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
     pub fn reserve(&self, area: BufferArea, size: u64) {
         let prev_mem_reserved = self.mem_reserved.fetch_add(size, Ordering::SeqCst);
         let new_mem_reserved = prev_mem_reserved + size;
-        trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, "mem.bytes_reserved");
+        {
+            let client_mem_allocated = self.client_mem_allocated();
+            let new_total_mem_usage = new_mem_reserved
+                .saturating_add(client_mem_allocated)
+                .saturating_add(self.additional_mem_reserved);
+            trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, new_total_mem_usage, "mem.bytes_reserved");
+        }
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).set(new_mem_reserved as f64);
     }
 
@@ -117,7 +123,7 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
-                    trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, "mem.bytes_reserved");
+                    trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, new_total_mem_usage, "mem.bytes_reserved");
                     metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).set(new_mem_reserved as f64);
                     metrics::histogram!("mem.reserve_latency_us", "area" => area.as_str())
                         .record(start.elapsed().as_micros() as f64);
@@ -132,7 +138,13 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
     pub fn release(&self, area: BufferArea, size: u64) {
         let prev_mem_reserved = self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
         let new_mem_reserved = prev_mem_reserved - size;
-        trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, "mem.bytes_reserved");
+        {
+            let client_mem_allocated = self.client_mem_allocated();
+            let new_total_mem_usage = new_mem_reserved
+                .saturating_add(client_mem_allocated)
+                .saturating_add(self.additional_mem_reserved);
+            trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, new_total_mem_usage, "mem.bytes_reserved");
+        }
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).set(new_mem_reserved as f64);
     }
 
