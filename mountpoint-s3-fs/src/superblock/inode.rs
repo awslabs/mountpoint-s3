@@ -104,6 +104,12 @@ impl Inode {
         *lookup_count
     }
 
+    pub(super) fn read_lookup_count(&self) -> u64 {
+        let mut state = self.inner.sync.write().unwrap();
+        let lookup_count = &mut state.lookup_count;
+        *lookup_count
+    }
+
     pub fn is_remote(&self) -> Result<bool, InodeError> {
         let state = self.get_inode_state()?;
         Ok(state.write_status == WriteStatus::Remote)
@@ -424,6 +430,7 @@ impl WriteMode {
 
 #[cfg(test)]
 mod tests {
+    use crate::mountspace::Mountspace;
     use crate::superblock::Superblock;
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockClientConfig, MockObject},
@@ -517,7 +524,7 @@ mod tests {
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         //let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
-        //assert_eq!(lookup_count, 1);
+        //asmountpoint-s3-fs/tests/reftests/harness.rssert_eq!(lookup_count, 1);
         let ino = lookup.ino;
 
         superblock.forget(ino, 1);
@@ -735,12 +742,13 @@ mod tests {
                     "test_bucket",
                     &Default::default(),
                     Default::default(),
+                    Default::default(),
                 ));
 
                 let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-                let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+                let lookup_count = superblock.get_lookup_count(lookup.ino).unwrap();
                 assert_eq!(lookup_count, 1);
-                let ino = lookup.inode.ino();
+                let ino = lookup.ino;
 
                 let superblock_clone = superblock.clone();
                 let forget_task = thread::spawn(move || {
@@ -754,7 +762,9 @@ mod tests {
                     .unwrap();
 
                 forget_task.join().unwrap();
-                let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+                let lookup_count = superblock
+                    .get_lookup_count(lookup.ino)
+                    .expect("should be able to get lookup count");
                 assert_eq!(lookup_count, 0);
             }
 

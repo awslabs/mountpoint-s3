@@ -207,7 +207,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         }
     }
 
-    fn readd_to_handle(&self, readdir_handle: u64, entry: LookedUp) -> () {
+    fn readd_to_handle(&self, readdir_handle: u64, entry: LookedUp) {
         self.inner
             .read_dir_handles
             .read()
@@ -252,23 +252,31 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .parent()
     }
 
-    fn into_lookedup_mountspace(&self, looked_up: crate::superblock::LookedUp) -> crate::mountspace::LookedUp {
+    fn convert_to_mountspace_lookedup(&self, looked_up: crate::superblock::LookedUp) -> crate::mountspace::LookedUp {
         let kind = looked_up.inode.kind();
 
         crate::mountspace::LookedUp {
-            bucket: self.inner.bucket.clone(),
+            bucket: Some(self.inner.bucket.clone()),
             ino: looked_up.inode.ino(),
             stat: looked_up.stat,
             kind,
             is_remote: looked_up.inode.is_remote().unwrap(),
+            full_key: self.inner.full_key_for_inode(&looked_up.inode),
+        }
+    }
+
+    // Allow dead code for now -- this should be used for testing to get lookup count of an inode
+    #[allow(dead_code)]
+    fn get_lookup_count(&self, ino: InodeNo) -> Result<u64, InodeError> {
+        match self.inner.get(ino) {
+            Ok(inode) => Ok(inode.read_lookup_count()),
+            _ => Err(InodeError::InodeDoesNotExist(ino)),
         }
     }
 }
 
 #[async_trait]
 impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
-    /// Create a new Superblock that targets the given bucket/prefix
-
     /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
@@ -339,7 +347,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
             .await?;
         self.inner.remember(&lookup.inode);
-        Ok(self.into_lookedup_mountspace(lookup))
+        Ok(self.convert_to_mountspace_lookedup(lookup))
     }
 
     /// Retrieve the attributes for an inode
@@ -352,7 +360,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             if sync.stat.is_valid() {
                 let stat = sync.stat.clone();
                 drop(sync);
-                return Ok(self.into_lookedup_mountspace(LookedUp { inode, stat }));
+                return Ok(self.convert_to_mountspace_lookedup(LookedUp { inode, stat }));
             }
         }
 
@@ -367,7 +375,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 new_inode: lookup.inode.err(),
             })
         } else {
-            Ok(self.into_lookedup_mountspace(lookup))
+            Ok(self.convert_to_mountspace_lookedup(lookup))
         }
     }
 
@@ -404,7 +412,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         let stat = sync.stat.clone();
         drop(sync);
         let internal_result = LookedUp { inode, stat };
-        Ok(self.into_lookedup_mountspace(internal_result))
+        Ok(self.convert_to_mountspace_lookedup(internal_result))
     }
 
     /// Prepare an inode to start writing.
@@ -703,7 +711,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 Some(next) => next,
             };
             trace!(next_inode = ?next.inode, "new inode yielded by readdir handle");
-            let converted_lookup = self.into_lookedup_mountspace(next.clone());
+            let converted_lookup = self.convert_to_mountspace_lookedup(next.clone());
             let attr = self.make_attr(&converted_lookup);
             let entry = DirectoryEntry {
                 ino: attr.ino,
@@ -722,7 +730,6 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             }
             if is_readdirplus {
                 self.inner.remember(&next.inode);
-                //self.remember_from_handle(readdir_handle, &self.into_lookedup_mountspace(next));
                 //readdir_handle.remember(&next);
             }
             dir_handle.next_offset();
@@ -784,7 +791,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         };
 
         self.inner.remember(&lookup.inode);
-        Ok(self.into_lookedup_mountspace(lookup))
+        Ok(self.convert_to_mountspace_lookedup(lookup))
     }
 
     /// Remove local-only empty directory, i.e., the ones created by mkdir.
@@ -921,10 +928,6 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         };
 
         Ok(())
-    }
-
-    fn full_key_for_inode(&self, inode: InodeNo) -> ValidKey {
-        self.inner.full_key_for_inode(&self.inner.get(inode).unwrap())
     }
 }
 
@@ -1596,8 +1599,6 @@ impl InodeError {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockClientConfig, MockObject},
         types::ETag,
@@ -1666,60 +1667,42 @@ mod tests {
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir0, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                superblock.full_key_for_inode(dir0.ino).to_string(),
-                format!("{prefix}dir0/")
-            );
+            assert_eq!(dir0.full_key.to_string(), format!("{prefix}dir0/"));
 
             let dir1 = superblock
                 .lookup(FUSE_ROOT_INODE, &OsString::from("dir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir1, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                superblock.full_key_for_inode(dir1.ino).to_string(),
-                format!("{prefix}dir1/")
-            );
+            assert_eq!(dir1.full_key.to_string(), format!("{prefix}dir1/"));
 
             let sdir0 = superblock
                 .lookup(dir0.ino, &OsString::from("sdir0"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir0, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                superblock.full_key_for_inode(sdir0.ino).to_string(),
-                format!("{prefix}dir0/sdir0/")
-            );
+            assert_eq!(sdir0.full_key.to_string(), format!("{prefix}dir0/sdir0/"));
 
             let sdir1 = superblock
                 .lookup(dir0.ino, &OsString::from("sdir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir1, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                superblock.full_key_for_inode(sdir1.ino).to_string(),
-                format!("{prefix}dir0/sdir1/")
-            );
+            assert_eq!(sdir1.full_key.to_string(), format!("{prefix}dir0/sdir1/"));
 
             let sdir2 = superblock
                 .lookup(dir1.ino, &OsString::from("sdir2"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir2, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                superblock.full_key_for_inode(sdir2.ino).to_string(),
-                format!("{prefix}dir1/sdir2/")
-            );
+            assert_eq!(sdir2.full_key.to_string(), format!("{prefix}dir1/sdir2/"));
 
             let sdir3 = superblock
                 .lookup(dir1.ino, &OsString::from("sdir3"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir3, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                superblock.full_key_for_inode(sdir3.ino).to_string(),
-                format!("{prefix}dir1/sdir3/")
-            );
+            assert_eq!(sdir3.full_key.to_string(), format!("{prefix}dir1/sdir3/"));
 
             for (dir, sdir, ino, n) in &[
                 (0, 0, sdir0.ino, 3),
@@ -1733,14 +1716,16 @@ mod tests {
                         .await
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
-                    let full_key = superblock.full_key_for_inode(file.ino);
                     let modified_time = client
-                        .head_object(bucket, &full_key, &HeadObjectParams::new())
+                        .head_object(bucket, &file.full_key, &HeadObjectParams::new())
                         .await
                         .expect("object should exist")
                         .last_modified;
                     assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
-                    assert_eq!(full_key.to_string(), format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
+                    assert_eq!(
+                        file.full_key.to_string(),
+                        format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt")
+                    );
                 }
             }
         }
@@ -2397,7 +2382,6 @@ mod tests {
                     .await
                     .unwrap();
 
-                // TODO: Can no longer do this
                 //assert_eq!(
                 //    dir_lookedup
                 //        .inode
