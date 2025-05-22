@@ -5,6 +5,10 @@
 * Variants of the `GetObjectError` and `S3RequestError` enums now contain a `ClientErrorMetadata` field,
   which stores information from the S3 response. ([#1411](https://github.com/awslabs/mountpoint-s3/pull/1411))
 
+### Other changes
+
+* Update to latest CRT dependencies.
+
 ## v0.14.1 (May 9, 2025)
 
 ### Other changes
