@@ -19,7 +19,7 @@ use fuser::{
 pub mod config;
 pub mod session;
 
-/// The trait may be implemented to log failed fuse operations.
+/// A trait that can be implemented to log errors returned by fuse operations.
 pub trait ErrorLogger: std::fmt::Debug {
     /// This method will be invoked for each failed fuse operation with an exception of those
     /// operations which are not implemented.
