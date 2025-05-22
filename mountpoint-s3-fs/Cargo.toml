@@ -99,7 +99,7 @@ required-features = ["manifest"]
 
 [[example]]
 name = "mount_from_config"
-required-features = ["manifest"]
+required-features = ["manifest", "event_log"]
 
 [[bench]]
 name = "cache_serialization"
