@@ -21,7 +21,9 @@ pub mod session;
 
 /// A trait that can be implemented to log errors returned by fuse operations.
 pub trait ErrorLogger: std::fmt::Debug {
-    /// This method will be invoked for each failed fuse operation with an exception of those
+    /// Log an error returned by a fuse operation.
+    ///
+    /// This method will be invoked immediately before a fuse operation returns an error response, with the exception of those
     /// operations which are not implemented.
     fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64);
 }
