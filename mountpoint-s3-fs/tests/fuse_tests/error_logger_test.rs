@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::common::fuse::{self, TestSessionConfig};
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_INTERNAL;
 use mountpoint_s3_fs::{
     logging::error_logger::{Event, FileErrorLogger},
@@ -10,6 +9,8 @@ use mountpoint_s3_fs::{
 };
 use tempfile::tempdir;
 use time::OffsetDateTime;
+
+use crate::common::fuse::{self, TestSessionConfig};
 
 const VERSION: &str = "1";
 

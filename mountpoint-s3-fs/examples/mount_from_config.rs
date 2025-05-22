@@ -1,5 +1,3 @@
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
 use std::{
     fs::File,
     io::BufReader,
@@ -26,6 +24,8 @@ use mountpoint_s3_fs::{
     s3::config::{ClientConfig, PartConfig, Region, S3Path},
     MountpointConfig, Runtime, S3FilesystemConfig,
 };
+use nix::sys::signal::{self, Signal};
+use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use tempfile::tempdir_in;
 use tracing::info;

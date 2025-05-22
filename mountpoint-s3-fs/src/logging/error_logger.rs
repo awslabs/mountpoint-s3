@@ -2,14 +2,15 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+use std::thread::{self, JoinHandle};
+use time::{serde::rfc3339, OffsetDateTime};
+
 use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fs::Error;
 use crate::fuse::ErrorLogger;
 use crate::logging::log_file_name_time_suffix;
 use crate::sync::mpsc::{self, Receiver, SyncSender};
-use serde::{Deserialize, Serialize};
-use std::thread::{self, JoinHandle};
-use time::{serde::rfc3339, OffsetDateTime};
 
 const VERSION: &str = "1";
 
