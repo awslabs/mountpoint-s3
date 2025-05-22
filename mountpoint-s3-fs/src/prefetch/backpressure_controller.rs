@@ -96,7 +96,7 @@ impl BackpressureIncrementHeuristic {
 /// The producer can call [Self::wait_for_read_window_increment] to wait for feedback from the consumer.
 #[derive(Debug)]
 pub struct BackpressureLimiter {
-    read_window_incrementing_queue: Receiver<usize>,
+    read_window_increment_queue: ReadWindowIncrementQueue,
     /// Upper bound of the current read window.
     /// Calling [BackpressureLimiter::wait_for_read_window_increment()] will block current
     /// thread until this value is advanced.
@@ -119,6 +119,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
 
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
     let (read_window_updater, read_window_incrementing_queue) = unbounded();
+    let read_window_increment_queue = ReadWindowIncrementQueue::new(read_window_incrementing_queue);
     mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
 
     let increment_heuristic = BackpressureIncrementHeuristic::from_env();
@@ -137,7 +138,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
         increment_heuristic,
     };
     let limiter = BackpressureLimiter {
-        read_window_incrementing_queue,
+        read_window_increment_queue,
         read_window_end_offset,
         request_end_offset: config.request_range.end,
     };
@@ -336,13 +337,8 @@ impl BackpressureLimiter {
     ) -> Result<Option<u64>, PrefetchReadError<E>> {
         // There is already enough read window so no need to block
         if self.read_window_end_offset > offset {
-            // Drain increment queue
-            let old_offset = self.read_window_end_offset;
-            while let Ok(len) = self.read_window_incrementing_queue.try_recv() {
-                self.read_window_end_offset += len as u64
-            }
-
-            if old_offset != self.read_window_end_offset {
+            if let Some(increment_amount) = self.read_window_increment_queue.try_recv_drain() {
+                self.read_window_end_offset += increment_amount;
                 return Ok(Some(self.read_window_end_offset));
             } else {
                 return Ok(None);
@@ -356,19 +352,49 @@ impl BackpressureLimiter {
                 current_offset = self.read_window_end_offset,
                 "blocking for read window increment",
             );
-            let recv = self.read_window_incrementing_queue.recv().await;
-            match recv {
-                Ok(len) => {
-                    self.read_window_end_offset += len as u64;
-                    // Drain anything else that's available
-                    while let Ok(len) = self.read_window_incrementing_queue.try_recv() {
-                        self.read_window_end_offset += len as u64
-                    }
-                }
+            match self.read_window_increment_queue.recv_drain().await {
+                Ok(len) => self.read_window_end_offset += len as u64,
                 Err(RecvError) => return Err(PrefetchReadError::ReadWindowIncrement),
             }
         }
         Ok(Some(self.read_window_end_offset))
+    }
+}
+
+/// Wraps a queue, ensuring that all accesses fully drain the queue of values (increments).
+#[derive(Debug)]
+struct ReadWindowIncrementQueue(Receiver<usize>);
+
+impl ReadWindowIncrementQueue {
+    pub fn new(receiver: Receiver<usize>) -> Self {
+        Self(receiver)
+    }
+
+    /// Drain the increment queue, blocking if required for the first increment.
+    ///
+    /// Returns [Err] if the underlying [Receiver] was closed.
+    pub async fn recv_drain(&self) -> Result<usize, RecvError> {
+        let mut increment_total = self.0.recv().await?;
+        while let Ok(len) = self.0.try_recv() {
+            increment_total += len
+        }
+        Ok(increment_total)
+    }
+
+    /// Drain the increment queue of any available increments.
+    ///
+    /// Returns the total amount to increment if any, otherwise [None].
+    pub fn try_recv_drain(&self) -> Option<u64> {
+        let mut increment_total = 0;
+        while let Ok(len) = self.0.try_recv() {
+            increment_total += len as u64
+        }
+
+        if increment_total > 0 {
+            Some(increment_total)
+        } else {
+            None
+        }
     }
 }
 
