@@ -35,8 +35,8 @@ impl MountpointConfig {
     }
 
     /// Set the [Self::error_logger] field
-    pub fn error_logger(mut self, error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>) -> Self {
-        self.error_logger = error_logger;
+    pub fn error_logger(mut self, error_logger: impl ErrorLogger + Send + Sync + 'static) -> Self {
+        self.error_logger = Some(Box::new(error_logger));
         self
     }
 

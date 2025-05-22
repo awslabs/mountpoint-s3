@@ -215,7 +215,7 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
 fn mount_filesystem(
     config: &ConfigOptions,
     manifest: Manifest,
-    error_logger: Box<dyn ErrorLogger + Send + Sync>,
+    error_logger: impl ErrorLogger + Send + Sync + 'static,
 ) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let mp_config = MountpointConfig::new(
@@ -223,7 +223,7 @@ fn mount_filesystem(
         config.build_filesystem_config(manifest)?,
         config.build_data_cache_config(),
     )
-    .error_logger(Some(error_logger));
+    .error_logger(error_logger);
 
     // Get S3 Path
     let s3_path = config.build_s3_path()?;
@@ -257,13 +257,11 @@ fn main() -> Result<()> {
     // Read the config
     let config = load_config(&args.config).context("Failed to load config")?;
     // Set up the error logger
-    let error_logger = Box::new(
-        FileErrorLogger::new(&config.event_log_dir, || {
-            // trigger graceful shutdown (with umount) by sending a signal to self
-            signal::kill(Pid::this(), Signal::SIGINT).expect("kill must succeed");
-        })
-        .context("Failed to create an event log")?,
-    );
+    let error_logger = FileErrorLogger::new(&config.event_log_dir, || {
+        // trigger graceful shutdown (with umount) by sending a signal to self
+        signal::kill(Pid::this(), Signal::SIGINT).expect("kill must succeed");
+    })
+    .context("Failed to create an event log")?;
     // Set up logging
     let (_logging, _metrics) = setup_logging(&config).context("Failed to setup logging")?;
     // Process manifests if needed
