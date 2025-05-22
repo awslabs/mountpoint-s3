@@ -338,7 +338,7 @@ impl BackpressureLimiter {
         // There is already enough read window so no need to block
         if self.read_window_end_offset > offset {
             if let Some(increment_amount) = self.read_window_increment_queue.try_recv_drain() {
-                self.read_window_end_offset += increment_amount;
+                self.read_window_end_offset += increment_amount as u64;
                 return Ok(Some(self.read_window_end_offset));
             } else {
                 return Ok(None);
@@ -375,22 +375,42 @@ impl ReadWindowIncrementQueue {
     /// Returns [Err] if the underlying [Receiver] was closed.
     pub async fn recv_drain(&self) -> Result<usize, RecvError> {
         let mut increment_total = self.0.recv().await?;
-        while let Ok(len) = self.0.try_recv() {
-            increment_total += len
+        let mut extra_events = 0;
+        if option_env!("DISABLE_INCREMENT_QUEUE_DRAIN").is_none() {
+            while let Ok(len) = self.0.try_recv() {
+                increment_total += len;
+                extra_events += 1;
+            }
         }
+        tracing::trace!(target: "benchmarking_instrumentation", extra_events, "draining read window increment queue");
+        let _ = extra_events;
         Ok(increment_total)
     }
 
     /// Drain the increment queue of any available increments.
     ///
     /// Returns the total amount to increment if any, otherwise [None].
-    pub fn try_recv_drain(&self) -> Option<u64> {
+    pub fn try_recv_drain(&self) -> Option<usize> {
         let mut increment_total = 0;
-        while let Ok(len) = self.0.try_recv() {
-            increment_total += len as u64
+        let mut extra_events = 0;
+
+        if option_env!("DISABLE_INCREMENT_QUEUE_DRAIN").is_none() {
+            while let Ok(len) = self.0.try_recv() {
+                if increment_total > 0 {
+                    extra_events += 1;
+                }
+                increment_total += len;
+            }
+        } else {
+            if let Ok(len) = self.0.try_recv() {
+                increment_total += len;
+            }
+            extra_events = self.0.len();
         }
 
         if increment_total > 0 {
+            tracing::trace!(target: "benchmarking_instrumentation", extra_events, "draining read window increment queue");
+            let _ = extra_events;
             Some(increment_total)
         } else {
             None
