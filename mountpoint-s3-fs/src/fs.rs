@@ -60,11 +60,9 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     config: S3FilesystemConfig,
-    client: Client,
     superblock: Arc<dyn Mountspace>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
-    bucket: String,
     next_handle: AtomicU64,
     dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
@@ -222,11 +220,9 @@ where
 
         Self {
             config,
-            client,
             superblock: Arc::new(superblock),
             prefetcher,
             uploader,
-            bucket: bucket.to_string(),
             next_handle: AtomicU64::new(1),
             dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),
@@ -462,12 +458,12 @@ where
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let full_key = self.superblock.full_key_for_inode(lookup.ino);
         let handle = FileHandle {
             ino,
-            full_key,
+            full_key: lookup.full_key,
             open_pid: pid,
             state: AsyncMutex::new(state),
+            bucket: lookup.bucket.unwrap(), // TODO: Better error handling
         };
         let fh = self.next_handle();
         debug!(fh, ino, "new file handle created");

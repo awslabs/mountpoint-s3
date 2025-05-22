@@ -69,7 +69,7 @@ async fn test_read_dir_root(prefix: &str) {
     // Listing the root directory doesn't require resolving it first, can just opendir the root inode
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 3);
 
@@ -106,8 +106,7 @@ async fn test_read_dir_root(prefix: &str) {
     assert!(offset > 0);
 
     let mut reply = Default::default();
-    let _reply = fs
-        .readdir(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+    fs.readdir(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
         .await
         .unwrap();
     assert_eq!(reply.entries.len(), 0);
@@ -146,7 +145,7 @@ async fn test_read_dir_nested(prefix: &str) {
 
     let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 2);
 
@@ -182,7 +181,7 @@ async fn test_read_dir_nested(prefix: &str) {
     assert!(offset > 0);
 
     let mut reply = Default::default();
-    let _reply = fs.readdir(dir_ino, dir_handle, offset, &mut reply).await.unwrap();
+    fs.readdir(dir_ino, dir_handle, offset, &mut reply).await.unwrap();
     assert_eq!(reply.entries.len(), 0);
 
     fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
@@ -227,8 +226,7 @@ async fn test_lookup_negative_cached() {
     {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs
-            .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
             .await
             .unwrap();
 
@@ -330,7 +328,7 @@ async fn test_readdir_then_open_cached() {
         let dir_ino = FUSE_ROOT_INODE;
         let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
         assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -453,7 +451,7 @@ async fn test_random_read(object_size: usize) {
     // Find the object
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -503,7 +501,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -1054,7 +1052,7 @@ async fn test_directory_shadowing_readdir() {
     let bar_dentry = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(foo_dir.attr.ino, dir_handle, 0).await.unwrap();
 
         // Skip . and .. to get to the `bar` dentry
@@ -1075,7 +1073,7 @@ async fn test_directory_shadowing_readdir() {
     let bar_dentry_new = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(bar_file.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(bar_file.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(bar_file.attr.ino, dir_handle, 0).await.unwrap();
 
         // Skip . and .. to get to the `bar` dentry
@@ -1098,7 +1096,7 @@ async fn test_directory_shadowing_readdir() {
     let bar_dentry = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(foo_dir.attr.ino, dir_handle, 0).await.unwrap();
 
         // Skip . and .. to get to the `bar` dentry
@@ -1127,7 +1125,7 @@ async fn test_readdir_vs_readdirplus() {
     let readdir_entries = {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(FUSE_ROOT_INODE, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(FUSE_ROOT_INODE, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
 
         // Skip . and ..
@@ -1151,8 +1149,7 @@ async fn test_readdir_vs_readdirplus() {
     let readdirplus_entries = {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs
-            .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
             .await
             .unwrap();
         fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
@@ -1206,8 +1203,7 @@ async fn test_flexible_retrieval_objects() {
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
         .await
         .unwrap();
     fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
@@ -1274,8 +1270,7 @@ async fn test_readdir_rewind_ordered() {
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
 
     let mut reply = DirectoryReply::new(5);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
         .await
         .unwrap();
     let entries = reply
@@ -1321,15 +1316,14 @@ async fn test_readdir_rewind_ordered() {
     // but let's rewind first
     let _ = ls(&fs, dir_handle, 0, 5).await;
     let mut next_page = DirectoryReply::new(0);
-    let _ = fs
-        .readdirplus(
-            FUSE_ROOT_INODE,
-            dir_handle,
-            reply.entries.back().unwrap().offset,
-            &mut next_page,
-        )
-        .await
-        .unwrap();
+    fs.readdirplus(
+        FUSE_ROOT_INODE,
+        dir_handle,
+        reply.entries.back().unwrap().offset,
+        &mut next_page,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(next_page.entries.len(), 7); // 10 directory entries + . + .. = 12, minus the 5 we already saw
     assert_eq!(next_page.entries.front().unwrap().name, "foo3");
@@ -1628,8 +1622,7 @@ async fn ls(
     max_entries: usize,
 ) -> Vec<(u64, OsString)> {
     let mut reply = DirectoryReply::new(max_entries);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
         .await
         .unwrap();
     reply

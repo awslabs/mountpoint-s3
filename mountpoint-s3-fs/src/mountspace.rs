@@ -33,7 +33,8 @@ pub struct LookedUp {
     pub stat: InodeStat,
     pub kind: InodeKind,
     pub is_remote: bool,
-    pub bucket: String,
+    pub bucket: Option<String>,
+    pub full_key: ValidKey,
 }
 
 impl LookedUp {
@@ -56,9 +57,9 @@ pub trait Mountspace: Send + Sync + Debug {
         mtime: Option<OffsetDateTime>,
     ) -> Result<LookedUp, InodeError>;
 
-    fn forget(&self, ino: InodeNo, n: u64);
-
     async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<LookedUp, InodeError>;
+
+    fn forget(&self, ino: InodeNo, n: u64);
 
     async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
 
@@ -93,6 +94,4 @@ pub trait Mountspace: Send + Sync + Debug {
     async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
 
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
-
-    fn full_key_for_inode(&self, inode: InodeNo) -> ValidKey;
 }

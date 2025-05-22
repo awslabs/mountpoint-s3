@@ -128,7 +128,7 @@ impl ReaddirHandle {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub async fn next<OC: ObjectClient + Send + Sync>(
+    pub(super) async fn next<OC: ObjectClient + Send + Sync>(
         &self,
         inner: Arc<SuperblockInner<OC>>,
         client: &OC,
@@ -214,6 +214,7 @@ impl ReaddirHandle {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) async fn collect<OC: ObjectClient + Send + Sync>(
         &self,
         inner: Arc<SuperblockInner<OC>>,
