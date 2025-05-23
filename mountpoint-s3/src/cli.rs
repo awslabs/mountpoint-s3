@@ -704,20 +704,8 @@ impl CliArgs {
     }
 
     fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> f64 {
-        const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
-
-        let throughput_target_gbps = self.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
-            match autoconfigure::network_throughput(instance_info) {
-                Ok(throughput) => throughput,
-                Err(e) => {
-                    tracing::warn!(
-                        "failed to detect network throughput. Using {DEFAULT_TARGET_THROUGHPUT} gbps as throughput. \
-                        Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {e:?}",
-                        );
-                    DEFAULT_TARGET_THROUGHPUT
-                }
-            }
-        });
+        const DEFAULT_THROUGHPUT: f64 = 10.0;
+        let throughput_target_gbps = autoconfigure::network_throughput_with_default(instance_info, DEFAULT_THROUGHPUT);
         tracing::info!("target network throughput {throughput_target_gbps} Gbps");
         throughput_target_gbps
     }
