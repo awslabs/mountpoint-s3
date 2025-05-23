@@ -146,18 +146,10 @@ impl ConfigOptions {
 
     fn determine_throughput(&self) -> Result<f64> {
         match &self.throughput_config {
-            // TODO(chagem): Remove some code duplication, by moving this logic into fs crate.
             ThroughputConfig::Explicit { throughput } => Ok(*throughput),
             ThroughputConfig::IMDSAutoConfigure => {
-                const DEFAULT_THROUGHPUT: f64 = 10.0;
                 let instance_info = InstanceInfo::new();
-                match autoconfigure::network_throughput(&instance_info) {
-                    Ok(throughput) => Ok(throughput),
-                    Err(e) => {
-                        tracing::warn!("Failed to detect network throughput. Using {DEFAULT_THROUGHPUT} gbps: {e:?}");
-                        Ok(DEFAULT_THROUGHPUT)
-                    }
-                }
+                Ok(autoconfigure::network_throughput_with_default(&instance_info, 10.0))
             }
             ThroughputConfig::IMDSLookUp { ec2_instance_type } => {
                 autoconfigure::get_maximum_network_throughput(ec2_instance_type).context("Unrecognized instance ID")

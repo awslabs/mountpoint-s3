@@ -8,6 +8,16 @@ use crate::s3::config::Region;
 mod instance_throughput;
 use instance_throughput::get_instance_throughput;
 
+pub fn network_throughput_with_default(instance_info: &InstanceInfo, default_throughput: f64) -> f64 {
+    match network_throughput(instance_info) {
+        Ok(throughput) => throughput,
+        Err(e) => {
+            tracing::warn!("Failed to detect network throughput. Using {default_throughput} gbps: {e:?}");
+            default_throughput
+        }
+    }
+}
+
 /// Determine the maximum network throughput for the current instance using IMDS. Returns an error
 /// if the instance type either cannot be retrieved using the IMDS client or does not have a known
 /// network throughput.
