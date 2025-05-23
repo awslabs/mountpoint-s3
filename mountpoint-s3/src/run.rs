@@ -26,7 +26,7 @@ where
 {
     let successful_mount_msg = format!(
         "{} is mounted at {}",
-        args.bucket_description(),
+        args.bucket_description()?,
         args.mount_point.display()
     );
 
@@ -181,12 +181,12 @@ where
 
     let (client, runtime, s3_personality) = client_builder(&args)?;
 
-    let bucket_description = args.bucket_description();
+    let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
-    let s3_path = args.s3_path();
+    let s3_path = args.s3_path()?;
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
-    let mut data_cache_config = args.data_cache_config(sse);
+    let mut data_cache_config = args.data_cache_config(sse)?;
 
     let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
 
@@ -209,7 +209,7 @@ where
 pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
     let client_config = args.client_config(build_info::FULL_VERSION);
 
-    let s3_path = args.s3_path();
+    let s3_path = args.s3_path()?;
     let client = client_config
         .create_client(Some(&s3_path))
         .context("Failed to create S3 client")?;

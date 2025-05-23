@@ -8,8 +8,10 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use regex::Regex;
+use thiserror::Error;
 
-use crate::prefix::Prefix;
+use crate::prefix::{Prefix, PrefixError};
 
 /// Configuration for the S3 Client to use in Mountpoint.
 #[derive(Debug)]
@@ -51,6 +53,18 @@ pub struct ClientConfig {
     pub user_agent: UserAgent,
 }
 
+#[derive(Error, Debug, PartialEq)]
+pub enum S3PathError {
+    #[error(
+        "the bucket must have a valid name (only letters, numbers, . and -). ARNs are not supported in s3:// URIs."
+    )]
+    InvalidBucketNameS3URI,
+    #[error("invalid bucket prefix: {0:}")]
+    PrefixError(PrefixError),
+    #[error("multiple prefixes supplied")]
+    MultiplePrefixes,
+}
+
 /// A bucket & prefix combination.
 #[derive(Debug, Clone)]
 pub struct S3Path {
@@ -62,8 +76,41 @@ pub struct S3Path {
 }
 
 impl S3Path {
-    pub fn new(bucket_name: String, prefix: Prefix) -> Self {
-        Self { bucket_name, prefix }
+    pub fn new(bucket_name: String, prefix: Prefix) -> Result<Self, S3PathError> {
+        if let Some(bucket_prefix) = bucket_name.strip_prefix("s3://") {
+            Self::s3_uri(bucket_prefix, prefix)
+        } else {
+            Ok(Self { bucket_name, prefix })
+        }
+    }
+
+    fn s3_uri(bucket_prefix: &str, prefix: Prefix) -> Result<Self, S3PathError> {
+        let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
+        let (bucket, prefix) = {
+            if let Some((bucket, prefix_str)) = bucket_prefix.split_once("/") {
+                if !prefix_str.is_empty() && !prefix.as_str().is_empty() {
+                    return Err(S3PathError::MultiplePrefixes);
+                }
+                (bucket, Prefix::new(prefix_str).map_err(S3PathError::PrefixError)?)
+            } else {
+                (bucket_prefix, prefix)
+            }
+        };
+        if !bucket_regex.is_match(bucket) {
+            return Err(S3PathError::InvalidBucketNameS3URI);
+        }
+        Ok(Self {
+            bucket_name: bucket.to_string(),
+            prefix,
+        })
+    }
+
+    pub fn bucket_description(&self) -> String {
+        if self.prefix.as_str().is_empty() {
+            format!("bucket {}", self.bucket_name)
+        } else {
+            format!("prefix {} of bucket {}", self.prefix, self.bucket_name)
+        }
     }
 }
 
