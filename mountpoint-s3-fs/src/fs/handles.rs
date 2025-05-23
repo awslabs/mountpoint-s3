@@ -99,8 +99,7 @@ where
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
         fs.superblock.start_writing(ino, &write_mode, is_truncate).await?;
-        let bucket = lookup.bucket.clone().unwrap(); // TODO: Add better error handling
-        let key = lookup.full_key.clone();
+        let location = lookup.s3_location()?;
         let handle = if write_mode.incremental_upload {
             let initial_etag = if is_truncate {
                 None
@@ -108,9 +107,12 @@ where
                 lookup.stat.etag.as_ref().map(|e| e.into())
             };
             let current_offset = if is_truncate { 0 } else { lookup.stat.size as u64 };
-            let request =
-                fs.uploader
-                    .start_incremental_upload(bucket, key.into(), current_offset, initial_etag.clone());
+            let request = fs.uploader.start_incremental_upload(
+                location.bucket.to_string(),
+                location.full_key.clone().into(),
+                current_offset,
+                initial_etag.clone(),
+            );
             FileHandleState::Write(UploadState::AppendInProgress {
                 request,
                 initial_etag,
@@ -119,7 +121,7 @@ where
         } else {
             let request = fs
                 .uploader
-                .start_atomic_upload(bucket, key.into())
+                .start_atomic_upload(location.bucket.to_string(), location.full_key.as_ref().into())
                 .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
             FileHandleState::Write(UploadState::MPUInProgress { request })
         };
@@ -138,15 +140,16 @@ where
             ));
         }
         fs.superblock.start_reading(lookup.ino).await?;
-        let full_key = lookup.full_key.clone();
+        let location = lookup.s3_location()?;
         let object_size = lookup.stat.size as u64;
-        let bucket = lookup.bucket.clone().unwrap();
         let etag = match &lookup.stat.etag {
             None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.ino)),
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
-        let object_id = ObjectId::new(full_key.into(), etag);
-        let request = fs.prefetcher.prefetch(bucket, object_id, object_size);
+        let object_id = ObjectId::new(location.full_key.to_string(), etag);
+        let request = fs
+            .prefetcher
+            .prefetch(location.bucket.to_string(), object_id, object_size);
         let handle = FileHandleState::Read(request);
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)

@@ -188,6 +188,7 @@ impl ToErrno for InodeError {
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
             InodeError::OperationNotPermitted => libc::EPERM,
+            InodeError::VirtualFileNotAccessible => libc::EPERM,
         }
     }
 }
