@@ -631,11 +631,15 @@ mod tests {
 
     use super::*;
 
+    use futures::executor::{block_on, ThreadPool};
+    use futures::task::SpawnExt;
     use futures::StreamExt as _;
     use mountpoint_s3_client::types::ETag;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
     use test_case::test_case;
+
+    use crate::sync::Arc;
 
     #[test]
     fn test_block_format_version_requires_update() {
@@ -1082,5 +1086,53 @@ mod tests {
             "data" => assert!(matches!(err, DiskBlockReadWriteError::InvalidBlockLength(_))),
             _ => panic!("invalid length: {}", length_to_corrupt),
         }
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        let block_size = 1024 * 1024;
+        let cache_directory = tempfile::tempdir().unwrap();
+        let data_cache = DiskDataCache::new(DiskDataCacheConfig {
+            cache_directory: cache_directory.path().to_path_buf(),
+            block_size: block_size as u64,
+            limit: CacheLimit::Unbounded,
+        });
+        let data_cache = Arc::new(data_cache);
+
+        let cache_key = ObjectId::new("foo".to_owned(), ETag::for_tests());
+        let block_idx = 0;
+        let block_offset = 0;
+        let object_size = 10 * block_size;
+
+        let pool = ThreadPool::builder().pool_size(32).create().unwrap();
+
+        // Run concurrent tasks getting the same block (and writing on cache miss)
+        let mut handles = Vec::new();
+        for _ in 0..100 {
+            let data_cache = data_cache.clone();
+            let cache_key = cache_key.clone();
+            let handle = pool
+                .spawn_with_handle(async move {
+                    let block = data_cache
+                        .get_block(&cache_key, block_idx, block_offset, object_size)
+                        .await
+                        .expect("get_block should not return error");
+                    if block.is_none() {
+                        let bytes: Bytes = vec![0u8; block_size].into();
+                        data_cache
+                            .put_block(cache_key, block_idx, block_offset, bytes.into(), object_size)
+                            .await
+                            .expect("put_block should succeed");
+                    }
+                })
+                .unwrap();
+            handles.push(handle);
+        }
+
+        block_on(async move {
+            for handle in handles {
+                handle.await
+            }
+        });
     }
 }
