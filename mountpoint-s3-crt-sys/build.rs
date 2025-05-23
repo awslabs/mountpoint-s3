@@ -48,6 +48,7 @@ const CRT_HEADERS: &[&str] = &[
     "io/stream.h",
     "io/uri.h",
     "s3/s3.h",
+    "s3/s3_buffer_pool.h",
     "s3/s3_client.h",
     "s3/s3_endpoint_resolver.h",
     "sdkutils/endpoints_rule_engine.h",
@@ -59,7 +60,7 @@ const CRT_HEADERS: &[&str] = &[
 const PRIVATE_CRT_HEADERS: &[&str] = &[
     // To access S3 client stats
     "aws-c-s3/include/aws/s3/private/s3_client_impl.h",
-    "aws-c-s3/include/aws/s3/private/s3_buffer_pool.h",
+    "aws-c-s3/include/aws/s3/private/s3_default_buffer_pool.h",
 ];
 
 /// Get the OS name we are compiling to
