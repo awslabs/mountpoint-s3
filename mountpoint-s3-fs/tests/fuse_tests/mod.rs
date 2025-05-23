@@ -1,6 +1,8 @@
 #[cfg(feature = "s3_tests")]
 mod cache_test;
 mod consistency_test;
+#[cfg(all(feature = "manifest", feature = "event_log"))]
+mod error_logger_test;
 mod fs_perm_test;
 mod iam_perm_test;
 mod lookup_test;

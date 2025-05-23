@@ -1,6 +1,7 @@
 {
     "mountpoint": "/exmpl/mountpoint",
     "metadata_store_dir": "/exmpl/tmpdir",
+    "event_log_dir": "/exmpl/event_log_dir",
     "allow_unmount": true,
     "region": "us-west-2",
     "channels": [

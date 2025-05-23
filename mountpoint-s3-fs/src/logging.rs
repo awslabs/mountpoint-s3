@@ -29,6 +29,8 @@ mod testing;
 mod envfilter;
 use envfilter::{toggleable, ToggleableHandle};
 
+#[cfg(feature = "event_log")]
+pub mod error_logger;
 mod syslog;
 use self::syslog::SyslogLayer;
 
@@ -74,13 +76,7 @@ pub fn record_name(name: &str) {
 ///
 /// This may include a randomly generated component and return different results between invocations.
 pub fn prepare_log_file_name(log_directory: &Path) -> PathBuf {
-    let timestamp = {
-        const TIMESTAMP_FORMAT: &[FormatItem<'static>] =
-            macros::format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]Z");
-        OffsetDateTime::now_utc()
-            .format(TIMESTAMP_FORMAT)
-            .expect("couldn't format timestamp for log file name")
-    };
+    let timestamp = log_file_name_time_suffix();
 
     let random_suffix: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -90,6 +86,14 @@ pub fn prepare_log_file_name(log_directory: &Path) -> PathBuf {
     let file_name = format!("mountpoint-s3-{timestamp}.{random_suffix}.log");
 
     log_directory.join(file_name)
+}
+
+fn log_file_name_time_suffix() -> String {
+    const TIMESTAMP_FORMAT: &[FormatItem<'static>] =
+        macros::format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]Z");
+    OffsetDateTime::now_utc()
+        .format(TIMESTAMP_FORMAT)
+        .expect("couldn't format timestamp for log file name")
 }
 
 fn tracing_panic_hook(panic_info: &PanicHookInfo) {
