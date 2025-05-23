@@ -39,7 +39,7 @@ use crate::logging;
 #[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
 use crate::mountspace;
-use crate::mountspace::{Mountspace, MountspaceDirectoryReplier};
+use crate::mountspace::{Mountspace, MountspaceDirectoryReplier, S3Location};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -256,12 +256,14 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let kind = looked_up.inode.kind();
 
         crate::mountspace::LookedUp {
-            bucket: Some(self.inner.bucket.clone()),
             ino: looked_up.inode.ino(),
             stat: looked_up.stat,
             kind,
             is_remote: looked_up.inode.is_remote().unwrap(),
-            full_key: self.inner.full_key_for_inode(&looked_up.inode),
+            location: Some(S3Location {
+                bucket: self.inner.bucket.clone(),
+                full_key: self.inner.full_key_for_inode(&looked_up.inode),
+            }),
         }
     }
 
@@ -1561,6 +1563,8 @@ pub enum InodeError {
     NoSuchDirHandle,
     #[error("Attempted forbidden operation on Hyperblock")]
     OperationNotPermitted,
+    #[error("Tried to use virtual file in unsupported operation, a virtual file does not have a location in S3")]
+    VirtualFileNotAccessible,
 }
 
 impl InodeError {
@@ -1667,42 +1671,60 @@ mod tests {
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir0, InodeKind::Directory, ts, 0);
-            assert_eq!(dir0.full_key.to_string(), format!("{prefix}dir0/"));
+            assert_eq!(
+                dir0.s3_location().unwrap().full_key.to_string(),
+                format!("{prefix}dir0/")
+            );
 
             let dir1 = superblock
                 .lookup(FUSE_ROOT_INODE, &OsString::from("dir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(dir1, InodeKind::Directory, ts, 0);
-            assert_eq!(dir1.full_key.to_string(), format!("{prefix}dir1/"));
+            assert_eq!(
+                dir1.s3_location().unwrap().full_key.to_string(),
+                format!("{prefix}dir1/")
+            );
 
             let sdir0 = superblock
                 .lookup(dir0.ino, &OsString::from("sdir0"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir0, InodeKind::Directory, ts, 0);
-            assert_eq!(sdir0.full_key.to_string(), format!("{prefix}dir0/sdir0/"));
+            assert_eq!(
+                sdir0.s3_location().unwrap().full_key.to_string(),
+                format!("{prefix}dir0/sdir0/")
+            );
 
             let sdir1 = superblock
                 .lookup(dir0.ino, &OsString::from("sdir1"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir1, InodeKind::Directory, ts, 0);
-            assert_eq!(sdir1.full_key.to_string(), format!("{prefix}dir0/sdir1/"));
+            assert_eq!(
+                sdir1.s3_location().unwrap().full_key.to_string(),
+                format!("{prefix}dir0/sdir1/")
+            );
 
             let sdir2 = superblock
                 .lookup(dir1.ino, &OsString::from("sdir2"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir2, InodeKind::Directory, ts, 0);
-            assert_eq!(sdir2.full_key.to_string(), format!("{prefix}dir1/sdir2/"));
+            assert_eq!(
+                sdir2.s3_location().unwrap().full_key.to_string(),
+                format!("{prefix}dir1/sdir2/")
+            );
 
             let sdir3 = superblock
                 .lookup(dir1.ino, &OsString::from("sdir3"))
                 .await
                 .expect("should exist");
             assert_inode_stat!(sdir3, InodeKind::Directory, ts, 0);
-            assert_eq!(sdir3.full_key.to_string(), format!("{prefix}dir1/sdir3/"));
+            assert_eq!(
+                sdir3.s3_location().unwrap().full_key.to_string(),
+                format!("{prefix}dir1/sdir3/")
+            );
 
             for (dir, sdir, ino, n) in &[
                 (0, 0, sdir0.ino, 3),
@@ -1717,13 +1739,13 @@ mod tests {
                         .expect("inode should exist");
                     // Grab last modified time according to mock S3
                     let modified_time = client
-                        .head_object(bucket, &file.full_key, &HeadObjectParams::new())
+                        .head_object(bucket, &file.s3_location().unwrap().full_key, &HeadObjectParams::new())
                         .await
                         .expect("object should exist")
                         .last_modified;
                     assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
                     assert_eq!(
-                        file.full_key.to_string(),
+                        file.s3_location().unwrap().full_key.to_string(),
                         format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt")
                     );
                 }

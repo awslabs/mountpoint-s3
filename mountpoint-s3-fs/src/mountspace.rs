@@ -28,19 +28,28 @@ impl<'a> MountspaceDirectoryReplier<'a> {
 }
 
 #[derive(Clone, Debug)]
+pub struct S3Location {
+    pub bucket: String,
+    pub full_key: ValidKey,
+}
+
+#[derive(Clone, Debug)]
 pub struct LookedUp {
     pub ino: InodeNo,
     pub stat: InodeStat,
     pub kind: InodeKind,
     pub is_remote: bool,
-    pub bucket: Option<String>,
-    pub full_key: ValidKey,
+    pub location: Option<S3Location>,
 }
 
 impl LookedUp {
     /// How much longer this lookup will be valid for
     pub fn validity(&self) -> Duration {
         self.stat.expiry.remaining_ttl()
+    }
+
+    pub fn s3_location(&self) -> Result<&S3Location, InodeError> {
+        self.location.as_ref().ok_or(InodeError::VirtualFileNotAccessible)
     }
 }
 
