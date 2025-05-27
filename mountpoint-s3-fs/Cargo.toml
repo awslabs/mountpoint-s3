@@ -43,7 +43,7 @@ supports-color = "3.0.2"
 sysinfo = "0.33.1"
 syslog = "7.0.0"
 thiserror = "2.0.11"
-time = { version = "0.3.37", features = ["macros", "formatting"] }
+time = { version = "0.3.37", features = ["macros", "formatting", "serde-well-known"] }
 tracing = { version = "0.1.41", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
@@ -99,7 +99,7 @@ required-features = ["manifest"]
 
 [[example]]
 name = "mount_from_config"
-required-features = ["manifest"]
+required-features = ["manifest", "event_log"]
 
 [[bench]]
 name = "cache_serialization"
