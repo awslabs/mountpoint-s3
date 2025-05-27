@@ -13,11 +13,15 @@ use mountpoint_s3_fs::logging::init_logging;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{metrics, MountpointConfig, Runtime};
 use nix::sys::signal::Signal;
-use nix::unistd::getgid;
-use nix::unistd::getuid;
-use nix::unistd::setresgid;
-use nix::unistd::setresuid;
-use nix::unistd::ForkResult;
+use nix::unistd::{getgid, getuid, ForkResult};
+
+// Linux/Android have setresgid/setresuid for more secure privilege dropping
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use nix::unistd::{setresgid, setresuid};
+
+// macOS and other platforms use the simpler setgid/setuid
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+use nix::unistd::{setgid, setuid};
 
 use crate::cli::CliArgs;
 use crate::{build_info, parse_cli_args};
@@ -438,15 +442,35 @@ fn drop_privileges_if_needed(args: &CliArgs) -> anyhow::Result<()> {
 
                 // Step 1: Change group first
                 tracing::info!("Changing GID from {} to {}", current_gid, target_gid);
-                if let Err(e) = setresgid(target_gid, target_gid, target_gid) {
-                    tracing::error!(error=?e, "Failed to set GID with setresgid");
-                    return Err(anyhow!("Failed to set GID with setresgid: {}", e));
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    if let Err(e) = setresgid(target_gid, target_gid, target_gid) {
+                        tracing::error!(error=?e, "Failed to set GID with setresgid");
+                        return Err(anyhow!("Failed to set GID with setresgid: {}", e));
+                    }
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                {
+                    if let Err(e) = setgid(target_gid) {
+                        tracing::error!(error=?e, "Failed to set GID with setgid");
+                        return Err(anyhow!("Failed to set GID with setgid: {}", e));
+                    }
                 }
 
                 // Step 2: Change user
-                if let Err(e) = setresuid(target_uid, target_uid, target_uid) {
-                    tracing::error!(error=?e, "Failed to set UID with setresuid");
-                    return Err(anyhow!("Failed to set UID with setresuid: {}", e));
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    if let Err(e) = setresuid(target_uid, target_uid, target_uid) {
+                        tracing::error!(error=?e, "Failed to set UID with setresuid");
+                        return Err(anyhow!("Failed to set UID with setresuid: {}", e));
+                    }
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                {
+                    if let Err(e) = setuid(target_uid) {
+                        tracing::error!(error=?e, "Failed to set UID with setuid");
+                        return Err(anyhow!("Failed to set UID with setuid: {}", e));
+                    }
                 }
 
                 //  Set up environment variables for the target user
