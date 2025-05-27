@@ -545,7 +545,7 @@ impl CliArgs {
         filesystem_config
     }
 
-    fn resolve_user_group(username: &str) -> anyhow::Result<(Uid, Gid)> {
+    pub fn resolve_user_group(username: &str) -> anyhow::Result<(Uid, Gid)> {
         let user = User::from_name(username)?.ok_or_else(|| anyhow!("User '{}' not found", username))?;
 
         let group = Group::from_gid(user.gid)?.ok_or_else(|| anyhow!("Group for user '{}' not found", username))?;

@@ -13,6 +13,10 @@ use mountpoint_s3_fs::logging::init_logging;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{metrics, MountpointConfig, Runtime};
 use nix::sys::signal::Signal;
+use nix::unistd::getgid;
+use nix::unistd::getuid;
+use nix::unistd::setresgid;
+use nix::unistd::setresuid;
 use nix::unistd::ForkResult;
 
 use crate::cli::CliArgs;
@@ -36,6 +40,7 @@ where
         let _metrics = metrics::install();
 
         create_pid_file()?;
+        drop_privileges_if_needed(&args)?;
 
         // mount file system as a foreground process
         let session = mount(args, client_builder)?;
@@ -68,6 +73,8 @@ where
                 let _metrics = metrics::install();
 
                 create_pid_file()?;
+
+                drop_privileges_if_needed(&args)?;
 
                 let session = mount(args, client_builder);
 
@@ -207,13 +214,105 @@ where
 
 /// Create a real S3 client
 pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
+    // Log current user context and environment for credential debugging
+    let current_uid = getuid();
+    let current_gid = getgid();
+    tracing::debug!("🔧 Creating S3 client as UID={}, GID={}", current_uid, current_gid);
+
+    // Log environment variables that affect AWS credentials
+    let env_vars = [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_PROFILE",
+        "AWS_CONFIG_FILE",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "AWS_DEFAULT_REGION",
+        "AWS_REGION",
+        "AWS_ENDPOINT_URL",
+        "AWS_EC2_METADATA_DISABLED",
+        "HOME",
+        "USER",
+    ];
+
+    for var in &env_vars {
+        match std::env::var(var) {
+            Ok(value) => {
+                if var.contains("SECRET") || var.contains("TOKEN") {
+                    tracing::debug!("🔐 ENV {}: [REDACTED - {} chars]", var, value.len());
+                } else {
+                    tracing::debug!("🔐 ENV {}: {}", var, value);
+                }
+            }
+            Err(_) => tracing::debug!("🔐 ENV {}: <not set>", var),
+        }
+    }
+
+    // Now we then check for AWS credential files
+    let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/unknown".to_string());
+    let aws_dir = format!("{}/.aws", home_dir);
+    let credentials_file = format!("{}/credentials", aws_dir);
+    let config_file = format!("{}/config", aws_dir);
+
+    tracing::debug!("Current HOME directory: {}", home_dir);
+    tracing::debug!("AWS directory: {}", aws_dir);
+
+    match std::fs::metadata(&aws_dir) {
+        Ok(metadata) => {
+            use std::os::unix::fs::PermissionsExt;
+            tracing::debug!(
+                "AWS directory exists: {} (permissions: {:o})",
+                aws_dir,
+                metadata.permissions().mode()
+            );
+        }
+        Err(e) => {
+            tracing::info!("AWS directory check failed: {} - {}", aws_dir, e);
+        }
+    }
+
+    match std::fs::metadata(&credentials_file) {
+        Ok(metadata) => {
+            use std::os::unix::fs::PermissionsExt;
+            tracing::debug!(
+                "AWS credentials file exists: {} (size: {} bytes, permissions: {:o})",
+                credentials_file,
+                metadata.len(),
+                metadata.permissions().mode()
+            );
+        }
+        Err(e) => {
+            tracing::info!("AWS credentials file check: {} - {}", credentials_file, e);
+        }
+    }
+
+    match std::fs::metadata(&config_file) {
+        Ok(metadata) => {
+            use std::os::unix::fs::PermissionsExt;
+            tracing::info!(
+                "AWS config file exists: {} (size: {} bytes, permissions: {:o})",
+                config_file,
+                metadata.len(),
+                metadata.permissions().mode()
+            );
+        }
+        Err(e) => {
+            tracing::info!("AWS config file check: {} - {}", config_file, e);
+        }
+    }
+
     let client_config = args.client_config(build_info::FULL_VERSION);
+    tracing::debug!("Client config created");
 
     let s3_path = args.s3_path();
     let client = client_config
         .create_client(Some(&s3_path))
         .context("Failed to create S3 client")?;
 
+    tracing::info!(
+        "S3 client created successfully!, Client endpoint config: {:?}",
+        client.endpoint_config()
+    );
     let runtime = Runtime::new(client.event_loop_group());
     let s3_personality = args
         .personality()
@@ -250,6 +349,139 @@ fn create_pid_file() -> anyhow::Result<()> {
         let pid = std::process::id();
         fs::write(&val, pid.to_string()).context("failed to write PID to file")?;
         tracing::trace!("PID ({pid}) written to file {val:?}");
+    }
+    Ok(())
+}
+
+/// Ensures the mount directory is accessible to BOTH the original user and target user
+fn ensure_mount_directory_accessible(
+    mount_point: &std::path::Path,
+    target_uid: nix::unistd::Uid,
+    _target_gid: nix::unistd::Gid,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let current_uid = getuid();
+    let current_gid = getgid();
+
+    tracing::info!("Original user: UID={}, GID={}", current_uid, current_gid);
+    tracing::info!("Target user: UID={}", target_uid);
+
+    // we set ownership to target user but keep original group so both users can access
+    nix::unistd::chown(mount_point, Some(target_uid), Some(current_gid))
+        .with_context(|| format!("Failed to change ownership of {}", mount_point.display()))?;
+
+    // then we set permissions to 777 (rwxrwxrwx) - full access for everyone
+    let permissions = std::fs::Permissions::from_mode(0o777);
+    std::fs::set_permissions(mount_point, permissions)
+        .with_context(|| format!("Failed to set permissions on {}", mount_point.display()))?;
+
+    // Make sure parent directories are accessible
+    let mut current_path = mount_point;
+    while let Some(parent) = current_path.parent() {
+        if parent == std::path::Path::new("/") || parent == std::path::Path::new("") {
+            break;
+        }
+
+        match std::fs::metadata(parent) {
+            Ok(metadata) => {
+                let mode = metadata.permissions().mode();
+                // this ensures parent has at least 755 (readable and traversable)
+                if (mode & 0o755) != 0o755 {
+                    tracing::info!(
+                        "Making parent {} accessible (mode: {:o} -> 755)",
+                        parent.display(),
+                        mode
+                    );
+                    let new_permissions = std::fs::Permissions::from_mode((mode & !0o777) | 0o755);
+                    if let Err(e) = std::fs::set_permissions(parent, new_permissions) {
+                        tracing::warn!("Failed to fix parent {}: {}", parent.display(), e);
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+
+        current_path = parent;
+        if parent == std::path::Path::new("/home") {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn drop_privileges_if_needed(args: &CliArgs) -> anyhow::Result<()> {
+    if let Some(username) = &args.run_as_user {
+        let current_uid = getuid();
+        let current_gid = getgid();
+
+        match CliArgs::resolve_user_group(username) {
+            Ok((target_uid, target_gid)) => {
+                // Construct home directory path directly, the assumoption is thatthe users are in the home directory
+                let target_home = format!("/home/{}", username);
+                tracing::debug!("Target user's home directory: {}", target_home);
+
+                if let Err(e) = ensure_mount_directory_accessible(&args.mount_point, target_uid, target_gid) {
+                    tracing::warn!("⚠️  Failed to ensure mount directory accessibility: {}", e);
+                    tracing::info!("💡 You may need to manually fix permissions or use a different mount point");
+                }
+
+                tracing::debug!("🎯 TARGET user '{}': UID={}, GID={}", username, target_uid, target_gid);
+                tracing::debug!(
+                    "⬇️  DROPPING privileges from UID={} to UID={}, GID={} to GID={}",
+                    current_uid,
+                    target_uid,
+                    current_gid,
+                    target_gid
+                );
+
+                // Step 1: Change group first
+                tracing::info!("Changing GID from {} to {}", current_gid, target_gid);
+                if let Err(e) = setresgid(target_gid, target_gid, target_gid) {
+                    tracing::error!(error=?e, "Failed to set GID with setresgid");
+                    return Err(anyhow!("Failed to set GID with setresgid: {}", e));
+                }
+
+                // Step 2: Change user
+                if let Err(e) = setresuid(target_uid, target_uid, target_uid) {
+                    tracing::error!(error=?e, "Failed to set UID with setresuid");
+                    return Err(anyhow!("Failed to set UID with setresuid: {}", e));
+                }
+
+                //  Set up environment variables for the target user
+                std::env::set_var("HOME", &target_home);
+                std::env::set_var("USER", username);
+                std::env::set_var("USERNAME", username);
+                tracing::info!("Environment set up: HOME={}, USER={}", target_home, username);
+
+                // Final verification
+                let final_uid = getuid();
+                let final_gid = getgid();
+                tracing::debug!(
+                    "Successfully dropped privileges to user: {} (UID={}, GID={})",
+                    username,
+                    final_uid,
+                    final_gid
+                );
+                tracing::debug!(
+                    "Current HOME directory: {}",
+                    std::env::var("HOME").unwrap_or_else(|_| "not set".to_string())
+                );
+            }
+            Err(e) => {
+                tracing::error!(error=?e, username=%username, "Failed to resolve user/group");
+                return Err(anyhow!("Failed to resolve user/group: {}", e));
+            }
+        }
+    } else {
+        let current_uid = getuid();
+        let current_gid = getgid();
+        tracing::info!(
+            "No privilege dropping requested, continuing as UID={}, GID={}",
+            current_uid,
+            current_gid
+        );
     }
     Ok(())
 }
