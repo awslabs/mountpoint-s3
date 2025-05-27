@@ -1,7 +1,3 @@
-use std::fmt::Debug;
-use std::path::PathBuf;
-use std::time::Duration;
-
 use anyhow::{anyhow, Context as _};
 use clap::{value_parser, ArgGroup, Parser, ValueEnum};
 use mountpoint_s3_client::config::{AddressingStyle, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
@@ -16,7 +12,11 @@ use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, S3Path};
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
+use nix::unistd::{setgid, setuid, Gid, Group, Uid, User};
 use regex::Regex;
+use std::fmt::Debug;
+use std::path::PathBuf;
+use std::time::Duration;
 use sysinfo::{RefreshKind, System};
 
 use crate::build_info;
@@ -42,7 +42,7 @@ Arguments:
           fstab style options. Comma separated list of CLI options, with backslash escapes for commas, backslashes, and double quotes.
           Use of `--` to prefix arguments is not allowed.";
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
@@ -388,6 +388,14 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub bind: Option<Vec<String>>,
 
+    #[clap(
+        long,
+        help = "Run Mountpoint process as the specified user",
+        help_heading = MOUNT_OPTIONS_HEADER,
+        value_name = "USERNAME"
+    )]
+    pub run_as_user: Option<String>,
+
     #[clap(skip)]
     pub is_fstab: bool,
 }
@@ -511,7 +519,38 @@ impl CliArgs {
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+
+        if let Some(username) = &self.run_as_user {
+            match Self::resolve_user_group(username) {
+                Ok((uid, gid)) => {
+                    filesystem_config.uid = uid.as_raw();
+                    filesystem_config.gid = gid.as_raw();
+                    tracing::info!("Running Mountpoint as user: {}", username);
+
+                    // Handle errors
+                    if let Err(e) = setgid(gid) {
+                        tracing::error!(error=?e, "Failed to set GID");
+                    }
+                    if let Err(e) = setuid(uid) {
+                        tracing::error!(error=?e, "Failed to set UID");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error=?e, username=%username, "Failed to resolve user/group");
+                    std::process::exit(1);
+                }
+            }
+        }
+
         filesystem_config
+    }
+
+    pub fn resolve_user_group(username: &str) -> anyhow::Result<(Uid, Gid)> {
+        let user = User::from_name(username)?.ok_or_else(|| anyhow!("User '{}' not found", username))?;
+
+        let group = Group::from_gid(user.gid)?.ok_or_else(|| anyhow!("Group for user '{}' not found", username))?;
+
+        Ok((user.uid, group.gid))
     }
 
     fn cache_block_size_in_bytes(&self) -> u64 {
@@ -849,6 +888,29 @@ mod tests {
             assert_eq!(parsed.expect("valid kms key identifier"), kms_key_id);
         } else {
             parsed.expect_err("invalid kms key identifier");
+        }
+    }
+
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: None, gid: None, ..Default::default() }, "run_as_user alone" )]
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: Some(1000), gid: Some(1000), ..Default::default() }, "run_as_user with explicit uid/gid" )]
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: Some(1000), gid: None, ..Default::default() }, "run_as_user with explicit uid only" )]
+    #[test_case(CliArgs { run_as_user: Some("nobody".to_string()), uid: None, gid: Some(1000), ..Default::default() }, "run_as_user with explicit gid only" )]
+    fn test_run_as_user_interaction(args: CliArgs, _test_name: &str) {
+        let config = args.filesystem_config(ServerSideEncryption::default(), S3Personality::default());
+
+        // Get the expected UID/GID from the user
+        if let Some(username) = &args.run_as_user {
+            match CliArgs::resolve_user_group(username) {
+                Ok((expected_uid, expected_gid)) => {
+                    // Seeing that run_as_user overrides any explicit uid/gid settings
+                    assert_eq!(config.uid, expected_uid.as_raw(), "UID should be set to user's UID");
+                    assert_eq!(config.gid, expected_gid.as_raw(), "GID should be set to user's GID");
+                }
+                Err(e) => {
+                    // Skipping the test if user doesn't exist
+                    tracing::warn!("Skipping test - user {} not found: {}", username, e);
+                }
+            }
         }
     }
 }
