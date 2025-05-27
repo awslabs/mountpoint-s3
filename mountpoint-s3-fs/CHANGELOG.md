@@ -1,5 +1,9 @@
-## Unreleased (v0.3.0)
+## Unreleased
 
+## v0.3.0 (May 27, 2025)
+
+* Added ability to configure an error logger which can be used to report errors returned by fuse operations. Use method `MountpointConfig::error_logger` to configure the callback. ([#1416](https://github.com/awslabs/mountpoint-s3/pull/1416))  
+* `PrefetchReadError::GetRequestFailed` error variant has changed. It now contains an additional field `metadata`. ([#1411](https://github.com/awslabs/mountpoint-s3/pull/1411))
 * Improve safety checks when reading disk cache blocks. ([#1427](https://github.com/awslabs/mountpoint-s3/pull/1427))
 
 ## v0.2.0 (May 9, 2025)
