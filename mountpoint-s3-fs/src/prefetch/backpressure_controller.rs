@@ -283,14 +283,15 @@ impl BackpressureLimiter {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::sync::Arc;
 
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use futures::executor::block_on;
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use test_case::test_case;
 
     use crate::mem_limiter::MemoryLimiter;
-
-    use super::{new_backpressure_controller, BackpressureConfig, BackpressureController, BackpressureLimiter};
 
     #[test_case(1024 * 1024 + 128 * 1024, 2)] // real config
     #[test_case(3 * 1024 * 1024, 4)]
@@ -344,6 +345,52 @@ mod tests {
             backpressure_controller.preferred_read_window_size, backpressure_controller.min_read_window_size,
             "should have scaled down to min read window size"
         );
+    }
+
+    #[test]
+    fn wait_for_read_window_increment_drains_all_events() {
+        const KIB: usize = 1024;
+        const MIB: usize = 1024 * KIB;
+        const GIB: usize = 1024 * MIB;
+
+        // OK, back to basics. Just reproduce what happened, verify it passes after the fix.
+        #[allow(clippy::identity_op)]
+        let backpressure_config = BackpressureConfig {
+            initial_read_window_size: 1 * MIB,
+            min_read_window_size: 8 * MIB,
+            max_read_window_size: 2 * GIB,
+            read_window_size_multiplier: 2,
+            request_range: 0..(5 * GIB as u64),
+        };
+
+        let (mut backpressure_controller, mut backpressure_limiter) =
+            new_backpressure_controller_for_test(backpressure_config);
+
+        block_on(async {
+            #[allow(clippy::identity_op)]
+            let expected_offset = 1 * MIB as u64;
+            assert_eq!(
+                backpressure_limiter.read_window_end_offset(),
+                expected_offset,
+                "read window end offset should already be {expected_offset} due to initial read window size config",
+            );
+
+            // Send more than one increment.
+            backpressure_controller.increment_read_window(7 * MIB).await;
+            backpressure_controller.increment_read_window(8 * MIB).await;
+            backpressure_controller.increment_read_window(8 * MIB).await;
+
+            let curr_offset = backpressure_limiter
+                .wait_for_read_window_increment::<MockClientError>(0)
+                .await
+                .expect("should return OK as we have new values to increment before channels are closed")
+                .expect("value should change as we sent increments");
+            assert_eq!(
+                24 * MIB as u64,
+                curr_offset,
+                "expected offset did not match offset reported by limiter",
+            );
+        });
     }
 
     fn new_backpressure_controller_for_test(
