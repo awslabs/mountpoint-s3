@@ -1,13 +1,13 @@
 [package]
 name = "mountpoint-s3"
-version = "1.18.0"
+version = "1.19.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
 default-run = "mount-s3"
 
 [dependencies]
-mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.4.0" }
+mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.5.0" }
 mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.15.0" }
 
 anyhow = { version = "1.0.95", features = ["backtrace"] }
