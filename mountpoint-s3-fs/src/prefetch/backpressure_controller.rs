@@ -163,12 +163,14 @@ impl<Client: ObjectClient> BackpressureController<Client> {
 
     // Send an increment read window request to the stream producer
     async fn increment_read_window(&mut self, len: usize) {
+        let prev_window_end_offset = self.read_window_end_offset;
+        let next_window_end_offset = prev_window_end_offset + len as u64;
         trace!(
-            preferred_read_window_size = self.preferred_read_window_size,
             next_read_offset = self.next_read_offset,
-            read_window_end_offset = self.read_window_end_offset,
+            prev_window_end_offset,
+            next_window_end_offset,
             len,
-            "incrementing read window"
+            "incrementing read window",
         );
 
         // This should not block since the channel is unbounded
@@ -177,7 +179,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             .send(len)
             .await
             .inspect_err(|_| trace!("read window incrementing queue is already closed"));
-        self.read_window_end_offset += len as u64;
+        self.read_window_end_offset = next_window_end_offset;
     }
 
     // Scale up preferred read window size with a multiplier configured at initialization.
@@ -195,7 +197,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
                 trace!(
-                    current_size = formatter(self.preferred_read_window_size),
+                    prev_size = formatter(self.preferred_read_window_size),
                     new_size = formatter(new_read_window_size),
                     "scaled up preferred read window"
                 );
