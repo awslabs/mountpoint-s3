@@ -1,130 +1,110 @@
+use std::collections::VecDeque;
+use std::ffi::OsStr;
+use std::ffi::OsString;
+use std::time::Duration;
+use std::time::UNIX_EPOCH;
+
+use async_trait::async_trait;
+use fuser::FileAttr;
+use mountpoint_s3_client::types::ETag;
+use time::OffsetDateTime;
+
 use crate::fs::DirectoryEntry;
+use crate::fs::FUSE_ROOT_INODE;
+use crate::manifest::Manifest;
+use crate::manifest::ManifestEntry;
 use crate::mountspace::LookedUp;
 use crate::mountspace::Mountspace;
 use crate::mountspace::MountspaceDirectoryReplier;
 use crate::mountspace::S3Location;
-use crate::superblock::path::ValidKey;
-use crate::superblock::path::ValidName;
 use crate::superblock::InodeError;
 use crate::superblock::InodeErrorInfo;
 use crate::superblock::InodeKind;
 use crate::superblock::InodeNo;
 use crate::superblock::InodeStat;
+use crate::superblock::MakeAttrConfig;
 use crate::superblock::WriteMode;
-use async_trait::async_trait;
-use fuser::FileAttr;
-use mountpoint_s3_client::types::ETag;
-use std::collections::{BTreeMap, HashMap};
-use std::ffi::OsStr;
-use std::sync::RwLock;
-use std::time::Duration;
-use std::time::UNIX_EPOCH;
-use time::OffsetDateTime;
+use crate::sync::atomic::{AtomicU64, Ordering};
 
-#[derive(Debug)]
-struct HyperNode {
-    ino: InodeNo,
-    kind: InodeKind,
-    name: String,
-    children: HashMap<String, InodeNo>, // Only used for directories
-    stat: InodeStat,
-    bucket: Option<String>, // Add bucket field
-}
-
-impl HyperNode {
-    fn err(&self) -> InodeErrorInfo {
-        InodeErrorInfo(self.ino, self.name.clone())
-    }
-}
+// 200 years seems long enough
+const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 #[derive(Debug)]
 pub struct HyperBlock {
-    nodes: RwLock<BTreeMap<InodeNo, HyperNode>>,
+    make_attr_config: MakeAttrConfig,
+    bucket_name: String,
+    mount_time: OffsetDateTime,
+    manifest: Manifest,
+    next_dir_handle_id: AtomicU64,
 }
 
 impl HyperBlock {
-    #[allow(clippy::type_complexity)]
-    pub fn new(channel_configs: Vec<(String, String, Vec<(String, String, usize)>)>) -> Self {
-        let channel_count = channel_configs.len();
-        let mut nodes = BTreeMap::new();
-
-        // Create root directory (inode 1)
-        let root_stat = InodeStat::for_directory(OffsetDateTime::now_utc(), Duration::from_secs(120000));
-
-        let mut root = HyperNode {
-            ino: 1, // Root inode
-            kind: InodeKind::Directory,
-            stat: root_stat,
-            children: HashMap::new(),
-            name: "/".to_string(),
-            bucket: None,
-        };
-        // First pass: create all channel nodes and set up their relationships
-        //
-        let mut next_file_ino = channel_count as InodeNo + 2 + 1; // Start after all channels
-
-        for (idx, (name, bucket, files_with_etags)) in channel_configs.iter().enumerate() {
-            let channel_inode = (idx + 2) as u64; // +2 because root is 1
-
-            // Add channel to root's children
-            root.children.insert(name.clone(), channel_inode);
-
-            // Create the channel node
-            let channel_stat = InodeStat::for_directory(OffsetDateTime::now_utc(), Duration::from_secs(120000));
-
-            let mut channel_node = HyperNode {
-                name: name.clone(),
-                ino: channel_inode,
-                kind: InodeKind::Directory,
-                stat: channel_stat,
-                children: HashMap::new(),
-                bucket: Some(name.clone()),
-            };
-
-            // Second pass: create all file nodes for this channel
-            for (file, etag_str, size) in files_with_etags.iter() {
-                let file_inode = next_file_ino;
-
-                // Add file to channel's children
-                channel_node.children.insert(file.clone(), file_inode);
-
-                // Create file node with ETag
-                let file_stat = InodeStat::for_file(
-                    *size,
-                    OffsetDateTime::now_utc(),
-                    Some(etag_str.clone().into()), // Include the ETag here
-                    None,
-                    None,
-                    Duration::from_secs(120000),
-                );
-
-                let file_node = HyperNode {
-                    ino: file_inode,
-                    kind: InodeKind::File,
-                    stat: file_stat,
-                    children: HashMap::new(), // Files don't have children
-                    name: file.clone(),
-                    bucket: Some(bucket.clone()),
-                };
-
-                // Add file to nodes map
-                nodes.insert(file_inode, file_node);
-
-                next_file_ino += 1;
-            }
-
-            // Store the channel node in our nodes map
-            nodes.insert(channel_inode, channel_node);
-        }
-
-        // Finally, add root to nodes map
-        nodes.insert(1, root);
-
-        HyperBlock {
-            nodes: RwLock::new(nodes),
+    pub fn new(make_attr_config: MakeAttrConfig, bucket_name: &str, manifest: Manifest) -> Self {
+        Self {
+            make_attr_config,
+            bucket_name: bucket_name.to_string(),
+            mount_time: OffsetDateTime::now_utc(),
+            manifest,
+            next_dir_handle_id: Default::default(),
         }
     }
-    fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
+
+    fn manifest_entry_to_lookup(&self, manifest_entry: ManifestEntry) -> LookedUp {
+        match manifest_entry {
+            ManifestEntry::File {
+                etag,
+                size,
+                id,
+                full_key,
+                ..
+            } => LookedUp {
+                ino: id,
+                stat: InodeStat::for_file(
+                    size,
+                    self.mount_time,
+                    Some(etag.as_str().into()),
+                    // Intentionally leaving `storage_class` and `restore_status` empty,
+                    // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
+                    None,
+                    None,
+                    NEVER_EXPIRE_TTL,
+                ),
+                kind: InodeKind::File,
+                is_remote: true,
+                location: Some(S3Location {
+                    bucket: self.bucket_name.clone(),
+                    full_key: full_key.try_into().expect("must be a valid key"),
+                }),
+            },
+            ManifestEntry::Directory { id, full_key, .. } => LookedUp {
+                ino: id,
+                stat: InodeStat::for_directory(self.mount_time, NEVER_EXPIRE_TTL),
+                kind: InodeKind::Directory,
+                is_remote: true,
+                location: Some(S3Location {
+                    bucket: self.bucket_name.clone(),
+                    full_key: full_key.try_into().expect("must be a valid key"),
+                }),
+            },
+        }
+    }
+
+    fn get_parent_id(&self, ino: InodeNo) -> Result<InodeNo, InodeError> {
+        if ino == FUSE_ROOT_INODE {
+            return Ok(FUSE_ROOT_INODE);
+        };
+
+        let Some(manifest_entry) = self.manifest.manifest_lookup_by_id(ino)? else {
+            return Err(InodeError::InodeDoesNotExist(ino));
+        };
+
+        match manifest_entry {
+            ManifestEntry::File { parent_id, .. } => Ok(parent_id),
+            ManifestEntry::Directory { parent_id, .. } => Ok(parent_id),
+        }
+    }
+
+    fn make_attr(&self, ino: InodeNo, kind: InodeKind, size: u64) -> FileAttr {
         /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
         /// the file, in 512-byte units."
         const STAT_BLOCK_SIZE: u64 = 512;
@@ -135,47 +115,27 @@ impl HyperBlock {
         // We don't implement hard links, and don't want to have to list a directory to count its
         // hard links, so we just assume one link for files (itself) and two links for directories
         // (itself + the "." link).
-        let (perm, nlink) = match lookup.kind {
-            InodeKind::File => {
-                if lookup.stat.is_readable {
-                    (1, 1)
-                } else {
-                    (0o000, 1)
-                }
-            }
-            InodeKind::Directory => (755, 2),
+        let (perm, nlink) = match kind {
+            InodeKind::File => (self.make_attr_config.file_mode, 1),
+            InodeKind::Directory => (self.make_attr_config.dir_mode, 2),
         };
 
         FileAttr {
-            ino: lookup.ino,
-            size: lookup.stat.size as u64,
-            blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
-            atime: lookup.stat.atime.into(),
-            mtime: lookup.stat.mtime.into(),
-            ctime: lookup.stat.ctime.into(),
+            ino,
+            size,
+            blocks: size.div_ceil(STAT_BLOCK_SIZE),
+            atime: self.mount_time.into(),
+            mtime: self.mount_time.into(),
+            ctime: self.mount_time.into(),
             crtime: UNIX_EPOCH,
-            kind: lookup.kind.into(),
+            kind: kind.into(),
             perm,
             nlink,
-            uid: 400,
-            gid: 400,
+            uid: self.make_attr_config.uid,
+            gid: self.make_attr_config.gid,
             rdev: 0,
             flags: 0,
             blksize: PREFERRED_IO_BLOCK_SIZE,
-        }
-    }
-
-    fn full_key_for_inode_explicit(&self, node: &HyperNode) -> ValidKey {
-        if node.kind == InodeKind::Directory {
-            ValidKey::root()
-        } else {
-            // For files, just return the filename directly
-            ValidKey::root()
-                .new_child(ValidName::parse_str(&node.name).unwrap(), InodeKind::File)
-                .unwrap_or_else(|_| {
-                    // Fallback
-                    ValidKey::root()
-                })
         }
     }
 }
@@ -183,54 +143,39 @@ impl HyperBlock {
 #[async_trait]
 impl Mountspace for HyperBlock {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<LookedUp, InodeError> {
-        let nodes = self.nodes.read().unwrap();
+        // TODO: handle non utf-8 names gracefully
+        let name = name.to_str().expect("must be utf-8").to_string();
+        let Some(manifest_entry) = self.manifest.manifest_lookup(parent_ino, &name)? else {
+            return Err(InodeError::FileDoesNotExist(
+                name.to_string(),
+                InodeErrorInfo(parent_ino, name),
+            ));
+        };
 
-        // Get parent node
-        let parent = nodes
-            .get(&parent_ino)
-            .ok_or(InodeError::InodeDoesNotExist(parent_ino))?;
-        if parent.kind != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(parent.err()));
-        }
-
-        // Lookup the child by name in the parent's children HashMap
-        let child_ino = parent
-            .children
-            .get(name.to_str().unwrap())
-            .ok_or(InodeError::FileDoesNotExist(
-                name.to_str().unwrap().to_string(),
-                parent.err(),
-            ))?;
-
-        // Get the child node
-        let child = nodes.get(child_ino).ok_or(InodeError::InodeDoesNotExist(*child_ino))?;
-
-        Ok(LookedUp {
-            ino: child.ino,
-            stat: child.stat.clone(),
-            kind: child.kind,
-            is_remote: true,
-            location: child.bucket.as_ref().map(|bucket| S3Location {
-                bucket: bucket.clone(),
-                full_key: self.full_key_for_inode_explicit(child),
-            }),
-        })
+        let lookup = self.manifest_entry_to_lookup(manifest_entry);
+        Ok(lookup)
     }
 
     async fn getattr(&self, ino: InodeNo, _force_revalidate: bool) -> Result<LookedUp, InodeError> {
-        let nodes = self.nodes.read().unwrap();
-        let node = nodes.get(&ino).ok_or(InodeError::InodeDoesNotExist(ino))?;
+        if ino == FUSE_ROOT_INODE {
+            return Ok(LookedUp {
+                ino,
+                stat: InodeStat::for_directory(self.mount_time, NEVER_EXPIRE_TTL),
+                kind: InodeKind::Directory,
+                is_remote: true,
+                location: Some(S3Location {
+                    bucket: self.bucket_name.clone(),
+                    full_key: "".to_string().try_into().expect("must be a valid key"),
+                }),
+            });
+        }
 
-        Ok(LookedUp {
-            ino: node.ino,
-            stat: node.stat.clone(),
-            kind: node.kind,
-            is_remote: false,
-            location: node.bucket.as_ref().map(|bucket| S3Location {
-                bucket: bucket.clone(),
-                full_key: self.full_key_for_inode_explicit(node),
-            }),
-        })
+        let Some(manifest_entry) = self.manifest.manifest_lookup_by_id(ino)? else {
+            return Err(InodeError::InodeDoesNotExist(ino));
+        };
+
+        let lookup = self.manifest_entry_to_lookup(manifest_entry);
+        Ok(lookup)
     }
 
     // Other required Mountspace trait implementations...
@@ -256,12 +201,8 @@ impl Mountspace for HyperBlock {
         Err(InodeError::OperationNotPermitted)
     }
 
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
-        // Just check if the node exists
-        let nodes = self.nodes.read().unwrap();
-        if !nodes.contains_key(&ino) {
-            return Err(InodeError::InodeDoesNotExist(ino));
-        }
+    async fn start_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+        // Assume getattr was just called to check for inode existence
         Ok(())
     }
 
@@ -269,18 +210,10 @@ impl Mountspace for HyperBlock {
         Ok(())
     }
 
-    async fn new_readdir_handle(&self, dir_ino: InodeNo, _page_size: usize) -> Result<u64, InodeError> {
-        let nodes = self.nodes.read().unwrap();
-        if !nodes.contains_key(&dir_ino) {
-            return Err(InodeError::InodeDoesNotExist(dir_ino));
-        }
-        let node = nodes.get(&dir_ino).unwrap();
-        if node.kind != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(node.err()));
-        }
-
-        // Return the directory inode as the handle for simplicity
-        Ok(dir_ino)
+    async fn new_readdir_handle(&self, _dir_ino: InodeNo, _page_size: usize) -> Result<u64, InodeError> {
+        // TODO: dummy counter, is it actually required?
+        let readdir_handle_id = self.next_dir_handle_id.fetch_add(1, Ordering::SeqCst);
+        Ok(readdir_handle_id)
     }
 
     async fn rmdir(&self, _parent_ino: InodeNo, _name: &OsStr) -> Result<(), InodeError> {
@@ -305,117 +238,72 @@ impl Mountspace for HyperBlock {
     async fn readdir<'a>(
         &self,
         parent: InodeNo,
-        fh: u64,
-        offset: i64,
+        _fh: u64,
+        mut offset: i64,
         _is_readdirplus: bool,
         mut reply: MountspaceDirectoryReplier<'a>,
     ) -> Result<MountspaceDirectoryReplier<'a>, InodeError> {
-        let nodes = self.nodes.read().unwrap();
-
-        // Get the directory node (file handle is the directory inode)
-        let dir = nodes.get(&fh).ok_or(InodeError::NoSuchDirHandle)?;
-        if dir.kind != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(dir.err()));
-        }
-
-        // If offset is 0, add "." entry
-        if offset == 0 {
-            let lookup = LookedUp {
-                ino: fh,
-                stat: dir.stat.clone(),
-                kind: InodeKind::Directory,
-                is_remote: false,
-                location: dir.bucket.as_ref().map(|bucket| S3Location {
-                    bucket: bucket.clone(),
-                    full_key: self.full_key_for_inode_explicit(dir),
-                }),
-            };
-            let attr = self.make_attr(&lookup);
-
+        // serve '.' and '..' entries
+        if offset < 1 {
+            let attr = self.make_attr(parent, InodeKind::Directory, 0);
             let entry = DirectoryEntry {
-                ino: fh,
-                offset: 1, // Next entry will be at offset 1
+                ino: parent,
+                offset: offset + 1, // start with 1
                 name: ".".into(),
-                attr, // Simplified attribute for testing
+                attr,
                 generation: 0,
-                ttl: lookup.validity(),
+                ttl: NEVER_EXPIRE_TTL,
             };
-
             if reply.add(entry) {
                 return Ok(reply);
             }
+            offset += 1;
         }
 
-        // If offset is 0 or 1, add ".." entry
-        if offset <= 1 {
-            // For simplicity, parent of root is root, otherwise use the provided parent
-            let parent_ino = if fh == 1 { 1 } else { parent };
-            let parent_node = nodes.get(&parent_ino).unwrap_or(dir); // Fallback to dir if parent not found
-
-            let lookup = LookedUp {
-                ino: parent_ino,
-                stat: parent_node.stat.clone(),
-                kind: InodeKind::Directory,
-                is_remote: false,
-                location: parent_node.bucket.as_ref().map(|bucket| S3Location {
-                    bucket: bucket.clone(),
-                    full_key: self.full_key_for_inode_explicit(parent_node),
-                }),
-            };
-            let attr = self.make_attr(&lookup);
-
+        if offset < 2 {
+            let grandparent_ino = self.get_parent_id(parent)?;
+            let attr = self.make_attr(grandparent_ino, InodeKind::Directory, 0);
             let entry = DirectoryEntry {
-                ino: parent_ino,
-                offset: 2, // Next entry will be at offset 2
+                ino: grandparent_ino,
+                offset: offset + 1,
                 name: "..".into(),
-                attr, // Simplified attribute for testing
+                attr,
                 generation: 0,
-                ttl: lookup.validity(),
+                ttl: NEVER_EXPIRE_TTL,
             };
-
             if reply.add(entry) {
                 return Ok(reply);
             }
+            offset += 1;
         }
 
-        // Sort child entries for consistency
-        let entries: Vec<_> = dir.children.iter().collect();
-
-        // Calculate where in the children array we should start based on offset
-        let start_idx = if offset <= 2 { 0 } else { (offset - 2) as usize };
-
-        // Add regular entries, starting at the calculated index
-        for (idx, (name, &child_ino)) in entries.iter().skip(start_idx).enumerate() {
-            let child = match nodes.get(&child_ino) {
-                Some(node) => node,
-                None => continue, // Skip invalid entries
-            };
-
-            let lookup = LookedUp {
-                ino: child.ino,
-                stat: child.stat.clone(),
-                kind: child.kind,
-                is_remote: false,
-                location: child.bucket.as_ref().map(|bucket| S3Location {
-                    bucket: bucket.clone(),
-                    full_key: self.full_key_for_inode_explicit(child),
-                }),
-            };
-            let attr = self.make_attr(&lookup);
-
-            let entry = DirectoryEntry {
-                ino: child.ino,
-                offset: (idx as i64) + start_idx as i64 + 3, // +3 for "." and ".." entries
-                name: name.into(),
-                attr, // Simplified attribute for testing
-                generation: 0,
-                ttl: lookup.validity(),
-            };
-
-            // Return if the buffer is full, otherwise continue
-            if reply.add(entry) {
-                return Ok(reply);
+        // load entries from the manifest
+        let batch_size = 128;
+        let mut entries: VecDeque<ManifestEntry> = Default::default();
+        loop {
+            if entries.is_empty() {
+                let offset = (offset - 2) as usize; // shift offset accounting for '.' and '..'
+                entries.extend(self.manifest.manifest_lookup_children(parent, offset, batch_size)?);
             }
+            let Some(manifest_entry) = entries.pop_front() else {
+                break;
+            };
+            let (ino, full_key, size, kind) = match manifest_entry {
+                ManifestEntry::File { id, full_key, size, .. } => (id, full_key, size, InodeKind::File),
+                ManifestEntry::Directory { id, full_key, .. } => (id, full_key, 0, InodeKind::Directory),
+            };
+            let readdir_entry = DirectoryEntry {
+                ino,
+                offset: offset + 1,
+                name: OsString::from(full_key.rsplit("/").next().unwrap()),
+                attr: self.make_attr(ino, kind, size as u64),
+                generation: 0,
+                ttl: NEVER_EXPIRE_TTL,
+            };
+            if reply.add(readdir_entry) {
+                break;
+            }
+            offset += 1;
         }
 
         Ok(reply)

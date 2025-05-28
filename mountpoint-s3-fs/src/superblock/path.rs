@@ -116,6 +116,19 @@ impl From<ValidKey> for String {
     }
 }
 
+impl TryFrom<String> for ValidKey {
+    type Error = ValidKeyError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let name_len = value.rsplit("/").next().expect("at least one component").len();
+        let name_offset = value.len() - name_len;
+        Ok(Self {
+            key: value.into(),
+            name_offset,
+        })
+    }
+}
+
 /// A valid name for an [Inode](super::Inode).
 #[derive(Debug, Clone, Copy)]
 pub struct ValidName<'a>(&'a str);
