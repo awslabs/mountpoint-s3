@@ -576,6 +576,7 @@ impl S3CrtClientInner {
                 };
                 debug!(%request_type, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
                 trace!(detailed_metrics=?metrics, "S3 request completed");
+                tracing::info!(target: "benchmarking_instrumentation", detailed_metrics=?metrics, "S3 request on_telemetry");
 
                 let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {

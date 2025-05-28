@@ -8,6 +8,7 @@ use tracing::{debug, trace};
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
+#[derive(Debug)]
 pub enum BufferArea {
     Upload,
     Prefetch,
@@ -86,8 +87,10 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
     pub fn reserve(&self, area: BufferArea, size: u64) {
-        self.mem_reserved.fetch_add(size, Ordering::SeqCst);
-        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
+        let prev_mem_reserved = self.mem_reserved.fetch_add(size, Ordering::SeqCst);
+        let new_mem_reserved = prev_mem_reserved.saturating_add(size);
+        trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, "mem.bytes_reserved");
+        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).set(new_mem_reserved as f64);
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
@@ -114,7 +117,8 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
-                    metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
+                    trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, "mem.bytes_reserved");
+                    metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).set(new_mem_reserved as f64);
                     metrics::histogram!("mem.reserve_latency_us", "area" => area.as_str())
                         .record(start.elapsed().as_micros() as f64);
                     return true;
@@ -126,8 +130,10 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
 
     /// Release the reserved memory.
     pub fn release(&self, area: BufferArea, size: u64) {
-        self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
-        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(size as f64);
+        let prev_mem_reserved = self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
+        let new_mem_reserved = prev_mem_reserved.saturating_sub(size);
+        trace!(target: "benchmarking_instrumentation", ?area, value=new_mem_reserved, "mem.bytes_reserved");
+        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).set(new_mem_reserved as f64);
     }
 
     /// Query available memory tracked by the memory limiter.

@@ -219,6 +219,12 @@ impl<Client: ObjectClient> BackpressureController<Client> {
                 new_size = formatter(new_read_window_size),
                 "scaled down read window"
             );
+            tracing::info!(
+                target: "benchmarking_instrumentation",
+                old_read_window_size = ?self.preferred_read_window_size,
+                new_read_window_size,
+                "read_window_scale",
+            );
             self.preferred_read_window_size = new_read_window_size;
             metrics::histogram!("prefetch.window_after_decrease_mib")
                 .record((self.preferred_read_window_size / 1024 / 1024) as f64);
