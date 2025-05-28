@@ -52,7 +52,7 @@ pub struct BackpressureController<Client: ObjectClient> {
 
 #[derive(Debug)]
 pub struct BackpressureLimiter {
-    read_window_incrementing_queue: Receiver<usize>,
+    read_window_increment_queue: ReadWindowIncrementQueue,
     /// Upper bound of the current read window.
     /// Calling [BackpressureLimiter::wait_for_read_window_increment()] will block current
     /// thread until this value is advanced.
@@ -80,8 +80,11 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
-    let (read_window_updater, read_window_incrementing_queue) = unbounded();
     mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
+
+    let (read_window_updater, read_window_increment_queue) = unbounded();
+    let read_window_increment_queue = ReadWindowIncrementQueue::new(read_window_increment_queue);
+
     let controller = BackpressureController {
         read_window_updater,
         preferred_read_window_size: config.initial_read_window_size,
@@ -93,11 +96,13 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
         request_end_offset: config.request_range.end,
         mem_limiter,
     };
+
     let limiter = BackpressureLimiter {
-        read_window_incrementing_queue,
+        read_window_increment_queue,
         read_window_end_offset,
         request_end_offset: config.request_range.end,
     };
+
     (controller, limiter)
 }
 
@@ -235,23 +240,17 @@ impl BackpressureLimiter {
         self.read_window_end_offset
     }
 
-    /// Checks if there is enough read window to put the next item with a given offset to the stream.
-    /// It blocks until receiving enough incrementing read window requests to serve the next part.
+    /// Wait until the backpressure window moves ahead of the given offset.
     ///
-    /// Returns the new read window offset.
+    /// Returns the new read window offset if it has changed, otherwise [None].
     pub async fn wait_for_read_window_increment<E>(
         &mut self,
         offset: u64,
     ) -> Result<Option<u64>, PrefetchReadError<E>> {
         // There is already enough read window so no need to block
         if self.read_window_end_offset > offset {
-            // Drain increment queue
-            let old_offset = self.read_window_end_offset;
-            while let Ok(len) = self.read_window_incrementing_queue.try_recv() {
-                self.read_window_end_offset += len as u64
-            }
-
-            if old_offset != self.read_window_end_offset {
+            if let Some(increment_amount) = self.read_window_increment_queue.try_recv_drain() {
+                self.read_window_end_offset += increment_amount as u64;
                 return Ok(Some(self.read_window_end_offset));
             } else {
                 return Ok(None);
@@ -265,19 +264,49 @@ impl BackpressureLimiter {
                 read_window_offset = self.read_window_end_offset,
                 "blocking for read window increment"
             );
-            let recv = self.read_window_incrementing_queue.recv().await;
-            match recv {
-                Ok(len) => {
-                    self.read_window_end_offset += len as u64;
-                    // Drain anything else that's available
-                    while let Ok(len) = self.read_window_incrementing_queue.try_recv() {
-                        self.read_window_end_offset += len as u64
-                    }
-                }
+            match self.read_window_increment_queue.recv_drain().await {
+                Ok(len) => self.read_window_end_offset += len as u64,
                 Err(RecvError) => return Err(PrefetchReadError::ReadWindowIncrement),
             }
         }
         Ok(Some(self.read_window_end_offset))
+    }
+}
+
+/// Wraps a queue, ensuring that all accesses fully drain the queue of values (increments).
+#[derive(Debug)]
+struct ReadWindowIncrementQueue(Receiver<usize>);
+
+impl ReadWindowIncrementQueue {
+    pub fn new(receiver: Receiver<usize>) -> Self {
+        Self(receiver)
+    }
+
+    /// Drain the increment queue, blocking if required for the first increment.
+    ///
+    /// Returns [Err] if the underlying [Receiver] was closed.
+    pub async fn recv_drain(&self) -> Result<usize, RecvError> {
+        let mut increment_total = self.0.recv().await?;
+        while let Ok(len) = self.0.try_recv() {
+            increment_total += len;
+        }
+        Ok(increment_total)
+    }
+
+    /// Drain the increment queue of any available increments.
+    ///
+    /// Returns the total amount to increment if any, otherwise [None].
+    pub fn try_recv_drain(&self) -> Option<usize> {
+        let mut increment_total = 0;
+        while let Ok(len) = self.0.try_recv() {
+            increment_total += len;
+        }
+
+        if increment_total > 0 {
+            Some(increment_total)
+        } else {
+            None
+        }
     }
 }
 
