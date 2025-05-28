@@ -25,6 +25,9 @@ use crate::object::ObjectId;
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;
 
+/// Default block size for data caches.
+pub const DEFAULT_CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
+
 /// Errors returned by operations on a [DataCache]
 #[derive(Debug, Error)]
 pub enum DataCacheError {

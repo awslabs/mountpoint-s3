@@ -1,14 +1,16 @@
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use clap::{value_parser, Parser};
+use clap::{value_parser, Parser, ValueEnum};
 use futures::executor::block_on;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_fs::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, DEFAULT_CACHE_BLOCK_SIZE};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
@@ -102,6 +104,48 @@ pub struct CliArgs {
         value_name = "NETWORK_INTERFACE"
     )]
     pub bind: Option<Vec<String>>,
+
+    #[clap(
+        long,
+        help = "Enable caching of object content to the given directory.",
+        value_name = "DIRECTORY"
+    )]
+    pub disk_cache: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Configure how the benchmark cleans the data cache directory.",
+        default_value = "every-iteration",
+        value_name = "MODE"
+    )]
+    pub disk_cache_cleanup: CacheCleanupMode,
+}
+
+#[derive(Clone, Debug)]
+pub enum CacheCleanupMode {
+    /// Never try to clean at start or end of benchmark overall or for iterations.
+    ///
+    /// This can allow effectively a 'warm' cache for testing.
+    /// This tool doesn't offer to perform warm up in-process as this can impact the process itself (e.g. memory usage).
+    /// You should warm up the cache with a separate process (such as this benchmark, but an earlier invocation).
+    Never,
+    /// Try to clean at start and end of every benchmark iteration.
+    ///
+    /// This can allow effectively a 'cold' cache for testing.
+    EveryIteration,
+}
+
+impl ValueEnum for CacheCleanupMode {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[CacheCleanupMode::Never, CacheCleanupMode::EveryIteration]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            CacheCleanupMode::Never => Some(clap::builder::PossibleValue::new("never")),
+            CacheCleanupMode::EveryIteration => Some(clap::builder::PossibleValue::new("every-iteration")),
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -134,11 +178,36 @@ fn main() -> anyhow::Result<()> {
     let runtime = Runtime::new(client.event_loop_group());
 
     for iteration in 0..args.iterations {
-        let manager = Prefetcher::default_builder(client.clone()).build(
-            runtime.clone(),
-            mem_limiter.clone(),
-            PrefetcherConfig::default(),
-        );
+        let manager = {
+            let client = client.clone();
+            let builder = match &args.disk_cache {
+                None => Prefetcher::default_builder(client),
+                Some(cache_directory) => {
+                    if matches!(args.disk_cache_cleanup, CacheCleanupMode::EveryIteration) {
+                        tracing::trace!(
+                            iteration,
+                            ?cache_directory,
+                            "removing contents of cache directory between iterations",
+                        );
+                        // Wait a little to avoid files existing in the direcotry.
+                        // Presumably, this is waiting for any tasks writing blocks on runtime to complete.
+                        // TODO: Fix this sillyness?
+                        std::thread::sleep(Duration::from_millis(2000));
+                        remove_all_entries(cache_directory.as_path())
+                            .context("failed to cleanup cache directory between iterations")?;
+                    }
+
+                    let config = DiskDataCacheConfig {
+                        cache_directory: cache_directory.clone(),
+                        block_size: DEFAULT_CACHE_BLOCK_SIZE,
+                        limit: CacheLimit::Unbounded,
+                    };
+                    let disk_cache = DiskDataCache::new(config);
+                    Prefetcher::caching_builder(disk_cache, client)
+                }
+            };
+            builder.build(runtime.clone(), mem_limiter.clone(), PrefetcherConfig::default())
+        };
 
         let received_bytes = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
@@ -177,7 +246,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn make_s3_client_from_args(args: &CliArgs) -> Result<S3CrtClient, impl std::error::Error> {
+fn make_s3_client_from_args(args: &CliArgs) -> anyhow::Result<S3CrtClient> {
     let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     let mut client_config = S3ClientConfig::new()
         .read_backpressure(true)
@@ -195,5 +264,19 @@ fn make_s3_client_from_args(args: &CliArgs) -> Result<S3CrtClient, impl std::err
     if let Some(interfaces) = &args.bind {
         client_config = client_config.network_interface_names(interfaces.clone());
     }
-    S3CrtClient::new(client_config)
+    let client = S3CrtClient::new(client_config)?;
+    Ok(client)
+}
+
+/// Remove all directory entries recursively under `directory`.
+fn remove_all_entries(directory: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        match (path.is_file(), path.is_dir()) {
+            (true, false) => std::fs::remove_file(&path)?,
+            (false, true) => std::fs::remove_dir_all(&path)?,
+            _ => unreachable!("entry should be exactly one of file or directory"),
+        }
+    }
+    Ok(())
 }
