@@ -21,11 +21,12 @@ impl TryFrom<FsTabCliArgs> for CliArgs {
     type Error = clap::Error;
 
     fn try_from(fstab_cli_args: FsTabCliArgs) -> Result<Self, Self::Error> {
-        let cli_arg_list = fstab_cli_args.into_cli_arg_list()?;
+        let (cli_arg_list, run_as_user) = fstab_cli_args.into_cli_arg_list()?;
 
         let mut cli_args = CliArgs::try_parse_from(cli_arg_list)?;
         cli_args.foreground = false;
         cli_args.is_fstab = true;
+        cli_args.run_as_user = run_as_user;
         Ok(cli_args)
     }
 }
@@ -33,8 +34,24 @@ impl TryFrom<FsTabCliArgs> for CliArgs {
 impl FsTabCliArgs {
     /// Parse the args we've been given into an iterator of options to pass to the main CliArgs parser
     /// Filters out arguments that aren't meant for Mountpoint, and add `--` to any argument that's not prefixed with `-`.
-    fn into_cli_arg_list(self) -> Result<Vec<String>, clap::Error> {
+    fn into_cli_arg_list(self) -> Result<(Vec<String>, Option<String>), clap::Error> {
         Self::validate_options(&self.options)?;
+
+        let mut run_as_user = None;
+        let filtered_options: Vec<String> = self
+            .options
+            .into_iter()
+            .filter_map(|option| {
+                if let Some(user) = option.strip_prefix("run-as-user=") {
+                    run_as_user = Some(user.to_string());
+                    None // Filter out this option from CLI args
+                } else if Self::option_allowed(&option) {
+                    Some(Self::rename_option(option))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let cli_arg_list = [
             env::args().nth(0).unwrap_or("mount-s3".to_string()),
@@ -42,14 +59,10 @@ impl FsTabCliArgs {
             self.mount_point,
         ]
         .into_iter()
-        .chain(
-            self.options
-                .into_iter()
-                .filter(|option| Self::option_allowed(option))
-                .map(Self::rename_option),
-        )
+        .chain(filtered_options)
         .collect();
-        Ok(cli_arg_list)
+
+        Ok((cli_arg_list, run_as_user))
     }
 
     /// Returns if an option is allowed for systemd/the fstab parser
@@ -112,7 +125,7 @@ impl FsTabCliArgs {
 /// escapes are fairly common in programming.
 /// overlayfs uses this approach to allow escapes.
 /// We disallow usage of double quotes to allow us to introduce quotes as another potential way to escape in the future.
-fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
+pub fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
     let mut unescaped = Vec::new();
     let mut current_arg = String::new();
 
@@ -196,6 +209,9 @@ mod tests {
     #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "cache=\\\"foo\\\""].to_vec(), true)]
     #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "cache=\""].to_vec(), false)]
     #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "-f"].to_vec(), false)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "run-as-user=testuser"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "run-as-user=root,uid=1000"].to_vec(), true)]
+    #[test_case(["_", "demo_s3_bucket", "/mnt/test", "-o", "uid=1000,run-as-user=nobody,debug"].to_vec(), true)]
     fn test_fstab_cli_args_parses(args: Vec<&str>, should_parse: bool) {
         let res: Result<CliArgs, clap::Error> =
             FsTabCliArgs::try_parse_from(&args).and_then(|fstab_cli_args| fstab_cli_args.try_into());
@@ -222,6 +238,112 @@ mod tests {
         assert_eq!(cli_args.uid, Some(2));
         assert_eq!(cli_args.gid, None);
         assert!(cli_args.read_only);
+    }
+
+    /// Test run-as-user parsing in fstab options
+    #[test_case("run-as-user=testuser", Some("testuser"), "simple username")]
+    #[test_case("run-as-user=root", Some("root"), "root user")]
+    #[test_case("run-as-user=nobody", Some("nobody"), "nobody user")]
+    #[test_case("run-as-user=user123", Some("user123"), "alphanumeric username")]
+    #[test_case("run-as-user=test-user", Some("test-user"), "username with dash")]
+    #[test_case("run-as-user=test_user", Some("test_user"), "username with underscore")]
+    #[test_case("run-as-user=", Some(""), "empty username")]
+    #[test_case("uid=1000", None, "no run-as-user option")]
+    fn test_run_as_user_parsing(option: &str, expected_user: Option<&str>, _description: &str) {
+        let args = ["_", "demo_s3_bucket", "/mnt/test", "-o", option].to_vec();
+
+        let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
+        let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
+
+        assert_eq!(cli_args.run_as_user.as_deref(), expected_user);
+        assert!(cli_args.is_fstab);
+    }
+
+    /// Test run-as-user combined with other options
+    #[test]
+    fn test_run_as_user_with_multiple_options() {
+        let args = [
+            "_",
+            "demo_s3_bucket",
+            "/mnt/test",
+            "-o",
+            "uid=1000,run-as-user=testuser,gid=1000,debug,ro",
+        ]
+        .to_vec();
+
+        let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
+        let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
+
+        assert_eq!(cli_args.run_as_user.as_deref(), Some("testuser"));
+        assert_eq!(cli_args.uid, Some(1000));
+        assert_eq!(cli_args.gid, Some(1000));
+        assert!(cli_args.debug);
+        assert!(cli_args.read_only);
+        assert!(cli_args.is_fstab);
+    }
+
+    /// Test that run-as-user is filtered out from CLI args but preserved in CliArgs
+    #[test]
+    fn test_run_as_user_filtering() {
+        let args = [
+            "_",
+            "demo_s3_bucket",
+            "/mnt/test",
+            "-o",
+            "run-as-user=testuser,uid=1000,debug",
+        ]
+        .to_vec();
+
+        let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
+        let (cli_arg_list, run_as_user) = fstab_cli_args.into_cli_arg_list().unwrap();
+
+        // run-as-user should be extracted
+        assert_eq!(run_as_user.as_deref(), Some("testuser"));
+
+        // run-as-user should not appear in the CLI arg list
+        let args_string = cli_arg_list.join(" ");
+        assert!(!args_string.contains("run-as-user"));
+
+        // Other options should still be present
+        assert!(args_string.contains("--uid"));
+        assert!(args_string.contains("--debug"));
+    }
+
+    /// Test run-as-user with escaped characters
+    #[test]
+    fn test_run_as_user_with_escaped_chars() {
+        let args = [
+            "_",
+            "demo_s3_bucket",
+            "/mnt/test",
+            "-o",
+            "run-as-user=test\\,user,uid=1000",
+        ]
+        .to_vec();
+
+        let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
+        let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
+
+        // The comma should be unescaped in the username
+        assert_eq!(cli_args.run_as_user.as_deref(), Some("test,user"));
+        assert_eq!(cli_args.uid, Some(1000));
+        assert!(cli_args.is_fstab);
+    }
+
+    /// Test run-as-user position independence
+    #[test_case("run-as-user=testuser,uid=1000,debug")]
+    #[test_case("uid=1000,run-as-user=testuser,debug")]
+    #[test_case("uid=1000,debug,run-as-user=testuser")]
+    fn test_run_as_user_position_independence(options: &str) {
+        let args = ["_", "demo_s3_bucket", "/mnt/test", "-o", options].to_vec();
+
+        let fstab_cli_args = FsTabCliArgs::try_parse_from(args).unwrap();
+        let cli_args: CliArgs = fstab_cli_args.try_into().unwrap();
+
+        assert_eq!(cli_args.run_as_user.as_deref(), Some("testuser"));
+        assert_eq!(cli_args.uid, Some(1000));
+        assert!(cli_args.debug);
+        assert!(cli_args.is_fstab);
     }
 
     proptest! {
