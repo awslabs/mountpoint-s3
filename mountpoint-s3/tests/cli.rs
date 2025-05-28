@@ -291,7 +291,6 @@ fn verify_new_part_size_config_conflict_with_old_one(
     Ok(())
 }
 
-#[cfg(feature = "fstab")]
 #[test]
 fn fstab_rw_conflicts_with_ro() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
@@ -304,7 +303,6 @@ fn fstab_rw_conflicts_with_ro() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fstab")]
 #[test]
 fn fstab_cannot_use_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
@@ -317,7 +315,6 @@ fn fstab_cannot_use_foreground() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fstab")]
 #[test]
 fn fstab_cannot_use_read_only() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
@@ -330,7 +327,6 @@ fn fstab_cannot_use_read_only() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(feature = "fstab")]
 #[test]
 fn fstab_cannot_use_multiple_prefixes() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
@@ -346,7 +342,6 @@ fn fstab_cannot_use_multiple_prefixes() -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-#[cfg(feature = "fstab")]
 #[test]
 fn fstab_no_options() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;

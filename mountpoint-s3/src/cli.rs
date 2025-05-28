@@ -50,7 +50,7 @@ Arguments:
         ArgGroup::new("cache_group")
             .multiple(true),
     ),
-    after_help = if cfg!(feature = "fstab") {FSTAB_DOCS} else {""},
+    after_help = FSTAB_DOCS,
 )]
 pub struct CliArgs {
     #[clap(
