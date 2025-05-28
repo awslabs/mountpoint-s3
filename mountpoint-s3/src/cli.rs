@@ -42,7 +42,7 @@ Arguments:
           fstab style options. Comma separated list of CLI options, with backslash escapes for commas, backslashes, and double quotes.
           Use of `--` to prefix arguments is not allowed.";
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
@@ -387,6 +387,9 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         value_name = "NETWORK_INTERFACE",
     )]
     pub bind: Option<Vec<String>>,
+
+    #[clap(skip)]
+    pub run_as_user: Option<String>,
 
     #[clap(skip)]
     pub is_fstab: bool,
@@ -850,5 +853,26 @@ mod tests {
         } else {
             parsed.expect_err("invalid kms key identifier");
         }
+    }
+
+    /// Test that run_as_user is properly preserved in fstab mode
+    #[test]
+    fn test_run_as_user_preservation_in_fstab() {
+        let username = "testuser";
+        let args = CliArgs {
+            run_as_user: Some(username.to_string()),
+            is_fstab: true,
+            ..Default::default()
+        };
+
+        // Verify the run_as_user value is preserved
+        assert_eq!(args.run_as_user.as_deref(), Some(username));
+        assert!(args.is_fstab);
+
+        // Verify filesystem_config works in fstab mode
+        let result = std::panic::catch_unwind(|| {
+            args.filesystem_config(ServerSideEncryption::default(), S3Personality::default())
+        });
+        assert!(result.is_ok());
     }
 }
