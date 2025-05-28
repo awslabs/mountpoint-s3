@@ -125,13 +125,16 @@ impl<E: std::error::Error + Send + Sync + 'static> From<UploadError<E>> for Erro
 impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> for Error {
     fn from(err: PrefetchReadError<E>) -> Self {
         match err {
-            PrefetchReadError::GetRequestFailed(ObjectClientError::ServiceError(
-                GetObjectError::PreconditionFailed,
-            )) => err!(libc::ESTALE, "object was mutated remotely"),
+            PrefetchReadError::GetRequestFailed {
+                source: ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(_)),
+                metadata,
+            } => err!(libc::ESTALE, __source:None, Level::WARN, (*metadata).clone(), "object was mutated remotely",),
+            PrefetchReadError::GetRequestFailed { source, metadata } => {
+                err!(libc::EIO, source:source, Level::WARN, metadata:(*metadata).clone(), "get request failed")
+            }
             PrefetchReadError::Integrity(e) => err!(libc::EIO, source:e, "integrity error"),
             PrefetchReadError::PartReadFailed(e) => err!(libc::EIO, source:e, "part read failed"),
-            PrefetchReadError::GetRequestFailed(_)
-            | PrefetchReadError::GetRequestTerminatedUnexpectedly
+            PrefetchReadError::GetRequestTerminatedUnexpectedly
             | PrefetchReadError::GetRequestReturnedWrongOffset { .. }
             | PrefetchReadError::BackpressurePreconditionFailed
             | PrefetchReadError::ReadWindowIncrement => {

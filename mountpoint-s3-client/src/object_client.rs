@@ -158,13 +158,42 @@ pub enum ObjectClientError<S, C> {
 
 impl<S, C> ProvideErrorMetadata for ObjectClientError<S, C>
 where
+    S: ProvideErrorMetadata,
     C: ProvideErrorMetadata,
 {
     fn meta(&self) -> ClientErrorMetadata {
         match self {
             Self::ClientError(err) => err.meta(),
-            _ => Default::default(),
+            Self::ServiceError(err) => err.meta(),
         }
+    }
+}
+
+impl ProvideErrorMetadata for GetObjectError {
+    fn meta(&self) -> ClientErrorMetadata {
+        match self {
+            GetObjectError::NoSuchBucket(client_error_metadata) => client_error_metadata.clone(),
+            GetObjectError::NoSuchKey(client_error_metadata) => client_error_metadata.clone(),
+            GetObjectError::PreconditionFailed(client_error_metadata) => client_error_metadata.clone(),
+        }
+    }
+}
+
+impl ProvideErrorMetadata for ListObjectsError {
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
+    }
+}
+
+impl ProvideErrorMetadata for HeadObjectError {
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
+    }
+}
+
+impl ProvideErrorMetadata for DeleteObjectError {
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
     }
 }
 
@@ -176,13 +205,13 @@ pub type ObjectClientResult<T, S, C> = Result<T, ObjectClientError<S, C>>;
 #[non_exhaustive]
 pub enum GetObjectError {
     #[error("The bucket does not exist")]
-    NoSuchBucket,
+    NoSuchBucket(ClientErrorMetadata),
 
     #[error("The key does not exist")]
-    NoSuchKey,
+    NoSuchKey(ClientErrorMetadata),
 
     #[error("At least one of the preconditions specified did not hold")]
-    PreconditionFailed,
+    PreconditionFailed(ClientErrorMetadata),
 }
 
 /// Parameters to a [`get_object`](ObjectClient::get_object) request

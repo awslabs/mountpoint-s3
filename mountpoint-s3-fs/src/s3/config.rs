@@ -207,7 +207,7 @@ fn validate_client_for_bucket(
     match futures::executor::block_on(list_request) {
         Ok(_) => Ok(client),
         // Don't try to automatically correct the region if it was manually specified incorrectly
-        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(correct_region)))
+        Err(ObjectClientError::ClientError(S3RequestError::IncorrectRegion(correct_region, _)))
             if !region.user_specified =>
         {
             tracing::warn!(
