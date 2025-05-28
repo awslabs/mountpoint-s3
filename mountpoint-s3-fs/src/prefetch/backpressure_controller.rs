@@ -174,7 +174,10 @@ impl BackpressureController {
         let next_window_end_offset = prev_window_end_offset + len as u64;
         trace!(
             next_read_offset = self.next_read_offset,
-            prev_window_end_offset, next_window_end_offset, len, "incrementing read window",
+            prev_window_end_offset,
+            next_window_end_offset,
+            len,
+            "incrementing read window",
         );
 
         // This should not block since the channel is unbounded
