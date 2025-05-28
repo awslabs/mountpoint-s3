@@ -260,9 +260,9 @@ impl BackpressureLimiter {
         // Reaching here means there is not enough read window, so we block until it is large enough
         while self.read_window_end_offset <= offset && self.read_window_end_offset < self.request_end_offset {
             trace!(
-                offset,
-                read_window_offset = self.read_window_end_offset,
-                "blocking for read window increment"
+                desired_offset = offset,
+                current_offset = self.read_window_end_offset,
+                "blocking for read window increment",
             );
             match self.read_window_increment_queue.recv_drain().await {
                 Ok(len) => self.read_window_end_offset += len as u64,
