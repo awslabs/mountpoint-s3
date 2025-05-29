@@ -120,6 +120,10 @@ def _mount_mp(
     if (max_throughput := cfg['network']['maximum_throughput_gbps']) is not None:
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
+    if cfg['mountpoint_prefetcher_heuristic'] is not None:
+        # use with `+mountpoint_prefetcher_heuristic="HALF_CONSUMED, LINEAR_READSIZE"`
+        subprocess_env["UNSTABLE_MOUNTPOINT_BACKPRESSURE_INC_HEURISTIC"] = str(cfg['mountpoint_prefetcher_heuristic'])
+
     if cfg['mountpoint_max_background'] is not None:
         subprocess_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(cfg['mountpoint_max_background'])
 
