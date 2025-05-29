@@ -277,6 +277,7 @@ mod tests {
     use std::sync::Arc;
 
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use std::collections::HashSet;
     use test_case::test_case;
 
     use crate::mem_limiter::MemoryLimiter;
@@ -341,7 +342,8 @@ mod tests {
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController<MockClient>, BackpressureLimiter) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
+
             part_size: 8 * 1024 * 1024,
             enable_backpressure: true,
             initial_read_window_size: backpressure_config.initial_read_window_size,

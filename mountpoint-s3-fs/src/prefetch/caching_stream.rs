@@ -405,6 +405,7 @@ mod tests {
         mock_client::{MockClient, MockClientConfig, MockObject, Operation},
         types::ETag,
     };
+    use std::collections::HashSet;
     use test_case::test_case;
 
     use crate::{
@@ -445,7 +446,7 @@ mod tests {
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: client_part_size,
             enable_backpressure: true,
             initial_read_window_size,
@@ -453,7 +454,7 @@ mod tests {
         };
         let mock_client = Arc::new(MockClient::new(config));
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
-        mock_client.add_object(key, object.clone());
+        mock_client.add_object("test-bucket", key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let stream = CachingPartStream::new(runtime, mock_client.clone(), mem_limiter.clone(), cache);
@@ -526,7 +527,7 @@ mod tests {
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: client_part_size,
             enable_backpressure: true,
             initial_read_window_size,
@@ -534,7 +535,7 @@ mod tests {
         };
         let mock_client = Arc::new(MockClient::new(config));
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
-        mock_client.add_object(key, object.clone());
+        mock_client.add_object(bucket, key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let stream = CachingPartStream::new(runtime, mock_client, mem_limiter.clone(), cache);

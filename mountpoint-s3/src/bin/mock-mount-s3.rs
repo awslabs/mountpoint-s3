@@ -10,6 +10,7 @@
 //!
 //! This binary is intended only for use in testing and development of Mountpoint.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -47,7 +48,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
     tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
 
     let config = MockClientConfig {
-        bucket: args.bucket_name.clone(),
+        allowed_buckets: HashSet::from([args.bucket_name.clone()]),
         part_size: args.part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,
@@ -77,11 +78,24 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         } else {
             format!("test-{}B", size)
         };
-        client.add_object(&key, MockObject::ramp(0x11, size as usize, ETag::for_tests()));
+        client.add_object(
+            &args.bucket_name,
+            &key,
+            MockObject::ramp(0x11, size as usize, ETag::for_tests()),
+        );
     }
-    client.add_object("hello.txt", MockObject::from_bytes(b"hello world", ETag::for_tests()));
-    client.add_object("empty", MockObject::from_bytes(b"", ETag::for_tests()));
     client.add_object(
+        &args.bucket_name,
+        "hello.txt",
+        MockObject::from_bytes(b"hello world", ETag::for_tests()),
+    );
+    client.add_object(
+        &args.bucket_name,
+        "empty",
+        MockObject::from_bytes(b"", ETag::for_tests()),
+    );
+    client.add_object(
+        &args.bucket_name,
         "dir/hello.txt",
         MockObject::from_bytes(b"hello world", ETag::for_tests()),
     );

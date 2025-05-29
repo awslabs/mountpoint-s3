@@ -623,7 +623,8 @@ impl Harness {
         trace!(key, "put object");
 
         let object = contents.to_mock_object();
-        self.client.add_object(&key, object.clone());
+
+        self.client.add_object(&self.bucket, &key, object.clone());
         self.reference.add_remote_key(&key, object);
         // Any local directories along the path are made remote by adding this object
         self.reference.remove_local_parents(key_as_path);
@@ -806,7 +807,7 @@ mod read_only {
 
         let namespace = flatten_tree(tree);
         for (key, object) in namespace.iter() {
-            client.add_object(&format!("{test_prefix}{key}"), object.clone());
+            client.add_object(BUCKET_NAME, &format!("{test_prefix}{key}"), object.clone());
         }
 
         let reference = Reference::new(namespace);
@@ -959,7 +960,7 @@ mod mutations {
 
         let namespace = flatten_tree(initial_tree);
         for (key, object) in namespace.iter() {
-            client.add_object(&format!("{test_prefix}{key}"), object.clone());
+            client.add_object(BUCKET_NAME, &format!("{test_prefix}{key}"), object.clone());
         }
 
         let reference = Reference::new(namespace);

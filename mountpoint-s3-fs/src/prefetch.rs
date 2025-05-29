@@ -505,7 +505,7 @@ mod tests {
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use test_case::test_case;
 
     const MB: usize = 1024 * 1024;
@@ -555,7 +555,7 @@ mod tests {
 
     fn run_sequential_read_test(prefetcher_type: PrefetcherType, size: u64, read_size: usize, test_config: TestConfig) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -565,7 +565,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
@@ -677,7 +677,7 @@ mod tests {
 
         // backpressure is not enabled for the client
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: false,
             ..Default::default()
@@ -701,7 +701,7 @@ mod tests {
 
         // backpressure is enabled but initial read window size is zero
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: 0,
@@ -719,7 +719,7 @@ mod tests {
         get_failures: HashMap<usize, GetObjectFailureMode<MockClientError>>,
     ) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -729,7 +729,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let client = Arc::new(countdown_failure_client(
             client,
@@ -855,7 +855,7 @@ mod tests {
         test_config: TestConfig,
     ) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -865,7 +865,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
@@ -1003,7 +1003,7 @@ mod tests {
         const OBJECT_SIZE: usize = 2 * PART_SIZE;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: PART_SIZE,
             enable_backpressure: true,
             // For simplicity, prefetch the whole object in one request.
@@ -1014,7 +1014,7 @@ mod tests {
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let mut get_failures = HashMap::new();
         get_failures.insert(
@@ -1075,7 +1075,7 @@ mod tests {
         const OBJECT_SIZE: usize = 2 * PART_SIZE;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: PART_SIZE,
             enable_backpressure: true,
             initial_read_window_size: PART_SIZE,
@@ -1084,7 +1084,7 @@ mod tests {
         let client = MockClient::new(config);
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let mut get_failures = HashMap::new();
         // On first request, terminate the stream without producing any data
@@ -1142,7 +1142,7 @@ mod tests {
         const FIRST_REQUEST_SIZE: usize = 100;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size,
             enable_backpressure: true,
             initial_read_window_size: FIRST_REQUEST_SIZE,
@@ -1152,7 +1152,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
 
@@ -1177,7 +1177,7 @@ mod tests {
         const OBJECT_SIZE: usize = 200;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size,
             enable_backpressure: true,
             initial_read_window_size: part_size,
@@ -1187,7 +1187,7 @@ mod tests {
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
-        client.add_object("hello", object);
+        client.add_object("test-bucket", "hello", object);
 
         let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
 
@@ -1232,7 +1232,7 @@ mod tests {
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
             let config = MockClientConfig {
-                bucket: "test-bucket".to_string(),
+                allowed_buckets: HashSet::from(["test-bucket".to_string()]),
                 part_size,
                 enable_backpressure: true,
                 initial_read_window_size,
@@ -1243,7 +1243,7 @@ mod tests {
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
-            client.add_object("hello", object);
+            client.add_object("test-bucket", "hello", object);
 
             let prefetcher_config = PrefetcherConfig {
                 max_read_window_size,
@@ -1292,7 +1292,7 @@ mod tests {
             let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
 
             let config = MockClientConfig {
-                bucket: "test-bucket".to_string(),
+                allowed_buckets: HashSet::from(["test-bucket".to_string()]),
                 part_size,
                 enable_backpressure: true,
                 initial_read_window_size,
@@ -1303,7 +1303,7 @@ mod tests {
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
-            client.add_object("hello", object);
+            client.add_object("test-bucket", "hello", object);
 
             let prefetcher_config = PrefetcherConfig {
                 max_read_window_size,

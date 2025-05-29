@@ -614,17 +614,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_can_remove_inodes() {
+        let bucket = "test_bucket";
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
-        client.add_object(name, b"foo".into());
+        client.add_object(bucket, name, b"foo".into());
 
-        let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(bucket, &Default::default(), Default::default());
 
         let lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
@@ -654,14 +655,14 @@ mod tests {
     #[tokio::test]
     async fn test_forget_shadowed_inode() {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
-        client.add_object(name, b"foo".into());
+        client.add_object("test_bucket", name, b"foo".into());
 
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
@@ -671,7 +672,7 @@ mod tests {
         let ino = lookup.inode.ino();
         drop(lookup);
 
-        client.add_object(&format!("{name}/bar"), b"bar".into());
+        client.add_object("test_bucket", &format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
         let new_lookup = superblock.lookup(&client, ROOT_INODE_NO, name.as_ref()).await.unwrap();
@@ -687,13 +688,17 @@ mod tests {
     #[tokio::test]
     async fn test_unlink_verify_checksum() {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let file_name = "corrupted";
-        client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
+        client.add_object(
+            "test_bucket",
+            file_name.as_ref(),
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
 
         let superblock = Superblock::new("test_bucket", &Default::default(), Default::default());
 
@@ -748,7 +753,7 @@ mod tests {
     #[tokio::test]
     async fn test_setattr_invalid_stat() {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -811,14 +816,14 @@ mod tests {
         fn test_create_and_forget_race_condition() {
             async fn test_helper() {
                 let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
+                    allowed_buckets: HashSet::from(["test_bucket".to_string()]),
                     part_size: 1024 * 1024,
                     ..Default::default()
                 };
                 let client = Arc::new(MockClient::new(client_config));
 
                 let name = "foo";
-                client.add_object(name, b"foo".into());
+                client.add_object("test_bucket", name, b"foo".into());
 
                 let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
 

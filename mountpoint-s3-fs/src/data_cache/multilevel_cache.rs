@@ -120,6 +120,7 @@ mod tests {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
     use mountpoint_s3_client::types::ETag;
+    use std::collections::HashSet;
     use tempfile::TempDir;
     use test_case::test_case;
 
@@ -139,7 +140,7 @@ mod tests {
     fn create_express_cache() -> (MockClient, ExpressDataCache<MockClient>) {
         let bucket = "test_bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: PART_SIZE,
             enable_backpressure: true,
             initial_read_window_size: PART_SIZE,
@@ -160,6 +161,7 @@ mod tests {
     async fn test_put_to_both_caches(cleanup_local: bool, cleanup_express: bool) {
         let (cache_dir, disk_cache) = create_disk_cache();
         let (client, express_cache) = create_express_cache();
+        let bucket = "test_bucket";
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
@@ -178,7 +180,7 @@ mod tests {
             cache_dir.close().expect("should clean up local cache");
         }
         if cleanup_express {
-            client.remove_all_objects();
+            client.remove_all_objects(bucket);
         }
 
         // check we can retrieve an entry from one of the caches unless both were cleaned up
@@ -202,6 +204,7 @@ mod tests {
     async fn test_put_from_express_to_local() {
         let (_cache_dir, disk_cache) = create_disk_cache();
         let (client, express_cache) = create_express_cache();
+        let bucket = "test_bucket";
 
         let data = ChecksummedBytes::new("Foo".into());
         let object_size = data.len();
@@ -226,7 +229,7 @@ mod tests {
         );
 
         // delete entry from express
-        client.remove_all_objects();
+        client.remove_all_objects(bucket);
 
         // get entry from the local cache (with retries as it is async)
         let mut retries = 10;
@@ -248,7 +251,7 @@ mod tests {
             data, entry,
             "cache entry returned should match original bytes after put"
         );
-        assert_eq!(client.object_count(), 0);
+        assert_eq!(client.object_count_for_bucket(bucket), 0);
     }
 
     #[tokio::test]
@@ -353,6 +356,7 @@ mod tests {
         let (client, express_cache) = create_express_cache();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
+        let bucket = "test_bucket";
 
         let data = vec![0u8; 1024 * 1024 + 1];
         let data = ChecksummedBytes::new(data.into());
@@ -365,7 +369,7 @@ mod tests {
             .await
             .expect("put should succeed");
 
-        assert_eq!(client.object_count(), 0, "cache must be empty");
+        assert_eq!(client.object_count_for_bucket(bucket), 0, "cache must be empty");
 
         // try to get from the cache, assuming it is missing in local
         cache_dir.close().expect("should clean up local cache");

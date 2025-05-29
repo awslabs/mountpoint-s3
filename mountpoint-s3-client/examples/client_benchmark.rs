@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::pin::pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -158,7 +159,7 @@ fn main() {
             const KEY: &str = "key";
 
             let config = MockClientConfig {
-                bucket: BUCKET.to_owned(),
+                allowed_buckets: HashSet::from([BUCKET.to_string()]),
                 part_size: args.part_size,
                 unordered_list_seed: None,
                 ..Default::default()
@@ -166,7 +167,11 @@ fn main() {
             let client = ThroughputMockClient::new(config, args.throughput_target_gbps);
             let client = Arc::new(client);
 
-            client.add_object(KEY, MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()));
+            client.add_object(
+                BUCKET,
+                KEY,
+                MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()),
+            );
 
             run_benchmark(client, args.iterations, args.downloads, BUCKET, KEY);
         }
