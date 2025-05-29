@@ -157,16 +157,34 @@ impl<Client: ObjectClient> BackpressureController<Client> {
 
                 match &self.increment_heuristic {
                     BackpressureIncrementHeuristic::Linear => {
-                        let new_read_window_end_offset = self
-                            .next_read_offset
-                            .saturating_add(self.preferred_read_window_size as u64)
-                            .min(self.request_end_offset);
-                        let to_increase =
-                            new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
-                        if to_increase > 0 {
-                            // TODO: This currently just forces the reservation, we should implement scale down.
-                            self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
-                            self.increment_read_window(to_increase).await;
+                        loop {
+                            let new_read_window_end_offset = self
+                                .next_read_offset
+                                .saturating_add(self.preferred_read_window_size as u64)
+                                .min(self.request_end_offset);
+                            let to_increase =
+                                new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
+
+                            if to_increase == 0 {
+                                // There's nothing to increment, just accept the feedback.
+                                // This can happen with random read patterns or prefetcher scale down.
+                                break;
+                            }
+
+                            // Force incrementing window regardless of available memory when at minimum window size.
+                            if self.preferred_read_window_size <= self.min_read_window_size {
+                                self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
+                                self.increment_read_window(to_increase).await;
+                                break;
+                            } else {
+                                // Try to reserve memory and inc. read window, otherwise scale down and try again.
+                                if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                                    self.increment_read_window(to_increase).await;
+                                    break;
+                                } else {
+                                    self.scale_down();
+                                }
+                            }
                         }
                     }
                     BackpressureIncrementHeuristic::AfterHalfConsumed => {
