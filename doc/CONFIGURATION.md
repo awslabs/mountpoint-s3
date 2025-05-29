@@ -285,28 +285,94 @@ To increase the maximum object size for writes, use the `--write-part-size` comm
 
 ### Automatically mounting an S3 bucket at boot
 
-Mountpoint does not currently support automatically mounting a bucket at system boot time.
-A tracking issue is open for `fstab` support: [#44](https://github.com/awslabs/mountpoint-s3/issues/44).
+Mountpoint supports automatically mounting an S3 bucket as a local filesystem when your EC2 instance boots up or restarts using the filesystem table file (`/etc/fstab`). Once you modify the fstab file to add a new entry for Mountpoint, your compute instance will read the configuration from the fstab file whenever it restarts to automatically mount the S3 bucket.
 
-Until this support is implemented, we recommend using a service manager like systemd to manage the mount process and mount during boot.
-Below is an example of a systemd unit that launches Mountpoint at boot time.
-Replace `/home/ec2-user/s3-bucket-mount` and `amzn-s3-demo-bucket` with your mount directory and S3 bucket.
+You can use the following example to edit the fstab file to configure automatic mounting. This example uses the first field to specify the S3 location to mount is `amzn-s3-demo-bucket` using a prefix `example-prefix/` and the second field specifies the  local path `/mnt/mountpoint`. The third field is always set to `mount-s3`, specifying that Mountpoint manages this mount.
 
-```ini
-[Unit]
-Description=Mountpoint for Amazon S3 mount
-Wants=network.target
-AssertPathIsDirectory=/home/ec2-user/s3-bucket-mount
+#### Example
 
-[Service]
-Type=forking
-User=ec2-user
-Group=ec2-user
-ExecStart=/usr/bin/mount-s3 amzn-s3-demo-bucket /home/ec2-user/s3-bucket-mount
-ExecStop=/usr/bin/fusermount -u /home/ec2-user/s3-bucket-mount
+```
+s3://amzn-s3-demo-bucket/example-prefix/ /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,nofail,rw 0 0
+```
+The options given mean the following:
 
-[Install]
-WantedBy=remote-fs.target
+* `_netdev` specifies that the filesystem requires networking to mount.
+* `nosuid` specifies that the filesystem cannot contain set userid files.
+* `nodev` specifies that the filesystem cannot contain special devices.
+* `nofail` specifies that failure to mount the filesystem should still allow the system to boot.
+* `rw` specifies that the mount point be created with read and write permissions. Alternatively, use `ro` for read only.
+
+> [!WARNING]
+> The _`netdev`, `nosuid`, and `nodev` options are required when using Mountpoint from fstab. If you do not include these options, Mountpoint will fail to start. We highly recommend you also use the `nofail` option to allow the operating system to start up in case of problems.
+
+> [!IMPORTANT]
+> When running using fstab, Mountpoint will run as root and will use credentials as normal when launched from fstab, but must be available at instance startup. We recommend using IMDS as a credential provider when using Mountpoint with fstab. Given Mountpoint runs as root when using fstab, it will look in root’s home directory for any AWS profile (typically `/root/.aws/config` and `/root/.aws/credentials`).
+
+The options field takes regular Mountpoint CLI arguments as comma separated values in the form `key=value`. For example if you previously used `--allow-delete --uid 7` as CLI arguments you would use `allow-delete,uid=7` in your fstab file.
+
+If you need to include commas in your CLI argument, for example `--cache /tmp/foo,bar`, you would escape the commas in the argument with backslashes like so: `cache=/tmp/foo\,bar`. Characters that need backslash escaping include backslashes (`\`), commas (`,`), and double quotes (`"`).
+
+To stop Mountpoint from running at boot, remove the corresponding line from your fstab file. The filesystem will no longer be automatically mounted on subsequent reboots.
+
+#### Validating changes to the fstab file
+
+If your fstab file is invalid, your operating system may fail to boot. We recommend making a backup of your fstab file before changes, and also using the `nofail` option to ensure invalid Mountpoint configuration or startup failures do not prevent the instance from booting.
+To validate changes, you can use the following snippet, changing `/mnt/mountpoint` to the local path specified in your fstab file:
+
+```
+MNT_PATH=/mnt/mountpoint
+sudo systemctl daemon-reload
+sudo systemctl restart "$(systemd-escape --suffix=mount --path $MNT_PATH)"
+sudo systemctl status "$(systemd-escape --suffix=mount --path $MNT_PATH)"
+```
+
+#### Example output for a successful mount:
+
+```
+● mnt-mountpoint.mount - /mnt/mountpoint
+     Loaded: loaded (/etc/fstab; generated)
+     Active: active (mounted) since Tue 2025-05-20 10:53:36 UTC; 16s ago
+      Where: /mnt/mountpoint
+       What: mountpoint-s3
+       Docs: man:fstab(5)
+             man:systemd-fstab-generator(8)
+      Tasks: 17 (limit: 9347)
+     Memory: 22.8M
+        CPU: 72ms
+     CGroup: /system.slice/mnt-mountpoint.mount
+             └─476 /sbin/mount.mount-s3 amzn-s3-demo-bucket /mnt/mountpoint -o rw,nosuid,nodev,allow-other,_netdev
+
+May 20 10:53:35 ip-172-31-40-171 systemd[1]: Mounting mnt-mountpoint.mount - /mnt/mountpoint...
+May 20 10:53:35 ip-172-31-40-171 mount[466]: Using 'fstab' style options as detected use of `-o` argument.
+May 20 10:53:36 ip-172-31-40-171 mount[466]: bucket amzn-s3-demo-bucket is mounted at /mnt/mountpoint
+May 20 10:53:36 ip-172-31-40-171 systemd[1]: Mounted mnt-mountpoint.mount - /mnt/mountpoint.
+```
+
+By validating the fstab file, you can be confident that Mountpoint will be automatically mounted after subsequent reboots.
+
+#### Using EC2 User Data to install and configure Mountpoint
+
+You can setup Mountpoint as part of new instance launches by including a user data script to install Mountpoint and configure the fstab file.
+
+#### Example user data script (tested on AL2023)
+
+```
+#!/bin/bash -e
+
+# Install Mountpoint
+MP_RPM=$(mktemp --suffix=.rpm)
+curl https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm > $MP_RPM
+yum install -y $MP_RPM
+rm $MP_RPM
+
+# Setup the fstab file and create the mount
+MNT_PATH=/mnt/mountpoint
+echo "s3://amzn-s3-demo-bucket/ ${MNT_PATH} mount-s3 _netdev,nosuid,nodev,rw,allow-other,nofail" >> /etc/fstab
+mkdir $MNT_PATH
+
+# Mount
+systemctl daemon-reload
+mount -a
 ```
 
 ### Providing a FUSE file descriptor for mounting
