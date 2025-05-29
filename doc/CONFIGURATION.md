@@ -303,7 +303,7 @@ The options given mean the following:
 * `rw` specifies that the mount point be created with read and write permissions. Alternatively, use `ro` for read only.
 
 > [!WARNING]
-> The _`netdev`, `nosuid`, and `nodev` options are required when using Mountpoint from fstab. If you do not include these options, Mountpoint will fail to start. We highly recommend you also use the `nofail` option to allow the operating system to start up in case of problems.
+> The `_netdev`, `nosuid`, and `nodev` options are required when using Mountpoint from fstab. If you do not include these options, Mountpoint will fail to start. We highly recommend you also use the `nofail` option to allow the operating system to start up in case of problems.
 
 > [!IMPORTANT]
 > When running using fstab, Mountpoint will run as root and will use credentials as normal when launched from fstab, but must be available at instance startup. We recommend using IMDS as a credential provider when using Mountpoint with fstab. Given Mountpoint runs as root when using fstab, it will look in root’s home directory for any AWS profile (typically `/root/.aws/config` and `/root/.aws/credentials`).
