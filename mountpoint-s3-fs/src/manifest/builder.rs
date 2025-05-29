@@ -17,32 +17,30 @@ pub fn create_db(
     db.create_table()?;
 
     // TODO: remove hardcoded directories
-    db.insert_batch(&[
-        DbEntry {
-            id: 2,
-            full_key: "0".to_string(),
-            name: Some("0".to_string()),
+    let dirs: Vec<_> = (0..100)
+        .map(|i| DbEntry {
+            id: i + 2,
+            full_key: i.to_string(),
+            name: Some(i.to_string()),
             parent_id: Some(1),
             etag: None,
             size: None,
-        },
-        DbEntry {
-            id: 3,
-            full_key: "1".to_string(),
-            name: Some("1".to_string()),
-            parent_id: Some(1),
-            etag: None,
-            size: None,
-        },
-    ])?;
+        })
+        .collect();
+    db.insert_batch(&dirs)?;
 
     let mut buffer = Vec::with_capacity(batch_size);
     for entry in entries {
         let mut entry = entry?;
-        entry.parent_id = if entry.full_key.starts_with("0/") {
-            Some(2)
-        } else {
-            Some(3)
+        entry.parent_id = {
+            let i: u64 = entry
+                .full_key
+                .split("/")
+                .next()
+                .unwrap()
+                .parse()
+                .expect("must be a number");
+            Some(i + 2)
         };
         entry.name = Some(
             entry

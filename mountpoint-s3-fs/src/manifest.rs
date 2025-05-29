@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -30,8 +31,6 @@ pub enum ManifestError {
     InvalidRow,
     #[error("csv error")]
     CsvError(#[from] csv::Error),
-    #[error("readdir out of order")]
-    ReaddirOutOfOrder,
 }
 
 /// An entry returned by manifest_lookup() and ManifestIter::next()
@@ -112,89 +111,84 @@ impl Manifest {
         }
     }
 
-    // /// Create an iterator over directory's direct children
-    // pub fn iter(&self, parent_id: u64) -> ManifestIter {
-    //     ManifestIter::new(self.db.clone(), parent_id)
-    // }
-
-    pub fn manifest_lookup_children(
-        &self,
-        parent_id: u64,
-        offset: usize,
-        batch_size: usize,
-    ) -> Result<Vec<ManifestEntry>, ManifestError> {
-        let db_entries = self.db.select_children(parent_id, offset, batch_size)?;
-
-        db_entries.into_iter().map(|db_entry| db_entry.try_into()).collect()
+    /// Create an iterator over directory's direct children
+    pub fn iter(&self, parent_id: u64) -> ManifestIter {
+        ManifestIter::new(self.db.clone(), parent_id)
     }
 }
 
-// #[derive(Debug)]
-// pub struct ManifestIter {
-//     db: Db,
-//     /// Prepared entries in order to be returned by the iterator.
-//     entries: VecDeque<ManifestEntry>,
-//     /// ID of the directory being listed by this iterator
-//     parent_id: u64,
-//     /// Offset of the next child to search for in the database
-//     next_offset: usize,
-//     /// Max amount of entries to read from the database at once
-//     batch_size: usize,
-//     /// Database has no more entries
-//     finished: bool,
-// }
+#[derive(Debug)]
+pub struct ManifestIter {
+    db: Db,
+    /// Prepared entries in order to be returned by the iterator.
+    entries: VecDeque<ManifestEntry>,
+    /// ID of the directory being listed by this iterator
+    parent_id: u64,
+    /// Offset of the next child to search for in the database
+    next_offset: usize,
+    /// Max amount of entries to read from the database at once
+    batch_size: usize,
+    /// Database has no more entries
+    finished: bool,
+}
 
-// impl ManifestIter {
-//     fn new(db: Db, parent_id: u64) -> Self {
-//         let batch_size = 10000;
-//         Self {
-//             db,
-//             entries: Default::default(),
-//             parent_id,
-//             next_offset: 0,
-//             batch_size,
-//             finished: false,
-//         }
-//     }
+impl ManifestIter {
+    fn new(db: Db, parent_id: u64) -> Self {
+        let batch_size = 10000;
+        Self {
+            db,
+            entries: Default::default(),
+            parent_id,
+            next_offset: 0,
+            batch_size,
+            finished: false,
+        }
+    }
 
-//     /// Next child of the directory
-//     pub fn next_entry(&mut self) -> Result<Option<ManifestEntry>, ManifestError> {
-//         if self.entries.is_empty() && !self.finished {
-//             self.search_next_entries()?;
-//         }
+    /// Next child of the directory
+    pub fn next_entry(&mut self) -> Result<Option<ManifestEntry>, ManifestError> {
+        if self.entries.is_empty() && !self.finished {
+            self.search_next_entries()?;
+        }
 
-//         self.next_offset += 1;
+        let entry = self.entries.pop_front();
+        if entry.is_some() {
+            self.next_offset += 1;
+        }
 
-//         Ok(self.entries.pop_front())
-//     }
+        Ok(entry)
+    }
 
-//     pub fn readd(&mut self, entry: ManifestEntry) {
-//         self.next_offset -= 1;
-//         self.entries.push_front(entry);
-//     }
+    pub fn readd(&mut self, entry: ManifestEntry) {
+        self.next_offset -= 1;
 
-//     pub fn seek(&mut self, offset: usize) -> Result<(), ManifestError> {
-//         if offset == self.next_offset {
-//             Ok(())
-//         } else {
-//             Err(ManifestError::ReaddirOutOfOrder)
-//         }
-//     }
+        self.entries.push_front(entry);
+    }
 
-//     /// Load next batch of entries from the database, keeping track of the `next_offset`
-//     fn search_next_entries(&mut self) -> Result<(), ManifestError> {
-//         let db_entries = self
-//             .db
-//             .select_children(self.parent_id, self.next_offset, self.batch_size)?;
+    pub fn seek(&mut self, offset: usize) -> Result<(), ManifestError> {
+        if offset != self.next_offset {
+            metrics::counter!("manifest.readdir.out_of_order").increment(1);
+            self.entries.clear();
+            self.next_offset = offset;
+            self.finished = false;
+        };
+        Ok(())
+    }
 
-//         if db_entries.len() < self.batch_size {
-//             self.finished = true;
-//         }
+    /// Load next batch of entries from the database
+    fn search_next_entries(&mut self) -> Result<(), ManifestError> {
+        let db_entries = self
+            .db
+            .select_children(self.parent_id, self.next_offset, self.batch_size)?;
 
-//         let manifest_entries: Result<Vec<ManifestEntry>, ManifestError> =
-//             db_entries.into_iter().map(|db_entry| db_entry.try_into()).collect();
-//         self.entries.extend(manifest_entries?);
+        if db_entries.len() < self.batch_size {
+            self.finished = true;
+        }
 
-//         Ok(())
-//     }
-// }
+        let manifest_entries: Result<Vec<ManifestEntry>, ManifestError> =
+            db_entries.into_iter().map(|db_entry| db_entry.try_into()).collect();
+        self.entries.extend(manifest_entries?);
+
+        Ok(())
+    }
+}

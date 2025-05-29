@@ -1,30 +1,18 @@
-use std::collections::VecDeque;
-use std::ffi::OsStr;
-use std::ffi::OsString;
-use std::time::Duration;
-use std::time::UNIX_EPOCH;
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::time::{Duration, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use fuser::FileAttr;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use crate::fs::DirectoryEntry;
-use crate::fs::FUSE_ROOT_INODE;
-use crate::manifest::Manifest;
-use crate::manifest::ManifestEntry;
-use crate::mountspace::LookedUp;
-use crate::mountspace::Mountspace;
-use crate::mountspace::MountspaceDirectoryReplier;
-use crate::mountspace::S3Location;
-use crate::superblock::InodeError;
-use crate::superblock::InodeErrorInfo;
-use crate::superblock::InodeKind;
-use crate::superblock::InodeNo;
-use crate::superblock::InodeStat;
-use crate::superblock::MakeAttrConfig;
-use crate::superblock::WriteMode;
+use crate::fs::{DirectoryEntry, FUSE_ROOT_INODE};
+use crate::manifest::{Manifest, ManifestEntry, ManifestIter};
+use crate::mountspace::{LookedUp, Mountspace, MountspaceDirectoryReplier, S3Location};
+use crate::superblock::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, MakeAttrConfig, WriteMode};
 use crate::sync::atomic::{AtomicU64, Ordering};
+use crate::sync::{Arc, Mutex, RwLock};
 
 // 200 years seems long enough
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
@@ -36,6 +24,7 @@ pub struct HyperBlock {
     mount_time: OffsetDateTime,
     manifest: Manifest,
     next_dir_handle_id: AtomicU64,
+    readdir_handles: RwLock<HashMap<u64, Arc<Mutex<ManifestIter>>>>,
 }
 
 impl HyperBlock {
@@ -46,6 +35,7 @@ impl HyperBlock {
             mount_time: OffsetDateTime::now_utc(),
             manifest,
             next_dir_handle_id: Default::default(),
+            readdir_handles: Default::default(),
         }
     }
 
@@ -210,9 +200,13 @@ impl Mountspace for HyperBlock {
         Ok(())
     }
 
-    async fn new_readdir_handle(&self, _dir_ino: InodeNo, _page_size: usize) -> Result<u64, InodeError> {
-        // TODO: dummy counter, is it actually required?
+    async fn new_readdir_handle(&self, dir_ino: InodeNo, _page_size: usize) -> Result<u64, InodeError> {
         let readdir_handle_id = self.next_dir_handle_id.fetch_add(1, Ordering::SeqCst);
+        let readdir_handle = self.manifest.iter(dir_ino);
+        self.readdir_handles
+            .write()
+            .expect("lock must succeed")
+            .insert(readdir_handle_id, Arc::new(Mutex::new(readdir_handle)));
         Ok(readdir_handle_id)
     }
 
@@ -238,7 +232,7 @@ impl Mountspace for HyperBlock {
     async fn readdir<'a>(
         &self,
         parent: InodeNo,
-        _fh: u64,
+        fh: u64,
         mut offset: i64,
         _is_readdirplus: bool,
         mut reply: MountspaceDirectoryReplier<'a>,
@@ -278,17 +272,22 @@ impl Mountspace for HyperBlock {
         }
 
         // load entries from the manifest
-        let batch_size = 128;
-        let mut entries: VecDeque<ManifestEntry> = Default::default();
+        let Some(readdir_handle) = self
+            .readdir_handles
+            .read()
+            .expect("lock must succeed")
+            .get(&fh)
+            .cloned()
+        else {
+            return Err(InodeError::NoSuchDirHandle);
+        };
+        let mut readdir_handle = readdir_handle.lock().expect("lock must succeed"); // TODO: fine grained locking?
+        readdir_handle.seek((offset - 2) as usize)?; // shift offset accounting for '.' and '..'
         loop {
-            if entries.is_empty() {
-                let offset = (offset - 2) as usize; // shift offset accounting for '.' and '..'
-                entries.extend(self.manifest.manifest_lookup_children(parent, offset, batch_size)?);
-            }
-            let Some(manifest_entry) = entries.pop_front() else {
+            let Some(manifest_entry) = readdir_handle.next_entry()? else {
                 break;
             };
-            let (ino, full_key, size, kind) = match manifest_entry {
+            let (ino, full_key, size, kind) = match manifest_entry.clone() {
                 ManifestEntry::File { id, full_key, size, .. } => (id, full_key, size, InodeKind::File),
                 ManifestEntry::Directory { id, full_key, .. } => (id, full_key, 0, InodeKind::Directory),
             };
@@ -301,6 +300,7 @@ impl Mountspace for HyperBlock {
                 ttl: NEVER_EXPIRE_TTL,
             };
             if reply.add(readdir_entry) {
+                readdir_handle.readd(manifest_entry);
                 break;
             }
             offset += 1;
