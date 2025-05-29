@@ -494,6 +494,7 @@ mod tests {
     use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use mountpoint_s3_client::types::ETag;
+    use std::collections::HashSet;
     use test_case::test_case;
 
     #[test_case(1024, 512 * 1024; "block_size smaller than part_size")]
@@ -502,7 +503,7 @@ mod tests {
     async fn test_put_get(part_size: usize, block_size: u64) {
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size,
             enable_backpressure: true,
             initial_read_window_size: part_size,
@@ -601,7 +602,8 @@ mod tests {
     async fn large_object_bypassed() {
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
+
             part_size: 8 * 1024 * 1024,
             enable_backpressure: true,
             initial_read_window_size: 8 * 1024 * 1024,
@@ -625,7 +627,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         assert!(get_result.is_none());
-        assert_eq!(client.object_count(bucket), 0, "cache must be empty");
+        assert_eq!(client.object_count_for_bucket(bucket), 0, "cache must be empty");
     }
 
     #[tokio::test]
@@ -633,7 +635,7 @@ mod tests {
         let source_bucket = "source-bucket";
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 8 * 1024 * 1024,
             enable_backpressure: true,
             initial_read_window_size: 8 * 1024 * 1024,
@@ -760,7 +762,7 @@ mod tests {
         let source_bucket = "source-bucket";
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 8 * 1024 * 1024,
             enable_backpressure: true,
             initial_read_window_size: 8 * 1024 * 1024,
@@ -777,7 +779,7 @@ mod tests {
         let source_bucket = "source-bucket";
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 8 * 1024 * 1024,
             enable_backpressure: true,
             initial_read_window_size: 8 * 1024 * 1024,

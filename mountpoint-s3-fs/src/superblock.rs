@@ -1202,6 +1202,7 @@ impl InodeError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::str::FromStr;
 
     use mountpoint_s3_client::{
@@ -1232,7 +1233,7 @@ mod tests {
     async fn test_lookup(prefix: &str) {
         let bucket = "test_bucket";
         let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1353,7 +1354,7 @@ mod tests {
         let bucket = "test_bucket";
         let prefix = "prefix/";
         let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1419,7 +1420,7 @@ mod tests {
         let bucket = "test_bucket";
         let prefix = "prefix/";
         let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1479,7 +1480,7 @@ mod tests {
     #[tokio::test]
     async fn test_readdir(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1553,7 +1554,7 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_no_remote_keys(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1594,7 +1595,7 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_local_keys_after_remote_keys(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1647,7 +1648,7 @@ mod tests {
     async fn test_create_local_dir(prefix: &str) {
         let bucket = "test_bucket";
         let client_config = MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1692,7 +1693,7 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_lookup_after_rmdir(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1735,7 +1736,7 @@ mod tests {
     #[tokio::test]
     async fn test_readdir_unordered(prefix: &str, ordered: bool) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             unordered_list_seed: (!ordered).then_some(123456),
             ..Default::default()
@@ -1851,7 +1852,7 @@ mod tests {
     #[tokio::test]
     async fn test_rmdir_delete_status(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1897,7 +1898,7 @@ mod tests {
     #[tokio::test]
     async fn test_parent_readdir_after_rmdir(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1937,7 +1938,7 @@ mod tests {
     #[tokio::test]
     async fn test_lookup_after_unlink(prefix: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -1975,7 +1976,7 @@ mod tests {
     #[tokio::test]
     async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -2030,7 +2031,7 @@ mod tests {
     #[tokio::test]
     async fn test_inode_reuse() {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -2071,7 +2072,7 @@ mod tests {
     #[tokio::test]
     async fn test_lookup_directory_overlap(subdir: &str) {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -2113,7 +2114,7 @@ mod tests {
         let bucket = "test_bucket";
 
         let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -2175,14 +2176,15 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_setattr(prefix: &str) {
+        let bucket = "test_bucket";
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let superblock = Superblock::new("test_bucket", &prefix, Default::default());
+        let superblock = Superblock::new(bucket, &prefix, Default::default());
 
         // Create a new file
         let filename = "newfile.txt";

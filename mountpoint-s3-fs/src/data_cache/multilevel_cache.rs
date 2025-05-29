@@ -120,6 +120,7 @@ mod tests {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
     use mountpoint_s3_client::types::ETag;
+    use std::collections::HashSet;
     use tempfile::TempDir;
     use test_case::test_case;
 
@@ -139,7 +140,7 @@ mod tests {
     fn create_express_cache() -> (MockClient, ExpressDataCache<MockClient>) {
         let bucket = "test_bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: PART_SIZE,
             enable_backpressure: true,
             initial_read_window_size: PART_SIZE,
@@ -250,7 +251,7 @@ mod tests {
             data, entry,
             "cache entry returned should match original bytes after put"
         );
-        assert_eq!(client.object_count(bucket), 0);
+        assert_eq!(client.object_count_for_bucket(bucket), 0);
     }
 
     #[tokio::test]
@@ -368,7 +369,7 @@ mod tests {
             .await
             .expect("put should succeed");
 
-        assert_eq!(client.object_count(bucket), 0, "cache must be empty");
+        assert_eq!(client.object_count_for_bucket(bucket), 0, "cache must be empty");
 
         // try to get from the cache, assuming it is missing in local
         cache_dir.close().expect("should clean up local cache");

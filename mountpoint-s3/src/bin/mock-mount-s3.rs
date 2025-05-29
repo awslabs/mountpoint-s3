@@ -48,7 +48,6 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
     tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
 
     let config = MockClientConfig {
-        bucket: args.bucket_name.clone(),
         allowed_buckets: HashSet::from([args.bucket_name.clone()]),
         part_size: args.part_size as usize,
         unordered_list_seed: None,
