@@ -27,7 +27,7 @@ impl Prefix {
     }
 
     pub fn empty() -> Self {
-        Self::new("").unwrap()
+        Self { path: "".to_owned() }
     }
 
     pub fn as_str(&self) -> &str {

@@ -13,7 +13,7 @@ use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint}
 use mountpoint_s3_fs::logging::{prepare_log_file_name, LoggingConfig};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, S3Path};
+use mountpoint_s3_fs::s3::config::{parse_s3_uri_or_bucket_name, BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
 use sysinfo::{RefreshKind, System};
@@ -53,8 +53,11 @@ Arguments:
     after_help = if cfg!(feature = "fstab") {FSTAB_DOCS} else {""},
 )]
 pub struct CliArgs {
-    #[clap(help = "Name of bucket, or an S3 URI, to mount")]
-    pub bucket_name: String,
+    #[clap(
+        help = "Name of bucket, or an S3 URI, to mount",
+        value_parser = parse_s3_uri_or_bucket_name,
+    )]
+    pub bucket_name: BucketNameOrS3Uri,
 
     #[clap(
         help = "Directory or FUSE file descriptor to mount the bucket at",
@@ -342,8 +345,9 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "BUCKET",
         group = "cache_group",
+        value_parser = parse_s3_uri_or_bucket_name,
     )]
-    pub cache_xz: Option<String>,
+    pub cache_xz: Option<BucketNameOrS3Uri>,
 
     #[clap(
         long,
@@ -448,22 +452,17 @@ impl CliArgs {
 
     pub fn s3_path(&self) -> anyhow::Result<S3Path> {
         let prefix = self.prefix.as_ref().cloned().unwrap_or_default();
-        if self.bucket_name.starts_with("s3://") {
-            if prefix.as_str().is_empty() {
-                S3Path::from_s3_uri(self.bucket_name.to_owned()).map_err(|e| anyhow!(e))
-            } else {
-                Err(anyhow!("explicit prefix option not allowed with S3 URI"))
+        let s3path = match self.bucket_name.clone() {
+            BucketNameOrS3Uri::S3Uri(s3uri) => {
+                if prefix.as_str().is_empty() {
+                    s3uri.into()
+                } else {
+                    return Err(anyhow!("explicit prefix option not allowed with S3 URI"));
+                }
             }
-        } else {
-            S3Path::from_bucket_prefix(self.bucket_name.to_owned(), prefix.clone()).map_err(|e| anyhow!(e))
-        }
-        .map_err(|e| {
-            e.context(format!(
-                "could not parse `BUCKET_NAME` and `prefix`. Found bucket name: '{}' and prefix: '{}'",
-                self.bucket_name,
-                prefix.as_str()
-            ))
-        })
+            BucketNameOrS3Uri::BucketName(bucket_name) => S3Path::new(bucket_name, prefix),
+        };
+        Ok(s3path)
     }
 
     fn mem_limit(&self) -> u64 {
@@ -563,21 +562,17 @@ impl CliArgs {
         cache_config
     }
 
-    fn cache_express_bucket_name(&self) -> anyhow::Result<Option<S3Path>> {
-        if let Some(bucket_name) = &self.cache_xz {
-            let s3_path = if bucket_name.starts_with("s3://") {
-                S3Path::from_s3_uri(bucket_name.to_owned())
-            } else {
-                S3Path::from_bucket_prefix(bucket_name.to_owned(), Prefix::empty())
-            }
-            .map_err(|e| anyhow!(e).context("could not parse cache-xz argument"));
-            return s3_path.map(Some);
-        }
-        Ok(None)
+    fn cache_express_bucket_name(&self) -> Option<S3Path> {
+        let bucket_name = self.cache_xz.to_owned()?;
+        let s3path = match bucket_name {
+            BucketNameOrS3Uri::BucketName(bucket_name) => S3Path::new(bucket_name, Prefix::empty()),
+            BucketNameOrS3Uri::S3Uri(s3_uri) => s3_uri.into(),
+        };
+        Some(s3path)
     }
 
     fn express_data_cache_config(&self, sse: ServerSideEncryption) -> anyhow::Result<Option<ExpressDataCacheConfig>> {
-        match self.cache_express_bucket_name()? {
+        match self.cache_express_bucket_name() {
             Some(express_path) => {
                 if !express_path.prefix.as_str().is_empty() {
                     return Err(anyhow!("cache-xz argument must not contain a prefix"));
@@ -691,7 +686,7 @@ impl CliArgs {
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads as usize)
     }
 
-    fn user_agent(&self, instance_info: &InstanceInfo, version: &str) -> anyhow::Result<UserAgent> {
+    fn user_agent(&self, instance_info: &InstanceInfo, version: &str) -> UserAgent {
         let user_agent_prefix = if let Some(custom_prefix) = &self.user_agent_prefix {
             format!("{} mountpoint-s3/{}", custom_prefix, version)
         } else {
@@ -704,7 +699,7 @@ impl CliArgs {
         if self.is_fstab {
             user_agent.value("mp-fstab");
         }
-        match (&self.cache, self.cache_express_bucket_name()?) {
+        match (&self.cache, self.cache_express_bucket_name()) {
             (None, None) => (),
             (None, Some(_)) => {
                 user_agent.key_value("mp-cache", "shared");
@@ -722,7 +717,7 @@ impl CliArgs {
         if let Some(interfaces) = &self.bind {
             user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
         }
-        Ok(user_agent)
+        user_agent
     }
 
     fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> f64 {
@@ -765,13 +760,13 @@ impl CliArgs {
         }
     }
 
-    pub fn client_config(&self, version: &str) -> anyhow::Result<ClientConfig> {
+    pub fn client_config(&self, version: &str) -> ClientConfig {
         let instance_info = InstanceInfo::new();
-        let user_agent = self.user_agent(&instance_info, version)?;
+        let user_agent = self.user_agent(&instance_info, version);
         let throughput_target_gbps = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
-        Ok(ClientConfig {
+        ClientConfig {
             region,
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: self.addressing_style(),
@@ -784,7 +779,7 @@ impl CliArgs {
             bind: self.bind.clone(),
             part_config: self.part_config(),
             user_agent,
-        })
+        }
     }
 }
 
@@ -811,8 +806,6 @@ fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mountpoint_s3_fs::prefix::PrefixError;
-    use mountpoint_s3_fs::s3::config::S3PathError;
     use test_case::test_case;
 
     #[test_case("s3://bucket--eun1-az1--x-s3", true; "s3:// example bucket")]
@@ -824,8 +817,7 @@ mod tests {
         fn _parse_cli_args(bucket_name: &str) -> Option<()> {
             let cli_args =
                 CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--cache-xz", bucket_name]).ok()?;
-            let xz_cache_path = cli_args.cache_express_bucket_name();
-            xz_cache_path.ok()?.unwrap();
+            let _xz_cache_path = cli_args.cache_express_bucket_name().unwrap();
             Some(())
         }
         assert_eq!(
@@ -842,21 +834,38 @@ mod tests {
     #[test_case("bucket", Ok(("bucket".to_string(), "".to_string())); "raw example bucket")]
     #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", Ok(("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap".to_string(), "".to_string())); "ARN example")]
     #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", Ok(("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name".to_string(), "".to_string())); "S3 outpost accesspoint ARN")]
-    #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", Err(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter)); "S3 URI with ARN without trailing slash")]
-    #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name/", Err(S3PathError::InvalidBucketNameS3URI); "S3 URI with ARN")]
+    #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", Err("invalid bucket prefix".to_string()); "S3 URI with ARN without trailing slash")]
+    #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name/", Err("the bucket must have a valid name (only letters, numbers, . and -). ARNs are not supported in s3:// URIs".to_string()); "S3 URI with ARN")]
     #[test_case("s3://bucket/prefix/", Ok(("bucket".to_string(), "prefix/".to_string())); "s3:// example bucket with prefix")]
-    #[test_case("s3://bucket/prefix", Err(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter)); "s3:// example bucket with prefix with missing delimeter")]
-    fn validate_bucket_path(bucket_name: &str, expected_path: Result<(String, String), S3PathError>) {
-        let cli_args = CliArgs::try_parse_from(["mount-s3", bucket_name, "test/location"]).unwrap();
-        let s3_path = cli_args
-            .s3_path()
-            .map(|path| (path.bucket_name, path.prefix.as_str().to_string()))
-            .map_err(|e| e.downcast::<S3PathError>().unwrap());
-        assert_eq!(
-            expected_path, s3_path,
-            "bucket_name: {:?}, expected: {:?}",
-            s3_path, expected_path,
-        );
+    #[test_case("s3://bucket/prefix", Err("invalid bucket prefix".to_string()); "s3:// example bucket with prefix with missing delimeter")]
+    fn validate_bucket_path(bucket_name: &str, expected_path: Result<(String, String), String>) {
+        fn get_err(bucket_name: &str) -> Result<(String, String), anyhow::Error> {
+            let cli_args = CliArgs::try_parse_from(["mount-s3", bucket_name, "test/location"])?;
+            cli_args
+                .s3_path()
+                .map(|path| (path.bucket_name, path.prefix.as_str().to_string()))
+        }
+        let s3_path = get_err(bucket_name);
+        match (s3_path, expected_path) {
+            (Ok(s3_path), Ok(expected_path)) => {
+                assert_eq!(
+                    expected_path, s3_path,
+                    "bucket_name: {:?}, expected: {:?}",
+                    s3_path, expected_path,
+                );
+            }
+            (Err(err), Err(should_contain)) => {
+                assert!(
+                    format!("{:#}", err).contains(&should_contain),
+                    "Actual error `{:#}` does not contain string {:?}",
+                    err,
+                    should_contain
+                )
+            }
+            (s3_path, expected_path) => {
+                panic!("bucket_name: {:?}, expected: {:?}", s3_path, expected_path);
+            }
+        }
     }
 
     // https://docs.aws.amazon.com/kms/latest/developerguide/concepts.html#key-id

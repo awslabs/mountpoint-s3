@@ -69,6 +69,59 @@ pub enum S3PathError {
     PrefixError(#[from] PrefixError),
 }
 
+type BucketName = String;
+
+#[derive(Debug, Clone)]
+pub struct S3Uri {
+    /// Name of bucket
+    pub bucket_name: String,
+
+    /// Prefix inside the bucket
+    pub prefix: Prefix,
+}
+
+#[derive(Debug, Clone)]
+pub enum BucketNameOrS3Uri {
+    BucketName(BucketName),
+    S3Uri(S3Uri),
+}
+
+fn validate_bucket_name(bucket_name: String) -> Result<BucketName, S3PathError> {
+    validate_bucket_length(&bucket_name)?;
+    if matches_bucket_regex(&bucket_name) || bucket_name.starts_with("arn:") {
+        Ok(bucket_name)
+    } else {
+        Err(S3PathError::InvalidBucketName)
+    }
+}
+
+fn validate_s3_uri(s3_uri: String) -> Result<S3Uri, S3PathError> {
+    let bucket_prefix = s3_uri.strip_prefix("s3://").ok_or(S3PathError::ExpectedS3URI)?;
+    let (bucket, prefix) = {
+        if let Some((bucket, prefix_str)) = bucket_prefix.split_once("/") {
+            (bucket, Prefix::new(prefix_str)?)
+        } else {
+            (bucket_prefix, Prefix::empty())
+        }
+    };
+    validate_bucket_length(bucket)?;
+    if !matches_bucket_regex(bucket) {
+        return Err(S3PathError::InvalidBucketNameS3URI);
+    }
+    Ok(S3Uri {
+        bucket_name: bucket.to_string(),
+        prefix,
+    })
+}
+
+pub fn parse_s3_uri_or_bucket_name(bucket_name_or_uri: &str) -> Result<BucketNameOrS3Uri, S3PathError> {
+    if bucket_name_or_uri.starts_with("s3://") {
+        validate_s3_uri(bucket_name_or_uri.to_string()).map(BucketNameOrS3Uri::S3Uri)
+    } else {
+        validate_bucket_name(bucket_name_or_uri.to_string()).map(BucketNameOrS3Uri::BucketName)
+    }
+}
+
 /// A bucket & prefix combination.
 #[derive(Debug, Clone)]
 pub struct S3Path {
@@ -80,47 +133,8 @@ pub struct S3Path {
 }
 
 impl S3Path {
-    pub fn from_bucket_prefix(bucket_name: String, prefix: Prefix) -> Result<Self, S3PathError> {
-        Self::validate_bucket_length(&bucket_name)?;
-        if Self::matches_bucket_regex(&bucket_name) || bucket_name.starts_with("arn:") {
-            Ok(Self { bucket_name, prefix })
-        } else {
-            Err(S3PathError::InvalidBucketName)
-        }
-    }
-
-    pub fn from_s3_uri(s3_uri: String) -> Result<Self, S3PathError> {
-        let bucket_prefix = s3_uri.strip_prefix("s3://").ok_or(S3PathError::ExpectedS3URI)?;
-        let (bucket, prefix) = {
-            if let Some((bucket, prefix_str)) = bucket_prefix.split_once("/") {
-                (bucket, Prefix::new(prefix_str)?)
-            } else {
-                (bucket_prefix, Prefix::empty())
-            }
-        };
-        Self::validate_bucket_length(bucket)?;
-        if !Self::matches_bucket_regex(bucket) {
-            return Err(S3PathError::InvalidBucketNameS3URI);
-        }
-        Ok(Self {
-            bucket_name: bucket.to_string(),
-            prefix,
-        })
-    }
-
-    fn validate_bucket_length(bucket_name: &str) -> Result<(), S3PathError> {
-        if bucket_name.len() < 3 || bucket_name.len() > 255 {
-            Err(S3PathError::InvalidBucketLength)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn matches_bucket_regex(bucket_name: &str) -> bool {
-        // Actual bucket names must start/end with a letter, but bucket aliases can end with numbers
-        // (-s3), so let's just naively check for invalid characters.
-        let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
-        bucket_regex.is_match(bucket_name)
+    pub fn new(bucket_name: BucketName, prefix: Prefix) -> Self {
+        Self { bucket_name, prefix }
     }
 
     pub fn bucket_description(&self) -> String {
@@ -130,6 +144,27 @@ impl S3Path {
             format!("prefix {} of bucket {}", self.prefix, self.bucket_name)
         }
     }
+}
+
+impl From<S3Uri> for S3Path {
+    fn from(s3uri: S3Uri) -> Self {
+        Self::new(s3uri.bucket_name, s3uri.prefix)
+    }
+}
+
+fn validate_bucket_length(bucket_name: &str) -> Result<(), S3PathError> {
+    if bucket_name.len() < 3 || bucket_name.len() > 255 {
+        Err(S3PathError::InvalidBucketLength)
+    } else {
+        Ok(())
+    }
+}
+
+fn matches_bucket_regex(bucket_name: &str) -> bool {
+    // Actual bucket names must start/end with a letter, but bucket aliases can end with numbers
+    // (-s3), so let's just naively check for invalid characters.
+    let bucket_regex = Regex::new(r"^[0-9a-zA-Z\-\._]+$").unwrap();
+    bucket_regex.is_match(bucket_name)
 }
 
 #[derive(Debug)]
@@ -313,32 +348,44 @@ mod tests {
     #[test_case("test-123.buc_ket", VALID; "bucket name with .")]
     #[test_case("my-access-point-hrzrlukc5m36ft7okagglf3gmwluquse1b-s3alias", VALID; "access point alias")]
     #[test_case("my-object-lambda-acc-1a4n8yjrb3kda96f67zwrwiiuse1a--ol-s3", VALID; "object lambda access point alias")]
-    #[test_case("s3://test-bucket", INVALID; "s3 uris not allowed for from_bucket_prefix")]
+    #[test_case("s3://test-bucket", INVALID; "s3 uris not allowed for validate_bucket_name")]
     #[test_case("~/mnt", INVALID; "directory name in place of bucket")]
     #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", VALID; "multiregion accesspoint ARN")]
     #[test_case("arn:aws:s3:::amzn-s3-demo-bucket", VALID; "bucket ARN(maybe rejected by endpoint resolver with error message)")]
     #[test_case("arn:aws-cn:s3:cn-north-2:555555555555:accesspoint/china-region-ap", VALID; "standard accesspoint ARN in China")]
     #[test_case("arn:aws-us-gov:s3-object-lambda:us-gov-west-1:555555555555:accesspoint/example-olap", VALID; "S3 object lambda accesspoint in US Gov")]
     #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", VALID; "S3 outpost accesspoint ARN")]
-    fn validate_from_bucket_prefix(bucket_name: &str, valid: bool) {
-        let parsed = S3Path::from_bucket_prefix(bucket_name.to_owned(), Prefix::empty());
+    fn validate_from_bucket(bucket_name: &str, valid: bool) {
+        let parsed =
+            validate_bucket_name(bucket_name.to_owned()).map(|bucket_name| S3Path::new(bucket_name, Prefix::empty()));
         if valid {
-            assert_eq!(parsed.expect("valid bucket name").bucket_name, bucket_name);
+            let s3_path = parsed.expect("valid bucket name");
+            assert_eq!(s3_path.bucket_name, bucket_name);
+            assert_eq!(s3_path.prefix.as_str(), "");
         } else {
             parsed.expect_err("invalid bucket name");
         }
     }
 
-    #[test_case("s3://test-bucket", VALID; "s3 uris allowed")]
-    #[test_case("s3://a", INVALID; "too short")]
-    #[test_case("s3://[][][][]", INVALID; "invalid bucket name")]
-    #[test_case("test-bucket", INVALID; "only s3 uris allowed")]
-    #[test_case("s3://test-bucket/foo", INVALID; "prefixes must end in /")]
-    fn validate_from_s3_uri(bucket_name: &str, valid: bool) {
-        let parsed = S3Path::from_s3_uri(bucket_name.to_owned());
+    #[test_case("s3://test-bucket", "", VALID; "s3 uris allowed")]
+    #[test_case("s3://test-bucket/", "", VALID; "s3 uris allowed with trailing /")]
+    #[test_case("s3://test-bucket/prefix/", "prefix/", VALID; "s3 uris allowed with prefixes ending in /")]
+    #[test_case("s3://a", "", INVALID; "too short")]
+    #[test_case("s3://[][][][]", "", INVALID; "invalid bucket name")]
+    #[test_case("test-bucket", "", INVALID; "only s3 uris allowed")]
+    #[test_case("s3://test-bucket/foo", "", INVALID; "prefixes must end in /")]
+    #[test_case("s3://arn:aws:s3:::amzn-s3-demo-bucket", "", INVALID; "ARNs not allowed in S3 URIs")]
+    fn validate_from_s3_uri(bucket_name: &str, prefix: &str, valid: bool) {
+        let parsed = validate_s3_uri(bucket_name.to_owned());
         if valid {
             let expected = bucket_name.strip_prefix("s3://").unwrap();
-            assert_eq!(parsed.expect("valid bucket name").bucket_name, expected);
+            let expected_bucket = expected
+                .split_once("/")
+                .map(|(bucket, _prefix)| bucket)
+                .unwrap_or(expected);
+            let s3_uri = parsed.expect("valid bucket name");
+            assert_eq!(s3_uri.bucket_name, expected_bucket);
+            assert_eq!(s3_uri.prefix.as_str(), prefix)
         } else {
             parsed.expect_err("invalid bucket name");
         }

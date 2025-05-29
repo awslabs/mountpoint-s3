@@ -207,7 +207,7 @@ where
 
 /// Create a real S3 client
 pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
-    let client_config = args.client_config(build_info::FULL_VERSION)?;
+    let client_config = args.client_config(build_info::FULL_VERSION);
 
     let s3_path = args.s3_path()?;
     let client = client_config

@@ -20,6 +20,7 @@ use mountpoint_s3::CliArgs;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
 use mountpoint_s3_client::types::ETag;
+use mountpoint_s3_fs::s3::config::BucketNameOrS3Uri;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::Runtime;
 
@@ -29,11 +30,16 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
+    let bucket_name = match &args.bucket_name {
+        BucketNameOrS3Uri::BucketName(bucket_name) => bucket_name,
+        BucketNameOrS3Uri::S3Uri(_) => panic!("mock-mount-s3 bucket names do not support S3 URIs"),
+    };
+
     // An extra little safety thing to make sure we can distinguish the real mount-s3 binary and
     // this one. Buckets starting with "sthree-" are always invalid against real S3:
     // https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
     anyhow::ensure!(
-        args.bucket_name.starts_with("sthree-"),
+        bucket_name.starts_with("sthree-"),
         "mock-mount-s3 bucket names must start with `sthree-`"
     );
 
@@ -47,7 +53,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
     tracing::info!("mock client target network throughput {max_throughput_gbps} Gbps");
 
     let config = MockClientConfig {
-        bucket: args.bucket_name.clone(),
+        bucket: bucket_name.clone(),
         part_size: args.part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,

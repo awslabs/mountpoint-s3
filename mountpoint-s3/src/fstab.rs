@@ -156,8 +156,6 @@ fn split_commas(string: &str) -> anyhow::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mountpoint_s3_fs::prefix::PrefixError;
-    use mountpoint_s3_fs::s3::config::S3PathError;
     use proptest::{prop_assert_eq, proptest};
     use proptest_derive::Arbitrary;
     use test_case::test_case;
@@ -197,22 +195,18 @@ mod tests {
     #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "cache=\\\"foo\\\""].to_vec(),     true,  Ok("".to_string()))]
     #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "cache=\""].to_vec(),              false, Ok("".to_string()))]
     #[test_case(["_", "demo_s3_bucket",                                                "/mnt/test", "-o", "-f"].to_vec(),                    false, Ok("".to_string()))]
-    #[test_case(["_", "##############",                                                "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::InvalidBucketName)))]
+    #[test_case(["_", "##############",                                                "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
     #[test_case(["_", "s3://demo_s3_bucket/prefix/",                                   "/mnt/test", "-o", "ro"].to_vec(),                    true,  Ok("prefix/".to_string()))]
-    #[test_case(["_", "s3://demo_s3_bucket/",                                          "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err(Err("explicit prefix option not allowed with S3 URI".to_string())))]
-    #[test_case(["_", "s3://demo_s3_bucket2",                                          "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err(Err("explicit prefix option not allowed with S3 URI".to_string())))]
-    #[test_case(["_", "s3://demo_s3_bucket/prefix",                                    "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
-    #[test_case(["_", "s3://demo_s3_bucket/prefix/",                                   "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err(Err("explicit prefix option not allowed with S3 URI".to_string())))]
-    #[test_case(["_", "s3://arn:aws:s3:::demo_s3_bucket",                              "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::InvalidBucketNameS3URI)))]
-    #[test_case(["_", "s3://arn:aws:s3:::demo_s3_bucket/prefix",                       "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
-    #[test_case(["_", "s3://arn:aws:s3:region:account-id:accesspoint/my-access-point", "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
-    #[test_case(["_", "s3://arn:aws:s3::123456789012:accesspoint/mfzwi23gnjvgw.mrap",  "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::PrefixError(PrefixError::MissingFinalDelimiter))))]
-    #[test_case(["_", "s3://sm",                                                       "/mnt/test", "-o", "ro"].to_vec(),                    true,  Err(Ok(S3PathError::InvalidBucketLength)))]
-    fn test_fstab_cli_args_parses(
-        args: Vec<&str>,
-        should_parse: bool,
-        expected_prefix: Result<String, Result<S3PathError, String>>,
-    ) {
+    #[test_case(["_", "s3://demo_s3_bucket/",                                          "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err("explicit prefix option not allowed with S3 URI".to_string()))]
+    #[test_case(["_", "s3://demo_s3_bucket2",                                          "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err("explicit prefix option not allowed with S3 URI".to_string()))]
+    #[test_case(["_", "s3://demo_s3_bucket/prefix",                                    "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "s3://demo_s3_bucket/prefix/",                                   "/mnt/test", "-o", "ro,prefix=foo/"].to_vec(),        true,  Err("explicit prefix option not allowed with S3 URI".to_string()))]
+    #[test_case(["_", "s3://arn:aws:s3:::demo_s3_bucket",                              "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "s3://arn:aws:s3:::demo_s3_bucket/prefix",                       "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "s3://arn:aws:s3:region:account-id:accesspoint/my-access-point", "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "s3://arn:aws:s3::123456789012:accesspoint/mfzwi23gnjvgw.mrap",  "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
+    #[test_case(["_", "s3://sm",                                                       "/mnt/test", "-o", "ro"].to_vec(),                    false, Ok("".to_string()))]
+    fn test_fstab_cli_args_parses(args: Vec<&str>, should_parse: bool, expected_prefix: Result<String, String>) {
         let res: Result<CliArgs, clap::Error> =
             FsTabCliArgs::try_parse_from(&args).and_then(|fstab_cli_args| fstab_cli_args.try_into());
         assert_eq!(res.is_ok(), should_parse, "args={:?}\n res={:?}", args, res);
@@ -225,11 +219,11 @@ mod tests {
                     assert_eq!(s3_path.prefix.as_str(), prefix.as_str());
                 }
                 Err(expected_err) => {
-                    let actual_err: Result<S3PathError, String> = cli_args
+                    let actual_err = cli_args
                         .s3_path()
                         .expect_err("should get error getting s3 path")
-                        .downcast()
-                        .map_err(|e| e.root_cause().to_string());
+                        .root_cause()
+                        .to_string();
                     assert_eq!(expected_err, actual_err)
                 }
             }
