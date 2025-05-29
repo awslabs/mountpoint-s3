@@ -945,12 +945,13 @@ mod tests {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
     use mountpoint_s3_client::types::ETag;
+    use std::collections::HashSet;
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
         let bucket = "bucket";
         let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             enable_backpressure: true,
             initial_read_window_size: 1024 * 1024,
             ..Default::default()

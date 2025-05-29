@@ -197,7 +197,7 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use crate::fs::SseCorruptedError;
     use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
@@ -242,7 +242,7 @@ mod tests {
         let key = name;
 
         let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 32,
             ..Default::default()
         }));
@@ -268,7 +268,7 @@ mod tests {
         let storage_class = "INTELLIGENT_TIERING";
 
         let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 32,
             ..Default::default()
         }));
@@ -309,7 +309,7 @@ mod tests {
         let key = name;
 
         let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 32,
             ..Default::default()
         }));
@@ -363,7 +363,7 @@ mod tests {
         let key = name;
 
         let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: PART_SIZE,
             ..Default::default()
         }));
@@ -422,7 +422,7 @@ mod tests {
         let key = name;
 
         let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 32,
             ..Default::default()
         }));

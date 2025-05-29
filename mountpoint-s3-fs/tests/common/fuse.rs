@@ -222,6 +222,7 @@ pub mod mock_session {
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
     use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
     use mountpoint_s3_fs::prefetch::Prefetcher;
+    use std::collections::HashSet;
 
     const BUCKET_NAME: &str = "test_bucket";
 
@@ -236,7 +237,7 @@ pub mod mock_session {
         };
 
         let client_config = MockClientConfig {
-            bucket: BUCKET_NAME.to_string(),
+            allowed_buckets: HashSet::from([BUCKET_NAME.to_string()]),
             part_size: test_config.part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -277,7 +278,7 @@ pub mod mock_session {
             };
 
             let client_config = MockClientConfig {
-                bucket: BUCKET_NAME.to_string(),
+                allowed_buckets: HashSet::from([BUCKET_NAME.to_string()]),
                 part_size: test_config.part_size,
                 enable_backpressure: true,
                 initial_read_window_size: test_config.initial_read_window_size,

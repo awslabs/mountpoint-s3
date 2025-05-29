@@ -62,8 +62,6 @@ static RAMP_BYTES: LazyLock<Vec<u8>> = LazyLock::new(|| ramp_bytes(0, RAMP_BUFFE
 
 #[derive(Debug, Default, Clone)]
 pub struct MockClientConfig {
-    /// The bucket name this client will connect to as a default
-    pub bucket: String,
     /// Names of all buckets the client is allowed to connect to
     pub allowed_buckets: HashSet<String>,
     /// The size of the parts that GetObject will respond with
@@ -104,7 +102,6 @@ impl MockClient {
         for bucket_name in config.allowed_buckets.clone().into_iter() {
             buckets.insert(bucket_name, Default::default());
         }
-        buckets.insert(config.bucket.clone(), Default::default());
 
         Self {
             config,
@@ -113,24 +110,8 @@ impl MockClient {
         }
     }
 
-    pub fn get_default_bucket_name(&self) -> String {
-        self.config.bucket.clone()
-    }
-
     pub fn is_allowlisted_bucket(&self, bucket: &str) -> bool {
-        bucket == self.config.bucket || // TODO: Needed for legacy, as allowed_buckets defaults to []
         self.config.allowed_buckets.contains(bucket)
-    }
-
-    #[cfg(test)]
-    fn get_objects_for_default_bucket(&self) -> Arc<RwLock<BTreeMap<String, MockObject>>> {
-        self.buckets
-            .read()
-            .unwrap()
-            .get(&self.config.bucket)
-            .unwrap()
-            .objects
-            .clone()
     }
 
     fn get_objects_for_bucket(&self, bucket: &str) -> Arc<RwLock<BTreeMap<String, MockObject>>> {
@@ -157,13 +138,6 @@ impl MockClient {
     pub fn remove_all_objects(&self, bucket: &str) {
         let objects = self.get_objects_for_bucket(bucket);
         objects.write().unwrap().clear();
-    }
-
-    /// Number of objects in the mock client's bucket
-    pub fn object_count(&self, bucket: &str) -> usize {
-        let objects = self.get_objects_for_bucket(bucket);
-        let len = objects.write().unwrap().len();
-        len
     }
 
     /// Number of objects a specific mock client bucket
@@ -895,7 +869,7 @@ impl ObjectClient for MockClient {
         trace!(bucket, key, "DeleteObject");
         self.inc_op_count(Operation::DeleteObject);
 
-        if bucket != self.config.bucket {
+        if !self.is_allowlisted_bucket(bucket) {
             return Err(ObjectClientError::ServiceError(DeleteObjectError::NoSuchBucket));
         }
 
@@ -944,7 +918,9 @@ impl ObjectClient for MockClient {
         self.inc_op_count(Operation::GetObject);
 
         if !self.is_allowlisted_bucket(bucket_name) {
-            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket));
+            return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket(
+                Default::default(),
+            )));
         }
 
         let bucket = self.get_bucket(bucket_name);
@@ -1407,7 +1383,7 @@ mod tests {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -1463,7 +1439,6 @@ mod tests {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
             allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
@@ -1515,7 +1490,7 @@ mod tests {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -1576,7 +1551,6 @@ mod tests {
 
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
             allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
@@ -1622,7 +1596,7 @@ mod tests {
         let src_key = "src_copy_key";
         let dst_key = "dst_copy_key";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -1647,7 +1621,7 @@ mod tests {
         let src_key = "src_copy_key";
         let dst_key = "dst_copy_key";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -1664,7 +1638,7 @@ mod tests {
     #[tokio::test]
     async fn list_object_dirs() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -1753,7 +1727,7 @@ mod tests {
     #[tokio::test]
     async fn list_objects_unicode() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -1801,7 +1775,7 @@ mod tests {
     #[tokio::test]
     async fn list_objects_unordered(prefix: &str) {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: Some(1234),
             ..Default::default()
@@ -1878,7 +1852,7 @@ mod tests {
     #[tokio::test]
     async fn list_objects_unordered_delimited_page_size(page_size: usize, prefix: &str) {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: Some(1234),
             ..Default::default()
@@ -1950,7 +1924,7 @@ mod tests {
     async fn list_objects_unordered_undelimited_page_size(page_size: usize, prefix: &str) {
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: Some(1234),
             ..Default::default()
@@ -2016,7 +1990,7 @@ mod tests {
     #[tokio::test]
     async fn list_objects_checksum() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             ..Default::default()
         });
 
@@ -2046,7 +2020,7 @@ mod tests {
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2089,7 +2063,7 @@ mod tests {
     #[tokio::test]
     async fn test_put_object_single() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2117,7 +2091,7 @@ mod tests {
     #[tokio::test]
     async fn test_checksums_set_after_single_put() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             ..Default::default()
         });
 
@@ -2132,7 +2106,7 @@ mod tests {
 
         // Now verify...
 
-        let mock_bucket_objects = client.get_objects_for_default_bucket();
+        let mock_bucket_objects = client.get_objects_for_bucket("test_bucket");
         let objects = mock_bucket_objects.read().unwrap();
         let stored_object = objects.get(s3_key).expect("object should exist after PutObject");
 
@@ -2149,12 +2123,13 @@ mod tests {
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksums_set_after_meta_put(trailing_checksums: PutObjectTrailingChecksums) {
+        let bucket = "test_bucket";
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             ..Default::default()
         });
@@ -2162,7 +2137,7 @@ mod tests {
         let s3_key = "key1";
         let put_object_params = PutObjectParams::new().trailing_checksums(trailing_checksums);
         let mut put_request = client
-            .put_object("test_bucket", s3_key, &put_object_params)
+            .put_object(bucket, s3_key, &put_object_params)
             .await
             .expect("should be able to initiate meta put_object");
 
@@ -2181,7 +2156,7 @@ mod tests {
             .expect("should be able to complete meta put_object");
 
         // Now verify...
-        let mock_bucket_objects = client.get_objects_for_default_bucket();
+        let mock_bucket_objects = client.get_objects_for_bucket(bucket);
         let objects = mock_bucket_objects.read().unwrap();
         let stored_object = objects.get(s3_key).expect("object should exist after PutObject");
 
@@ -2369,7 +2344,7 @@ mod tests {
 
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2399,7 +2374,7 @@ mod tests {
     async fn counter_test() {
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2436,7 +2411,7 @@ mod tests {
 
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: PART_SIZE,
             unordered_list_seed: None,
             ..Default::default()
@@ -2530,7 +2505,7 @@ mod tests {
     async fn test_append_object(obj: MockObject) {
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2571,7 +2546,7 @@ mod tests {
     async fn test_append_object_fails_with_wrong_offset(original_size: usize, append_offset: u64) {
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2600,7 +2575,7 @@ mod tests {
     async fn test_append_object_checksums() {
         let bucket = "test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 1024,
             unordered_list_seed: None,
             ..Default::default()
@@ -2649,7 +2624,6 @@ mod tests {
         let first_bucket = "first_test_bucket";
         let second_bucket = "second_test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: first_bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
             allowed_buckets: HashSet::from([first_bucket.to_string(), second_bucket.to_string()]),
@@ -2711,7 +2685,6 @@ mod tests {
         let first_bucket = "first_test_bucket";
         let second_bucket = "second_test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: first_bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
             allowed_buckets: HashSet::from([first_bucket.to_string(), second_bucket.to_string()]),
@@ -2776,7 +2749,6 @@ mod tests {
         let first_bucket = "first_test_bucket";
         let second_bucket = "second_test_bucket";
         let client = MockClient::new(MockClientConfig {
-            bucket: first_bucket.to_owned(),
             part_size: 1024,
             unordered_list_seed: None,
             allowed_buckets: HashSet::from([first_bucket.to_string(), second_bucket.to_string()]),

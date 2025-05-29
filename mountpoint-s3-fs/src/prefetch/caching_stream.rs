@@ -405,6 +405,7 @@ mod tests {
         mock_client::{MockClient, MockClientConfig, MockObject, Operation},
         types::ETag,
     };
+    use std::collections::HashSet;
     use test_case::test_case;
 
     use crate::{
@@ -445,7 +446,7 @@ mod tests {
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: client_part_size,
             enable_backpressure: true,
             initial_read_window_size,
@@ -526,7 +527,7 @@ mod tests {
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
         let config = MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: client_part_size,
             enable_backpressure: true,
             initial_read_window_size,

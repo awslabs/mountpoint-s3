@@ -59,8 +59,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
     };
 
     let config = MockClientConfig {
-        bucket: bucket_name.clone(),
-        allowed_buckets: HashSet::from([bucket_name]),
+        allowed_buckets: HashSet::from([bucket_name.clone()]),
         part_size: part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,

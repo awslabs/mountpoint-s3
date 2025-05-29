@@ -459,7 +459,7 @@ mod tests {
         let key = "foo";
 
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 128,
             unordered_list_seed: None,
             ..Default::default()
@@ -513,7 +513,7 @@ mod tests {
         let key = "foo";
 
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             ..Default::default()
         });
 

@@ -27,6 +27,7 @@ use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
@@ -37,7 +38,7 @@ pub fn make_test_filesystem(
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
     let client_config = MockClientConfig {
-        bucket: bucket.to_string(),
+        allowed_buckets: HashSet::from([bucket.to_string()]),
         part_size: 1024 * 1024,
         enable_backpressure: true,
         initial_read_window_size: 256 * 1024,

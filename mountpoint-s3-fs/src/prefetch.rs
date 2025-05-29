@@ -505,7 +505,7 @@ mod tests {
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use test_case::test_case;
 
     const MB: usize = 1024 * 1024;
@@ -555,7 +555,7 @@ mod tests {
 
     fn run_sequential_read_test(prefetcher_type: PrefetcherType, size: u64, read_size: usize, test_config: TestConfig) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -677,7 +677,7 @@ mod tests {
 
         // backpressure is not enabled for the client
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: false,
             ..Default::default()
@@ -701,7 +701,7 @@ mod tests {
 
         // backpressure is enabled but initial read window size is zero
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: 0,
@@ -719,7 +719,7 @@ mod tests {
         get_failures: HashMap<usize, GetObjectFailureMode<MockClientError>>,
     ) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -855,7 +855,7 @@ mod tests {
         test_config: TestConfig,
     ) {
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: test_config.client_part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
@@ -1003,7 +1003,7 @@ mod tests {
         const OBJECT_SIZE: usize = 2 * PART_SIZE;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: PART_SIZE,
             enable_backpressure: true,
             // For simplicity, prefetch the whole object in one request.
@@ -1075,7 +1075,7 @@ mod tests {
         const OBJECT_SIZE: usize = 2 * PART_SIZE;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size: PART_SIZE,
             enable_backpressure: true,
             initial_read_window_size: PART_SIZE,
@@ -1142,7 +1142,7 @@ mod tests {
         const FIRST_REQUEST_SIZE: usize = 100;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size,
             enable_backpressure: true,
             initial_read_window_size: FIRST_REQUEST_SIZE,
@@ -1177,7 +1177,7 @@ mod tests {
         const OBJECT_SIZE: usize = 200;
 
         let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
+            allowed_buckets: HashSet::from(["test-bucket".to_string()]),
             part_size,
             enable_backpressure: true,
             initial_read_window_size: part_size,
@@ -1232,7 +1232,7 @@ mod tests {
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
             let config = MockClientConfig {
-                bucket: "test-bucket".to_string(),
+                allowed_buckets: HashSet::from(["test-bucket".to_string()]),
                 part_size,
                 enable_backpressure: true,
                 initial_read_window_size,
@@ -1292,7 +1292,7 @@ mod tests {
             let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
 
             let config = MockClientConfig {
-                bucket: "test-bucket".to_string(),
+                allowed_buckets: HashSet::from(["test-bucket".to_string()]),
                 part_size,
                 enable_backpressure: true,
                 initial_read_window_size,

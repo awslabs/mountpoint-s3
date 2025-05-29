@@ -238,6 +238,7 @@ impl ObjectClient for ThroughputMockClient {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::time::Instant;
 
     use futures::StreamExt;
@@ -257,7 +258,7 @@ mod tests {
             for _ in 0..ITERATIONS {
                 let config = MockClientConfig {
                     part_size: 8 * 1024 * 1024,
-                    bucket: "test_bucket".to_owned(),
+                    allowed_buckets: HashSet::from(["test_bucket".to_string()]),
                     unordered_list_seed: None,
                     ..Default::default()
                 };

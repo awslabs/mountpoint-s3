@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -158,7 +159,7 @@ fn main() {
             const KEY: &str = "key";
 
             let config = MockClientConfig {
-                bucket: BUCKET.to_owned(),
+                allowed_buckets: HashSet::from([BUCKET.to_string()]),
                 part_size: args.part_size,
                 unordered_list_seed: None,
                 ..Default::default()
