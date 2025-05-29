@@ -287,14 +287,15 @@ To increase the maximum object size for writes, use the `--write-part-size` comm
 
 Mountpoint supports automatically mounting an S3 bucket as a local filesystem when your EC2 instance boots up or restarts using the filesystem table file (`/etc/fstab`). Once you modify the fstab file to add a new entry for Mountpoint, your compute instance will read the configuration from the fstab file whenever it restarts to automatically mount the S3 bucket.
 
-You can use the following example to edit the fstab file to configure automatic mounting. This example uses the first field to specify the S3 location to mount is `amzn-s3-demo-bucket` using a prefix `example-prefix/` and the second field specifies the  local path `/mnt/mountpoint`. The third field is always set to `mount-s3`, specifying that Mountpoint manages this mount.
+#### Example fstab entry
 
-#### Example
+You can use the following example to edit the fstab file to configure automatic mounting. This example uses the first field to specify the S3 location to mount (`amzn-s3-demo-bucket/example-prefix/`) and the second field to specify the local path (`/mnt/mountpoint`). The third field is always set to `mount-s3`, specifying that Mountpoint manages this mount.
 
 ```
 s3://amzn-s3-demo-bucket/example-prefix/ /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,nofail,rw 0 0
 ```
-The options given mean the following:
+
+Where: 
 
 * `_netdev` specifies that the filesystem requires networking to mount.
 * `nosuid` specifies that the filesystem cannot contain set userid files.
@@ -303,12 +304,12 @@ The options given mean the following:
 * `rw` specifies that the mount point be created with read and write permissions. Alternatively, use `ro` for read only.
 
 > [!WARNING]
-> The `_netdev`, `nosuid`, and `nodev` options are required when using Mountpoint from fstab. If you do not include these options, Mountpoint will fail to start. We highly recommend you also use the `nofail` option to allow the operating system to start up in case of problems.
+> The `_netdev`, `nosuid`, and `nodev` options are required when using Mountpoint from fstab. If you do not include these options, Mountpoint will fail to start. We recommend you also use the `nofail` option to allow the operating system to start up in case of problems.
 
 > [!IMPORTANT]
 > When running using fstab, Mountpoint will run as root and will use credentials as normal when launched from fstab, but must be available at instance startup. We recommend using IMDS as a credential provider when using Mountpoint with fstab. Given Mountpoint runs as root when using fstab, it will look in root’s home directory for any AWS profile (typically `/root/.aws/config` and `/root/.aws/credentials`).
 
-The options field takes regular Mountpoint CLI arguments as comma separated values in the form `key=value`. For example if you previously used `--allow-delete --uid 7` as CLI arguments you would use `allow-delete,uid=7` in your fstab file.
+The options field takes regular Mountpoint CLI arguments as comma separated values in the form `key=value`. For example if you previously used `--allow-delete --uid 7` as CLI arguments, you would use `allow-delete,uid=7` in your fstab file.
 
 If you need to include commas in your CLI argument, for example `--cache /tmp/foo,bar`, you would escape the commas in the argument with backslashes like so: `cache=/tmp/foo\,bar`. Characters that need backslash escaping include backslashes (`\`), commas (`,`), and double quotes (`"`).
 
@@ -316,7 +317,7 @@ To stop Mountpoint from running at boot, remove the corresponding line from your
 
 #### Validating changes to the fstab file
 
-If your fstab file is invalid, your operating system may fail to boot. We recommend making a backup of your fstab file before changes, and also using the `nofail` option to ensure invalid Mountpoint configuration or startup failures do not prevent the instance from booting.
+If your fstab file is invalid, your operating system may fail to boot. We recommend making a backup of your fstab file, and also using the `nofail` option to ensure invalid Mountpoint configuration or startup failures do not prevent the instance from booting.
 To validate changes, you can use the following snippet, changing `/mnt/mountpoint` to the local path specified in your fstab file:
 
 ```
@@ -326,7 +327,7 @@ sudo systemctl restart "$(systemd-escape --suffix=mount --path $MNT_PATH)"
 sudo systemctl status "$(systemd-escape --suffix=mount --path $MNT_PATH)"
 ```
 
-#### Example output for a successful mount:
+Example output for a successful mount:
 
 ```
 ● mnt-mountpoint.mount - /mnt/mountpoint
@@ -348,13 +349,13 @@ May 20 10:53:36 ip-172-31-40-171 mount[466]: bucket amzn-s3-demo-bucket is mount
 May 20 10:53:36 ip-172-31-40-171 systemd[1]: Mounted mnt-mountpoint.mount - /mnt/mountpoint.
 ```
 
-By validating the fstab file, you can be confident that Mountpoint will be automatically mounted after subsequent reboots.
+After successfully validating the fstab file, Mountpoint will be automatically mounted after subsequent reboots
 
 #### Using EC2 User Data to install and configure Mountpoint
 
-You can setup Mountpoint as part of new instance launches by including a user data script to install Mountpoint and configure the fstab file.
+You can set up Mountpoint as part of new instance launches by including a user data script to install Mountpoint and configure the fstab file.
 
-#### Example user data script (tested on AL2023)
+Example user data script (tested on AL2023). This will only work for x86 systems.
 
 ```
 #!/bin/bash -e
@@ -368,9 +369,9 @@ rm $MP_RPM
 # Setup the fstab file and create the mount
 MNT_PATH=/mnt/mountpoint
 echo "s3://amzn-s3-demo-bucket/ ${MNT_PATH} mount-s3 _netdev,nosuid,nodev,rw,allow-other,nofail" >> /etc/fstab
-mkdir $MNT_PATH
+mkdir --parents $MNT_PATH
 
-# Mount
+# Mount all filesystems
 systemctl daemon-reload
 mount -a
 ```
