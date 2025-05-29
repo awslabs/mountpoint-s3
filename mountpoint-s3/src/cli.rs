@@ -13,7 +13,7 @@ use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint}
 use mountpoint_s3_fs::logging::{prepare_log_file_name, LoggingConfig};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::{parse_s3_uri_or_bucket_name, BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
+use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
 use sysinfo::{RefreshKind, System};
@@ -55,7 +55,7 @@ Arguments:
 pub struct CliArgs {
     #[clap(
         help = "Name of bucket, or an S3 URI, to mount",
-        value_parser = parse_s3_uri_or_bucket_name,
+        value_parser = |arg: &str| BucketNameOrS3Uri::try_from(arg.to_string()),
     )]
     pub bucket_name: BucketNameOrS3Uri,
 
@@ -345,7 +345,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "BUCKET",
         group = "cache_group",
-        value_parser = parse_s3_uri_or_bucket_name,
+        value_parser = |arg: &str| BucketNameOrS3Uri::try_from(arg.to_string()),
     )]
     pub cache_xz: Option<BucketNameOrS3Uri>,
 

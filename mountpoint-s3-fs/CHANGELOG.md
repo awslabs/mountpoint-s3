@@ -2,7 +2,7 @@
 
 * Improve safety checks when reading disk cache blocks. ([#1427](https://github.com/awslabs/mountpoint-s3/pull/1427))
 * `S3Path::new` now takes a `BucketName` instead of a `String`. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
-* Adds `parse_s3_uri_or_bucket_name`, which parses a `String` into an `BucketNameOrS3Uri`, which can then be converted into either a `BucketName` or an `S3Uri` to be used with `S3Path`. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
+* Adds `BucketNameOrS3Uri`, built using `try_from(String)` and can then be converted into either a `BucketName` or an `S3Uri` to be used with `S3Path`. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
 
 ## v0.2.0 (May 9, 2025)
 

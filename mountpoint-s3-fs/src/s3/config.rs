@@ -69,12 +69,19 @@ pub enum S3PathError {
     PrefixError(#[from] PrefixError),
 }
 
-type BucketName = String;
+#[derive(Debug, Clone, PartialEq)]
+pub struct BucketName(String);
+
+impl From<BucketName> for String {
+    fn from(bucket_name: BucketName) -> Self {
+        bucket_name.0
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct S3Uri {
     /// Name of bucket
-    pub bucket_name: String,
+    pub bucket_name: BucketName,
 
     /// Prefix inside the bucket
     pub prefix: Prefix,
@@ -86,10 +93,22 @@ pub enum BucketNameOrS3Uri {
     S3Uri(S3Uri),
 }
 
+impl TryFrom<String> for BucketNameOrS3Uri {
+    type Error = S3PathError;
+
+    fn try_from(bucket_name_or_uri: String) -> Result<Self, Self::Error> {
+        if bucket_name_or_uri.starts_with("s3://") {
+            validate_s3_uri(bucket_name_or_uri).map(BucketNameOrS3Uri::S3Uri)
+        } else {
+            validate_bucket_name(bucket_name_or_uri).map(BucketNameOrS3Uri::BucketName)
+        }
+    }
+}
+
 fn validate_bucket_name(bucket_name: String) -> Result<BucketName, S3PathError> {
     validate_bucket_length(&bucket_name)?;
     if matches_bucket_regex(&bucket_name) || bucket_name.starts_with("arn:") {
-        Ok(bucket_name)
+        Ok(BucketName(bucket_name))
     } else {
         Err(S3PathError::InvalidBucketName)
     }
@@ -109,17 +128,9 @@ fn validate_s3_uri(s3_uri: String) -> Result<S3Uri, S3PathError> {
         return Err(S3PathError::InvalidBucketNameS3URI);
     }
     Ok(S3Uri {
-        bucket_name: bucket.to_string(),
+        bucket_name: BucketName(bucket.to_string()),
         prefix,
     })
-}
-
-pub fn parse_s3_uri_or_bucket_name(bucket_name_or_uri: &str) -> Result<BucketNameOrS3Uri, S3PathError> {
-    if bucket_name_or_uri.starts_with("s3://") {
-        validate_s3_uri(bucket_name_or_uri.to_string()).map(BucketNameOrS3Uri::S3Uri)
-    } else {
-        validate_bucket_name(bucket_name_or_uri.to_string()).map(BucketNameOrS3Uri::BucketName)
-    }
 }
 
 /// A bucket & prefix combination.
@@ -134,7 +145,10 @@ pub struct S3Path {
 
 impl S3Path {
     pub fn new(bucket_name: BucketName, prefix: Prefix) -> Self {
-        Self { bucket_name, prefix }
+        Self {
+            bucket_name: bucket_name.into(),
+            prefix,
+        }
     }
 
     pub fn bucket_description(&self) -> String {
@@ -384,7 +398,8 @@ mod tests {
                 .map(|(bucket, _prefix)| bucket)
                 .unwrap_or(expected);
             let s3_uri = parsed.expect("valid bucket name");
-            assert_eq!(s3_uri.bucket_name, expected_bucket);
+            let actual_bucket: String = s3_uri.bucket_name.into();
+            assert_eq!(actual_bucket, expected_bucket);
             assert_eq!(s3_uri.prefix.as_str(), prefix)
         } else {
             parsed.expect_err("invalid bucket name");
