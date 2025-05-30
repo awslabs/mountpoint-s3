@@ -364,8 +364,17 @@ Example user data script (tested on AL2023). This will only work for x86 systems
 MP_RPM=$(mktemp --suffix=.rpm)
 curl https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm > $MP_RPM
 
-while true; do
-yum install -y $MP_RPM && break
+# cloud-init installs conflict with SSM agent: https://github.com/amazonlinux/amazon-linux-2023/issues/397
+attempt=0
+max_attempts=5
+until yum install -y $MP_RPM; do
+    attempt=$((attempt + 1))
+    if [ $attempt -ge $max_attempts ]; then
+        echo "Failed to install mount-s3 after $max_attempts attempts. Exiting."
+        exit 1
+    fi
+    echo "yum install mount-s3 failed (attempt $attempt/$max_attempts), retrying in 3 seconds..."
+    sleep 3
 done
 
 rm $MP_RPM
