@@ -797,7 +797,7 @@ mod read_only {
     fn run_test(tree: TreeNode, check: CheckType, readdir_limit: usize) {
         const BUCKET_NAME: &str = "test-bucket";
 
-        let test_prefix = Prefix::new("").expect("valid prefix");
+        let test_prefix = Prefix::empty();
         let config = S3FilesystemConfig {
             readdir_size: 5,
             ..Default::default()
@@ -941,7 +941,7 @@ mod mutations {
     fn run_test(initial_tree: TreeNode, ops: Vec<Op>, readdir_limit: usize) {
         const BUCKET_NAME: &str = "test-bucket";
 
-        let test_prefix = Prefix::new("").expect("valid prefix");
+        let test_prefix = Prefix::empty();
         let config = S3FilesystemConfig {
             readdir_size: 5,
             allow_delete: true,

@@ -5,6 +5,8 @@
 * Added ability to configure an error logger which can be used to report errors returned by fuse operations. Use method `MountpointConfig::error_logger` to configure the callback. ([#1416](https://github.com/awslabs/mountpoint-s3/pull/1416))  
 * `PrefetchReadError::GetRequestFailed` error variant has changed. It now contains an additional field `metadata`. ([#1411](https://github.com/awslabs/mountpoint-s3/pull/1411))
 * Improve safety checks when reading disk cache blocks. ([#1427](https://github.com/awslabs/mountpoint-s3/pull/1427))
+* `S3Path::new` now takes a `BucketName` instead of a `String`. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
+* Adds `BucketNameOrS3Uri`, built using `try_from(String)` and can then be converted into either a `BucketName` or an `S3Uri` to be used with `S3Path`. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
 
 ## v0.2.0 (May 9, 2025)
 

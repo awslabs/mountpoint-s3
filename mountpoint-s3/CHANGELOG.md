@@ -1,4 +1,9 @@
-## Unreleased
+## Unreleased (v1.18.0)
+
+### New features
+
+* Allow passing in s3:// URIs as the first argument to Mountpoint. The `--prefix` option is not allowed if a prefix is passed in as part of the S3 URI. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
+* Allow passing in s3:// URIs to the `--cache-xz` parameter. Use of prefixes is still unsupported. ([#1434](https://github.com/awslabs/mountpoint-s3/pull/1434))
 
 ## v1.17.0 (May 12, 2025)
 
