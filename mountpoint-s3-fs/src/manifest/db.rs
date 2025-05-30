@@ -112,7 +112,7 @@ impl Db {
         let conn = self.conn.lock().expect("lock must succeed");
         conn.execute(
             "CREATE TABLE s3_objects (
-                id          INTEGER   PRIMARY KEY AUTOINCREMENT,
+                id          INTEGER   PRIMARY KEY,
                 key         TEXT      NOT NULL,
                 name        TEXT      NOT NULL,
                 parent_id   INTEGER   NOT NULL,
@@ -122,16 +122,11 @@ impl Db {
             (),
         )?;
 
-        // ID == 1 is reserved for FUSE_ROOT_INODE, so start IDs from 2
-        conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('s3_objects', 1)", ())?;
-
         Ok(())
     }
 
     pub fn create_index(&self) -> Result<()> {
         let conn = self.conn.lock().expect("lock must succeed");
-
-        conn.execute("CREATE UNIQUE INDEX idx_key ON s3_objects (key)", ())?; // TODO: protects from bugs, but not used otherwise?
 
         conn.execute("CREATE INDEX idx_parent_id ON s3_objects (parent_id, name)", ())?;
 
@@ -141,10 +136,11 @@ impl Db {
     pub fn insert_batch(&self, entries: &[DbEntry]) -> Result<()> {
         let mut conn = self.conn.lock().expect("lock must succeed");
         let tx = conn.transaction()?;
-        let mut stmt =
-            tx.prepare("INSERT INTO s3_objects (key, name, parent_id, etag, size) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        let mut stmt = tx
+            .prepare("INSERT INTO s3_objects (id, key, name, parent_id, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
         for entry in entries {
             stmt.execute((
+                entry.id,
                 &entry.full_key,
                 &entry.name,
                 entry.parent_id,

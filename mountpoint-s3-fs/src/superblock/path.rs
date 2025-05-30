@@ -116,6 +116,7 @@ impl From<ValidKey> for String {
     }
 }
 
+// TODO: does it have to end with "/" for directories?
 impl TryFrom<String> for ValidKey {
     type Error = ValidKeyError;
 
