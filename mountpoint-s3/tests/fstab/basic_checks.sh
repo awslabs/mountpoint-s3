@@ -5,7 +5,7 @@ set -e
 
 source "$(dirname "$(which "$0")")/spawn_mounts.sh"
 
-build_out=$(cargo build --bin mount-s3 --release --features=fstab --message-format=json-render-diagnostics)
+build_out=$(cargo build --bin mount-s3 --release --message-format=json-render-diagnostics)
 MOUNTPOINT_PATH=$(printf "%s" "$build_out" | jq -js '[.[] | select(.reason == "compiler-artifact") | select(.executable != null)] | last | .executable')
 echo "Mountpoint path: $MOUNTPOINT_PATH"
 
