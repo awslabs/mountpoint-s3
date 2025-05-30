@@ -118,9 +118,9 @@ fn validate_s3_uri(s3_uri: String) -> Result<S3Uri, S3PathError> {
     let bucket_prefix = s3_uri.strip_prefix("s3://").ok_or(S3PathError::ExpectedS3URI)?;
     let (bucket, prefix) = {
         if let Some((bucket, prefix_str)) = bucket_prefix.split_once("/") {
-            (bucket, Prefix::new(prefix_str)?)
+            (bucket, prefix_str)
         } else {
-            (bucket_prefix, Prefix::empty())
+            (bucket_prefix, "")
         }
     };
     validate_bucket_length(bucket)?;
@@ -129,7 +129,7 @@ fn validate_s3_uri(s3_uri: String) -> Result<S3Uri, S3PathError> {
     }
     Ok(S3Uri {
         bucket_name: BucketName(bucket.to_string()),
-        prefix,
+        prefix: Prefix::new(prefix)?,
     })
 }
 

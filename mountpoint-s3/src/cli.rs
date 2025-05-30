@@ -812,12 +812,14 @@ mod tests {
     #[test_case("s3://bucket--eun1-az1--x-s3/", true; "s3:// example bucket with empty prefix")]
     #[test_case("bucket--eun1-az1--x-s3", true; "raw example bucket")]
     #[test_case("bucket--eun1-az1--x-s3/", false; "raw example bucket with /")]
-    #[test_case("s3://bucket--eun1-az1--x-s3/prefix", false; "s3:// example bucket with prefix")]
+    #[test_case("s3://bucket--eun1-az1--x-s3/prefix", false; "s3:// example bucket with invalid prefix")]
+    #[test_case("s3://bucket--eun1-az1--x-s3/prefix/", false; "s3:// example bucket with prefix (prefixes not allowed)")]
     fn validate_s3_express_cache_bucket_name(bucket_name: &str, valid: bool) {
         fn _parse_cli_args(bucket_name: &str) -> Option<()> {
             let cli_args =
                 CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--cache-xz", bucket_name]).ok()?;
-            let _xz_cache_path = cli_args.cache_express_bucket_name().unwrap();
+            let sse = cli_args.server_side_encryption().unwrap();
+            let _express_data_cache_config = cli_args.express_data_cache_config(sse).ok()??;
             Some(())
         }
         assert_eq!(
@@ -834,7 +836,7 @@ mod tests {
     #[test_case("bucket", Ok(("bucket".to_string(), "".to_string())); "raw example bucket")]
     #[test_case("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap", Ok(("arn:aws:s3::00000000:accesspoint/s3-bucket-test.mrap".to_string(), "".to_string())); "ARN example")]
     #[test_case("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", Ok(("arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name".to_string(), "".to_string())); "S3 outpost accesspoint ARN")]
-    #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", Err("invalid bucket prefix".to_string()); "S3 URI with ARN without trailing slash")]
+    #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name", Err("the bucket must have a valid name (only letters, numbers, . and -). ARNs are not supported in s3:// URIs".to_string()); "S3 URI with ARN without trailing slash")]
     #[test_case("s3://arn:aws:s3-outposts:us-east-1:555555555555:outpost/outpost-id/accesspoint/accesspoint-name/", Err("the bucket must have a valid name (only letters, numbers, . and -). ARNs are not supported in s3:// URIs".to_string()); "S3 URI with ARN")]
     #[test_case("s3://bucket/prefix/", Ok(("bucket".to_string(), "prefix/".to_string())); "s3:// example bucket with prefix")]
     #[test_case("s3://bucket/prefix", Err("invalid bucket prefix".to_string()); "s3:// example bucket with prefix with missing delimeter")]
