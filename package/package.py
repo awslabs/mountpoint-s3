@@ -290,6 +290,9 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     deb_bin_dir = os.path.join(deb_package_dir, "usr/bin")
     os.makedirs(deb_bin_dir)
     os.symlink(f"/{OPT_PATH}/bin/mount-s3", os.path.join(deb_bin_dir, "mount-s3"))
+    deb_sbin_dir = os.path.join(deb_package_dir, "usr/sbin")
+    os.makedirs(deb_sbin_dir)
+    os.symlink(f"/{OPT_PATH}/bin/mount-s3", os.path.join(deb_sbin_dir, "mount.mount-s3"))
 
     # Build the DEB
     deb_path = os.path.join(deb_buildroot, "mount-s3.deb")
