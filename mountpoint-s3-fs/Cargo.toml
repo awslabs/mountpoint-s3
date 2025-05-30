@@ -42,6 +42,7 @@ sha2 = "0.10.8"
 supports-color = "3.0.2"
 sysinfo = "0.33.1"
 syslog = "7.0.0"
+tempfile = "3.15.0"
 thiserror = "2.0.11"
 time = { version = "0.3.37", features = ["macros", "formatting", "serde-well-known"] }
 tracing = { version = "0.1.41", features = ["log"] }
@@ -74,7 +75,6 @@ rand_chacha = "0.3.1"
 serial_test = "3.2.0"
 sha2 = "0.10.8"
 shuttle = { version = "0.8.0" }
-tempfile = "3.15.0"
 test-case = "3.3.1"
 tokio = { version = "1.44.2", features = ["rt", "macros"] }
 walkdir = "2.5.0"
