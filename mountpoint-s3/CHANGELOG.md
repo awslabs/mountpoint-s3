@@ -1,4 +1,6 @@
-## Unreleased (v1.18.0)
+## Unreleased
+
+## v1.18.0 (May 30, 2025)
 
 ### New features
 
