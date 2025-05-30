@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1748610290023,
+  "lastUpdate": 1748611437632,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "764f431d5e588e86dee0facd335f19db9f5d48b5",
-          "message": "Introduce MountpointConfig (#1400)\n\nExtract the configuration and the logic to create a new Mountpoint FUSE\nsession out of the `cli` module.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-05-02T16:08:21Z",
-          "tree_id": "bb65735360884a42506a09c6bdaeab2edc6041b9",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/764f431d5e588e86dee0facd335f19db9f5d48b5"
-        },
-        "date": 1746209409387,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3070.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 329.234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3216.59375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 352.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3231.6015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 266.6015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3308.4921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 225.0625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 27924.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 351.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3277.5625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 365.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3450.515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 220.1171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2968.9453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 3472.22265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 231.0078125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 208.796875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa7b9d711a69128826a7ff026fc5fdf4c4e51e61",
+          "message": "Remove fstab feature flag (#1447)\n\nRemoves fstab file from cargo.toml - previous commit removed from CI as\nwell as code usages. This is just cleaning up.\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2025-05-30T11:23:44Z",
+          "tree_id": "f41202e3376f4adaa6bd338639929816b164aab2",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/fa7b9d711a69128826a7ff026fc5fdf4c4e51e61"
+        },
+        "date": 1748611437580,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3287.07421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 339.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3271.953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 357.14453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3454.96875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 276.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3470.1015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 252.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8995.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 347.5078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3515.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 382.171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 8783.30078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 232.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3275.1015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3180.5234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 222.3359375,
             "unit": "MiB"
           }
         ]
