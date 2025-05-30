@@ -8,6 +8,7 @@ directory in the root of the Mountpoint repository.
 """
 
 import argparse
+from typing import List
 from dataclasses import dataclass
 import json
 import os
@@ -15,6 +16,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+OPT_PATH = "opt/aws/mountpoint-s3"
 
 
 def log(msg: str):
@@ -47,7 +50,10 @@ class BuildMetadata:
         return "mount-s3.spec"
 
 
-OPT_PATH = "opt/aws/mountpoint-s3"
+@dataclass(frozen=True)
+class MountpointArtifact:
+    binary_path: str
+    debug_info_path: str
 
 
 def check_dependencies(args: argparse.Namespace):
@@ -123,14 +129,14 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
     return metadata
 
 
-def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -> str:
-    """Compile the Mountpoint binary and make sure it has works/has the right version number.
-    Return the path to the binary."""
+def build_mountpoint(metadata: BuildMetadata, args: argparse.Namespace) -> MountpointArtifact:
+    """Compile the Mountpoint binary with debug info and make sure it has works/has the right version number.
+    Return the path to the binary and to the debug info."""
 
     env = {
         "PATH": os.environ["PATH"],
-        # Keep enough debug info to give line numbers. We can always `strip` in the future if we want to.
-        "RUSTFLAGS": "-C debuginfo=line-tables-only",
+        # Keep full debug info in the binary without stripping anything, we'll strip debug info in the next step
+        "RUSTFLAGS": "-Cdebuginfo=full -Cstrip=none",
     }
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir
@@ -149,6 +155,18 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     if not os.path.exists(binary_path):
         raise Exception(f"binary wasn't found at path {binary_path}")
 
+    # Strip the debug info
+    debug_info_path = f"{binary_path}.debug"
+    debug_info_name = os.path.basename(debug_info_path)
+    binary_dir = os.path.dirname(binary_path)
+    log(f"Stripping debug info from {binary_path} into {debug_info_path}")
+    # Copy only the debug info from "mount-s3" into "mount-s3.debug"
+    run(["objcopy", "--only-keep-debug", binary_path, debug_info_path], cwd=binary_dir, env=env)
+    # Now strip the debug info copied into "mount-s3.debug" from "mount-s3", and also add a debug link to "mount-s3.debug"
+    run(["objcopy", "--strip-debug", f"--add-gnu-debuglink={debug_info_name}", binary_path], cwd=binary_dir, env=env)
+    if not os.path.exists(debug_info_path):
+        raise Exception(f"debug info wasn't found at path {debug_info_path}")
+
     # Validate the binary runs and is the right version
     log(f"Validating binary at {binary_path}")
     output = run([binary_path, "-V"])
@@ -161,9 +179,9 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
         if not output.startswith(f"mount-s3 {metadata.version}-unofficial"):
             raise Exception(f"unexpected compiled version {output}")
 
-    log(f"Built binary for {output} at {binary_path}")
+    log(f"Built binary for {output} at {binary_path} (debug info {debug_info_path})")
 
-    return binary_path
+    return MountpointArtifact(binary_path=binary_path, debug_info_path=debug_info_path)
 
 
 def build_attribution(metadata: BuildMetadata) -> str:
@@ -280,7 +298,7 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     elif metadata.arch == "aarch64":
         deb_arch = "arm64"
     else:
-        raise Exception(f"unknown architecture {metadata.args} for DEB package")
+        raise Exception(f"unknown architecture {metadata.arch} for DEB package")
     control_file = control_file.replace("__ARCH__", deb_arch)
     control_file_path = os.path.join(deb_DEBIAN_dir, "control")
     with open(control_file_path, "w") as f:
@@ -306,12 +324,18 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     return final_deb_path
 
 
-def build_package_archive(metadata: BuildMetadata, package_dir: str) -> str:
-    """Build a .tar.gz archive from the contents of the package directory. Return the path to the
-    final .tar.gz archive."""
+def build_package_archive(metadata: BuildMetadata, package_dir: str, mountpoint_artifact: MountpointArtifact) -> str:
+    """Build a .tar.gz archive from the contents of the package directory including the debug info.
+    Return the path to the final .tar.gz archive."""
 
     archive_path = os.path.join(metadata.output_dir, metadata.artifact_name("tar.gz"))
-    run(["tar", "czvf", archive_path, "-C", package_dir, "."])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        staging = os.path.join(tmpdir, "staging")
+        shutil.copytree(package_dir, staging)
+        shutil.copy2(mountpoint_artifact.debug_info_path, os.path.join(staging, "bin"))
+        run(["tar", "czvf", archive_path, "-C", staging, "."])
+
     return archive_path
 
 
@@ -327,7 +351,7 @@ def ensure_rustup_toolchain_is_installed(args: argparse.Namespace):
         run(["rustup", "toolchain", "install"], cwd=args.root_dir)
 
 
-def build(args: argparse.Namespace) -> str:
+def build(args: argparse.Namespace) -> List[str]:
     """Top-level build driver."""
 
     ensure_rustup_toolchain_is_installed(args)
@@ -335,10 +359,10 @@ def build(args: argparse.Namespace) -> str:
     check_dependencies(args)
     metadata = get_build_metadata(args)
 
-    binary_path = build_mountpoint_binary(metadata, args)
+    mountpoint_artifact = build_mountpoint(metadata, args)
     attribution_path = build_attribution(metadata)
 
-    package_dir = build_package_dir(metadata, binary_path, attribution_path)
+    package_dir = build_package_dir(metadata, mountpoint_artifact.binary_path, attribution_path)
 
     artifacts = []
     for ext in args.pkg_extensions:
@@ -347,7 +371,7 @@ def build(args: argparse.Namespace) -> str:
         elif ext.endswith("deb"):
             artifacts.append(build_deb(metadata, package_dir))
         elif ext.endswith("tar.gz"):
-            artifacts.append(build_package_archive(metadata, package_dir))
+            artifacts.append(build_package_archive(metadata, package_dir, mountpoint_artifact))
         else:
             raise Exception(f"unable to infer package type from extension {ext}")
 
