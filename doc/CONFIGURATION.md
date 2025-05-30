@@ -363,7 +363,11 @@ Example user data script (tested on AL2023). This will only work for x86 systems
 # Install Mountpoint
 MP_RPM=$(mktemp --suffix=.rpm)
 curl https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm > $MP_RPM
-yum install -y $MP_RPM
+
+while true; do
+yum install -y $MP_RPM && break
+done
+
 rm $MP_RPM
 
 # Setup the fstab file and create the mount
