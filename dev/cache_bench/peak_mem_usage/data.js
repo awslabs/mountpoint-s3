@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1748623671296,
+  "lastUpdate": 1748873083440,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "vladvolodkin@gmail.com",
-            "name": "Volodkin Vladislav",
-            "username": "vladem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "d960a927525a0be73c428691685415b85f68cb15",
-          "message": "Remove manifest from the released executable (#1402)\n\nRemove the code using `rusqlite` from the released executable.\nImplementation of the manifest using this crate becomes gated behind the\n`manifest` feature flag.\n\n### Does this change impact existing behavior?\n\nNo, only used in tests.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, only used in tests.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
-          "timestamp": "2025-05-07T14:10:22Z",
-          "tree_id": "ceaffd0530ebaebb1dbdd18fe19e10ad4cc8a07e",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d960a927525a0be73c428691685415b85f68cb15"
-        },
-        "date": 1746634390505,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3376.89453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 338.3359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3248.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 352.9375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3258.00390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 265.64453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3146.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 231.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 35634.203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 353.45703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3413.3984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 375.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3368.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 224.53515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3234.19921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 3199.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 219.28515625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 237.71484375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "26c8bba25fbd7d09531930f524d5067c530a6564",
+          "message": "Update fstab documentation with more examples (#1451)\n\nUpdate fstab documentation with more examples.\nInclude a failed mount example.\n\nRendered docs:\nhttps://github.com/muddyfish/mountpoint-s3/blob/fstab-docs-pr-feedback/doc/CONFIGURATION.md#automatically-mounting-an-s3-bucket-at-boot\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2025-06-02T12:04:13Z",
+          "tree_id": "d637dcea9e15b7e291315d55dfa7847d79a86a90",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/26c8bba25fbd7d09531930f524d5067c530a6564"
+        },
+        "date": 1748873083388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3288.5546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 330.18359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3300.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 360,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3150.3671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 281.03515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3569.85546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 227.33203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 13404.1484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 349.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3524.51171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 380.046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3436.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 229.84765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3402.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3464.58203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 215.26953125,
             "unit": "MiB"
           }
         ]
