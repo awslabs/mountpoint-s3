@@ -339,7 +339,6 @@ impl Mountspace for HyperBlock {
                 attr, // Simplified attribute for testing
                 generation: 0,
                 ttl: lookup.validity(),
-                lookup,
             };
 
             if reply.add(entry) {
@@ -372,7 +371,6 @@ impl Mountspace for HyperBlock {
                 attr, // Simplified attribute for testing
                 generation: 0,
                 ttl: lookup.validity(),
-                lookup,
             };
 
             if reply.add(entry) {
@@ -412,7 +410,6 @@ impl Mountspace for HyperBlock {
                 attr, // Simplified attribute for testing
                 generation: 0,
                 ttl: lookup.validity(),
-                lookup,
             };
 
             // Return if the buffer is full, otherwise continue

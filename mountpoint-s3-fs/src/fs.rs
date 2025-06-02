@@ -105,7 +105,6 @@ pub struct DirectoryEntry {
     pub attr: FileAttr,
     pub generation: u64,
     pub ttl: Duration,
-    pub lookup: LookedUp,
 }
 
 /// Reply to a 'statfs' call
@@ -634,8 +633,7 @@ where
             .load(Ordering::Relaxed);
         self.superblock
             .readdir(parent, num, offset, false, MountspaceDirectoryReplier::new(&mut reply))
-            .await
-            .map_err(|x| err!(libc::EINVAL,source: x, "error "))?;
+            .await?;
 
         Ok(())
     }
@@ -660,8 +658,7 @@ where
 
         self.superblock
             .readdir(parent, num, offset, true, MountspaceDirectoryReplier::new(&mut reply))
-            .await
-            .map_err(|x| err!(libc::EINVAL,source: x, "error "))?;
+            .await?;
         Ok(())
     }
 

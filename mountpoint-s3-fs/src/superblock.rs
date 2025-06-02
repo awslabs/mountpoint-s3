@@ -217,9 +217,9 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .readd(entry);
     }
 
-    fn remember_from_handle(&self, _readdir_handle: u64, entry: &mountspace::LookedUp) {
+    fn remember_from_handle(&self, _readdir_handle: u64, entry_ino: u64) {
         // TODO: We here get the iode by number, we should have some additional check that this is the currect Inode (i.e., generation number or similiar)
-        match self.inner.get(entry.ino) {
+        match self.inner.get(entry_ino) {
             Ok(inode) => {
                 self.inner.remember(&inode);
             }
@@ -625,7 +625,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                         // must remember it again, except that readdirplus specifies that . and ..
                         // are never incremented.
                         if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            self.remember_from_handle(readdir_handle, &entry.lookup);
+                            self.remember_from_handle(readdir_handle, entry.ino);
                             //readdir_handle.remember(&entry.lookup);
                         }
                     }
@@ -639,7 +639,11 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 offset
             ) */
             debug!("OOO");
-            return Err(InodeError::OutOfOrderReadDir);
+            return Err(InodeError::OutOfOrderReadDir {
+                expected: dir_handle.offset(),
+                actual: offset,
+                fh,
+            });
             //unreachable!("This should not be reached");
         }
 
@@ -679,7 +683,6 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 attr,
                 generation: 0,
                 ttl: lookup.validity(),
-                lookup,
             };
             if reply.add(entry) {
                 return Ok(reply.finish(offset, &dir_handle).await);
@@ -697,7 +700,6 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 attr,
                 generation: 0,
                 ttl: lookup.validity(),
-                lookup,
             };
             if reply.add(entry) {
                 return Ok(reply.finish(offset, &dir_handle).await);
@@ -722,7 +724,6 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
                 attr,
                 generation: 0,
                 ttl: next.validity(),
-                lookup: converted_lookup,
             };
 
             if reply.add(entry) {
@@ -1557,8 +1558,10 @@ pub enum InodeError {
     #[cfg(feature = "manifest")]
     #[error("manifest error")]
     ManifestError(#[from] ManifestError),
-    #[error("OOO ReadDir")]
-    OutOfOrderReadDir,
+    #[error(
+        "Out-Of-Order ReadDir: Expected next offset to be {expected} but got {actual} when reading from dir handle {fh}"
+    )]
+    OutOfOrderReadDir { expected: i64, actual: i64, fh: u64 },
     #[error("DearHandle not found")]
     NoSuchDirHandle,
     #[error("Attempted forbidden operation on Hyperblock")]
