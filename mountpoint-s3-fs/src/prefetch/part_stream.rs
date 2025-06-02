@@ -448,7 +448,7 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             // TODO:
             //   It does not make sense to 'block' here. In reality, we don't actually block here anyway.
             //   This serves instead as the point where we react to the backpressure, and send signals to the S3 client.
-            //   Instead, perhaps the backpressure controller should communicate directly with the client.
+            //   Instead, the backpressure controller or an async task could communicate directly with the client.
             if let Some(next_read_window_end_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
                 client_backpressure_handle.ensure_read_window(next_read_window_end_offset);
             }

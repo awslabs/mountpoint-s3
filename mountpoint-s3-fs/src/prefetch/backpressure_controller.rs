@@ -44,7 +44,7 @@ pub struct BackpressureController<Client: ObjectClient> {
     max_read_window_size: usize,
     /// Multiplier by which [Self::preferred_read_window_size] is scaled.
     read_window_size_multiplier: usize,
-    /// Upper bound of the current read window, relative to the S3 object.
+    /// Upper bound of the current read window, relative to the S3 object (and not the meta request).
     ///
     /// The request can return data up to this offset *exclusively*.
     /// This value must be advanced to continue fetching new data.
@@ -55,7 +55,7 @@ pub struct BackpressureController<Client: ObjectClient> {
     ///
     /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
-    /// Memory limiter is used to guide decisions on how much backpressure to apply.
+    /// Memory limiter is used to guide decisions on how much data to prefetch.
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter<Client>>,
