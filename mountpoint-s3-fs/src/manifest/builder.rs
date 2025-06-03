@@ -26,14 +26,12 @@ pub fn create_db(
         let mut entry = entry?;
         validate_db_entry(&entry)?;
         // split full_key to parent_dir and file_name
-        let (parent_dir, file_name) = entry
-            .full_key
-            .rsplit_once('/')
-            .map_or((None, entry.full_key.as_str()), |(dir, file)| (Some(dir), file));
+        let parent_dir = entry.full_key.rsplit_once('/').map(|(dir, _)| dir);
         // insert the parent directory and link current entry to it
         entry.parent_id = Some(ensure_dirs_inserted(&db, &mut dir_ids, &mut next_id, parent_dir)?);
-        // set entry's name and id and push it to the insert buffer
-        entry.name = Some(file_name.to_string());
+        // set entry's name_offset and id and push it to the insert buffer
+        // NOTE: name_offset is the number of complete UTF-8 chars (not bytes)
+        entry.name_offset = Some(parent_dir.map_or(0, |parent_dir| parent_dir.chars().count() as u64 + 1));
         entry.id = next_id;
         next_id += 1;
         buffer.push(entry);
@@ -103,7 +101,7 @@ fn ensure_dirs_inserted(
             insert_buffer.push(DbEntry {
                 id,
                 full_key: directory_key.to_string(),
-                name: Some(component.to_string()),
+                name_offset: Some((directory_key.len() - component.len()) as u64),
                 parent_id: Some(parent_id),
                 etag: None,
                 size: None,

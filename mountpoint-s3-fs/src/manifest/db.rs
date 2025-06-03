@@ -10,7 +10,7 @@ pub struct DbEntry {
     pub id: u64,
     pub full_key: String, // Both files and directories don't have '/' in the end
     #[serde(skip)]
-    pub name: Option<String>,
+    pub name_offset: Option<u64>,
     #[serde(skip)]
     pub parent_id: Option<u64>,
     pub etag: Option<String>,
@@ -24,7 +24,7 @@ impl TryFrom<&Row<'_>> for DbEntry {
         Ok(Self {
             id: row.get(0)?,
             full_key: row.get(1)?,
-            name: None,
+            name_offset: None,
             parent_id: row.get(2)?,
             etag: row.get(3)?,
             size: row.get(4)?,
@@ -110,11 +110,13 @@ impl Db {
 
     pub fn create_table(&self) -> Result<()> {
         let conn = self.conn.lock().expect("lock must succeed");
+        // NOTE: SUBSTR in SQLite starts indexing from 1 (name_offset column assumes left-most character has index 0)
         conn.execute(
             "CREATE TABLE s3_objects (
                 id          INTEGER   PRIMARY KEY,
                 key         TEXT      NOT NULL,
-                name        TEXT      NOT NULL,
+                name_offset INTEGER   NOT NULL,
+                name        TEXT      GENERATED ALWAYS AS (SUBSTR(key,name_offset + 1)) VIRTUAL,
                 parent_id   INTEGER   NOT NULL,
                 etag        TEXT      NULL,
                 size        INTEGER   NULL
@@ -136,13 +138,14 @@ impl Db {
     pub fn insert_batch(&self, entries: &[DbEntry]) -> Result<()> {
         let mut conn = self.conn.lock().expect("lock must succeed");
         let tx = conn.transaction()?;
-        let mut stmt = tx
-            .prepare("INSERT INTO s3_objects (id, key, name, parent_id, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO s3_objects (id, key, name_offset, parent_id, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?;
         for entry in entries {
             stmt.execute((
                 entry.id,
                 &entry.full_key,
-                &entry.name,
+                &entry.name_offset,
                 entry.parent_id,
                 entry.etag.as_deref(),
                 entry.size,
