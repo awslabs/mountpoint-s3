@@ -31,25 +31,40 @@ pub struct BackpressureConfig {
     pub request_range: Range<u64>,
 }
 
+/// A [BackpressureController] should be given to consumers of a byte stream.
+/// It is used to send feedback ([Self::send_feedback]) to its corresponding [BackpressureLimiter],
+/// the counterpart which should be leveraged by the stream producer.
 #[derive(Debug)]
 pub struct BackpressureController<Client: ObjectClient> {
+    /// Sender for the [BackpressureLimiter] to receive size increments from the controller.
     read_window_updater: Sender<usize>,
+    /// Amount by which the producer should be producing data ahead of [Self::next_read_offset].
     preferred_read_window_size: usize,
     min_read_window_size: usize,
     max_read_window_size: usize,
+    /// Multiplier by which [Self::preferred_read_window_size] is scaled.
     read_window_size_multiplier: usize,
-    /// Upper bound of the current read window. The request can return data up to this
-    /// offset *exclusively*. This value must be advanced to continue fetching new data.
+    /// Upper bound of the current read window, relative to the start of the S3 object.
+    ///
+    /// The request can return data up to this offset *exclusively*.
+    /// This value must be advanced to continue fetching new data.
     read_window_end_offset: u64,
-    /// Next offset of the data to be read. It is used for tracking how many bytes of
-    /// data has been read out of the stream.
+    /// Next offset of the data to be read, relative to the start of the S3 object.
     next_read_offset: u64,
-    /// End offset for the request we want to apply backpressure. The request can return
-    /// data up to this offset *exclusively*.
+    /// End offset within the S3 object for the request.
+    ///
+    /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
+    /// Memory limiter is used to guide decisions on how much data to prefetch.
+    ///
+    /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
+/// The [BackpressureLimiter] is used on producer side of a stream, for example,
+/// any [super::part_stream::ObjectPartStream] that supports backpressure.
+///
+/// The producer can call [Self::wait_for_read_window_increment] to wait for feedback from the consumer.
 #[derive(Debug)]
 pub struct BackpressureLimiter {
     read_window_increment_queue: ReadWindowIncrementQueue,
@@ -63,16 +78,9 @@ pub struct BackpressureLimiter {
 }
 
 /// Creates a [BackpressureController] and its related [BackpressureLimiter].
-/// We use a pair of these to for providing feedback to backpressure stream.
 ///
-/// [BackpressureLimiter] is used on producer side of the object stream, that is, any
-/// [super::part_stream::ObjectPartStream] that support backpressure. The producer can call
-/// `wait_for_read_window_increment` to wait for feedback from the consumer. This method
-/// could block when they know that the producer requires read window incrementing.
-///
-/// [BackpressureController] will be given to the consumer side of the object stream.
-/// It can be used anywhere to set preferred read window size for the stream and tell the
-/// producer when its read window should be increased.
+/// This pair allows a consumer to send feedback ([BackpressureFeedbackEvent]) when starved or bytes are consumed,
+/// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
 pub fn new_backpressure_controller<Client: ObjectClient>(
     config: BackpressureConfig,
     mem_limiter: Arc<MemoryLimiter<Client>>,
@@ -163,12 +171,14 @@ impl<Client: ObjectClient> BackpressureController<Client> {
 
     // Send an increment read window request to the stream producer
     async fn increment_read_window(&mut self, len: usize) {
+        let prev_window_end_offset = self.read_window_end_offset;
+        let next_window_end_offset = prev_window_end_offset + len as u64;
         trace!(
-            preferred_read_window_size = self.preferred_read_window_size,
             next_read_offset = self.next_read_offset,
-            read_window_end_offset = self.read_window_end_offset,
+            prev_window_end_offset,
+            next_window_end_offset,
             len,
-            "incrementing read window"
+            "incrementing read window",
         );
 
         // This should not block since the channel is unbounded
@@ -177,11 +187,12 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             .send(len)
             .await
             .inspect_err(|_| trace!("read window incrementing queue is already closed"));
-        self.read_window_end_offset += len as u64;
+        self.read_window_end_offset = next_window_end_offset;
     }
 
-    // Scale up preferred read window size with a multiplier configured at initialization.
-    // Scaling up fails silently if there is no enough free memory to perform it.
+    /// Scale up preferred read window size with a multiplier configured at initialization.
+    ///
+    /// Fails silently if there is insufficient free memory to perform it according to [Self::mem_limiter].
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
             let new_read_window_size = (self.preferred_read_window_size * self.read_window_size_multiplier)
@@ -195,7 +206,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
                 trace!(
-                    current_size = formatter(self.preferred_read_window_size),
+                    prev_size = formatter(self.preferred_read_window_size),
                     new_size = formatter(new_read_window_size),
                     "scaled up preferred read window"
                 );
@@ -206,7 +217,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         }
     }
 
-    // Scale down preferred read window size by a multiplier configured at initialization.
+    /// Scale down [Self::preferred_read_window_size] by a multiplier configured at initialization.
     fn scale_down(&mut self) {
         if self.preferred_read_window_size > self.min_read_window_size {
             assert!(self.read_window_size_multiplier > 1);
@@ -228,8 +239,11 @@ impl<Client: ObjectClient> BackpressureController<Client> {
 
 impl<Client: ObjectClient> Drop for BackpressureController<Client> {
     fn drop(&mut self) {
+        debug_assert!(
+            self.next_read_offset <= self.request_end_offset,
+            "invariant: the next read offset should never be larger than the request end offset",
+        );
         // Free up memory we have reserved for the read window.
-        debug_assert!(self.request_end_offset >= self.next_read_offset);
         let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset);
         self.mem_limiter.release(BufferArea::Prefetch, remaining_window);
     }

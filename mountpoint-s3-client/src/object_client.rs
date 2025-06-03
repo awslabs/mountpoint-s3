@@ -632,6 +632,12 @@ impl UploadChecksum {
 /// Maintain a smaller window to limit the amount of data buffered in memory.
 pub trait ClientBackpressureHandle {
     /// Increment the flow-control read window, so that response data continues downloading.
+    ///
+    /// The client should read data up to and including the end of the read window,
+    /// even if that means fetching and returning data beyond the end of the window
+    /// to fulfil a part-sized GetObject request.
+    /// As an example, a call with `len = 1` could trigger an 8MiB GetObject request
+    /// if the given client fetches data in requests of 8MiB ranges.
     fn increment_read_window(&mut self, len: usize);
 
     /// Move the upper bound of the read window to the given offset if it's not already there.
