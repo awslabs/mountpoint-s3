@@ -89,7 +89,7 @@ pub trait Mountspace: Send + Sync + Debug {
         offset: i64,
         is_readdirplus: bool,
         reply: MountspaceDirectoryReplier<'a>,
-    ) -> Result<MountspaceDirectoryReplier<'a>, InodeError>;
+    ) -> Result<(), InodeError>;
 
     async fn rename(
         &self,

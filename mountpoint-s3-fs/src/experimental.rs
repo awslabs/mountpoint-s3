@@ -320,7 +320,7 @@ impl Mountspace for HyperBlock {
         offset: i64,
         _is_readdirplus: bool,
         mut reply: MountspaceDirectoryReplier<'a>,
-    ) -> Result<MountspaceDirectoryReplier<'a>, InodeError> {
+    ) -> Result<(), InodeError> {
         let nodes = self.nodes.read().unwrap();
 
         // Get the directory node (file handle is the directory inode)
@@ -353,7 +353,7 @@ impl Mountspace for HyperBlock {
             };
 
             if reply.add(entry) {
-                return Ok(reply);
+                return Ok(());
             }
         }
 
@@ -385,7 +385,7 @@ impl Mountspace for HyperBlock {
             };
 
             if reply.add(entry) {
-                return Ok(reply);
+                return Ok(());
             }
         }
 
@@ -425,10 +425,10 @@ impl Mountspace for HyperBlock {
 
             // Return if the buffer is full, otherwise continue
             if reply.add(entry) {
-                return Ok(reply);
+                return Ok(());
             }
         }
 
-        Ok(reply)
+        Ok(())
     }
 }
