@@ -53,6 +53,28 @@ impl LookedUp {
     }
 }
 
+/// Two structures that can be used to communicate from Mountspace to Filesystem.
+/// The Mountspace implementation MUST store the inode number corresponding to the read or writehandle
+/// but MAY additionally store a unique number to identify this Read Handle.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WriteHandleNo(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReadHandleNo(pub u64);
+
+#[derive(Debug)]
+pub struct ReadHandle {
+    pub no: Option<ReadHandleNo>,
+    pub ino: InodeNo,
+}
+
+#[derive(Debug)]
+pub struct WriteHandle {
+    pub no: Option<WriteHandleNo>,
+    pub ino: InodeNo,
+}
+
 #[async_trait]
 pub trait Mountspace: Send + Sync + Debug {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<LookedUp, InodeError>;
@@ -68,17 +90,18 @@ pub trait Mountspace: Send + Sync + Debug {
 
     async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<LookedUp, InodeError>;
 
-    fn forget(&self, ino: InodeNo, n: u64);
+    async fn forget(&self, ino: InodeNo, n: u64);
 
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
+    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool)
+        -> Result<WriteHandle, InodeError>;
 
-    fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError>;
+    async fn inc_file_size(&self, handle: &WriteHandle, len: usize) -> Result<usize, InodeError>;
 
-    fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
+    async fn finish_writing(&self, handle: &WriteHandle, etag: Option<ETag>) -> Result<(), InodeError>;
 
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn start_reading(&self, ino: InodeNo) -> Result<ReadHandle, InodeError>;
 
-    fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn finish_reading(&self, handle: &ReadHandle) -> Result<(), InodeError>;
 
     async fn new_readdir_handle(&self, dir_ino: InodeNo, page_size: usize) -> Result<u64, InodeError>;
 
