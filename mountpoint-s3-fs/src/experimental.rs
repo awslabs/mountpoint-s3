@@ -2,7 +2,9 @@ use crate::fs::DirectoryEntry;
 use crate::mountspace::LookedUp;
 use crate::mountspace::Mountspace;
 use crate::mountspace::MountspaceDirectoryReplier;
+use crate::mountspace::ReadHandle;
 use crate::mountspace::S3Location;
+use crate::mountspace::WriteHandle;
 use crate::superblock::path::ValidKey;
 use crate::superblock::path::ValidName;
 use crate::superblock::InodeError;
@@ -234,7 +236,7 @@ impl Mountspace for HyperBlock {
     }
 
     // Other required Mountspace trait implementations...
-    fn forget(&self, _ino: InodeNo, _n: u64) {
+    async fn forget(&self, _ino: InodeNo, _n: u64) {
         // No-op for testing
     }
 
@@ -243,29 +245,34 @@ impl Mountspace for HyperBlock {
         Err(InodeError::OperationNotPermitted)
     }
 
-    async fn start_writing(&self, _ino: InodeNo, _mode: &WriteMode, _is_truncate: bool) -> Result<(), InodeError> {
+    async fn start_writing(
+        &self,
+        _ino: InodeNo,
+        _mode: &WriteMode,
+        _is_truncate: bool,
+    ) -> Result<WriteHandle, InodeError> {
         // For a read-only view, don't allow writing
         Err(InodeError::OperationNotPermitted)
     }
 
-    fn inc_file_size(&self, _ino: InodeNo, _len: usize) -> Result<usize, InodeError> {
+    async fn inc_file_size(&self, _handle: &WriteHandle, _len: usize) -> Result<usize, InodeError> {
         Err(InodeError::OperationNotPermitted)
     }
 
-    fn finish_writing(&self, _ino: InodeNo, _etag: Option<ETag>) -> Result<(), InodeError> {
+    async fn finish_writing(&self, _handle: &WriteHandle, _etag: Option<ETag>) -> Result<(), InodeError> {
         Err(InodeError::OperationNotPermitted)
     }
 
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
+    async fn start_reading(&self, ino: InodeNo) -> Result<ReadHandle, InodeError> {
         // Just check if the node exists
         let nodes = self.nodes.read().unwrap();
         if !nodes.contains_key(&ino) {
             return Err(InodeError::InodeDoesNotExist(ino));
         }
-        Ok(())
+        Ok(ReadHandle { no: None, ino })
     }
 
-    fn finish_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+    async fn finish_reading(&self, _handle: &ReadHandle) -> Result<(), InodeError> {
         Ok(())
     }
 

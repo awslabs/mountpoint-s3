@@ -38,7 +38,7 @@ use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
 #[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
-use crate::mountspace;
+use crate::mountspace::{self, ReadHandle, WriteHandle};
 use crate::mountspace::{Mountspace, MountspaceDirectoryReplier, S3Location};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
@@ -282,7 +282,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
     /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
-    fn forget(&self, ino: InodeNo, n: u64) {
+    async fn forget(&self, ino: InodeNo, n: u64) {
         let inode = {
             if let Some(inode) = self.inner.inodes.read().unwrap().get(&ino).cloned() {
                 inode
@@ -418,7 +418,12 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
     }
 
     /// Prepare an inode to start writing.
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError> {
+    async fn start_writing(
+        &self,
+        ino: InodeNo,
+        mode: &WriteMode,
+        is_truncate: bool,
+    ) -> Result<WriteHandle, InodeError> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
@@ -444,12 +449,12 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
             }
         }
         drop(state);
-        Ok(())
+        Ok(WriteHandle { ino, no: None })
     }
 
     /// Increase the size of a file open for writing.
-    fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
-        let inode = self.inner.get(ino)?;
+    async fn inc_file_size(&self, handle: &WriteHandle, len: usize) -> Result<usize, InodeError> {
+        let inode = self.inner.get(handle.ino)?;
         let mut state = inode.get_mut_inode_state()?;
         if !matches!(state.write_status, WriteStatus::LocalOpen) {
             debug!(?inode, "Error trying to increase file size on write");
@@ -460,8 +465,8 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
     }
 
     /// Update status of the inode and of containing "local" directories.
-    fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError> {
-        let inode = self.inner.get(ino)?;
+    async fn finish_writing(&self, handle: &WriteHandle, etag: Option<ETag>) -> Result<(), InodeError> {
+        let inode = self.inner.get(handle.ino)?;
 
         // Collect ancestor inodes that may need updating,
         // from parent to first remote ancestor.
@@ -518,7 +523,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
     }
 
     /// Prepare an inode to start reading.
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
+    async fn start_reading(&self, ino: InodeNo) -> Result<ReadHandle, InodeError> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
@@ -528,12 +533,12 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         }
         state.reader_count += 1;
         drop(state);
-        Ok(())
+        Ok(ReadHandle { ino, no: None })
     }
 
     /// Update status of the inode to reflect the read being finished
-    fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
-        let inode = self.inner.get(ino)?;
+    async fn finish_reading(&self, handle: &ReadHandle) -> Result<(), InodeError> {
+        let inode = self.inner.get(handle.ino)?;
 
         // Decrease reader count for the inode
         let mut state = inode.get_mut_inode_state()?;
@@ -2431,14 +2436,14 @@ mod tests {
             .await
             .unwrap();
 
-        superblock
+        let write_handle = superblock
             .start_writing(new_inode.ino, &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        superblock.finish_writing(new_inode.ino, None).unwrap();
+        superblock.finish_writing(&write_handle, None).await.unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -2594,7 +2599,7 @@ mod tests {
             .await
             .unwrap();
 
-        superblock
+        let write_handle = superblock
             .start_writing(new_inode.ino, &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
@@ -2621,7 +2626,8 @@ mod tests {
 
         // Invoke [finish_writing] to make the file remote
         superblock
-            .finish_writing(new_inode.ino, Some(ETag::for_tests()))
+            .finish_writing(&write_handle, Some(ETag::for_tests()))
+            .await
             .unwrap();
 
         // Should get an error back when calling setattr

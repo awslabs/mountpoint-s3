@@ -410,7 +410,7 @@ where
 
     pub async fn forget(&self, ino: InodeNo, n: u64) {
         trace!("fs:forget with ino {:?} n {:?}", ino, n);
-        self.superblock.forget(ino, n);
+        self.superblock.forget(ino, n).await;
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
@@ -509,8 +509,8 @@ where
         logging::record_name(handle.file_name());
         let mut state = handle.state.lock().await;
         let request = match &mut *state {
-            FileHandleState::Read(request) => request,
-            FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
+            FileHandleState::Read(_, request) => request,
+            FileHandleState::Write(_, _) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
         request
@@ -587,12 +587,12 @@ where
 
         let len = {
             let mut state = handle.state.lock().await;
-            let request = match &mut *state {
+            let (internal_handle, request) = match &mut *state {
                 FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-                FileHandleState::Write(request) => request,
+                FileHandleState::Write(handle, request) => (handle, request),
             };
 
-            request.write(self, &handle, offset, data).await?
+            request.write(self, &handle, internal_handle, offset, data).await?
         };
         Ok(len)
     }
@@ -672,11 +672,11 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let write_state = match &mut *state {
+        let (mountspace_handle, write_state) = match &mut *state {
             FileHandleState::Read { .. } => return Ok(()),
-            FileHandleState::Write(write_state) => write_state,
+            FileHandleState::Write(mountspace_handle, write_state) => (mountspace_handle, write_state),
         };
-        match write_state.commit(self, &file_handle).await {
+        match write_state.commit(self, &file_handle, mountspace_handle).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -709,9 +709,9 @@ where
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { .. } => Ok(()),
-            FileHandleState::Write(write_state) => {
+            FileHandleState::Write(mountspace_handle, write_state) => {
                 write_state
-                    .complete(self, &file_handle, pid, file_handle.open_pid)
+                    .complete(self, &file_handle, mountspace_handle, pid, file_handle.open_pid)
                     .await
             }
         }
@@ -745,17 +745,17 @@ where
             }
         };
 
-        let write_state = match file_handle.state.into_inner() {
-            FileHandleState::Read(_) => {
+        let (mountspace_handle, write_state) = match file_handle.state.into_inner() {
+            FileHandleState::Read(read_handle, _) => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                self.superblock.finish_reading(file_handle.ino)?;
+                self.superblock.finish_reading(&read_handle).await?;
                 return Ok(());
             }
-            FileHandleState::Write(write_state) => write_state,
+            FileHandleState::Write(mountspace_handle, write_state) => (mountspace_handle, write_state),
         };
 
         let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.full_key)
+            .complete_if_in_progress(self, &mountspace_handle, &file_handle.full_key)
             .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
