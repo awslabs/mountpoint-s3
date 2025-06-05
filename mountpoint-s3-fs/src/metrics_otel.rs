@@ -7,7 +7,6 @@ use metrics::Key;
 
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
-    meter_provider: opentelemetry_sdk::metrics::SdkMeterProvider,
     meter: opentelemetry::metrics::Meter,
 }
 
@@ -31,17 +30,18 @@ impl OtlpMetricsExporter {
                     .build(),
             )
             .build();
-        global::set_meter_provider(meter_provider.clone());
+        global::set_meter_provider(meter_provider);
 
         // Get a meter
         let meter = global::meter("mountpoint-s3");
 
-        Ok(Self { meter_provider, meter })
+        Ok(Self { meter })
     }
 
     /// Record a counter metric in OTel format
     pub fn record_counter(&self, key: &Key, value: u64, attributes: &[KeyValue]) {
-        let counter = self.meter
+        let counter = self
+            .meter
             .u64_counter(key.name().to_string())
             .with_description("Mountpoint counter metric")
             .build();
@@ -51,7 +51,8 @@ impl OtlpMetricsExporter {
 
     /// Record a gauge metric in OTel format
     pub fn record_gauge(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let gauge = self.meter
+        let gauge = self
+            .meter
             .f64_gauge(key.name().to_string())
             .with_description("Mountpoint gauge metric")
             .build();
@@ -61,11 +62,100 @@ impl OtlpMetricsExporter {
 
     /// Record a histogram metric in OTel format
     pub fn record_histogram(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let histogram = self.meter
+        let histogram = self
+            .meter
             .f64_histogram(key.name().to_string())
             .with_description("Mountpoint histogram metric")
             .build();
 
         histogram.record(value, attributes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    #[ignore]
+    fn direct_otlp_test() {
+        use opentelemetry::global;
+        use opentelemetry_otlp::{Protocol, WithExportConfig};
+        use std::time::Duration;
+        use tracing::info;
+        use tracing_subscriber::fmt::format::FmtSpan;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        // Create and set the subscriber
+        tracing_subscriber::fmt()
+            .with_span_events(FmtSpan::CLOSE)
+            .with_target(false)
+            .with_thread_ids(true)
+            .with_level(true)
+            .with_file(true)
+            .with_line_number(true)
+            .with_test_writer()
+            .set_default();
+
+        info!("Setting up direct OpenTelemetry test...");
+
+        // Initialize the OpenTelemetry SDK directly
+        let exporter = opentelemetry_otlp::MetricExporter::builder()
+            .with_http()
+            .with_protocol(Protocol::HttpBinary)
+            .with_endpoint("http://localhost:4318/v1/metrics")  // Explicit metrics endpoint
+            .with_timeout(Duration::from_secs(10))
+            .build()
+            .expect("Failed to create exporter");
+
+        info!("Created exporter");
+
+        let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
+            .with_interval(Duration::from_secs(1))
+            .build();
+
+        info!("Created reader");
+
+        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+            .with_reader(reader)
+            .build();
+
+        info!("Created provider");
+
+        global::set_meter_provider(provider.clone());
+
+        info!("Set meter provider");
+
+        let meter = global::meter("mountpoint-test");
+
+        // Create and record multiple metrics to ensure visibility
+        let counter = meter
+            .u64_counter("DIRECT_TEST_COUNTER_123xyz")
+            .with_description("Test counter for direct OTLP export")
+            .with_unit("1")
+            .build();
+
+        // Add multiple data points with different attributes
+        counter.add(100, &[
+            opentelemetry::KeyValue::new("test", "true"),
+            opentelemetry::KeyValue::new("source", "direct_test"),
+            opentelemetry::KeyValue::new("type", "counter")
+        ]);
+
+        info!("Recorded counter with value 100");
+
+        // Add another data point to ensure we're seeing updates
+        counter.add(150, &[
+            opentelemetry::KeyValue::new("test", "true"),
+            opentelemetry::KeyValue::new("source", "direct_test"),
+            opentelemetry::KeyValue::new("type", "counter")
+        ]);
+
+        info!("Recorded counter with value 150");
+        info!("Waiting for metrics to be exported...");
+
+        // Wait longer to ensure metrics are exported
+        std::thread::sleep(Duration::from_secs(10));
+
+        info!("Test complete. Check docker logs otel-collector");
     }
 }
