@@ -1749,7 +1749,6 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
-                ..Default::default()
             },
             Default::default(),
         );
@@ -1802,7 +1801,6 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
-                ..Default::default()
             },
             Default::default(),
         );

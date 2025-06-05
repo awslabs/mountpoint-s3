@@ -3,12 +3,13 @@ pub mod autoconfigure;
 mod checksums;
 mod config;
 pub mod data_cache;
-pub mod experimental;
 pub mod fs;
 pub mod fuse;
 pub mod logging;
 #[cfg(feature = "manifest")]
 pub mod manifest;
+#[cfg(feature = "manifest")]
+pub mod manifest_mountspace;
 pub mod mem_limiter;
 pub mod metrics;
 pub mod mountspace;

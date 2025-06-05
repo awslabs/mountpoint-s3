@@ -4,11 +4,15 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, Deserialize, Default)]
 pub struct DbEntry {
     #[serde(skip)]
     pub id: u64,
-    pub full_key: String, // Both files and directories don't have '/' in the end
+    /// S3 key of the object.
+    ///
+    /// When a bucket prefix is mounted, this field does not contain prefix when stored or loaded from the DB.
+    /// Both files and directories don't have '/' in the end.
+    pub full_key: String,
     #[serde(skip)]
     pub name_offset: Option<u64>,
     #[serde(skip)]
@@ -130,7 +134,7 @@ impl Db {
     pub fn create_index(&self) -> Result<()> {
         let conn = self.conn.lock().expect("lock must succeed");
 
-        conn.execute("CREATE INDEX idx_parent_id ON s3_objects (parent_id, name)", ())?;
+        conn.execute("CREATE UNIQUE INDEX idx_parent_id ON s3_objects (parent_id, name)", ())?;
 
         Ok(())
     }

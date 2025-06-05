@@ -169,12 +169,16 @@ where
             dir_mode: config.dir_mode,
         };
 
+        #[cfg(feature = "manifest")]
         let superblock: Arc<dyn Mountspace> = if let Some(manifest) = config.manifest.as_ref() {
-            // TODO: respect prefix argument
-            Arc::new(crate::experimental::HyperBlock::new(
+            let channels = vec![crate::manifest_mountspace::ChannelConfig {
+                bucket_name: bucket.to_string(),
+                prefix: prefix.clone(),
+            }];
+            Arc::new(crate::manifest_mountspace::HyperBlock::new(
                 make_attr_config,
-                bucket,
                 manifest.clone(),
+                channels,
             ))
         } else {
             Arc::new(Superblock::new(
@@ -185,6 +189,14 @@ where
                 make_attr_config,
             ))
         };
+        #[cfg(not(feature = "manifest"))]
+        let superblock = Arc::new(Superblock::new(
+            client.clone(),
+            bucket,
+            prefix,
+            superblock_config,
+            make_attr_config,
+        ));
 
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);

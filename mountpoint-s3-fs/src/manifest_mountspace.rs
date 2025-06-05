@@ -8,8 +8,10 @@ use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
 use crate::fs::{DirectoryEntry, FUSE_ROOT_INODE};
-use crate::manifest::{Manifest, ManifestEntry, ManifestIter};
+use crate::manifest::{Manifest, ManifestEntry, ManifestError, ManifestIter};
 use crate::mountspace::{LookedUp, Mountspace, MountspaceDirectoryReplier, S3Location};
+use crate::prefix::Prefix;
+use crate::superblock::path::{ValidKey, ValidKeyError};
 use crate::superblock::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, MakeAttrConfig, WriteMode};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
@@ -18,9 +20,15 @@ use crate::sync::{Arc, Mutex, RwLock};
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 #[derive(Debug)]
+pub struct ChannelConfig {
+    pub bucket_name: String,
+    pub prefix: Prefix,
+}
+
+#[derive(Debug)]
 pub struct HyperBlock {
     make_attr_config: MakeAttrConfig,
-    bucket_name: String,
+    channels: Vec<ChannelConfig>,
     mount_time: OffsetDateTime,
     manifest: Manifest,
     next_dir_handle_id: AtomicU64,
@@ -28,10 +36,10 @@ pub struct HyperBlock {
 }
 
 impl HyperBlock {
-    pub fn new(make_attr_config: MakeAttrConfig, bucket_name: &str, manifest: Manifest) -> Self {
+    pub fn new(make_attr_config: MakeAttrConfig, manifest: Manifest, channels: Vec<ChannelConfig>) -> Self {
         Self {
             make_attr_config,
-            bucket_name: bucket_name.to_string(),
+            channels,
             mount_time: OffsetDateTime::now_utc(),
             manifest,
             next_dir_handle_id: Default::default(),
@@ -39,8 +47,10 @@ impl HyperBlock {
         }
     }
 
-    fn manifest_entry_to_lookup(&self, manifest_entry: ManifestEntry) -> LookedUp {
-        match manifest_entry {
+    fn manifest_entry_to_lookup(&self, manifest_entry: ManifestEntry) -> Result<LookedUp, ValidKeyError> {
+        assert_eq!(self.channels.len(), 1, "exactly one channel is expected now");
+        let channel = &self.channels[0];
+        let lookup = match manifest_entry {
             ManifestEntry::File {
                 etag,
                 size,
@@ -62,8 +72,8 @@ impl HyperBlock {
                 kind: InodeKind::File,
                 is_remote: true,
                 location: Some(S3Location {
-                    bucket: self.bucket_name.clone(),
-                    full_key: full_key.try_into().expect("must be a valid key"),
+                    bucket: channel.bucket_name.clone(),
+                    full_key: ValidKey::try_from(format!("{}{}", channel.prefix, full_key))?,
                 }),
             },
             ManifestEntry::Directory { id, full_key, .. } => LookedUp {
@@ -71,13 +81,18 @@ impl HyperBlock {
                 stat: InodeStat::for_directory(self.mount_time, NEVER_EXPIRE_TTL),
                 kind: InodeKind::Directory,
                 is_remote: true,
-                // TODO: is it required for directories? or only used on 'open' for files?
                 location: Some(S3Location {
-                    bucket: self.bucket_name.clone(),
-                    full_key: full_key.try_into().expect("must be a valid key"),
+                    bucket: channel.bucket_name.clone(),
+                    full_key: ValidKey::try_from(format!("{}{}/", channel.prefix, full_key))?,
                 }),
             },
-        }
+        };
+        debug_assert!(
+            lookup.location.as_ref().expect("must have location").full_key.kind() == lookup.kind,
+            "inferred wrong kind from full_key for ino {}",
+            lookup.ino,
+        );
+        Ok(lookup)
     }
 
     fn get_parent_id(&self, ino: InodeNo) -> Result<InodeNo, InodeError> {
@@ -134,8 +149,9 @@ impl HyperBlock {
 #[async_trait]
 impl Mountspace for HyperBlock {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<LookedUp, InodeError> {
-        // TODO: handle non utf-8 names gracefully
-        let name = name.to_str().expect("must be utf-8").to_string();
+        let Some(name) = name.to_str().map(String::from) else {
+            return Err(InodeError::InvalidFileName(name.to_os_string()));
+        };
         let Some(manifest_entry) = self.manifest.manifest_lookup(parent_ino, &name)? else {
             return Err(InodeError::FileDoesNotExist(
                 name.to_string(),
@@ -143,7 +159,9 @@ impl Mountspace for HyperBlock {
             ));
         };
 
-        let lookup = self.manifest_entry_to_lookup(manifest_entry);
+        let lookup = self
+            .manifest_entry_to_lookup(manifest_entry)
+            .map_err(ManifestError::from)?;
         Ok(lookup)
     }
 
@@ -154,10 +172,7 @@ impl Mountspace for HyperBlock {
                 stat: InodeStat::for_directory(self.mount_time, NEVER_EXPIRE_TTL),
                 kind: InodeKind::Directory,
                 is_remote: true,
-                location: Some(S3Location {
-                    bucket: self.bucket_name.clone(),
-                    full_key: "".to_string().try_into().expect("must be a valid key"),
-                }),
+                location: None,
             });
         }
 
@@ -165,7 +180,9 @@ impl Mountspace for HyperBlock {
             return Err(InodeError::InodeDoesNotExist(ino));
         };
 
-        let lookup = self.manifest_entry_to_lookup(manifest_entry);
+        let lookup = self
+            .manifest_entry_to_lookup(manifest_entry)
+            .map_err(ManifestError::from)?;
         Ok(lookup)
     }
 
@@ -282,7 +299,7 @@ impl Mountspace for HyperBlock {
         else {
             return Err(InodeError::NoSuchDirHandle);
         };
-        let mut readdir_handle = readdir_handle.lock().expect("lock must succeed"); // TODO: fine grained locking?
+        let mut readdir_handle = readdir_handle.lock().expect("lock must succeed");
         readdir_handle.seek((offset - 2) as usize)?; // shift offset accounting for '.' and '..'
         loop {
             let Some(manifest_entry) = readdir_handle.next_entry()? else {

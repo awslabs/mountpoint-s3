@@ -20,6 +20,8 @@ pub struct ValidKey {
 pub enum ValidKeyError {
     #[error("not a directory key")]
     NotADirectory,
+    #[error("invalid key {0:?}")]
+    InvalidKey(String),
 }
 
 impl ValidKey {
@@ -88,6 +90,16 @@ impl ValidKey {
             _ => InodeKind::File,
         }
     }
+
+    /// Checks if the provided &str is a valid key.
+    pub fn validate(value: &str) -> Result<(), ValidKeyError> {
+        for component in value.split_terminator('/') {
+            if ValidName::parse_str(component).is_err() {
+                return Err(ValidKeyError::InvalidKey(value.to_string()));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Deref for ValidKey {
@@ -116,13 +128,16 @@ impl From<ValidKey> for String {
     }
 }
 
-// TODO: does it have to end with "/" for directories?
 impl TryFrom<String> for ValidKey {
     type Error = ValidKeyError;
 
+    /// Constructs a valid key performing checks.
     fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::validate(&value)?;
+
         let name_len = value.rsplit("/").next().expect("at least one component").len();
         let name_offset = value.len() - name_len;
+
         Ok(Self {
             key: value.into(),
             name_offset,

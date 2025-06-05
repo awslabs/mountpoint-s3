@@ -15,6 +15,8 @@ pub use csv_reader::CsvReader;
 use db::Db;
 pub use db::DbEntry;
 
+use crate::superblock::path::ValidKeyError;
+
 #[derive(Debug, Error)]
 pub enum ManifestError {
     #[error("database exists")]
@@ -25,12 +27,16 @@ pub enum ManifestError {
     DbError(#[from] rusqlite::Error),
     #[error("key has no etag or size and will be unavailable: {0}")]
     NoEtagOrSize(String),
-    #[error("key is invalid and will be unavailable: {0}")]
-    InvalidKey(String),
+    #[error("key is invalid")]
+    InvalidKey(#[from] ValidKeyError),
+    #[error("folder marker {0}")]
+    FolderMarker(String),
     #[error("invalid database row")]
     InvalidRow,
     #[error("csv error")]
     CsvError(#[from] csv::Error),
+    #[error("db unique constraint violation, possibly due to a shadowed key")]
+    ConstraintViolation(#[source] rusqlite::Error),
 }
 
 /// An entry returned by manifest_lookup() and ManifestIter::next()

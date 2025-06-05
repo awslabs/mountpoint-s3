@@ -19,6 +19,9 @@ struct CliArgs {
         value_name = "OUTPUT_FILE"
     )]
     db_path: PathBuf,
+
+    #[clap(help = "S3 prefix, if used to mount a bucket", value_name = "PREFIX")]
+    prefix: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -27,7 +30,12 @@ fn main() -> anyhow::Result<()> {
     let batch_size = 100000usize;
     let start = Instant::now();
     let csv_reader = CsvReader::new(BufReader::new(File::open(args.input_csv)?));
-    create_db(&args.db_path, csv_reader, batch_size)?;
+    create_db(
+        &args.db_path,
+        csv_reader,
+        batch_size,
+        args.prefix.as_deref().unwrap_or(""),
+    )?;
     println!("creation took: {:?}", start.elapsed());
 
     Ok(())
