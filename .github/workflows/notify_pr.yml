@@ -1,0 +1,20 @@
+name: Pull Request Slack Notifier
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send notification to Slack
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_PR }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "action": "${{ github.event.action }}",
+              "url": "${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+            }
