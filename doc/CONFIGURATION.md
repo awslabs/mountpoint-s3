@@ -103,11 +103,13 @@ Mountpoint also respects access control lists (ACLs) applied to objects in your 
 
 ## S3 bucket configuration
 
-By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 HTTPS endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
+By default, Mountpoint automatically mounts your S3 bucket based on the bucket name and selects a default S3 HTTPS endpoint.  You can override the default if you want additional control on how Mountpoint connects to your bucket.
 
 ### S3 bucket types
 
-Mountpoint for Amazon S3 supports both general purpose and directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones). In order to mount a general purpose bucket, run Mountpoint with the following command:
+Mountpoint for Amazon S3 supports three bucket types: general purpose, directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones), and outposts buckets. To mount a bucket, provide the bucket name and following command:
+
+For a general purpose bucket use the full bucket name:
 
 ```
 mount-s3 amzn-s3-demo-bucket /path/to/mount
@@ -121,7 +123,13 @@ mount-s3 amzn-s3-demo-bucket--az_id--x-s3 /path/to/mount
 
 For more information on directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html). For more information on directory buckets in Dedicated Local Zones see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-bucket-data-residency.html).
 
-Mountpoint for Amazon S3 also supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
+For an Outposts bucket use the access point ARN or alias:
+
+```
+mount-s3 arn:aws:s3-outposts:region:123456789012:outpost/op-01ac5d28a6a232904/bucket/example-outposts-bucket /path/to/mount
+```
+
+Mountpoint for Amazon S3 supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
 
 ### Mounting a bucket prefix
 
