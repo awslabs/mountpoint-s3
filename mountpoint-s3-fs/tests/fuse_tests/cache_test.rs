@@ -1,15 +1,15 @@
 use crate::common::cache::CacheTestWrapper;
-use crate::common::fuse::create_fuse_session;
 use crate::common::fuse::s3_session::create_crt_client;
+use crate::common::fuse::{create_fuse_fs, create_fuse_session};
 use crate::common::s3::{get_test_bucket, get_test_prefix};
 
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
+use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::Runtime;
 
-use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
@@ -410,7 +410,7 @@ fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
     format!("{last_key_part}{padding}")
 }
 
-fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, bucket: &str, prefix: &str) -> (TempDir, BackgroundSession)
+fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, bucket: &str, prefix: &str) -> (TempDir, FuseSession)
 where
     Cache: DataCache + Send + Sync + 'static,
 {
@@ -418,15 +418,18 @@ where
     let runtime = Runtime::new(client.event_loop_group());
     let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
     let (session, _mount) = create_fuse_session(
-        client,
-        prefetcher_builder,
-        runtime,
-        bucket,
-        prefix,
+        create_fuse_fs(
+            client,
+            prefetcher_builder,
+            runtime,
+            bucket,
+            prefix,
+            Default::default(),
+            None,
+        ),
         mount_point.path(),
-        Default::default(),
         false,
-        None,
+        16,
     );
     (mount_point, session)
 }
