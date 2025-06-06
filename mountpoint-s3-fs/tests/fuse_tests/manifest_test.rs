@@ -170,14 +170,13 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     // create manifest and do the mount
     let (_tmp_dir, db_path) = create_manifest(
         [Ok(DbEntry {
-            full_key: format!("{}{}", prefix, visible_object.0),
+            full_key: visible_object.0.to_string(), // key does not contain the prefix
             etag: Some(visible_object_etag),
             size: Some(visible_object.1.len()),
             ..Default::default()
         })]
         .into_iter(),
         1000,
-        &prefix,
     )
     .expect("manifest must be created");
     let test_session =
@@ -238,7 +237,7 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
 
     let (_tmp_dir, db_path) = create_manifest(
         [Ok(DbEntry {
-            full_key: format!("{}{}", prefix, object.0),
+            full_key: object.0.to_string(), // key does not contain the prefix
             etag: if wrong_etag {
                 Some("wrong_etag".to_string())
             } else {
@@ -249,7 +248,6 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
         })]
         .into_iter(),
         1000,
-        &prefix,
     )
     .expect("manifest must be created");
     let test_session =

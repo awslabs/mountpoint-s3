@@ -21,18 +21,17 @@ pub fn create_dummy_manifest<T: AsRef<str>>(
     });
 
     let batch_size = 1024;
-    create_manifest(db_entries, batch_size, "")
+    create_manifest(db_entries, batch_size)
 }
 
 pub fn create_manifest(
     db_entries: impl Iterator<Item = Result<DbEntry, ManifestError>>,
     batch_size: usize,
-    prefix: &str,
 ) -> Result<(TempDir, PathBuf), ManifestError> {
     let db_dir = tempfile::tempdir().unwrap();
     let db_path = db_dir.path().join("s3_keys.db3");
 
-    create_db(&db_path, db_entries, batch_size, prefix)?;
+    create_db(&db_path, db_entries, batch_size)?;
 
     Ok((db_dir, db_path))
 }
