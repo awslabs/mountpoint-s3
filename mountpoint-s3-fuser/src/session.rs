@@ -153,6 +153,10 @@ impl<FS: Filesystem> Session<FS> {
         FB: FnMut(&Request<'_>),
         FA: FnMut(&Request<'_>),
     {
+        // Create a worker channel for this thread using FUSE_DEV_IOC_CLONE
+        // This allows multiple threads to read from the FUSE device without contention
+        let worker_channel = self.ch.clone_channel()?;
+        
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
         let mut buffer = vec![0; BUFFER_SIZE];
@@ -161,10 +165,10 @@ impl<FS: Filesystem> Session<FS> {
             std::mem::align_of::<abi::fuse_in_header>(),
         );
         loop {
-            // Read the next request from the given channel to kernel driver
-            // The kernel driver makes sure that we get exactly one request per read
-            match self.ch.receive(buf) {
-                Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
+            // Read the next request from the worker channel
+            // Each thread has its own channel, so there's no contention
+            match worker_channel.receive(buf) {
+                Ok(size) => match Request::new(worker_channel.sender(), &buf[..size]) {
                     // Dispatch request
                     Some(req) => {
                         before_dispatch(&req);

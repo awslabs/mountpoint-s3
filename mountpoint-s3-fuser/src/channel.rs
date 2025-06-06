@@ -30,6 +30,44 @@ impl Channel {
         Self(device)
     }
 
+    /// Create a worker channel by opening a new /dev/fuse file descriptor and
+    /// associating it with the session using FUSE_DEV_IOC_CLONE ioctl.
+    /// This allows multiple threads to read from separate file descriptors
+    /// without contention.
+    pub fn clone_channel(&self) -> io::Result<Self> {
+        use std::fs::OpenOptions;
+        use std::os::unix::io::AsRawFd;
+        //use nix::sys::ioctl::ioctl_read;
+        use nix::ioctl_read;
+        use nix::Result as NixResult;
+
+        // Open a new /dev/fuse file
+        let worker_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/fuse")?;
+
+        // Get the raw file descriptors
+        let worker_fd = worker_file.as_raw_fd();
+        let mut session_fd = self.0.as_raw_fd();
+
+        // Define the FUSE_DEV_IOC_CLONE ioctl using nix's ioctl_read! macro
+        ioctl_read!(fuse_dev_ioc_clone, 229, 0, libc::c_int);
+
+        // Associate the worker fd with the session fd using FUSE_DEV_IOC_CLONE
+        let result: NixResult<libc::c_int> = unsafe {
+            let val = &mut session_fd as *mut libc::c_int;
+            fuse_dev_ioc_clone(worker_fd, val)
+        };
+
+        // Convert nix::Error to io::Error if the ioctl fails
+        if let Err(err) = result {
+            return Err(io::Error::new(io::ErrorKind::Other, err));
+        }
+
+        Ok(Self(Arc::new(worker_file)))
+    }
+
     /// Receives data up to the capacity of the given buffer (can block).
     pub fn receive(&self, buffer: &mut [u8]) -> io::Result<usize> {
         let rc = unsafe {
