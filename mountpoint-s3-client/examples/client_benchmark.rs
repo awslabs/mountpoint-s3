@@ -9,7 +9,7 @@ use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
-use mountpoint_s3_client::types::{ETag, GetObjectParams};
+use mountpoint_s3_client::types::{ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use tracing_subscriber::EnvFilter;
@@ -35,6 +35,7 @@ fn run_benchmark(
     num_downloads: usize,
     bucket: &str,
     key: &str,
+    enable_backpressure: bool,
 ) {
     for i in 0..num_iterations {
         let start = Instant::now();
@@ -46,21 +47,50 @@ fn run_benchmark(
                 let received_size_clone = Arc::clone(&received_size);
                 scope.spawn(|| {
                     futures::executor::block_on(async move {
-                        let request = client
+                        let received_obj_len = Arc::new(AtomicU64::new(0));
+                        let mut request = client
                             .get_object(bucket, key, &GetObjectParams::new())
                             .await
                             .expect("couldn't create get request");
+                        let mut backpressure_handle = request.backpressure_handle().cloned();
+                        if enable_backpressure {
+                            if let Some(backpressure_handle) = backpressure_handle.as_mut() {
+                                backpressure_handle.ensure_read_window(client.initial_read_window_size().unwrap() as u64);
+                            }
+                        }
                         let mut request = pin!(request);
                         loop {
                             match request.next().await {
                                 Some(Ok(part)) => {
-                                    received_size_clone.fetch_add(part.data.len() as u64, Ordering::SeqCst);
+                                    let part_len = part.data.len();
+                                    tracing::info!(
+                                        target: "benchmarking_instrumentation",
+                                        received_obj_len = ?received_obj_len,
+                                        part_len = part_len,
+                                        "consuming data",
+                                    );
+                                    received_size_clone.fetch_add(part_len as u64, Ordering::SeqCst);
+                                    received_obj_len.fetch_add(part_len as u64, Ordering::SeqCst);
+                                    if enable_backpressure {
+                                        if let Some(backpressure_handle) = backpressure_handle.as_mut() {
+                                            tracing::info!(
+                                                target: "benchmarking_instrumentation",
+                                                preferred_read_window_size = ?client.initial_read_window_size(),
+                                                prev_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len.load(Ordering::Relaxed) - part_len as u64),
+                                                new_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len.load(Ordering::Relaxed)),
+                                                part_len = part_len,
+                                                "advancing read window",
+                                            );
+
+                                            backpressure_handle.increment_read_window(part_len);
+                                        }
+                                    }
                                 }
                                 Some(Err(e)) => {
                                     tracing::error!(error = ?e, "request failed");
                                     break;
                                 }
-                                None => break,
+                                _ => break,
                             }
                         }
                     })
@@ -128,6 +158,10 @@ struct CliArgs {
     iterations: usize,
     #[arg(long, help = "Number of concurrent downloads", default_value = "1")]
     downloads: usize,
+    #[arg(long, help = "Enable CRT backpressure mode", default_value = "false")]
+    enable_backpressure: bool,
+    #[arg(long, help = "Initial window size", default_value = "0")]
+    initial_window_size: usize,
 }
 
 fn main() {
@@ -149,9 +183,13 @@ fn main() {
                 config = config.network_interface_names(interfaces.clone());
             }
             config = config.part_size(args.part_size);
+            if args.enable_backpressure {
+                config = config.read_backpressure(true);
+                config = config.initial_read_window(args.initial_window_size);
+            }
             let client = S3CrtClient::new(config).expect("couldn't create client");
 
-            run_benchmark(client, args.iterations, args.downloads, &bucket, &key);
+            run_benchmark(client, args.iterations, args.downloads, &bucket, &key, args.enable_backpressure);
         }
         Client::Mock { object_size } => {
             const BUCKET: &str = "bucket";
@@ -166,7 +204,7 @@ fn main() {
 
             client.add_object(KEY, MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()));
 
-            run_benchmark(client, args.iterations, args.downloads, BUCKET, KEY);
+            run_benchmark(client, args.iterations, args.downloads, BUCKET, KEY, args.enable_backpressure);
         }
     }
 }
