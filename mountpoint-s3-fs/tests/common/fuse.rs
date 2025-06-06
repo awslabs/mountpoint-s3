@@ -4,12 +4,13 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
 use std::sync::Arc;
 
-use fuser::{BackgroundSession, Mount, MountOption, Session};
+use fuser::{Mount, MountOption, Session};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_fs::data_cache::DataCache;
+use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
@@ -68,6 +69,7 @@ pub struct TestSessionConfig {
     // If true, the test session will be created by opening and passing
     // FUSE device using `Session::from_fd`, otherwise `Session::new` will be used.
     pub pass_fuse_fd: bool,
+    pub max_worker_threads: usize,
     pub error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>,
     pub cache_block_size: usize,
     #[cfg(feature = "manifest")]
@@ -84,6 +86,7 @@ impl Default for TestSessionConfig {
             filesystem_config: Default::default(),
             auth_config: Default::default(),
             pass_fuse_fd: false,
+            max_worker_threads: 16,
             error_logger: None,
             cache_block_size,
             #[cfg(feature = "manifest")]
@@ -110,7 +113,7 @@ pub struct TestSession {
     test_client: Box<dyn TestClient>,
     prefix: String,
     // Option so we can explicitly unmount
-    session: Option<BackgroundSession>,
+    session: Option<FuseSession>,
     // Only set if `pass_fuse_fd` is true, will unmount the filesystem on drop.
     mount: Option<Mount>,
 }
@@ -118,7 +121,7 @@ pub struct TestSession {
 impl TestSession {
     pub fn new(
         mount_dir: TempDir,
-        session: BackgroundSession,
+        session: FuseSession,
         test_client: impl TestClient + 'static,
         prefix: String,
         mount: Option<Mount>,
@@ -150,8 +153,13 @@ impl Drop for TestSession {
         // If the session created with a pre-existing mount (e.g., with `pass_fuse_fd`),
         // this will unmount it explicitly...
         drop(self.mount.take());
-        // ...if not, the background session will have a mount here, and dropping it will unmount it.
-        self.session.take();
+        // ...if not, the fuse session will unmount on shutdown.
+        if let Some(session) = self.session.take() {
+            session.shutdown_fn()();
+            if let Err(error) = session.join() {
+                tracing::warn!(?error, "error while unmounting");
+            }
+        }
     }
 }
 
@@ -213,7 +221,7 @@ pub fn create_fuse_session<Client>(
     s3_path: S3Path,
     mount_dir: &Path,
     test_config: TestSessionConfig,
-) -> (BackgroundSession, Option<Mount>)
+) -> (FuseSession, Option<Mount>)
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
@@ -245,7 +253,10 @@ where
         (Session::new(fs, mount_dir, &options).unwrap(), None)
     };
 
-    (BackgroundSession::new(session).unwrap(), mount)
+    (
+        FuseSession::from_session(session, test_config.max_worker_threads).unwrap(),
+        mount,
+    )
 }
 
 /// Open `/dev/fuse` and call `mount` syscall with given `mount_point`.
