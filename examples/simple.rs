@@ -757,7 +757,7 @@ impl Filesystem for SimpleFS {
         {
             // TODO
             warn!("mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}", mode);
-            reply.error(libc::ENOSYS);
+            reply.error(libc::EPERM);
             return;
         }
 
