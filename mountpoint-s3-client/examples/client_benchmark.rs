@@ -189,7 +189,14 @@ fn main() {
             }
             let client = S3CrtClient::new(config).expect("couldn't create client");
 
-            run_benchmark(client, args.iterations, args.downloads, &bucket, &key, args.enable_backpressure);
+            run_benchmark(
+                client,
+                args.iterations,
+                args.downloads,
+                &bucket,
+                &key,
+                args.enable_backpressure,
+            );
         }
         Client::Mock { object_size } => {
             const BUCKET: &str = "bucket";
@@ -204,7 +211,14 @@ fn main() {
 
             client.add_object(KEY, MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()));
 
-            run_benchmark(client, args.iterations, args.downloads, BUCKET, KEY, args.enable_backpressure);
+            run_benchmark(
+                client,
+                args.iterations,
+                args.downloads,
+                BUCKET,
+                KEY,
+                args.enable_backpressure,
+            );
         }
     }
 }
