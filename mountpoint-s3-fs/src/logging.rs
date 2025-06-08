@@ -148,7 +148,10 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<LoggingHandl
         }
         let file = file_options.open(log_file_path).context("failed to create log file")?;
 
-        let file_layer = tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file);
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_thread_ids(true)
+            .with_writer(file);
         Some(file_layer)
     } else {
         None
@@ -162,7 +165,11 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<LoggingHandl
     };
 
     let console_layer = if config.log_to_stdout {
-        Some(tracing_subscriber::fmt::layer().with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some()))
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
+                .with_thread_ids(true),
+        )
     } else {
         None
     };
