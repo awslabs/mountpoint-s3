@@ -10,7 +10,7 @@ use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::Prefetcher;
+use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
 use mountpoint_s3_fs::Runtime;
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::fmt::Subscriber;
@@ -110,48 +110,35 @@ fn main() {
     let bucket = args.bucket.as_str();
     let key = args.s3_key.as_str();
 
-    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
-    let mut config = S3ClientConfig::new()
-        .endpoint_config(EndpointConfig::new(args.region.as_str()))
-        .read_backpressure(true)
-        .initial_read_window(initial_read_window_size);
-    if let Some(throughput_target_gbps) = args.maximum_throughput_gbps {
-        config = config.throughput_target_gbps(throughput_target_gbps as f64);
-    }
-    if let Some(limit_gib) = args.crt_memory_limit_gib {
-        config = config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
-    }
-    if let Some(part_size) = args.part_size {
-        config = config.part_size(part_size as usize);
-    }
-    if let Some(interfaces) = &args.bind {
-        config = config.network_interface_names(interfaces.clone());
-    }
-    let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
+    let client = make_s3_client_from_args(&args);
 
-    let max_memory_target = if let Some(target) = args.max_memory_target {
-        target * 1024 * 1024
-    } else {
-        // Default to 95% of total system memory
-        let sys = System::new_with_specifics(RefreshKind::everything());
-        (sys.total_memory() as f64 * 0.95) as u64
+    let mem_limiter = {
+        let max_memory_target = if let Some(target) = args.max_memory_target {
+            target * 1024 * 1024
+        } else {
+            // Default to 95% of total system memory
+            let sys = System::new_with_specifics(RefreshKind::everything());
+            (sys.total_memory() as f64 * 0.95) as u64
+        };
+        Arc::new(MemoryLimiter::new(client.clone(), max_memory_target))
     };
-    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
 
     let head_object_result =
         block_on(client.head_object(bucket, key, &HeadObjectParams::new())).expect("HeadObject failed");
     let size = head_object_result.size;
-    let etag = head_object_result.etag;
+    let object_id = ObjectId::new(key.to_string(), head_object_result.etag);
 
-    for i in 0..args.iterations {
-        let runtime = Runtime::new(client.event_loop_group());
-        let manager =
-            Prefetcher::default_builder(client.clone()).build(runtime, mem_limiter.clone(), Default::default());
+    let runtime = Runtime::new(client.event_loop_group());
+
+    for iteration in 0..args.iterations {
+        let manager = {
+            let client = client.clone();
+            Prefetcher::default_builder(client).build(runtime.clone(), mem_limiter.clone(), PrefetcherConfig::default())
+        };
+
         let received_bytes = Arc::new(AtomicU64::new(0));
-
         let start = Instant::now();
 
-        let object_id = ObjectId::new(key.to_string(), etag.clone());
         thread::scope(|scope| {
             for _ in 0..args.downloads {
                 let received_bytes = received_bytes.clone();
@@ -176,10 +163,31 @@ fn main() {
         let received_size = received_bytes.load(Ordering::SeqCst);
         println!(
             "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
-            i,
+            iteration,
             received_size,
             elapsed.as_secs_f64(),
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
     }
+}
+
+fn make_s3_client_from_args(args: &CliArgs) -> Arc<S3CrtClient> {
+    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
+    let mut client_config = S3ClientConfig::new()
+        .read_backpressure(true)
+        .initial_read_window(initial_read_window_size)
+        .endpoint_config(EndpointConfig::new(args.region.as_str()));
+    if let Some(throughput_target_gbps) = args.maximum_throughput_gbps {
+        client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
+    }
+    if let Some(limit_gib) = args.crt_memory_limit_gib {
+        client_config = client_config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
+    }
+    if let Some(part_size) = args.part_size {
+        client_config = client_config.part_size(part_size as usize);
+    }
+    if let Some(interfaces) = &args.bind {
+        client_config = client_config.network_interface_names(interfaces.clone());
+    }
+    Arc::new(S3CrtClient::new(client_config).unwrap())
 }
