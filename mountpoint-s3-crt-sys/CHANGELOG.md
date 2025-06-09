@@ -1,7 +1,7 @@
 ## Unreleased (v0.14.0)
 
 * Update to latest CRT dependencies.
-* Include bindings for the new `s3_buffer_pool` API in `aws-c-s3`. ([#1430](https://github.com/awslabs/mountpoint-s3/pull/1430))
+* Include bindings for the new `s3_buffer_pool` API in `aws-c-s3`. ([#1458](https://github.com/awslabs/mountpoint-s3/pull/1458))
 
 ## v0.13.1 (May 9, 2025)
 
