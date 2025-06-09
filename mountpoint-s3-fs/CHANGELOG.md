@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.4.1)
+
+* Update underlying S3 client version.
 
 ## v0.4.0 (May 30, 2025)
 
