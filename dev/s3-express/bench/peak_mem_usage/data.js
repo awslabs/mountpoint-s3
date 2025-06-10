@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1749559001689,
+  "lastUpdate": 1749582527978,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5ad378d6aaf77ab37e1b7938672589b6c6389eff",
-          "message": "Turn off comment on benchmark alert (#1412)\n\nDisable the last comment on alert for benchmarks. We don't rely on this\nmechanism anymore, and it is currently broken for pull requests:\nhttps://github.com/awslabs/mountpoint-s3/actions/runs/14933031147/job/41953835707#step:9:138.\n\nInstead, you should review the benchmark summary on the job.\n\n### Does this change impact existing behavior?\n\nFor benchmarks on GitHub Actions, the last remaining case (throughput\nbenchmarks S3 standard) will no longer make commit comments.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, repo change only.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2025-05-13T12:13:13Z",
-          "tree_id": "0185c15a542c838d749269b9465312d723052f29",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5ad378d6aaf77ab37e1b7938672589b6c6389eff"
-        },
-        "date": 1747146444136,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 17425.78515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 27224.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 40820.515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 151.22265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 390.5234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 214.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 408.4296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 86.8203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 330.4765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 86.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 328.44921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 37534.23046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 404.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 40518.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 405.265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 11625.05078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 267.1484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 11511.41796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11168.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 264.43359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 408.65625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 255.53125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 253.3515625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cf3e15173e76989131c1500a6242502976731ab0",
+          "message": "Ensure cache blocks are written atomically (#1433)\n\nAddress an issue with cache block reads failing while a concurrent write\nis in progress, observed for example in #1389 (see log entries in\n[comment](https://github.com/awslabs/mountpoint-s3/issues/1389#issuecomment-2861696762)).\nThis change modifies `put_block` to write to a temporary file first and\nthen rename to the expected cache block file name.\n\nIn addition, this PR also addresses concurrency issues in tracking block\nusage data for eviction: updates to `UsageInfo` were not previously\nsynchronized correctly with the operations on disk and we could end up\nrecording a new block write when in fact the block had been concurrently\ndeleted. Now we lock `UsageInfo` while performing file system\noperations.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nBug fix entry.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-06-10T16:50:31Z",
+          "tree_id": "0eb796cd79dd17d25281031da52eeaa762005605",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/cf3e15173e76989131c1500a6242502976731ab0"
+        },
+        "date": 1749582527926,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 11740.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 28806.41796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 40701.9140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 149.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 304.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 158.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 325.91796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 74.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 235.3046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 80.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 232.890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 38750.3984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 386.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 42377.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 395.48828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13380.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 264.47265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12876.31640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 12538.18359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 265.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 422.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 255.52734375,
             "unit": "MiB"
           }
         ]
