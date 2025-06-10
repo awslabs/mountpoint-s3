@@ -143,8 +143,13 @@ impl Drop for TestSession {
         // If the session created with a pre-existing mount (e.g., with `pass_fuse_fd`),
         // this will unmount it explicitly...
         drop(self.mount.take());
-        // ...if not, the background session will have a mount here, and dropping it will unmount it.
-        self.session.take();
+        // ...if not, the fuse session will unmount on shutdown.
+        if let Some(session) = self.session.take() {
+            session.shutdown_fn()();
+            if let Err(error) = session.join() {
+                tracing::warn!(?error, "error while unmounting");
+            }
+        }
     }
 }
 
