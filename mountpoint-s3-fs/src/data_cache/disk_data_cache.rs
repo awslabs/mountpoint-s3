@@ -357,10 +357,8 @@ impl DiskDataCache {
     }
 
     fn write_block(&self, path: impl AsRef<Path>, block: DiskBlock) -> DataCacheResult<(NamedTempFile, usize)> {
-        let cache_path_for_key = path
-            .as_ref()
-            .parent()
-            .expect("path should include cache key in directory name");
+        let path = path.as_ref();
+        let cache_path_for_key = path.parent().expect("path should include cache key in directory name");
         fs::DirBuilder::new()
             .mode(0o700)
             .recursive(true)
@@ -372,8 +370,9 @@ impl DiskDataCache {
         trace!(
             key = block.header.s3_key,
             offset = block.header.block_offset,
-            "writing block at {}",
-            path.as_ref().display()
+            block_path = ?path,
+            temp_path = ?temp_file.path(),
+            "writing cache block",
         );
         temp_file.write_all(CACHE_VERSION.as_bytes())?;
         let bytes_written = block.write(&mut temp_file)?;
