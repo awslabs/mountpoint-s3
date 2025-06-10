@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
+use anyhow::Context;
 use clap::{value_parser, Parser};
 use futures::executor::block_on;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
@@ -19,7 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
-    RustLogAdapter::try_init().expect("unable to install CRT log adapter");
+    RustLogAdapter::try_init().expect("should succeed as first and only adapter init call");
 
     let subscriber = Subscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
@@ -27,7 +28,9 @@ fn init_tracing_subscriber() {
         .with_writer(std::io::stderr)
         .finish();
 
-    subscriber.try_init().expect("unable to install global subscriber");
+    subscriber
+        .try_init()
+        .expect("should succeed as first and only subscriber init call");
 }
 
 #[derive(Parser, Debug)]
@@ -101,7 +104,7 @@ pub struct CliArgs {
     pub bind: Option<Vec<String>>,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
     let _metrics_handle = mountpoint_s3_fs::metrics::install();
 
@@ -110,7 +113,7 @@ fn main() {
     let bucket = args.bucket.as_str();
     let key = args.s3_key.as_str();
 
-    let client = make_s3_client_from_args(&args);
+    let client = make_s3_client_from_args(&args).context("failed to create S3 CRT client")?;
 
     let mem_limiter = {
         let max_memory_target = if let Some(target) = args.max_memory_target {
@@ -123,18 +126,19 @@ fn main() {
         Arc::new(MemoryLimiter::new(client.clone(), max_memory_target))
     };
 
-    let head_object_result =
-        block_on(client.head_object(bucket, key, &HeadObjectParams::new())).expect("HeadObject failed");
+    let head_object_result = block_on(client.head_object(bucket, key, &HeadObjectParams::new()))
+        .context("initial HeadObject to fetch object metadata before benchmark failed")?;
     let size = head_object_result.size;
     let object_id = ObjectId::new(key.to_string(), head_object_result.etag);
 
     let runtime = Runtime::new(client.event_loop_group());
 
     for iteration in 0..args.iterations {
-        let manager = {
-            let client = client.clone();
-            Prefetcher::default_builder(client).build(runtime.clone(), mem_limiter.clone(), PrefetcherConfig::default())
-        };
+        let manager = Prefetcher::default_builder(client.clone()).build(
+            runtime.clone(),
+            mem_limiter.clone(),
+            PrefetcherConfig::default(),
+        );
 
         let received_bytes = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
@@ -169,9 +173,11 @@ fn main() {
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
     }
+
+    Ok(())
 }
 
-fn make_s3_client_from_args(args: &CliArgs) -> Arc<S3CrtClient> {
+fn make_s3_client_from_args(args: &CliArgs) -> Result<S3CrtClient, impl std::error::Error> {
     let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     let mut client_config = S3ClientConfig::new()
         .read_backpressure(true)
@@ -189,5 +195,5 @@ fn make_s3_client_from_args(args: &CliArgs) -> Arc<S3CrtClient> {
     if let Some(interfaces) = &args.bind {
         client_config = client_config.network_interface_names(interfaces.clone());
     }
-    Arc::new(S3CrtClient::new(client_config).unwrap())
+    S3CrtClient::new(client_config)
 }
