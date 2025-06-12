@@ -519,6 +519,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-s3control"
+version = "1.69.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ac5fc79cf42852d6a93a6e1aa4e75919a93f83b425d4d8a9648776fc11bb0f2"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-smithy-xml",
+ "aws-types",
+ "fastrand",
+ "http 0.2.12",
+ "md-5",
+ "once_cell",
+ "regex-lite",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "aws-sdk-sso"
 version = "1.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2868,6 +2893,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "aws-sdk-s3control",
  "aws-smithy-runtime-api",
  "base64ct",
  "built",
@@ -2888,6 +2914,7 @@ dependencies = [
  "rand_chacha",
  "regex",
  "rusty-fork",
+ "serde",
  "serde_json",
  "static_assertions",
  "supports-color 3.0.2",

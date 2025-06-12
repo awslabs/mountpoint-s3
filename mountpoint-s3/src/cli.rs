@@ -50,6 +50,11 @@ Arguments:
         ArgGroup::new("cache_group")
             .multiple(true),
     ),
+    group(
+        ArgGroup::new("access_grants_group")
+            .requires("access_grants_account_id")
+            .args(&["use_access_grants"]),
+    ),
     after_help = FSTAB_DOCS,
 )]
 pub struct CliArgs {
@@ -118,6 +123,36 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS_OPTIONS_HEADER)]
     pub profile: Option<String>,
+
+    #[clap(
+        long,
+        help = "Use S3 Access Grants for authorization",
+        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
+    )]
+    pub use_access_grants: bool,
+
+    #[clap(
+        long,
+        help = "AWS account ID for Access Grants (required when using --use-access-grants)",
+        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
+    )]
+    pub access_grants_account_id: Option<String>,
+
+    #[clap(
+        long,
+        help = "Permission level for Access Grants (READ, WRITE, READWRITE) [default: READ]",
+        value_parser = ["READ", "WRITE", "READWRITE"],
+        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
+    )]
+    pub access_grants_permission: Option<String>,
+
+    #[clap(
+        long,
+        help = "Duration for Access Grants credentials in seconds (900-43200) [default: 3600]",
+        value_parser = value_parser!(u32).range(900..=43200),
+        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
+    )]
+    pub access_grants_duration: Option<u32>,
 
     #[clap(
         long,
@@ -753,11 +788,59 @@ impl CliArgs {
     fn auth_config(&self) -> S3ClientAuthConfig {
         if self.no_sign_request {
             S3ClientAuthConfig::NoSigning
+        } else if self.use_access_grants {
+            let config = self.build_access_grants_config();
+            let profile_override = self.profile.clone();
+            S3ClientAuthConfig::AccessGrants { config, profile_override }
         } else if let Some(profile_name) = self.profile.clone() {
             S3ClientAuthConfig::Profile(profile_name)
         } else {
             S3ClientAuthConfig::Default
         }
+    }
+
+    fn build_access_grants_config(&self) -> mountpoint_s3_client::config::AccessGrantsConfig {
+        // Parse permission, default to READ
+        let permission = match self.access_grants_permission.as_deref() {
+            Some("READ") | None => mountpoint_s3_client::config::AccessGrantsPermission::Read,
+            Some("WRITE") => mountpoint_s3_client::config::AccessGrantsPermission::Write,
+            Some("READWRITE") => mountpoint_s3_client::config::AccessGrantsPermission::ReadWrite,
+            // This case should never happen due to clap validation
+            _ => mountpoint_s3_client::config::AccessGrantsPermission::Read,
+        };
+
+        // Build target S3 URI from bucket and prefix
+        let target = match &self.bucket_name {
+            BucketNameOrS3Uri::BucketName(bucket_name) => {
+                let bucket_str: String = bucket_name.clone().into();
+                match &self.prefix {
+                    Some(prefix) => format!("s3://{}/{}", bucket_str, prefix.as_str().trim_start_matches('/')),
+                    None => format!("s3://{}", bucket_str),
+                }
+            },
+            BucketNameOrS3Uri::S3Uri(s3uri) => {
+                let bucket_str: String = s3uri.bucket_name.clone().into();
+                if s3uri.prefix.as_str().is_empty() {
+                    format!("s3://{}", bucket_str)
+                } else {
+                    format!("s3://{}/{}", bucket_str, s3uri.prefix.as_str())
+                }
+            }
+        };
+
+        // Account ID is required - validation ensures it's present
+        let account_id = self
+            .access_grants_account_id
+            .clone()
+            .expect("access_grants_account_id is required when use_access_grants is set");
+
+        let mut config = mountpoint_s3_client::config::AccessGrantsConfig::new(account_id, target, permission);
+
+        if let Some(duration) = self.access_grants_duration {
+            config = config.duration_seconds(duration);
+        }
+
+        config
     }
 
     pub fn client_config(&self, version: &str) -> ClientConfig {

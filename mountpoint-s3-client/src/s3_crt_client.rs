@@ -262,6 +262,15 @@ pub enum S3ClientAuthConfig {
     Profile(String),
     /// Use a custom credentials provider
     Provider(CredentialsProvider),
+    /// Use S3 Access Grants for authorization. This is not a regular provider
+    /// that can directly use some credentials, because we need credentials to
+    /// invoke Access Grants to get _another_ set of credentials.
+    AccessGrants {
+        /// Access Grants configuration
+        config: crate::access_grants::AccessGrantsConfig,
+        /// Optional profile to use for base credentials
+        profile_override: Option<String>,
+    },
 }
 
 /// An S3 client that uses the [AWS Common Runtime (CRT)][crt] to make requests.
@@ -376,6 +385,21 @@ impl S3CrtClientInner {
                     .map_err(NewClientError::ProviderFailure)?
             }
             S3ClientAuthConfig::Provider(provider) => provider,
+            S3ClientAuthConfig::AccessGrants { config: access_grants_config, profile_override } => {
+                debug!(
+                    "Creating Access Grants credentials provider with config: {:?}",
+                    access_grants_config
+                );
+
+                // Create the Access Grants credentials provider
+                crate::access_grants_provider::new_access_grants_provider(
+                    &allocator,
+                    access_grants_config,
+                    config.endpoint_config.clone(),
+                    profile_override,
+                )
+                .map_err(NewClientError::ProviderFailure)?
+            }
         };
 
         let endpoint_config = config.endpoint_config;
