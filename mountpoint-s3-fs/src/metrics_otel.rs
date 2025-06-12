@@ -102,7 +102,7 @@ mod tests {
         let exporter = opentelemetry_otlp::MetricExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpBinary)
-            .with_endpoint("http://localhost:4318/v1/metrics")  // Explicit metrics endpoint
+            .with_endpoint("http://localhost:4318/v1/metrics") // Explicit metrics endpoint
             .with_timeout(Duration::from_secs(10))
             .build()
             .expect("Failed to create exporter");
@@ -135,20 +135,26 @@ mod tests {
             .build();
 
         // Add multiple data points with different attributes
-        counter.add(100, &[
-            opentelemetry::KeyValue::new("test", "true"),
-            opentelemetry::KeyValue::new("source", "direct_test"),
-            opentelemetry::KeyValue::new("type", "counter")
-        ]);
+        counter.add(
+            100,
+            &[
+                opentelemetry::KeyValue::new("test", "true"),
+                opentelemetry::KeyValue::new("source", "direct_test"),
+                opentelemetry::KeyValue::new("type", "counter"),
+            ],
+        );
 
         info!("Recorded counter with value 100");
 
         // Add another data point to ensure we're seeing updates
-        counter.add(150, &[
-            opentelemetry::KeyValue::new("test", "true"),
-            opentelemetry::KeyValue::new("source", "direct_test"),
-            opentelemetry::KeyValue::new("type", "counter")
-        ]);
+        counter.add(
+            150,
+            &[
+                opentelemetry::KeyValue::new("test", "true"),
+                opentelemetry::KeyValue::new("source", "direct_test"),
+                opentelemetry::KeyValue::new("type", "counter"),
+            ],
+        );
 
         info!("Recorded counter with value 150");
         info!("Waiting for metrics to be exported...");
