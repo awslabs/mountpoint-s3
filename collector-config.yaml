@@ -1,0 +1,45 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+  metricstransform:
+    transforms:
+      - include: mountpoint_test_.*
+        match_type: regexp
+        action: update
+        operations:
+          - action: update_label
+            label: test
+            new_label: test_label
+          - action: add_label
+            new_label: source
+            new_value: mountpoint
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    enable_open_metrics: true
+    resource_to_telemetry_conversion:
+      enabled: true
+    const_labels:
+      exporter: otel
+  logging:
+    verbosity: detailed
+  debug:
+    verbosity: detailed
+
+service:
+  telemetry:
+    logs:
+      level: "debug"
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch, metricstransform]
+      exporters: [prometheus, logging, debug]
