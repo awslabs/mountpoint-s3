@@ -26,7 +26,7 @@ pub struct FuseSession {
     on_close: Vec<OnClose>,
 }
 
-type OnClose = Box<dyn FnOnce()>;
+type OnClose = Box<dyn FnOnce() + Send>;
 
 impl FuseSession {
     /// Create a new multi-threaded FUSE session.
@@ -49,7 +49,7 @@ impl FuseSession {
     }
 
     /// Create worker threads to dispatch requests for a FUSE session.
-    fn from_session<FS: Filesystem + Send + Sync + 'static>(
+    pub fn from_session<FS: Filesystem + Send + Sync + 'static>(
         mut session: Session<FS>,
         max_worker_threads: usize,
     ) -> anyhow::Result<Self> {
