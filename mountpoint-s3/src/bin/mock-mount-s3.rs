@@ -43,15 +43,12 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
 
     tracing::warn!("using mock client");
 
+    // TODO: Actually update the mock client to support different part sizes
     let part_size = {
-        // TODO: Actually update the mock client to support different part sizes
-        let values = [Some(args.part_size), args.read_part_size, args.write_part_size];
-        values
-            .iter()
-            .copied()
-            .flatten()
-            .max()
-            .expect("always at least one value given part_size is not optional")
+        if args.read_part_size.is_some() || args.write_part_size.is_some() {
+            tracing::warn!("mock client does not support separate part sizes for reading and writing, ignoring");
+        }
+        args.part_size
     };
 
     let config = MockClientConfig {
