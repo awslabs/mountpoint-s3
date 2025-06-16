@@ -40,11 +40,13 @@ y1","""etag1""",1024"#;
             full_key: "key1".to_string(),
             etag: Some("\"etag1\"".to_string()),
             size: Some(1024),
+            ..Default::default()
         },
         DbEntry {
             full_key: "key2".to_string(),
             etag: Some("\"etag2\"".to_string()),
             size: Some(2048),
+            ..Default::default()
         },
     ]; "2 full entries")]
     #[test_case(r#""key1","",1024"#, &[
@@ -52,6 +54,7 @@ y1","""etag1""",1024"#;
             full_key: "key1".to_string(),
             etag: None,
             size: Some(1024),
+            ..Default::default()
         },
     ]; "no etag")]
     #[test_case(r#""key1","""etag1""","#, &[
@@ -59,6 +62,7 @@ y1","""etag1""",1024"#;
             full_key: "key1".to_string(),
             etag: Some("\"etag1\"".to_string()),
             size: None,
+            ..Default::default()
         },
     ]; "no size")]
     #[test_case(CSV_MULTILINE_ENTRY, &[
@@ -66,6 +70,7 @@ y1","""etag1""",1024"#;
             full_key: "ke\",\ny1".to_string(),
             etag: Some("\"etag1\"".to_string()),
             size: Some(1024),
+            ..Default::default()
         },
     ]; "with special chars")]
     #[test_case("", &[]; "empty")]

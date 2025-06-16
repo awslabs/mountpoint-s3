@@ -2,20 +2,11 @@ use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use tracing::{error, trace};
+use tracing::error;
 
-mod builder;
-#[cfg(feature = "manifest")]
-mod csv_reader;
-mod db;
+use super::db::{Db, DbEntry};
 
-pub use builder::create_db;
-pub use builder::ingest_manifest;
-
-#[cfg(feature = "manifest")]
-pub use csv_reader::CsvReader;
-use db::Db;
-pub use db::DbEntry;
+use crate::superblock::path::ValidKeyError;
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
@@ -27,25 +18,32 @@ pub enum ManifestError {
     DbError(#[from] rusqlite::Error),
     #[error("key has no etag or size and will be unavailable: {0}")]
     NoEtagOrSize(String),
-    #[error("key is invalid and will be unavailable: {0}")]
-    InvalidKey(String),
+    #[error("key is invalid")]
+    InvalidKey(#[from] ValidKeyError),
+    #[error("folder marker {0}")]
+    FolderMarker(String),
     #[error("invalid database row")]
     InvalidRow,
-    #[cfg(feature = "manifest")]
     #[error("csv error")]
     CsvError(#[from] csv::Error),
+    #[error("db unique constraint violation, possibly due to a shadowed key")]
+    ConstraintViolation(#[source] rusqlite::Error),
 }
 
 /// An entry returned by manifest_lookup() and ManifestIter::next()
 #[derive(Debug, Clone)]
 pub enum ManifestEntry {
     File {
+        id: u64,
         full_key: String,
+        parent_id: u64,
         etag: String,
         size: usize,
     },
     Directory {
+        id: u64,
         full_key: String, // doesn't contain '/'
+        parent_id: u64,
     },
 }
 
@@ -57,12 +55,20 @@ impl TryFrom<DbEntry> for ManifestEntry {
             return Err(ManifestError::InvalidRow);
         }
 
+        let Some(parent_id) = db_entry.parent_id else {
+            return Err(ManifestError::InvalidRow);
+        };
+
         match (db_entry.etag, db_entry.size) {
             (None, None) => Ok(ManifestEntry::Directory {
+                id: db_entry.id,
                 full_key: db_entry.full_key,
+                parent_id,
             }),
             (Some(etag), Some(size)) => Ok(ManifestEntry::File {
+                id: db_entry.id,
                 full_key: db_entry.full_key,
+                parent_id,
                 etag,
                 size,
             }),
@@ -84,17 +90,18 @@ impl Manifest {
     }
 
     /// Lookup an entry in the manifest, the result may be a file or a directory
-    pub fn manifest_lookup(
-        &self,
-        parent_full_path: String,
-        name: &str,
-    ) -> Result<Option<ManifestEntry>, ManifestError> {
-        trace!("using manifest to lookup {} in {}", name, parent_full_path);
-        let mut full_path = parent_full_path;
-        full_path.push_str(name);
-
+    pub fn manifest_lookup(&self, parent_id: u64, name: &str) -> Result<Option<ManifestEntry>, ManifestError> {
         // search for an entry and validate it
-        let db_entry = self.db.select_entry(&full_path)?;
+        let db_entry = self.db.select_entry(parent_id, name)?;
+        match db_entry {
+            Some(db_entry) => Ok(Some(db_entry.try_into()?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn manifest_lookup_by_id(&self, ino: u64) -> Result<Option<ManifestEntry>, ManifestError> {
+        // search for an entry and validate it
+        let db_entry = self.db.select_entry_by_id(ino)?;
         match db_entry {
             Some(db_entry) => Ok(Some(db_entry.try_into()?)),
             None => Ok(None),
@@ -102,8 +109,8 @@ impl Manifest {
     }
 
     /// Create an iterator over directory's direct children
-    pub fn iter(&self, bucket: &str, directory_full_path: &str) -> ManifestIter {
-        ManifestIter::new(self.db.clone(), bucket, directory_full_path)
+    pub fn iter(&self, parent_id: u64) -> ManifestIter {
+        ManifestIter::new(self.db.clone(), parent_id)
     }
 }
 
@@ -111,9 +118,9 @@ impl Manifest {
 pub struct ManifestIter {
     db: Db,
     /// Prepared entries in order to be returned by the iterator.
-    entries: VecDeque<DbEntry>,
-    /// Key of the directory being listed by this iterator
-    parent_key: String,
+    entries: VecDeque<ManifestEntry>,
+    /// ID of the directory being listed by this iterator
+    parent_id: u64,
     /// Offset of the next child to search for in the database
     next_offset: usize,
     /// Max amount of entries to read from the database at once
@@ -123,14 +130,12 @@ pub struct ManifestIter {
 }
 
 impl ManifestIter {
-    fn new(db: Db, _bucket: &str, parent_key: &str) -> Self {
-        // remove trailing '/' since we don't store it in the db
-        let parent_key = parent_key.trim_end_matches("/").to_owned();
+    fn new(db: Db, parent_id: u64) -> Self {
         let batch_size = 10000;
         Self {
             db,
             entries: Default::default(),
-            parent_key,
+            parent_id,
             next_offset: 0,
             batch_size,
             finished: false,
@@ -143,25 +148,43 @@ impl ManifestIter {
             self.search_next_entries()?;
         }
 
-        let Some(db_entry) = self.entries.pop_front() else {
-            return Ok(None);
-        };
+        let entry = self.entries.pop_front();
+        if entry.is_some() {
+            self.next_offset += 1;
+        }
 
-        Ok(Some(db_entry.try_into()?))
+        Ok(entry)
     }
 
-    /// Load next batch of entries from the database, keeping track of the `next_offset`
+    pub fn readd(&mut self, entry: ManifestEntry) {
+        self.next_offset -= 1;
+
+        self.entries.push_front(entry);
+    }
+
+    pub fn seek(&mut self, offset: usize) -> Result<(), ManifestError> {
+        if offset != self.next_offset {
+            metrics::counter!("manifest.readdir.out_of_order").increment(1);
+            self.entries.clear();
+            self.next_offset = offset;
+            self.finished = false;
+        };
+        Ok(())
+    }
+
+    /// Load next batch of entries from the database
     fn search_next_entries(&mut self) -> Result<(), ManifestError> {
         let db_entries = self
             .db
-            .select_children(&self.parent_key, self.next_offset, self.batch_size)?;
+            .select_children(self.parent_id, self.next_offset, self.batch_size)?;
 
         if db_entries.len() < self.batch_size {
             self.finished = true;
         }
 
-        self.next_offset += db_entries.len();
-        self.entries.extend(db_entries);
+        let manifest_entries: Result<Vec<ManifestEntry>, ManifestError> =
+            db_entries.into_iter().map(|db_entry| db_entry.try_into()).collect();
+        self.entries.extend(manifest_entries?);
 
         Ok(())
     }

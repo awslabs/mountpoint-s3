@@ -44,8 +44,6 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-#[cfg(feature = "manifest")]
-use crate::manifest::Manifest;
 use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::ObjectClient;
 use time::OffsetDateTime;
@@ -100,17 +98,6 @@ impl ReaddirHandle {
             }
         };
 
-        #[cfg(feature = "manifest")]
-        let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
-            trace!("using manifest readdir iter");
-            ReaddirIter::manifest(manifest, &inner.bucket, &full_path, inner.mount_time)?
-        } else if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
-        } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
-        };
-
-        #[cfg(not(feature = "manifest"))]
         let iter = if inner.config.s3_personality.is_list_ordered() {
             ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
         } else {
@@ -336,8 +323,6 @@ impl Ord for ReaddirEntry {
 enum ReaddirIter {
     Ordered(ordered::ReaddirIter),
     Unordered(unordered::ReaddirIter),
-    #[cfg(feature = "manifest")]
-    Manifest(manifest::ReaddirIter),
 }
 
 impl ReaddirIter {
@@ -349,26 +334,10 @@ impl ReaddirIter {
         Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
     }
 
-    #[cfg(feature = "manifest")]
-    fn manifest(
-        manifest: &Manifest,
-        bucket: &str,
-        full_path: &str,
-        mount_time: OffsetDateTime,
-    ) -> Result<Self, InodeError> {
-        Ok(Self::Manifest(manifest::ReaddirIter::new(
-            manifest.iter(bucket, full_path),
-            full_path.len(),
-            mount_time,
-        )))
-    }
-
     async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
         match self {
             Self::Ordered(iter) => iter.next(client).await,
             Self::Unordered(iter) => iter.next(client).await,
-            #[cfg(feature = "manifest")]
-            Self::Manifest(iter) => iter.next(),
         }
     }
 }
@@ -640,58 +609,6 @@ mod unordered {
             }
 
             Ok(self.local_iter.pop_front())
-        }
-    }
-}
-
-#[cfg(feature = "manifest")]
-mod manifest {
-    use time::OffsetDateTime;
-
-    use crate::manifest::{ManifestEntry, ManifestIter};
-
-    use super::{InodeError, ReaddirEntry};
-
-    /// Adaptor for [ManifestIter], converts [ManifestEntry] to [ReaddirEntry]
-    #[derive(Debug)]
-    pub struct ReaddirIter {
-        manifest_iter: ManifestIter,
-        full_path_len: usize,
-        mount_time: OffsetDateTime,
-    }
-
-    impl ReaddirIter {
-        pub(super) fn new(manifest_iter: ManifestIter, full_path_len: usize, mount_time: OffsetDateTime) -> Self {
-            Self {
-                manifest_iter,
-                full_path_len,
-                mount_time,
-            }
-        }
-
-        /// Return the next [ReaddirEntry] for the directory stream. If the stream is finished, returns
-        /// `Ok(None)`.
-        pub(super) fn next(&mut self) -> Result<Option<ReaddirEntry>, InodeError> {
-            let readdir_entry = match self.manifest_iter.next_entry()? {
-                Some(ManifestEntry::File { full_key, etag, size }) => {
-                    let name = full_key[self.full_path_len..].to_owned();
-                    Some(ReaddirEntry::RemoteObject {
-                        name,
-                        full_key,
-                        size: size as u64,
-                        last_modified: self.mount_time,
-                        storage_class: None,
-                        restore_status: None,
-                        etag,
-                    })
-                }
-                Some(ManifestEntry::Directory { full_key, .. }) => {
-                    let name = full_key[self.full_path_len..].to_owned();
-                    Some(ReaddirEntry::RemotePrefix { name })
-                }
-                None => None,
-            };
-            Ok(readdir_entry)
         }
     }
 }

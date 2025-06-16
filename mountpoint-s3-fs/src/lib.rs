@@ -3,7 +3,6 @@ pub mod autoconfigure;
 mod checksums;
 mod config;
 pub mod data_cache;
-pub mod experimental;
 pub mod fs;
 pub mod fuse;
 pub mod logging;

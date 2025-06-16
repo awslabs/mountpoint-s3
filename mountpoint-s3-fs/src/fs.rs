@@ -161,8 +161,6 @@ where
         let superblock_config = SuperblockConfig {
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,
-            #[cfg(feature = "manifest")]
-            manifest: config.manifest.clone(),
         };
         let make_attr_config = MakeAttrConfig {
             uid: config.uid,
@@ -171,40 +169,35 @@ where
             dir_mode: config.dir_mode,
         };
 
-        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config, make_attr_config);
-        /*let channel_configs = vec![
-            // Channel A
-            (
-                "channelA".to_string(),
-                "chagem-test-bucket".to_string(),
-                vec![
-                    (
-                        "cast.txt".to_string(),
-                        "c11b7ade74c878a58d6480e387417164".to_string(),
-                        114,
-                    ),
-                    (
-                        "dfa.txt".to_string(),
-                        "c11b7ade74c878a58d6480e387417164".to_string(),
-                        114,
-                    ),
-                ],
-            ),
-            // Channel B
-            (
-                "channelB".to_string(),
-                "mp-semantics-test".to_string(),
-                vec![(
-                    "key.txt".to_string(),
-                    "643306233e4b256d682bb9dff6c63708-4".to_string(),
-                    20,
-                )],
-            ),
-        ];
+        #[cfg(feature = "manifest")]
+        let superblock: Arc<dyn Mountspace> = if let Some(manifest) = config.manifest.as_ref() {
+            let channels = vec![crate::manifest::ChannelConfig {
+                bucket_name: bucket.to_string(),
+                prefix: prefix.clone(),
+            }];
+            Arc::new(crate::manifest::HyperBlock::new(
+                make_attr_config,
+                manifest.clone(),
+                channels,
+            ))
+        } else {
+            Arc::new(Superblock::new(
+                client.clone(),
+                bucket,
+                prefix,
+                superblock_config,
+                make_attr_config,
+            ))
+        };
+        #[cfg(not(feature = "manifest"))]
+        let superblock = Arc::new(Superblock::new(
+            client.clone(),
+            bucket,
+            prefix,
+            superblock_config,
+            make_attr_config,
+        ));
 
-        // Initialize the HyperBlock with our test configuration
-        let superblock = HyperBlock::new(channel_configs);
-        */
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
@@ -219,7 +212,7 @@ where
 
         Self {
             config,
-            superblock: Arc::new(superblock),
+            superblock,
             prefetcher,
             uploader,
             next_handle: AtomicU64::new(1),
