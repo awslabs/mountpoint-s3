@@ -1,16 +1,21 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClient, TestSessionConfig};
-use crate::common::manifest::{create_dummy_manifest, create_manifest, insert_entries};
-#[cfg(feature = "s3_tests")]
-use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
-use mountpoint_s3_fs::manifest::{DbEntry, Manifest};
-use mountpoint_s3_fs::S3FilesystemConfig;
 use std::fs::{self, metadata};
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 #[cfg(feature = "s3_tests")]
 use std::{fs::File, io::Read};
+
+use mountpoint_s3_fs::manifest::{DbEntry, Manifest};
+use mountpoint_s3_fs::S3FilesystemConfig;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use test_case::test_case;
+use walkdir::WalkDir;
+
+use crate::common::fuse::{self, read_dir_to_entry_names, TestClient, TestSessionConfig};
+use crate::common::manifest::{create_dummy_manifest, create_manifest, insert_entries};
+#[cfg(feature = "s3_tests")]
+use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
 
 #[test_case(&[
     "dir1/a.txt",
@@ -73,7 +78,18 @@ fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize
     let key = "key";
     let (_tmp_dir, db_path) = create_dummy_manifest::<&str>(&[], 0).expect("manifest must be created");
     let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
-    insert_entries(&db_path, &[(key, "", etag, size)]).expect("insert invalid row must succeed");
+    insert_entries(
+        &db_path,
+        &[DbEntry {
+            id: 2,
+            full_key: key.to_string(),
+            name_offset: Some(0),
+            parent_id: Some(1),
+            etag: etag.map(String::from),
+            size,
+        }],
+    )
+    .expect("insert invalid row must succeed");
 
     let mut read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
     let e = read_dir_iter
@@ -112,7 +128,18 @@ fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>
     let key = "key";
     let (_tmp_dir, db_path) = create_dummy_manifest::<&str>(&[], 0).expect("manifest must be created");
     let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
-    insert_entries(&db_path, &[(key, "", etag, size)]).expect("insert invalid row must succeed");
+    insert_entries(
+        &db_path,
+        &[DbEntry {
+            id: 2,
+            full_key: key.to_string(),
+            name_offset: Some(0),
+            parent_id: Some(1),
+            etag: etag.map(String::from),
+            size,
+        }],
+    )
+    .expect("insert invalid row must succeed");
 
     let e = metadata(test_session.mount_path().join(key)).expect_err("lookup must fail");
     assert_eq!(e.raw_os_error().expect("lookup must fail"), libc::EIO);
@@ -143,9 +170,10 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     // create manifest and do the mount
     let (_tmp_dir, db_path) = create_manifest(
         [Ok(DbEntry {
-            full_key: format!("{}{}", prefix, visible_object.0),
+            full_key: visible_object.0.to_string(), // key does not contain the prefix
             etag: Some(visible_object_etag),
             size: Some(visible_object.1.len()),
+            ..Default::default()
         })]
         .into_iter(),
         1000,
@@ -209,13 +237,14 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
 
     let (_tmp_dir, db_path) = create_manifest(
         [Ok(DbEntry {
-            full_key: format!("{}{}", prefix, object.0),
+            full_key: object.0.to_string(), // key does not contain the prefix
             etag: if wrong_etag {
                 Some("wrong_etag".to_string())
             } else {
                 Some(object_etag)
             },
             size: if wrong_size { Some(2048) } else { Some(object.1.len()) }, // size smaller than actual will result in incomplete response
+            ..Default::default()
         })]
         .into_iter(),
         1000,
@@ -231,6 +260,63 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
     let mut read_buffer = Default::default();
     let e = fh.read_to_end(&mut read_buffer).expect_err("read must fail");
     assert_eq!(e.raw_os_error().expect("read must fail"), errno);
+}
+
+#[test_case(false, false, false; "readdir, unsorted")]
+#[test_case(false, true, false; "readdir, sorted")]
+#[test_case(true, false, false; "lookup, unsorted")]
+#[test_case(true, true, false; "lookup, sorted")]
+#[test_case(false, true, true; "readdir, sorted, with folder marker")]
+#[test_case(true, true, true; "lookup, sorted, with folder marker")]
+#[test_case(false, false, true; "readdir, unsorted, with folder marker")]
+#[test_case(true, false, true; "lookup, unsorted, with folder marker")]
+fn test_unsorted_manifest(lookup: bool, sorted: bool, with_folder_marker: bool) {
+    let all_files_sorted = vec![
+        "dir1/a.txt",
+        "dir1/dir2/b.txt",
+        "dir1/dir2/c.txt",
+        "dir1/dir3/dir4/d.txt",
+        "e.txt",
+    ];
+    let mut manifest_keys = if with_folder_marker {
+        vec!["dir1/"] // folder marker
+    } else {
+        Default::default()
+    };
+    manifest_keys.extend_from_slice(&all_files_sorted);
+    if !sorted {
+        let mut rng = thread_rng();
+        manifest_keys.shuffle(&mut rng);
+    }
+    let (_tmp_dir, db_path) = create_dummy_manifest(&manifest_keys, 0).expect("manifest must be created");
+    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
+    if lookup {
+        for key in all_files_sorted {
+            let m = metadata(test_session.mount_path().join(key)).unwrap();
+            assert!(m.file_type().is_file(), "must be a file: {}", key);
+        }
+    } else {
+        let readdir_files: Vec<_> = WalkDir::new(test_session.mount_path())
+            .sort_by_file_name()
+            .into_iter()
+            .filter_map(|dir_entry| {
+                let dir_entry = dir_entry.expect("readdir must succeed").into_path();
+                if dir_entry.is_file() {
+                    let mount_path = test_session.mount_path().to_str().unwrap();
+                    let full_path = dir_entry
+                        .to_str()
+                        .unwrap()
+                        .strip_prefix(mount_path)
+                        .unwrap()
+                        .trim_start_matches("/");
+                    Some(full_path.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(readdir_files, all_files_sorted);
+    }
 }
 
 fn manifest_test_session_config(db_path: &Path) -> TestSessionConfig {
