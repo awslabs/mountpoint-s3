@@ -148,15 +148,39 @@ impl<FS: Filesystem> Session<FS> {
     /// calls into the filesystem.
     /// This version also notifies callers of kernel requests before and after they
     /// are dispatched to the filesystem.
-    pub fn run_with_callbacks<FA, FB>(&self, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()> 
-    where 
+    pub fn run_with_callbacks<FA, FB>(&self, before_dispatch: FB, after_dispatch: FA) -> io::Result<()>
+    where
         FB: FnMut(&Request<'_>),
         FA: FnMut(&Request<'_>),
     {
-        // Create a worker channel for this thread using FUSE_DEV_IOC_CLONE
-        // This allows multiple threads to read from the FUSE device without contention
-        let worker_channel = self.ch.clone_channel()?;
+        // Check if MOUNTPOINT_CLONE_FUSE_FD environment variable is set to true
+        // If not set or not "true", don't clone the channel (default behavior)
+        let clone_fd = std::env::var("MOUNTPOINT_CLONE_FUSE_FD")
+            .map(|val| val.to_lowercase() == "true")
+            .unwrap_or(false);
+            
+        info!("FUSE channel cloning: {}", if clone_fd { "enabled" } else { "disabled" });
         
+        // Create a worker channel for this thread if cloning is enabled
+        // Otherwise use the original channel directly
+        if clone_fd {
+            // Create a worker channel for this thread using FUSE_DEV_IOC_CLONE
+            // This allows multiple threads to read from the FUSE device without contention
+            let worker_channel = self.ch.clone_channel()?;
+            self.process_requests(&worker_channel, before_dispatch, after_dispatch)
+        } else {
+            // Use the original channel without cloning
+            self.process_requests(&self.ch, before_dispatch, after_dispatch)
+        }
+
+    }
+    
+    /// Process requests using the given channel
+    fn process_requests<FA, FB>(&self, channel: &Channel, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()>
+    where
+        FB: FnMut(&Request<'_>),
+        FA: FnMut(&Request<'_>),
+    {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
         let mut buffer = vec![0; BUFFER_SIZE];
@@ -165,10 +189,9 @@ impl<FS: Filesystem> Session<FS> {
             std::mem::align_of::<abi::fuse_in_header>(),
         );
         loop {
-            // Read the next request from the worker channel
-            // Each thread has its own channel, so there's no contention
-            match worker_channel.receive(buf) {
-                Ok(size) => match Request::new(worker_channel.sender(), &buf[..size]) {
+            // Read the next request from the channel
+            match channel.receive(buf) {
+                Ok(size) => match Request::new(channel.sender(), &buf[..size]) {
                     // Dispatch request
                     Some(req) => {
                         before_dispatch(&req);

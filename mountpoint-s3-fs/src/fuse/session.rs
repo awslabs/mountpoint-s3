@@ -209,8 +209,8 @@ impl<W: Work> WorkerPool<W> {
             workers,
             max_workers,
         };
-        if !pool.try_add_worker()? {
-            unreachable!("should always create at least 1 worker (max_workers > 0)");
+        for _ in 0..max_workers {
+            pool.try_add_worker()?;
         }
 
         tracing::trace!("worker pool started OK");
