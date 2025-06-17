@@ -2793,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3"
-version = "1.18.0"
+version = "1.19.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2905,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-fs"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
