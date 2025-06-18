@@ -37,7 +37,7 @@ pub mod error_metadata;
 use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 
 mod flags;
-pub use flags::OpenFlags;
+pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
 use handles::{DirHandle, FileHandle, FileHandleState};
@@ -907,6 +907,54 @@ where
             ..Default::default()
         };
         Ok(reply)
+    }
+
+    pub async fn rename(
+        &self,
+        old_parent_ino: InodeNo,
+        old_name: &OsStr,
+        new_parent_ino: InodeNo,
+        new_name: &OsStr,
+        flags: RenameFlags,
+    ) -> Result<(), Error> {
+        trace!(
+            old_parent_ino,
+            ?old_name,
+            new_parent_ino,
+            ?new_name,
+            "fs:rename with flags {:#b}",
+            flags,
+        );
+
+        let overwrites_allowed: bool;
+        #[cfg(target_os = "linux")]
+        {
+            if flags.contains(RenameFlags::RENAME_EXCHANGE) {
+                return Err(err!(libc::EINVAL, "flag RENAME_EXCHANGE is not supported"));
+            }
+            if flags.contains(RenameFlags::RENAME_WHITEOUT) {
+                return Err(err!(libc::EINVAL, "flag RENAME_WHITEOUT is not supported"));
+            }
+            // Allow overwriting rename if a) allow_overwrites is set [tested before] and b) the RENAME_NOREPLACE flag is not set
+            overwrites_allowed = self.config.allow_overwrite && !flags.contains(RenameFlags::RENAME_NOREPLACE);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            overwrites_allowed = self.config.allow_overwrite;
+        }
+
+        self.superblock
+            .rename(
+                &self.client,
+                old_parent_ino,
+                old_name,
+                new_parent_ino,
+                new_name,
+                overwrites_allowed,
+            )
+            .await?;
+        tracing::trace!("rename complete");
+        Ok(())
     }
 }
 

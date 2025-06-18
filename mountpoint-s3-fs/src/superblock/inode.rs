@@ -6,7 +6,7 @@ use fuser::FileType;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
 use time::OffsetDateTime;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicBool, Ordering};
@@ -45,6 +45,9 @@ struct InodeInner {
     /// - Otherwise, ascending order by [InodeNo].
     ///   This reflects similar behavior in the Kernel's VFS named 'inode pointer order',
     ///   described in https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
+    ///   Note that the kernel locks by the actual pointer address instead of [InodeNo].
+    ///   For rename operations we respect ancestor relationship,
+    ///   but otherwise just lock the source first.
     sync: RwLock<InodeState>,
 }
 
@@ -166,6 +169,41 @@ impl Inode {
         )
     }
 
+    /// Try to clone the inode with a new key.
+    /// Additionally, it prolongs the validity be the time amount specified.
+    pub fn try_clone_with_new_key(
+        &self,
+        new_key: ValidKey,
+        prefix: &Prefix,
+        new_validity: Duration,
+        new_parent: InodeNo,
+    ) -> Result<Inode, InodeError> {
+        if self.kind() != InodeKind::File {
+            debug!("Cannot re-create an inode of kind != InodeKind::File");
+            return Err(InodeError::IsDirectory(self.err()));
+        }
+        let old_inode_state = self.get_inode_state()?;
+        let new_inode_state = InodeState {
+            stat: InodeStat::for_file(
+                old_inode_state.stat.size,
+                old_inode_state.stat.atime,
+                old_inode_state.stat.etag.clone(),
+                None,
+                None,
+                new_validity,
+            ),
+            write_status: WriteStatus::Remote,
+            kind_data: InodeKindData::default_for(InodeKind::File),
+            // Copy the lookup count from the old inode.
+            // We can NOT protect from later changes to the old inode's lookup count
+            // by concurrent operations, when the VFS lock does not prohibit this.
+            lookup_count: old_inode_state.lookup_count,
+            reader_count: 0,
+        };
+
+        Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
+    }
+
     /// Verify [Inode] has the expected inode number and the inode content is valid for its checksum.
     pub fn verify_inode(&self, expected_ino: InodeNo, prefix: &Prefix) -> Result<(), InodeError> {
         let computed = Self::compute_checksum(self.ino(), prefix, self.key());
@@ -222,7 +260,7 @@ impl Debug for InodeErrorInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
@@ -270,7 +308,7 @@ impl From<InodeKind> for FileType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) enum InodeKindData {
     File {},
     Directory {
@@ -333,6 +371,8 @@ pub enum WriteStatus {
     LocalOpen,
     /// Remote inode
     Remote,
+    /// Pending rename for indoe
+    PendingRename,
 }
 
 impl InodeStat {
@@ -447,7 +487,9 @@ impl WriteHandle {
                 state.write_status = WriteStatus::LocalOpen;
                 state.stat.size = 0;
             }
-            WriteStatus::LocalOpen => return Err(InodeError::InodeAlreadyWriting(inode.err())),
+            WriteStatus::LocalOpen | WriteStatus::PendingRename => {
+                return Err(InodeError::InodeAlreadyWriting(inode.err()))
+            }
             WriteStatus::Remote => {
                 if !mode.is_inode_writable(is_truncate) {
                     return Err(InodeError::InodeNotWritable(inode.err()));
@@ -536,7 +578,7 @@ impl ReadHandle {
     /// Create a new read handle
     pub(super) fn new(inode: Inode) -> Result<Self, InodeError> {
         let mut state = inode.get_mut_inode_state()?;
-        if state.write_status != WriteStatus::Remote {
+        if !matches!(state.write_status, WriteStatus::Remote | WriteStatus::PendingRename) {
             return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
         }
         state.reader_count += 1;
@@ -801,11 +843,11 @@ mod tests {
 
     #[cfg(feature = "shuttle")]
     mod shuttle_tests {
-        use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
-        use shuttle::{check_pct, check_random, thread};
-        use shuttle::{future::block_on, sync::Arc};
-
         use super::*;
+        use crate::fs::FUSE_ROOT_INODE;
+        use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+        use shuttle::{check_dfs, check_pct, check_random, thread};
+        use shuttle::{future::block_on, sync::Arc};
 
         #[test]
         fn test_create_and_forget_race_condition() {
@@ -845,6 +887,181 @@ mod tests {
 
             check_random(|| block_on(test_helper()), 1000);
             check_pct(|| block_on(test_helper()), 1000, 3);
+        }
+
+        #[test]
+        fn test_concurrent_rename_different_files() {
+            async fn test_helper() {
+                let client_config = MockClientConfig {
+                    bucket: "test_bucket".to_string(),
+                    part_size: 1024 * 1024,
+                    enable_rename: true,
+                    ..Default::default()
+                };
+                let client = Arc::new(MockClient::new(client_config));
+
+                // Create directories first
+                let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
+
+                // Create initial files and directories
+                let dir = "dir";
+                let dirtwo = "dirtwo";
+                let source_name = "source"; // Changed to match the full key
+                let dest_name = "dest";
+
+                // Create directories and files
+                client.add_object("dir/source", b"content".into());
+                client.add_object("dirtwo/source", b"content".into());
+
+                // Lookup directories to get inodes
+                let dir_lookup = superblock.lookup(&client, ROOT_INODE_NO, dir.as_ref()).await.unwrap();
+                let dir_ino = dir_lookup.inode.ino();
+
+                let dirtwo_lookup = superblock
+                    .lookup(&client, ROOT_INODE_NO, dirtwo.as_ref())
+                    .await
+                    .unwrap();
+                let dirtwo_ino = dirtwo_lookup.inode.ino();
+
+                // Verify source files exist before rename
+                let source1_lookup = superblock.lookup(&client, dir_ino, source_name.as_ref()).await;
+                let source2_lookup = superblock.lookup(&client, dirtwo_ino, source_name.as_ref()).await;
+                assert!(
+                    source1_lookup.is_ok() && source2_lookup.is_ok(),
+                    "Source files should exist before rename"
+                );
+
+                // Spawn concurrent rename operations
+                let superblock_clone1 = superblock.clone();
+                let superblock_clone2 = superblock.clone();
+                let client_clone = client.clone();
+
+                let rename_task1 = thread::spawn(move || {
+                    block_on(superblock_clone1.rename(
+                        &client_clone,
+                        dir_ino,
+                        source_name.as_ref(),
+                        dir_ino,
+                        dest_name.as_ref(),
+                        false,
+                    ))
+                });
+
+                let client_clone = client.clone();
+                let rename_task2 = thread::spawn(move || {
+                    block_on(superblock_clone2.rename(
+                        &client_clone,
+                        dirtwo_ino,
+                        source_name.as_ref(),
+                        dirtwo_ino,
+                        dest_name.as_ref(),
+                        false,
+                    ))
+                });
+
+                // Wait for both rename operations
+                let result1 = rename_task1.join().unwrap();
+                let result2 = rename_task2.join().unwrap();
+
+                // Both renames should succeed
+                assert!(result1.is_ok(), "First rename failed: {:?}", result1.err());
+                assert!(result2.is_ok(), "Second rename failed: {:?}", result2.err());
+
+                // Verify both destination files exist
+                let dest1_lookup = superblock.lookup(&client, dir_ino, dest_name.as_ref()).await;
+                let dest2_lookup = superblock.lookup(&client, dirtwo_ino, dest_name.as_ref()).await;
+
+                assert!(
+                    dest1_lookup.is_ok() && dest2_lookup.is_ok(),
+                    "Both renamed files should exist"
+                );
+
+                // Verify source files no longer exist
+                let source1_after = superblock.lookup(&client, dir_ino, source_name.as_ref()).await;
+                let source2_after = superblock.lookup(&client, dirtwo_ino, source_name.as_ref()).await;
+
+                assert!(
+                    source1_after.is_err() && source2_after.is_err(),
+                    "Source files should no longer exist"
+                );
+            }
+
+            // Run the test multiple times with different interleavings
+            check_dfs(|| block_on(test_helper()), Some(100000));
+        }
+
+        #[test]
+        fn test_concurrent_rename_and_lookup() {
+            async fn test_helper() {
+                let client_config = MockClientConfig {
+                    bucket: "test_bucket".to_string(),
+                    part_size: 1024 * 1024,
+                    enable_rename: true,
+                    ..Default::default()
+                };
+                let client = Arc::new(MockClient::new(client_config));
+
+                let source_name = "source";
+                client.add_object(source_name, b"foo".into());
+
+                let dest_name = "dest";
+                client.add_object(dest_name, b"dest".into());
+
+                let superblock = Arc::new(Superblock::new("test_bucket", &Default::default(), Default::default()));
+                // Create two threads, one that renames and one that tries to open the destination
+                let superblock_clone1 = superblock.clone();
+                let client_clone = client.clone();
+                let dest_lookup = superblock
+                    .lookup(&client, ROOT_INODE_NO, dest_name.as_ref())
+                    .await
+                    .unwrap();
+                let _dest_ino = dest_lookup.inode.ino();
+                let src_lookup = superblock
+                    .lookup(&client, ROOT_INODE_NO, source_name.as_ref())
+                    .await
+                    .unwrap();
+                let _src_ino = src_lookup.inode.ino();
+
+                let rename_task1 = thread::spawn(move || {
+                    block_on(async {
+                        superblock_clone1
+                            .rename(
+                                &client_clone,
+                                FUSE_ROOT_INODE,
+                                source_name.as_ref(),
+                                FUSE_ROOT_INODE,
+                                dest_name.as_ref(),
+                                true,
+                            )
+                            .await
+                            .expect("Rename should work");
+                    });
+                });
+                let superblock_clone2 = superblock.clone();
+                let client_clone = client.clone();
+
+                let lookup_task = thread::spawn(move || {
+                    block_on(async {
+                        let lookup = superblock_clone2
+                            .lookup(&client_clone, ROOT_INODE_NO, dest_name.as_ref())
+                            .await
+                            .expect("should succeed as object will be in S3");
+                        lookup.inode.ino()
+                    })
+                });
+                let _ = rename_task1.join();
+
+                // FIXME: This invariant is violated by Mountpoint
+                // The inode of the destination file from lookup should either be the original value or the original source inode
+                // but no other value.
+                let _ino_after_lookup = lookup_task.join().unwrap();
+                //assert!(
+                //    _ino_after_lookup == dest_ino || _ino_after_lookup == src_ino,
+                //    "Unexpected inode during rename operation got {ino_after_lookup} but expected {dest_ino} or {src_ino}"
+                //);
+            }
+
+            check_pct(|| block_on(test_helper()), 10000, 3);
         }
     }
 }

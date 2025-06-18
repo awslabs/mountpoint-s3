@@ -178,6 +178,11 @@ impl ToErrno for InodeError {
             InodeError::CorruptedMetadata(_) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::StaleInode { .. } => libc::ESTALE,
+            InodeError::CannotRenameDirectory(_) => libc::EPERM,
+            InodeError::RenameDestinationExists { .. } => libc::EEXIST,
+            InodeError::RenameNotPermittedWhileWriting(_) => libc::EPERM,
+            InodeError::RenameNotSupported() => libc::ENOSYS,
+            InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
         }

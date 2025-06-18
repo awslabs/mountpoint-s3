@@ -12,6 +12,7 @@ mod mkdir_test;
 mod prefetch_test;
 mod read_test;
 mod readdir_test;
+mod rename_test;
 mod rmdir_test;
 mod semantics_doc_test;
 mod setattr_test;

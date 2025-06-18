@@ -51,12 +51,19 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         args.part_size
     };
 
+    let s3_personality = if let Some(bucket_type) = &args.bucket_type {
+        bucket_type.to_personality()
+    } else {
+        S3Personality::Standard
+    };
+
     let config = MockClientConfig {
         bucket: bucket_name,
         part_size: part_size as usize,
         unordered_list_seed: None,
         enable_backpressure: true,
         initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
+        enable_rename: s3_personality.supports_rename_object(),
     };
 
     let client = if let Some(max_throughput_gbps) = args.maximum_throughput_gbps {
@@ -67,12 +74,6 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
     };
 
     let runtime = Runtime::new(ThreadPool::builder().name_prefix("runtime").create()?);
-
-    let s3_personality = if let Some(bucket_type) = &args.bucket_type {
-        bucket_type.to_personality()
-    } else {
-        S3Personality::Standard
-    };
 
     // Pre-populate the bucket with some interesting file sizes and a little structure
     for expt in 0..10 {

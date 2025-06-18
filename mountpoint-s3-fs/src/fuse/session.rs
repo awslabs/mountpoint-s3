@@ -7,13 +7,11 @@ use fuser::MountOption;
 use fuser::{Filesystem, Session, SessionUnmounter};
 use tracing::{debug, error, trace, warn};
 
+use super::config::{FuseSessionConfig, MountPoint};
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
 use crate::sync::thread::{self, JoinHandle};
 use crate::sync::Arc;
-
-use super::config::{FuseSessionConfig, MountPoint};
-
 /// A multi-threaded FUSE session that can be joined to wait for the FUSE filesystem to unmount or
 /// external shutdown.
 pub struct FuseSession {

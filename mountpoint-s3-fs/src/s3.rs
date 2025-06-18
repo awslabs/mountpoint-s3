@@ -49,4 +49,12 @@ impl S3Personality {
             S3Personality::Outposts => false,
         }
     }
+
+    pub fn supports_rename_object(&self) -> bool {
+        match self {
+            S3Personality::Standard => false,
+            S3Personality::ExpressOneZone => true,
+            S3Personality::Outposts => false,
+        }
+    }
 }

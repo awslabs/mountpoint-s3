@@ -33,7 +33,8 @@ use crate::object_client::{
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart,
     PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-    PutObjectTrailingChecksums, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+    PutObjectTrailingChecksums, RenameObjectError, RenameObjectParams, RenameObjectResult, RenamePreconditionTypes,
+    RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -70,6 +71,8 @@ pub struct MockClientConfig {
     pub enable_backpressure: bool,
     /// Initial backpressure read window size, ignored if enable_back_pressure is false
     pub initial_read_window_size: usize,
+    // Is rename supported on this bucket
+    pub enable_rename: bool,
 }
 
 /// A mock implementation of an object client that we can manually add objects to, and then query
@@ -452,6 +455,7 @@ pub enum Operation {
     GetObjectAttributes,
     ListObjectsV2,
     PutObject,
+    RenameObject,
     CopyObject,
     PutObjectSingle,
 }
@@ -1072,6 +1076,63 @@ impl ObjectClient for MockClient {
             Err(ObjectClientError::ServiceError(GetObjectAttributesError::NoSuchKey))
         }
     }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        trace!(bucket, ?src_key, ?dst_key, "RenameObject");
+        self.inc_op_count(Operation::RenameObject);
+        if !self.config.enable_rename {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::NotImplementedError));
+        }
+        if bucket != self.config.bucket {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::NoSuchBucket));
+        }
+
+        if dst_key.len() > 1024 {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::KeyTooLong));
+        }
+
+        let mut objects = self.objects.write().unwrap();
+
+        if objects.contains_key(dst_key) && params.if_none_match == Some("*".to_string()) {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfNoneMatch,
+            )));
+        }
+
+        // First check if destination Etag matches
+        if let Some(dst_etag_to_match) = &params.if_match {
+            if let Some(destination_object) = objects.get(dst_key) {
+                if *dst_etag_to_match != destination_object.etag {
+                    return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                        RenamePreconditionTypes::IfMatch,
+                    )));
+                }
+            }
+        }
+
+        if let Some(src_etag_to_match) = &params.if_source_match {
+            if let Some(src_object) = objects.get(src_key) {
+                if *src_etag_to_match != src_object.etag {
+                    return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                        RenamePreconditionTypes::IfMatch,
+                    )));
+                }
+            }
+        }
+        if !objects.contains_key(src_key) {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::KeyNotFound));
+        }
+        let removed = objects.remove(src_key).unwrap();
+        objects.insert(dst_key.to_owned(), removed);
+        trace!("renamed in bucket");
+        Ok(RenameObjectResult {})
+    }
 }
 
 /// Mock implementation of a meta [PutObjectRequest], created by [MockClient]'s [ObjectClient::put_object].
@@ -1325,6 +1386,7 @@ mod tests {
             part_size: 1024,
             unordered_list_seed: None,
             enable_backpressure: true,
+            enable_rename: false,
             initial_read_window_size: backpressure_read_window_size,
         });
 
@@ -1436,6 +1498,7 @@ mod tests {
             part_size: 1024,
             unordered_list_seed: None,
             enable_backpressure: true,
+            enable_rename: false,
             initial_read_window_size: 256,
         });
 
@@ -2062,6 +2125,131 @@ mod tests {
             stored_object.checksum, expected_obj_checksum,
             "stored object checksum should equal expected checksum",
         );
+    }
+
+    #[tokio::test]
+    async fn rename_object_without_override() {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            enable_rename: true,
+            ..Default::default()
+        });
+
+        client.add_object("key1", MockObject::constant(1u8, 5, ETag::for_tests()));
+        client.add_object("key2", MockObject::constant(2u8, 5, ETag::for_tests()));
+
+        let mut params = RenameObjectParams::new();
+        params.if_none_match = Some("*".to_string());
+
+        assert!(matches!(
+            client.rename_object("wrong_bucket", "key1", "key2", &params).await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::NoSuchBucket))
+        ));
+
+        assert!(matches!(
+            client
+                .rename_object("test_bucket", "wrong_src_key", "new_key", &params)
+                .await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::KeyNotFound))
+        ));
+
+        assert_eq!(
+            client.rename_object("test_bucket", "key1", "key2", &params).await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfNoneMatch
+            )))
+        );
+
+        assert_eq!(
+            client.rename_object("test_bucket", "key1", "key1", &params).await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfNoneMatch
+            )))
+        );
+
+        // Happy case
+        {
+            client
+                .rename_object("test_bucket", "key1", "new_key1", &params)
+                .await
+                .expect("rename should succeed");
+            assert!(matches!(
+                client
+                    .head_object("test_bucket", "key1", &HeadObjectParams::new())
+                    .await,
+                Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
+            ));
+            client
+                .head_object("test_bucket", "new_key1", &HeadObjectParams::new())
+                .await
+                .expect("object should now exist with new key");
+        }
+    }
+
+    #[tokio::test]
+    async fn rename_etag_source_matching() {
+        let client = MockClient::new(MockClientConfig {
+            bucket: "test_bucket".to_string(),
+            enable_rename: true,
+            ..Default::default()
+        });
+
+        let mockobj_for_first: MockObject = b"343".into();
+        let mockobj_for_second: MockObject = b"123".into();
+        let mockobj_for_third: MockObject = b"266".into();
+
+        let etag_for_first = mockobj_for_first.etag.clone();
+        let etag_for_second = mockobj_for_second.etag.clone();
+        let etag_for_third = mockobj_for_third.etag.clone();
+
+        client.add_object("key1", mockobj_for_first);
+        client.add_object("key2", mockobj_for_second);
+        // Try a rename with a source that does not match
+        let mut params = RenameObjectParams::new();
+        params.if_source_match = Some(etag_for_third.clone());
+        assert_eq!(
+            client.rename_object("test_bucket", "key1", "key2", &params).await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfMatch
+            )))
+        );
+        // Try a rename with a destination that does not match
+        params.if_source_match = None;
+        params.if_match = Some(etag_for_third.clone());
+        assert_eq!(
+            client.rename_object("test_bucket", "key1", "key2", &params).await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfMatch
+            )))
+        );
+
+        params.if_source_match = Some(etag_for_second.clone());
+        params.if_match = Some(etag_for_first.clone());
+        assert_eq!(
+            client.rename_object("test_bucket", "key1", "key2", &params).await,
+            Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfMatch
+            )))
+        );
+
+        // Lastly overwriting rename where both match
+        params.if_source_match = Some(etag_for_first.clone());
+        params.if_match = Some(etag_for_second.clone());
+        client
+            .rename_object("test_bucket", "key1", "key2", &params)
+            .await
+            .expect("rename should succeed");
+        // Assert that key2 is accessible, while key1 is not
+        assert!(matches!(
+            client
+                .head_object("test_bucket", "key1", &HeadObjectParams::new())
+                .await,
+            Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
+        ));
+        client
+            .head_object("test_bucket", "key2", &HeadObjectParams::new())
+            .await
+            .expect("object should now exist with new key");
     }
 
     proptest::proptest! {

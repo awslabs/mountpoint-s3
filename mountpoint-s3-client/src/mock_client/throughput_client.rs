@@ -17,7 +17,7 @@ use crate::object_client::{
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
-    PutObjectResult, PutObjectSingleParams,
+    PutObjectResult, PutObjectSingleParams, RenameObjectError, RenameObjectParams, RenameObjectResult,
 };
 
 use super::MockBackpressureHandle;
@@ -223,6 +223,16 @@ impl ObjectClient for ThroughputMockClient {
         self.inner
             .get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
+    }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        self.inner.rename_object(bucket, src_key, dst_key, params).await
     }
 }
 

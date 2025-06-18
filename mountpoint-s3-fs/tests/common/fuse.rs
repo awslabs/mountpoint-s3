@@ -236,6 +236,7 @@ pub mod mock_session {
             part_size: test_config.part_size,
             enable_backpressure: true,
             initial_read_window_size: test_config.initial_read_window_size,
+            enable_rename: test_config.filesystem_config.allow_rename,
             ..Default::default()
         };
         let client = Arc::new(MockClient::new(client_config));

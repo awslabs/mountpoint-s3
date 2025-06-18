@@ -10,7 +10,7 @@ use crate::object_client::{
     ObjectClientResult, ObjectPart,
 };
 
-use super::{S3CrtClient, S3Operation, S3RequestError};
+use super::{QueryFragment, S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -118,7 +118,7 @@ impl S3CrtClient {
 
             let path = format!("/{key}");
             message
-                .set_request_path_and_query(path, query)
+                .set_request_path_and_query(path, QueryFragment::Query(&query))
                 .map_err(S3RequestError::construction_failure)?;
 
             if let Some(max_parts) = max_parts {

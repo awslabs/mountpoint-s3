@@ -10,7 +10,7 @@
 ///         B,
 ///         C,
 ///     }
-/// }    
+/// }
 /// ```
 ///
 /// See [`OpenFlags`] for an example.
@@ -82,6 +82,21 @@ libc_flags! {
         O_DIRECT,
 
         // Incomplete list. To be integrated if/when required.
+    }
+}
+
+/// Flags used in [rename](super::S3Filesystem::rename).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RenameFlags(u32);
+
+libc_flags! {
+    RenameFlags : u32 {
+        #[cfg(target_os = "linux")]
+        RENAME_NOREPLACE,
+        #[cfg(target_os = "linux")]
+        RENAME_EXCHANGE,
+        #[cfg(target_os = "linux")]
+        RENAME_WHITEOUT,
     }
 }
 
