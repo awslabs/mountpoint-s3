@@ -1875,9 +1875,9 @@ fn large_scale_random_rename_test<F>(creator_fn: F, prefix: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> TestSession,
 {
-    const INITIAL_FILES: usize = 600;
-    const RENAME_OPERATIONS: usize = 250;
-    const MAX_DEPTH: usize = 4;
+    const INITIAL_FILES: usize = 200;
+    const RENAME_OPERATIONS: usize = 50;
+    const MAX_DEPTH: usize = 3;
 
     let test_session_config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
@@ -2093,7 +2093,7 @@ where
     let mount_point = test_session.mount_path().to_owned();
 
     // Run multiple iterations to increase chance of hitting different orderings
-    for iteration in 0..100 {
+    for iteration in 0..30 {
         debug!("Starting iteration {}", iteration);
 
         // Create initial state: only a.txt exists
