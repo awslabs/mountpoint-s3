@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750297444481,
+  "lastUpdate": 1750323623612,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "87494144+tadiwa-aizen@users.noreply.github.com",
-            "name": "Tadiwa Magwenzi",
-            "username": "tadiwa-aizen"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "be792de9ef2e76f6993bc6126db679bb2cb34fc0",
-          "message": "Adding fstab tag to user agent headers (#1420)\n\n### What changed and why?\n\n- This PR adds a new mp-fstab tag to the user agent header when\nMountpoint is launched via an fstab entry.\n- Introduces an is_fstab field to CliArgs, which is set to true when\nparsing arguments from fstab.\n- This allows downstream consumers (like the product team) to detect and\nanalyze fstab-based usage of Mountpoint for Amazon S3, supporting\nproduct analytics and future UX improvements.\n\nExample Request Header\n<img width=\"719\" alt=\"image\"\nsrc=\"https://github.com/user-attachments/assets/10561b96-b893-496f-bab4-3f00ae568e68\"\n/>\n\n\n### Does this change impact existing behavior?\n\n- No breaking changes.\n- The only impact is the addition of the mp-fstab tag in the user agent\nheader for fstab-based mounts.\n- All other mounting methods and user agent construction remain\nunchanged.\n\n\n### Does this change need a changelog entry? Does it require a version\nchange?\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Tadiwa Magwenzi <tadiwaom@amazon.com>",
-          "timestamp": "2025-05-15T10:16:23Z",
-          "tree_id": "615c10da9bea9d73cb8eaecd4d1cfecc767eab31",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/be792de9ef2e76f6993bc6126db679bb2cb34fc0"
-        },
-        "date": 1747312227859,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 14679.6484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 26984.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 39493.94140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 155.33203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 397.4609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 215.3671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 410.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 88.47265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 330.609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 88.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 333.7265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 36311.37890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 396.2578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 39666.4296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 384.52734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 11894.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 265.11328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 10715.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 10373.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 265.86328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 405.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 237.63671875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 236.2109375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "chagem@amazon.com",
+            "name": "Christian Hagemeier",
+            "username": "c-hagem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4199f792268d9d0efe874ecc2b2df3b4ddc5151",
+          "message": "Fewer Iterations in rename tests (#1469)\n\nTwo randomised tests for rename take > 40 minutes to execute on our CI.\nThis PR reduces those parameters so that integrationn tests should\nexecute faster again.\n\n### Does this change impact existing behavior?\n\nNo, only affects integration tests.\n\n\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nRequires neither changelog entry nor version change, as only tests are\naffected.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Christian Hagemeier <chagem@amazon.com>",
+          "timestamp": "2025-06-19T06:43:31Z",
+          "tree_id": "8375600cb3303787607c5e184e2a5c5bfc0877cb",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e4199f792268d9d0efe874ecc2b2df3b4ddc5151"
+        },
+        "date": 1750323623558,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 15978.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 26433.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 43080.9140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 158.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 393.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 197.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 403.734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 86.19140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 324.11328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 85.4453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 321.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 40291.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 386.19921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 32948.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 400.48828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13350.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 261.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13750.53125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 10491.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 261.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 367.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 252.93359375,
             "unit": "MiB"
           }
         ]
