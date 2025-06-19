@@ -4,140 +4,6 @@ window.BENCHMARK_DATA = {
       {
         "commit": {
           "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "09a22a9c025816872a6c6607166ed8ef0f80d3d6",
-          "message": "Remove unused read timeout from prefetcher configuration (#1421)\n\nPrefetcher read timeouts were removed in commit 0ca2c771. The motivation\nthere was that timeouts were added due to deadlock issues early in\ndevelopment of Mountpoint, and that they had since been eliminated.\nThere is an open next step to introduce timeouts at a FUSE operation\nlevel which has not yet been completed (see\nhttps://github.com/awslabs/mountpoint-s3/issues/124).\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, changes internal config struct only.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2025-05-15T09:26:02Z",
-          "tree_id": "c016737272a4116b9a05d18a765e2482c621cc16",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/09a22a9c025816872a6c6607166ed8ef0f80d3d6"
-        },
-        "date": 1747309200974,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 4978.80986328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 4492.6052734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 5649.0849609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 11.1240234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 47.269921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 10.6642578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 45.259765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 1.98330078125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 11.87158203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 2.403515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 11.617578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 5784.3435546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 253.1333984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 5039.23134765625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 251.983984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1917.8056640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 61.08603515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1467.28291015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1175.2673828125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 61.0185546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1494.4068359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 997.78974609375,
-            "unit": "MiB/s"
-          }
-        ]
-      },
-      {
-        "commit": {
-          "author": {
             "email": "87494144+tadiwa-aizen@users.noreply.github.com",
             "name": "Tadiwa Magwenzi",
             "username": "tadiwa-aizen"
@@ -4020,9 +3886,143 @@ window.BENCHMARK_DATA = {
             "unit": "MiB/s"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "chagem@amazon.com",
+            "name": "Christian Hagemeier",
+            "username": "c-hagem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed14db3dfd12a28650399536ee978848e712eddf",
+          "message": "Introduce file rename support for directory buckets in S3 Express One Zone (#1468)\n\nIntroduces support in Mountpoint for renaming files, using the\n[RenameObject\nAPI](https://aws.amazon.com/about-aws/whats-new/2025/06/amazon-s3-express-one-zone-atomic-renaming-objects-api/),\nwhich is supported on directory buckets in S3 Express One Zone.\n\nFile rename is enabled automatically when mounting a directory bucket in\nS3 Express One Zone. In order to replace an existing object through\nrename, the user must provide the `--allow-overwrite` flag at mount\ntime. More details on Mountpoint's support for rename can be found in\nthe semantics documentation `doc/SEMANTICS.md`.\n\n### Does this change impact existing behavior?\n\nYes, this change will enable rename object when a bucket with support\nfor the new API is mounted.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nChangelog entries for the crates are updated. Versions are increased.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Christian Hagemeier <chagem@amazon.com>",
+          "timestamp": "2025-06-18T22:57:29Z",
+          "tree_id": "cf15574e84db9acaf0d68c76da854f9f4bd3e4ab",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/ed14db3dfd12a28650399536ee978848e712eddf"
+        },
+        "date": 1750297448087,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 4825.06376953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 4530.91015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5619.3494140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 9.0841796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 47.391796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 12.03759765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 45.90966796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 1.72841796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 11.724609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 2.797265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 11.4373046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 5914.8265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 248.8626953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 4947.07158203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 253.57626953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1782.27841796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 61.5150390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1388.39755859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1356.429296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 61.3345703125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1601.5125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 986.20263671875,
+            "unit": "MiB/s"
+          }
+        ]
       }
     ]
   },
-  "lastUpdate": 1749838387706,
+  "lastUpdate": 1750297448972,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3"
 }
