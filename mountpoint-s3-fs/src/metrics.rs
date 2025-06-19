@@ -93,7 +93,7 @@ fn poll_process_metrics(sys: &mut System) {
 #[derive(Debug)]
 struct MetricsSink {
     metrics: DashMap<Key, Metric>,
-    otlp_exporter: Option<OtlpMetricsExporter>, 
+    otlp_exporter: Option<OtlpMetricsExporter>,
 }
 
 impl MetricsSink {
@@ -102,9 +102,11 @@ impl MetricsSink {
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
             if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
-                return Err(format!("Invalid OTLP endpoint configuration: endpoint must start with http:// or https://"));
+                return Err(
+                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".to_string(),
+                );
             }
-            
+
             match OtlpMetricsExporter::new(&config) {
                 Ok(exporter) => {
                     tracing::info!("OpenTelemetry metrics export enabled to {}", config.endpoint);
@@ -113,7 +115,7 @@ impl MetricsSink {
                 Err(e) => {
                     let error_msg = format!("Failed to initialise OTLP exporter: {}", e);
                     tracing::error!("{}", error_msg);
-                    
+
                     // If the user explicitly requested metrics export but it failed,
                     // we should return an error rather than silently continuing without metrics
                     return Err(format!("Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.", e));
@@ -376,19 +378,22 @@ mod tests {
 
     /// This is a manual test for verifying the integration of the metrics system with OpenTelemetry.
     /// It provides end-to-end verification of the metrics pipeline without needing to run the full mountpoint application.
-    /// 
+    ///
     /// # Requirements
-    /// - An OpenTelemetry collector running at http://localhost:4318/v1/metrics
-    /// 
+    /// - An OpenTelemetry collector running at the specified endpoint (default: http://localhost:4318/v1/metrics)
+    ///
     /// # How to run
     /// ```bash
     /// # Start the OpenTelemetry collector (e.g., using Docker)
     /// docker run -p 4317:4317 -p 4318:4318 -v $(pwd)/collector-config.yaml:/etc/otel-collector-config.yaml \
     ///   otel/opentelemetry-collector:latest --config=/etc/otel-collector-config.yaml
-    /// 
-    /// # Run the test (ignored by default)
+    ///
+    /// # Run the test with default endpoint (ignored by default)
     /// cargo test --package mountpoint-s3-fs --lib -- metrics::tests::otlp_metrics --exact --ignored
-    /// 
+    ///
+    /// # Or run with a custom endpoint by setting the MOUNTPOINT_TEST_OTLP_ENDPOINT environment variable
+    /// MOUNTPOINT_TEST_OTLP_ENDPOINT="http://custom-server:4318/v1/metrics" cargo test --package mountpoint-s3-fs --lib -- metrics::tests::otlp_metrics --exact --ignored
+    ///
     /// # Verify metrics in collector logs
     /// ```
     #[test]
@@ -411,8 +416,14 @@ mod tests {
 
         info!("Starting OTLP metrics test...");
 
-        // Initialize metrics with an OTLP config pointing to our mock server
-        let config = OtlpConfig::new("http://localhost:4318/v1/metrics").with_interval_secs(1);
+        // Get OTLP endpoint from environment variable or use default
+        let endpoint = std::env::var("MOUNTPOINT_TEST_OTLP_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:4318/v1/metrics".to_string());
+
+        info!("Using OTLP endpoint: {}", endpoint);
+
+        // Initialize metrics with an OTLP config
+        let config = OtlpConfig::new(&endpoint).with_interval_secs(1);
         let sink = Arc::new(MetricsSink::new(Some(config)).unwrap());
         let recorder = MetricsRecorder { sink: sink.clone() };
 
@@ -481,12 +492,16 @@ mod tests {
         let result = MetricsSink::new(Some(config));
         assert!(result.is_err());
         let error = result.unwrap_err();
-        assert!(error.contains("Invalid OTLP endpoint configuration"), "Error message should indicate invalid configuration: {}", error);
-        
+        assert!(
+            error.contains("Invalid OTLP endpoint configuration"),
+            "Error message should indicate invalid configuration: {}",
+            error
+        );
+
         // Test with no OTLP config (should succeed)
         let result = MetricsSink::new(None);
         assert!(result.is_ok());
-        
+
         // Test with a syntactically valid endpoint (should succeed)
         let config = OtlpConfig::new("http://example.com:4318/v1/metrics");
         let result = MetricsSink::new(Some(config));

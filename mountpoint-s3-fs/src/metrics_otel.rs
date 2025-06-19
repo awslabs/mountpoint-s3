@@ -67,33 +67,21 @@ impl OtlpMetricsExporter {
 
     /// Record a counter metric in OTel format
     pub fn record_counter(&self, key: &Key, value: u64, attributes: &[KeyValue]) {
-        let counter = self
-            .meter
-            .u64_counter(key.name().to_string())
-            .with_description("Mountpoint counter metric")
-            .build();
+        let counter = self.meter.u64_counter(key.name().to_string()).build();
 
         counter.add(value, attributes);
     }
 
     /// Record a gauge metric in OTel format
     pub fn record_gauge(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let gauge = self
-            .meter
-            .f64_gauge(key.name().to_string())
-            .with_description("Mountpoint gauge metric")
-            .build();
+        let gauge = self.meter.f64_gauge(key.name().to_string()).build();
 
         gauge.record(value, attributes);
     }
 
     /// Record a histogram metric in OTel format
     pub fn record_histogram(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let histogram = self
-            .meter
-            .f64_histogram(key.name().to_string())
-            .with_description("Mountpoint histogram metric")
-            .build();
+        let histogram = self.meter.f64_histogram(key.name().to_string()).build();
 
         histogram.record(value, attributes);
     }
@@ -105,19 +93,22 @@ mod tests {
 
     /// This is a manual test for verifying OpenTelemetry metrics export functionality.
     /// It provides end-to-end verification of the metrics pipeline without needing to run the full mountpoint application.
-    /// 
+    ///
     /// # Requirements
-    /// - An OpenTelemetry collector running at http://localhost:4318/v1/metrics
-    /// 
+    /// - An OpenTelemetry collector running at the specified endpoint (default: http://localhost:4318/v1/metrics)
+    ///
     /// # How to run
     /// ```bash
     /// # Start the OpenTelemetry collector (e.g., using Docker)
     /// docker run -p 4317:4317 -p 4318:4318 -v $(pwd)/collector-config.yaml:/etc/otel-collector-config.yaml \
     ///   otel/opentelemetry-collector:latest --config=/etc/otel-collector-config.yaml
-    /// 
-    /// # Run the test (ignored by default)
+    ///
+    /// # Run the test with default endpoint (ignored by default)
     /// cargo test --package mountpoint-s3-fs --lib -- metrics_otel::tests::direct_otlp_test --exact --ignored
-    /// 
+    ///
+    /// # Or run with a custom endpoint by setting the MOUNTPOINT_TEST_OTLP_ENDPOINT environment variable
+    /// MOUNTPOINT_TEST_OTLP_ENDPOINT="http://custom-server:4318/v1/metrics" cargo test --package mountpoint-s3-fs --lib -- metrics_otel::tests::direct_otlp_test --exact --ignored
+    ///
     /// # Verify metrics in collector logs
     #[test]
     #[ignore]
@@ -142,8 +133,14 @@ mod tests {
 
         info!("Setting up direct OpenTelemetry test...");
 
+        // Get OTLP endpoint from environment variable or use default
+        let endpoint = std::env::var("MOUNTPOINT_TEST_OTLP_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:4318/v1/metrics".to_string());
+
+        info!("Using OTLP endpoint: {}", endpoint);
+
         // Create a config with custom settings
-        let config = OtlpConfig::new("http://localhost:4318/v1/metrics").with_interval_secs(1);
+        let config = OtlpConfig::new(&endpoint).with_interval_secs(1);
 
         // Initialize the OpenTelemetry SDK directly
         let exporter = opentelemetry_otlp::MetricExporter::builder()
@@ -193,7 +190,7 @@ mod tests {
             ],
         );
 
-        info!("Recorded counter with value 100 to endpoint http://localhost:4318/v1/metrics");
+        info!("Recorded counter with value 100 to endpoint {}", endpoint);
 
         // Add another data point to ensure we're seeing updates
         counter.add(
@@ -205,7 +202,7 @@ mod tests {
             ],
         );
 
-        info!("Recorded counter with value 150 to endpoint http://localhost:4318/v1/metrics");
+        info!("Recorded counter with value 150 to endpoint {}", endpoint);
         info!("Waiting for metrics to be exported...");
 
         // Wait longer to ensure metrics are exported
