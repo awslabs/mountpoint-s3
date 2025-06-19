@@ -47,7 +47,7 @@ fn run_benchmark(
                 let received_size_clone = Arc::clone(&received_size);
                 scope.spawn(|| {
                     futures::executor::block_on(async move {
-                        let received_obj_len = Arc::new(AtomicU64::new(0));
+                        let mut received_obj_len = 0u64;
                         let mut request = client
                             .get_object(bucket, key, &GetObjectParams::new())
                             .await
@@ -55,9 +55,11 @@ fn run_benchmark(
                         let mut backpressure_handle = request.backpressure_handle().cloned();
                         if enable_backpressure {
                             if let Some(backpressure_handle) = backpressure_handle.as_mut() {
-                                backpressure_handle.ensure_read_window(client.initial_read_window_size().unwrap() as u64);
+                                let initial_read_window_size = client.initial_read_window_size().expect("initial size always set when backpressure is enabled");
+                                backpressure_handle.ensure_read_window(initial_read_window_size as u64);
                             }
                         }
+
                         let mut request = pin!(request);
                         loop {
                             match request.next().await {
@@ -70,14 +72,14 @@ fn run_benchmark(
                                         "consuming data",
                                     );
                                     received_size_clone.fetch_add(part_len as u64, Ordering::SeqCst);
-                                    received_obj_len.fetch_add(part_len as u64, Ordering::SeqCst);
+                                    received_obj_len += part_len as u64;
                                     if enable_backpressure {
                                         if let Some(backpressure_handle) = backpressure_handle.as_mut() {
                                             tracing::info!(
                                                 target: "benchmarking_instrumentation",
                                                 preferred_read_window_size = ?client.initial_read_window_size(),
-                                                prev_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len.load(Ordering::Relaxed) - part_len as u64),
-                                                new_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len.load(Ordering::Relaxed)),
+                                                prev_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len - part_len as u64),
+                                                new_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len),
                                                 part_len = part_len,
                                                 "advancing read window",
                                             );
@@ -152,15 +154,15 @@ struct CliArgs {
         visible_alias = "memory-limit-gb"
     )]
     crt_memory_limit_gb: u64,
-    #[arg(long, help = "Part size for multi-part GET", default_value = "8388608")]
+    #[arg(long, help = "Part size in bytes for multi-part GET", default_value = "8388608")]
     part_size: usize,
     #[arg(long, help = "Number of benchmark iterations", default_value = "1")]
     iterations: usize,
     #[arg(long, help = "Number of concurrent downloads", default_value = "1")]
     downloads: usize,
-    #[arg(long, help = "Enable CRT backpressure mode", default_value = "false")]
+    #[arg(long, help = "Enable CRT backpressure mode")]
     enable_backpressure: bool,
-    #[arg(long, help = "Initial window size", default_value = "0")]
+    #[arg(long, help = "Initial window size in bytes", default_value = "0")]
     initial_window_size: usize,
 }
 
