@@ -1,4 +1,6 @@
-## Unreleased (v0.16.0)
+## Unreleased
+
+## v0.16.0 (Jun 19, 2025)
 
 * Add support for RenameObject API. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
 
