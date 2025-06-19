@@ -1,4 +1,6 @@
-## Unreleased (v0.5.0)
+## Unreleased
+
+## v0.5.0 (Jun 19, 2025)
 
 * Add support for renaming files on buckets supporting the RenameObject API. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
 
