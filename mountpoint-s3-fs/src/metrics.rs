@@ -65,9 +65,8 @@ pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, Box
     };
 
     let recorder = MetricsRecorder { sink };
-    metrics::set_global_recorder(recorder).map_err(|e| {
-        Box::<dyn std::error::Error>::from(format!("Failed to set global metrics recorder: {}", e))
-    })?;
+    metrics::set_global_recorder(recorder)
+        .map_err(|e| Box::<dyn std::error::Error>::from(format!("Failed to set global metrics recorder: {}", e)))?;
 
     Ok(handle)
 }
@@ -104,9 +103,7 @@ impl MetricsSink {
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
             if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
-                return Err(
-                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".into()
-                );
+                return Err("Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".into());
             }
 
             match OtlpMetricsExporter::new(&config) {
