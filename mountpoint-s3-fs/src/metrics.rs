@@ -33,7 +33,7 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 /// done with their work; metrics generated after shutting down the sink will be lost.
 ///
 /// Panics if a sink has already been installed.
-pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, String> {
+pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, Box<dyn std::error::Error>> {
     let sink = Arc::new(MetricsSink::new(otlp_config)?);
     let mut sys = System::new();
 
@@ -65,7 +65,9 @@ pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, Str
     };
 
     let recorder = MetricsRecorder { sink };
-    metrics::set_global_recorder(recorder).map_err(|e| format!("Failed to set global metrics recorder: {}", e))?;
+    metrics::set_global_recorder(recorder).map_err(|e| {
+        Box::<dyn std::error::Error>::from(format!("Failed to set global metrics recorder: {}", e))
+    })?;
 
     Ok(handle)
 }
@@ -97,13 +99,13 @@ struct MetricsSink {
 }
 
 impl MetricsSink {
-    fn new(otlp_config: Option<OtlpConfig>) -> Result<Self, String> {
+    fn new(otlp_config: Option<OtlpConfig>) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialise the OTLP exporter if a config is provided
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
             if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
                 return Err(
-                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".to_string(),
+                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".into()
                 );
             }
 
@@ -118,7 +120,10 @@ impl MetricsSink {
 
                     // If the user explicitly requested metrics export but it failed,
                     // we should return an error rather than silently continuing without metrics
-                    return Err(format!("Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.", e));
+                    return Err(format!(
+                        "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.", 
+                        e
+                    ).into());
                 }
             }
         } else {
@@ -491,7 +496,7 @@ mod tests {
         let config = OtlpConfig::new("not-a-valid-uri");
         let result = MetricsSink::new(Some(config));
         assert!(result.is_err());
-        let error = result.unwrap_err();
+        let error = result.unwrap_err().to_string();
         assert!(
             error.contains("Invalid OTLP endpoint configuration"),
             "Error message should indicate invalid configuration: {}",
