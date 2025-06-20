@@ -564,7 +564,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
-        if state.reader_count > 0 {
+        if state.reader_count.load(Ordering::SeqCst) > 0 {
             return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
         }
         match state.write_status {
@@ -669,7 +669,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         if state.write_status != WriteStatus::Remote {
             return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
         }
-        state.reader_count += 1;
+        state.reader_count.fetch_add(1, Ordering::SeqCst);
         drop(state);
         Ok(ReadHandle { ino, no: None })
     }
@@ -679,8 +679,7 @@ impl<OC: ObjectClient + Send + Sync> Mountspace for Superblock<OC> {
         let inode = self.inner.get(handle.ino)?;
 
         // Decrease reader count for the inode
-        let mut state = inode.get_mut_inode_state()?;
-        state.reader_count -= 1;
+        inode.dec_reader_count();
         Ok(())
     }
 

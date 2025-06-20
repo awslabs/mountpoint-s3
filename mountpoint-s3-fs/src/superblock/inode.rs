@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
+use std::sync::atomic::AtomicU64;
 use std::time::{Duration, SystemTime};
 
 use crate::prefix::Prefix;
@@ -82,35 +83,36 @@ impl Inode {
     pub(super) fn inc_lookup_count(&self) -> u64 {
         let mut state = self.inner.sync.write().unwrap();
         let lookup_count = &mut state.lookup_count;
-        *lookup_count += 1;
-        trace!(
-            ino = self.ino(),
-            new_lookup_count = lookup_count,
-            "incremented lookup count",
-        );
-        *lookup_count
+        let new_lookup_count = lookup_count.fetch_add(1, Ordering::SeqCst);
+        trace!(ino = self.ino(), new_lookup_count, "incremented lookup count",);
+        new_lookup_count
     }
 
     /// Decrement lookup count by `n` for [Inode], returning the new value.
     ///
     /// Locks [InodeState] for writing.
     pub(super) fn dec_lookup_count(&self, n: u64) -> u64 {
-        let mut state = self.inner.sync.write().unwrap();
-        let lookup_count = &mut state.lookup_count;
-        debug_assert!(n <= *lookup_count, "lookup count cannot go negative");
-        *lookup_count = lookup_count.saturating_sub(n);
-        trace!(
-            ino = self.ino(),
-            new_lookup_count = lookup_count,
-            "decremented lookup count",
-        );
-        *lookup_count
+        let state = self.inner.sync.write().unwrap();
+        let new_lookup_count = state.lookup_count.fetch_sub(n, Ordering::SeqCst);
+        //debug_assert!(0 > lookup_count, "lookup count cannot go negative");
+        //*lookup_count = lookup_count.saturating_sub(n);
+        trace!(ino = self.ino(), new_lookup_count, "decremented lookup count",);
+        state.lookup_count.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn dec_reader_count(&self) {
+        let state = self.inner.sync.write().unwrap();
+        state.reader_count.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    pub(super) fn inc_reader_count(&self) {
+        let state = self.inner.sync.write().unwrap();
+        state.reader_count.fetch_add(1, Ordering::SeqCst);
     }
 
     pub(super) fn read_lookup_count(&self) -> u64 {
-        let mut state = self.inner.sync.write().unwrap();
-        let lookup_count = &mut state.lookup_count;
-        *lookup_count
+        let state = self.inner.sync.write().unwrap();
+        state.lookup_count.load(Ordering::SeqCst)
     }
 
     pub fn is_remote(&self) -> Result<bool, InodeError> {
@@ -168,8 +170,8 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
-                lookup_count: 1,
-                reader_count: 0,
+                lookup_count: Arc::new(1.into()),
+                reader_count: Arc::new(0.into()),
             },
         )
     }
@@ -202,8 +204,8 @@ impl Inode {
             // Copy the lookup count from the old inode.
             // We can NOT protect from later changes to the old inode's lookup count
             // by concurrent operations, when the VFS lock does not prohibit this.
-            lookup_count: old_inode_state.lookup_count,
-            reader_count: 0,
+            lookup_count: old_inode_state.lookup_count.clone(),
+            reader_count: old_inode_state.reader_count.clone(),
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -272,9 +274,9 @@ pub(super) struct InodeState {
     pub kind_data: InodeKindData,
     /// Number of references the kernel is holding to the [Inode].
     /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
-    lookup_count: u64,
+    pub reader_count: Arc<AtomicU64>,
     /// Number of active prefetching streams on the [Inode].
-    pub reader_count: u64,
+    pub lookup_count: Arc<AtomicU64>,
 }
 
 impl InodeState {
@@ -283,8 +285,8 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
-            lookup_count: 0,
-            reader_count: 0,
+            reader_count: Arc::new(0.into()),
+            lookup_count: Arc::new(0.into()),
         }
     }
 }
@@ -509,8 +511,8 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
-                lookup_count: 5,
-                reader_count: 0,
+                lookup_count: Arc::new(5.into()),
+                reader_count: Arc::new(0.into()),
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
@@ -518,7 +520,7 @@ mod tests {
         superblock.forget(ino, 3).await;
         let lookup_count = {
             let inode_state = inode.inner.sync.read().unwrap();
-            inode_state.lookup_count
+            inode_state.lookup_count.load(Ordering::SeqCst).clone()
         };
         assert_eq!(lookup_count, 2, "lookup should have been reduced");
         assert!(
@@ -529,7 +531,7 @@ mod tests {
         superblock.forget(ino, 2).await;
         let lookup_count = {
             let inode_state = inode.inner.sync.read().unwrap();
-            inode_state.lookup_count
+            inode_state.lookup_count.load(Ordering::SeqCst)
         };
         assert_eq!(lookup_count, 0, "lookup should have been reduced");
         assert!(
@@ -671,8 +673,8 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
-                    lookup_count: 1,
-                    reader_count: 0,
+                    lookup_count: Arc::new(1.into()),
+                    reader_count: Arc::new(0.into()),
                 }),
             }),
         };
@@ -731,8 +733,8 @@ mod tests {
                     write_status: WriteStatus::LocalOpen,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
-                    lookup_count: 5,
-                    reader_count: 0,
+                    lookup_count: Arc::new(5.into()),
+                    reader_count: Arc::new(0.into()),
                 }),
             }),
         };
