@@ -1,4 +1,5 @@
 use async_stream::try_stream;
+use bytes::Bytes;
 use futures::task::SpawnExt;
 use futures::{pin_mut, Stream, StreamExt};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
@@ -421,9 +422,14 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
 
         pin_mut!(request);
         while let Some(next) = request.next().await {
-            let part = next
-                .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
-                .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
+            let part = {
+                let client_part = next
+                    .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
+                    .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
+
+                // Make a deep copy of the part to free up the underlying CRT buffer.
+                GetBodyPart { data: Bytes::copy_from_slice(&client_part.data), offset: client_part.offset }
+            };
 
             let length = part.data.len() as u64;
             trace!(offset=part.offset, length, "received GetObject part");
