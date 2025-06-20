@@ -974,7 +974,7 @@ impl Client {
         // dereferencable as long as Client lives.
         let inner_stats = unsafe {
             let client = self.inner.as_ref();
-            aws_s3_buffer_pool_get_usage(client.buffer_pool)
+            aws_s3_default_buffer_pool_get_usage(client.buffer_pool)
         };
 
         let mem_limit = inner_stats.mem_limit as u64;
