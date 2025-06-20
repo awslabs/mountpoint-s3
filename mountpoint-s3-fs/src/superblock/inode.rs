@@ -7,7 +7,7 @@ use fuser::FileType;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::types::{ETag, RestoreStatus};
 use time::OffsetDateTime;
-use tracing::{debug, trace};
+use tracing::debug;
 
 use crate::prefix::Prefix;
 use crate::superblock::ObjectClient;
@@ -115,38 +115,6 @@ impl Inode {
         &self.inner.valid_key
     }
 
-    /// Increment lookup count for [Inode] by 1, returning the new value.
-    /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
-    ///
-    /// Locks [InodeState] for writing.
-    pub(super) fn inc_lookup_count(&self) -> u64 {
-        let mut state = self.inner.sync.write().unwrap();
-        let lookup_count = &mut state.lookup_count;
-        *lookup_count += 1;
-        trace!(
-            ino = self.ino(),
-            new_lookup_count = lookup_count,
-            "incremented lookup count",
-        );
-        *lookup_count
-    }
-
-    /// Decrement lookup count by `n` for [Inode], returning the new value.
-    ///
-    /// Locks [InodeState] for writing.
-    pub(super) fn dec_lookup_count(&self, n: u64) -> u64 {
-        let mut state = self.inner.sync.write().unwrap();
-        let lookup_count = &mut state.lookup_count;
-        debug_assert!(n <= *lookup_count, "lookup count cannot go negative");
-        *lookup_count = lookup_count.saturating_sub(n);
-        trace!(
-            ino = self.ino(),
-            new_lookup_count = lookup_count,
-            "decremented lookup count",
-        );
-        *lookup_count
-    }
-
     pub fn is_remote(&self) -> Result<bool, InodeError> {
         let state = self.get_inode_state()?;
         Ok(state.write_status == WriteStatus::Remote)
@@ -208,7 +176,6 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
-                lookup_count: 1,
             },
         )
     }
@@ -238,10 +205,6 @@ impl Inode {
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
-            // Copy the lookup count from the old inode.
-            // We can NOT protect from later changes to the old inode's lookup count
-            // by concurrent operations, when the VFS lock does not prohibit this.
-            lookup_count: old_inode_state.lookup_count,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -308,9 +271,6 @@ pub(super) struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
-    /// Number of references the kernel is holding to the [Inode].
-    /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
-    lookup_count: u64,
 }
 
 impl InodeState {
@@ -319,7 +279,6 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
-            lookup_count: 0,
         }
     }
 }
@@ -674,16 +633,12 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
-                lookup_count: 5,
             },
         );
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
+        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
 
         superblock.forget(ino, 3);
-        let lookup_count = {
-            let inode_state = inode.inner.sync.read().unwrap();
-            inode_state.lookup_count
-        };
+        let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 2, "lookup should have been reduced");
         assert!(
             superblock.inner.get(ino).is_ok(),
@@ -691,13 +646,10 @@ mod tests {
         );
 
         superblock.forget(ino, 2);
-        let lookup_count = {
-            let inode_state = inode.inner.sync.read().unwrap();
-            inode_state.lookup_count
-        };
+        let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0, "lookup should have been reduced");
         assert!(
-            superblock.inner.inodes.read().unwrap().get(&ino).is_none(),
+            superblock.inner.inodes.read().unwrap().get_inode(&ino).is_none(),
             "inode should not be present in superblock"
         );
 
@@ -720,13 +672,13 @@ mod tests {
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
-        assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
+        let lookup_count = superblock.get_lookup_count(ino);
+        assert_eq!(lookup_count, 1);
 
         superblock.forget(ino, 1);
 
-        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0);
         // This test should now hold the only reference to the inode, so we know it's unreferenced
         // and will be freed
@@ -739,8 +691,7 @@ mod tests {
             .expect_err("Inode should not be valid");
         assert!(matches!(err, InodeError::InodeDoesNotExist(_)));
 
-        let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        let lookup_count = superblock.get_lookup_count(ROOT_INODE_NO);
         assert_eq!(lookup_count, 1);
     }
 
@@ -759,7 +710,7 @@ mod tests {
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+        let lookup_count = superblock.get_lookup_count(ROOT_INODE_NO);
         assert_eq!(lookup_count, 1);
         let ino = lookup.inode.ino();
         drop(lookup);
@@ -813,7 +764,6 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
-                    lookup_count: 1,
                 }),
             }),
         };
@@ -821,8 +771,8 @@ mod tests {
         // Manually add the corrupted inode to the superblock and root directory.
         {
             let mut inodes = superblock.inner.inodes.write().unwrap();
-            inodes.insert(inode.ino(), inode.clone());
-            let parent = inodes.get(&parent_ino).unwrap();
+            inodes.insert(inode.ino(), inode.clone(), 1);
+            let parent = inodes.get_inode(&parent_ino).unwrap();
             let mut parent_state = parent.get_mut_inode_state().unwrap();
             match &mut parent_state.kind_data {
                 InodeKindData::File {} => panic!("root is always a directory"),
@@ -866,11 +816,10 @@ mod tests {
                     write_status: WriteStatus::LocalOpen,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
-                    lookup_count: 5,
                 }),
             }),
         };
-        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
+        superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
 
         // Verify that the stat is invalid
         let inode = superblock.inner.get(ino).unwrap();
@@ -919,9 +868,9 @@ mod tests {
                 ));
 
                 let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-                let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
-                assert_eq!(lookup_count, 1);
                 let ino = lookup.inode.ino();
+                let lookup_count = superblock.get_lookup_count(ino);
+                assert_eq!(lookup_count, 1);
 
                 let superblock_clone = superblock.clone();
                 let forget_task = thread::spawn(move || {
@@ -935,7 +884,8 @@ mod tests {
                     .unwrap();
 
                 forget_task.join().unwrap();
-                let lookup_count = lookup.inode.inner.sync.read().unwrap().lookup_count;
+                let ino = lookup.inode.ino();
+                let lookup_count = superblock.get_lookup_count(ino);
                 assert_eq!(lookup_count, 0);
             }
 

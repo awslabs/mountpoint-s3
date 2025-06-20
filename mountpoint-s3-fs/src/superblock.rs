@@ -210,7 +210,7 @@ impl<'a> RenameLockGuard<'a> {
     }
 
     fn dst_is_ancestor(inodes: &InodeMap, start: &Inode, dst: InodeNo) -> bool {
-        std::iter::successors(Some(start), |current| inodes.get(&current.parent()))
+        std::iter::successors(Some(start), |current| inodes.get_inode(&current.parent()))
             .take_while(|&current| current.ino() != FUSE_ROOT_INODE)
             .any(|current| current.ino() == dst)
     }
@@ -231,7 +231,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let root = Inode::new_root(prefix, mount_time);
 
         let mut inodes = InodeMap::default();
-        inodes.insert(root.ino(), root);
+        inodes.insert(root.ino(), root, 1);
 
         let negative_cache = NegativeCache::new(
             config.cache_config.negative_cache_size,
@@ -257,59 +257,51 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     pub fn forget(&self, ino: InodeNo, n: u64) {
-        let inode = {
-            if let Some(inode) = self.inner.inodes.read().unwrap().get(&ino).cloned() {
-                inode
-            } else {
+        let mut inodes = self.inner.inodes.write().unwrap();
+
+        match inodes.decrease_lookup_count(ino, n) {
+            Ok(Some(removed_inode)) => {
+                trace!(ino, "removing inode from superblock");
+                let parent_ino = removed_inode.parent();
+
+                if let Some((parent, _)) = inodes.get_mut(&parent_ino) {
+                    let mut parent_state = parent.get_mut_inode_state_no_check();
+                    let InodeKindData::Directory {
+                        children,
+                        writing_children,
+                        ..
+                    } = &mut parent_state.kind_data
+                    else {
+                        unreachable!("parent is always a directory");
+                    };
+                    if let Some(child) = children.get(removed_inode.name()) {
+                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
+                        if child.ino() == ino {
+                            children.remove(removed_inode.name());
+                        }
+                    }
+                    writing_children.remove(&ino);
+                } else {
+                    // Should be impossible for this to fail (VFS inodes reference their parent, so
+                    // children need to be freed first), but let's not crash in a `forget` function...
+                    debug_assert!(false, "children should be forgotten before parents");
+                }
+
+                drop(inodes);
+
+                if let Ok(state) = removed_inode.get_inode_state() {
+                    metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
+                        .increment(state.stat.is_valid().into());
+                };
+            }
+            Ok(None) => {}
+            Err(_) => {
                 debug_assert!(
                     false,
                     "forget should not be called on inode already removed from superblock"
                 );
                 error!("forget called on inode {ino} already removed from the superblock");
-                return;
             }
-        };
-        logging::record_name(inode.name());
-        let new_lookup_count = inode.dec_lookup_count(n);
-        if new_lookup_count == 0 {
-            // Safe to remove, kernel no longer has a reference to it.
-            trace!(ino, "removing inode from superblock");
-            let Some(inode) = self.inner.inodes.write().unwrap().remove(&ino) else {
-                error!("forget called on inode {ino} already removed from the superblock");
-                return;
-            };
-
-            let parent = {
-                if let Some(parent) = self.inner.inodes.read().unwrap().get(&inode.parent()).cloned() {
-                    parent
-                } else {
-                    // Should be impossible for this to fail (VFS inodes reference their parent, so
-                    // children need to be freed first), but let's not crash in a `forget` function...
-                    debug_assert!(false, "children should be forgotten before parents");
-                    return;
-                }
-            };
-            let mut parent_state = parent.get_mut_inode_state_no_check();
-            let InodeKindData::Directory {
-                children,
-                writing_children,
-                ..
-            } = &mut parent_state.kind_data
-            else {
-                unreachable!("parent is always a directory");
-            };
-            if let Some(child) = children.get(inode.name()) {
-                // Don't accidentally remove a newer inode (e.g. remote shadowing local)
-                if child.ino() == ino {
-                    children.remove(inode.name());
-                }
-            }
-            writing_children.remove(&ino);
-
-            if let Ok(state) = inode.get_inode_state() {
-                metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
-                    .increment(state.stat.is_valid().into());
-            };
         }
     }
 
@@ -323,6 +315,12 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .await?;
         self.inner.remember(&lookup.inode);
         Ok(lookup)
+    }
+
+    #[cfg(test)]
+    fn get_lookup_count(&self, ino: InodeNo) -> u64 {
+        let inode_read = self.inner.inodes.read().unwrap();
+        inode_read.get_count(&ino).unwrap_or(0)
     }
 
     /// Retrieve the attributes for an inode
@@ -809,11 +807,8 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                     }
 
                     children.insert(dst_name_as_str, new_inode.clone());
-                    self.inner
-                        .inodes
-                        .write()
-                        .unwrap()
-                        .insert(src_inode.ino(), new_inode.clone());
+                    let mut inodes_write = self.inner.inodes.write().unwrap();
+                    inodes_write.replace_or_insert(new_inode.ino(), &new_inode);
                 }
             }
         }
@@ -836,7 +831,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             .inodes
             .read()
             .unwrap()
-            .get(&ino)
+            .get_inode(&ino)
             .cloned()
             .ok_or(InodeError::InodeDoesNotExist(ino))?;
         inode.verify_inode(ino, &self.prefix)?;
@@ -849,13 +844,11 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
 
     /// Increase the lookup count of the given inode and
     /// ensure it is registered with this superblock.
-    pub fn remember(&self, inode: &Inode) -> u64 {
-        let lookup_count = inode.inc_lookup_count();
-        if lookup_count == 1 {
-            let previous = self.inodes.write().unwrap().insert(inode.ino(), inode.clone());
-            assert!(previous.is_none(), "inode numbers are never reused");
-        }
-        lookup_count
+    ///
+    /// This should be called whenever we pass a `fuse_reply_entry` or `fuse_reply_create` struct to the FUSE driver.
+    pub fn remember(&self, inode: &Inode) {
+        let mut inodes_write = self.inodes.write().unwrap();
+        inodes_write.increase_lookup_count(inode);
     }
 
     /// Lookup an inode in the parent directory with the given name.
@@ -1370,32 +1363,110 @@ impl LookedUp {
     }
 }
 
-/// A wrapper around a `HashMap<InodeNo, Inode>`` that just takes care of metrics when inodes are
-/// added or removed.
+/// Maps inode number to inode and lookup count.
+///
+/// Additionally reports metrics when inodes are added or removed.
+/// It is implemented as a wrapper around `HashMap<InodeNo, (Inode, u64)>`.
 #[derive(Debug, Default)]
 struct InodeMap {
-    map: HashMap<InodeNo, Inode>,
+    map: HashMap<InodeNo, (Inode, u64)>,
 }
 
 impl InodeMap {
-    fn get(&self, ino: &InodeNo) -> Option<&Inode> {
-        self.map.get(ino)
+    fn get_inode(&self, ino: &InodeNo) -> Option<&Inode> {
+        self.map.get(ino).map(|(node, _lookup_count)| node)
     }
 
-    fn insert(&mut self, ino: InodeNo, inode: Inode) -> Option<Inode> {
-        metrics::gauge!("fs.inodes").increment(1.0);
-        metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).increment(1.0);
-        self.map.insert(ino, inode).inspect(Self::remove_metrics)
+    fn get_mut(&mut self, ino: &InodeNo) -> Option<&mut (Inode, u64)> {
+        self.map.get_mut(ino)
     }
 
-    fn remove(&mut self, ino: &InodeNo) -> Option<Inode> {
-        self.map.remove(ino).inspect(Self::remove_metrics)
+    #[cfg(test)]
+    fn get_count(&self, ino: &InodeNo) -> Option<u64> {
+        self.map.get(ino).map(|(_, lookup_count)| *lookup_count)
+    }
+
+    fn insert(&mut self, ino: InodeNo, inode: Inode, lookup_count: u64) -> Option<Inode> {
+        Self::add_metrics(&inode);
+        trace!(ino, lookup_count, "inserting inode with lookup count");
+        self.map
+            .insert(ino, (inode, lookup_count))
+            .inspect(|(inode, _count)| {
+                Self::remove_metrics(inode);
+            })
+            .map(|(node, _lookup_count)| node)
+    }
+
+    fn replace_or_insert(&mut self, ino: InodeNo, new_inode: &Inode) {
+        self.map
+            .entry(ino)
+            .and_modify(|(inode, count)| {
+                Self::remove_metrics(inode);
+                Self::add_metrics(new_inode);
+                trace!(
+                    ino = inode.ino(),
+                    lookup_count = count,
+                    "replaced inode with lookup count"
+                );
+                *inode = new_inode.clone();
+            })
+            .or_insert_with(|| {
+                trace!(ino, lookup_count = 1, "inserting inode with lookup count");
+                Self::add_metrics(new_inode);
+                (new_inode.clone(), 1)
+            });
+    }
+
+    /// Increases the lookup count of an inode
+    fn increase_lookup_count(&mut self, inode: &Inode) {
+        self.map
+            .entry(inode.ino())
+            .and_modify(|(_, count)| {
+                *count += 1;
+                trace!(ino = inode.ino(), new_lookup_count = *count, "incremented lookup count");
+            })
+            .or_insert_with(|| {
+                Self::add_metrics(inode);
+                trace!(ino = inode.ino(), lookup_count = 1, "inserting inode with lookup count");
+                (inode.clone(), 1)
+            });
+    }
+
+    /// Decreases lookup count, removes if is reduced to 0 and returns inode if it has been removed
+    fn decrease_lookup_count(&mut self, ino: InodeNo, n: u64) -> Result<Option<Inode>, InodeMapError> {
+        match self.map.get_mut(&ino) {
+            Some((_, count)) => {
+                // Decrease lookup count
+                *count = count.saturating_sub(n);
+                trace!(ino = ino, new_lookup_count = *count, "decremented lookup count");
+
+                if *count == 0 {
+                    trace!(ino, "removing inode from superblock");
+                    let (inode, _) = self.map.remove(&ino).unwrap();
+                    Ok(Some(inode))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Err(InodeMapError::InodeNotFound(ino)),
+        }
     }
 
     fn remove_metrics(inode: &Inode) {
         metrics::gauge!("fs.inodes").decrement(1.0);
         metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).decrement(1.0);
     }
+
+    fn add_metrics(inode: &Inode) {
+        metrics::gauge!("fs.inodes").increment(1.0);
+        metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).increment(1.0);
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum InodeMapError {
+    #[error("inode {0} not found in InodeMap")]
+    InodeNotFound(InodeNo),
 }
 
 /// Stores the number of readers (if they are > 0) for Inodes.
