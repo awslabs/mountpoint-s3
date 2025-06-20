@@ -131,7 +131,6 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
-                reader_count: 0,
             },
         )
     }
@@ -161,7 +160,6 @@ impl Inode {
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
-            reader_count: 0,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -228,7 +226,6 @@ pub(super) struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
-    reader_count: u32,
 }
 
 impl InodeState {
@@ -237,7 +234,6 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
-            reader_count: 0,
         }
     }
 }
@@ -437,7 +433,8 @@ impl WriteHandle {
         is_truncate: bool,
     ) -> Result<Self, InodeError> {
         let mut state = inode.get_mut_inode_state()?;
-        if state.reader_count > 0 {
+        let reader_count = inner.reader_count.read().unwrap();
+        if reader_count.get(&inode.ino()).map_or(0, |&count| count) > 0 {
             return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
         }
         match state.write_status {
@@ -461,6 +458,7 @@ impl WriteHandle {
             }
         }
         drop(state);
+        drop(reader_count);
         Ok(Self { inner, inode })
     }
 
@@ -592,7 +590,6 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
-                reader_count: 0,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -724,7 +721,6 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
-                    reader_count: 0,
                 }),
             }),
         };
@@ -777,7 +773,6 @@ mod tests {
                     write_status: WriteStatus::LocalOpen,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
-                    reader_count: 0,
                 }),
             }),
         };
