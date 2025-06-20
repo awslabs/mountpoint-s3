@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v1.19.1)
+
+* Update underlying S3 client version and file system core library version.
 
 ## v1.19.0 (Jun 19, 2025)
 
