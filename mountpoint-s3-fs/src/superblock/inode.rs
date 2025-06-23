@@ -29,6 +29,19 @@ const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 #[derive(Debug)]
+pub struct InodeLockedForWriting<'a> {
+    pub ino: InodeNo,
+    pub state: RwLockWriteGuard<'a, InodeState>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub struct InodeLockedForReading<'a> {
+    pub ino: InodeNo,
+    pub state: RwLockReadGuard<'a, InodeState>,
+}
+
+#[derive(Debug)]
 struct InodeInner {
     // Immutable inode state -- any changes to these requires a new inode
     ino: InodeNo,
@@ -110,25 +123,31 @@ impl Inode {
     }
 
     pub fn is_remote(&self) -> Result<bool, InodeError> {
-        let state = self.get_inode_state()?;
+        let state = self.get_inode_state()?.state;
         Ok(state.write_status == WriteStatus::Remote)
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
-    pub(super) fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
+    pub(super) fn get_inode_state(&self) -> Result<InodeLockedForReading, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
-            _ => Ok(inode_state),
+            _ => Ok(InodeLockedForReading {
+                state: inode_state,
+                ino: self.ino(),
+            }),
         }
     }
 
     /// return Inode State with write lock after checking whether the directory inode is deleted or not.
-    pub(super) fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
+    pub(super) fn get_mut_inode_state(&self) -> Result<InodeLockedForWriting, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
-            _ => Ok(inode_state),
+            _ => Ok(InodeLockedForWriting {
+                state: inode_state,
+                ino: self.ino(),
+            }),
         }
     }
 
@@ -182,7 +201,7 @@ impl Inode {
             debug!("Cannot re-create an inode of kind != InodeKind::File");
             return Err(InodeError::IsDirectory(self.err()));
         }
-        let old_inode_state = self.get_inode_state()?;
+        let old_inode_state = self.get_inode_state()?.state;
         let new_inode_state = InodeState {
             stat: InodeStat::for_file(
                 old_inode_state.stat.size,
@@ -474,15 +493,13 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
         mode: &WriteMode,
         is_truncate: bool,
     ) -> Result<Self, InodeError> {
-        let mut state = inode.get_mut_inode_state()?;
-        if inner
-            .reader_counts
-            .read()
-            .unwrap()
-            .is_anyone_reading(inode.ino(), &state)
-        {
+        let mut locked_inode = inode.get_mut_inode_state()?;
+        if inner.reader_counts.read().unwrap().is_anyone_reading(&locked_inode) {
             return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
         }
+
+        let state = &mut locked_inode.state;
+
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
@@ -503,7 +520,7 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
                 state.write_status = WriteStatus::LocalOpen;
             }
         }
-        drop(state);
+        drop(locked_inode);
         Ok(Self { inner, inode })
     }
 
@@ -524,7 +541,9 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
                 assert!(visited.insert(ancestor_ino), "cycle detected in inode ancestors");
                 let ancestor = self.inner.get(ancestor_ino)?;
                 ancestors.push(ancestor.clone());
-                if ancestor.ino() == ROOT_INODE_NO || ancestor.get_inode_state()?.write_status == WriteStatus::Remote {
+                if ancestor.ino() == ROOT_INODE_NO
+                    || ancestor.get_inode_state()?.state.write_status == WriteStatus::Remote
+                {
                     break;
                 }
                 ancestor_ino = ancestor.parent();
@@ -539,7 +558,7 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
             .map(|inode| inode.get_mut_inode_state())
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut state = self.inode.get_mut_inode_state()?;
+        let mut state = self.inode.get_mut_inode_state()?.state;
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
@@ -552,14 +571,14 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
                 // the inode and all "local" containing directories to "remote".
                 let children_inos =
                     std::iter::once(self.inode.ino()).chain(ancestors.iter().map(|ancestor| ancestor.ino()));
-                for (ancestor_state, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
-                    match &mut ancestor_state.kind_data {
+                for (ancestor_locked, child_ino) in ancestors_states.iter_mut().rev().zip(children_inos) {
+                    match &mut ancestor_locked.state.kind_data {
                         InodeKindData::File { .. } => unreachable!("we know the ancestor is a directory"),
                         InodeKindData::Directory { writing_children, .. } => {
                             writing_children.remove(&child_ino);
                         }
                     }
-                    ancestor_state.write_status = WriteStatus::Remote;
+                    ancestor_locked.state.write_status = WriteStatus::Remote;
                 }
 
                 Ok(())
@@ -579,16 +598,19 @@ pub struct ReadHandle {
 impl ReadHandle {
     /// Create a new read handle
     pub(super) fn new(inner: Arc<SuperblockInner>, inode: Inode) -> Result<Self, InodeError> {
-        let state = inode.get_mut_inode_state()?;
-        if !matches!(state.write_status, WriteStatus::Remote | WriteStatus::PendingRename) {
+        let locked_inode = inode.get_mut_inode_state()?;
+        if !matches!(
+            locked_inode.state.write_status,
+            WriteStatus::Remote | WriteStatus::PendingRename
+        ) {
             return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
         }
         inner
             .reader_counts
             .write()
             .unwrap()
-            .increase_reader_count(inode.ino(), &state);
-        drop(state);
+            .increase_reader_count(&locked_inode);
+        drop(locked_inode);
         Ok(Self { inner, inode })
     }
 
@@ -596,11 +618,7 @@ impl ReadHandle {
     pub fn finish(self) -> Result<(), InodeError> {
         // Decrease reader count for the inode
         let state = self.inode.get_mut_inode_state()?;
-        self.inner
-            .reader_counts
-            .write()
-            .unwrap()
-            .decrease_reader_count(self.inode.ino(), &state);
+        self.inner.reader_counts.write().unwrap().decrease_reader_count(&state);
         Ok(())
     }
 }
@@ -789,7 +807,7 @@ mod tests {
             inodes.insert(inode.ino(), inode.clone());
             let parent = inodes.get(&parent_ino).unwrap();
             let mut parent_state = parent.get_mut_inode_state().unwrap();
-            match &mut parent_state.kind_data {
+            match &mut parent_state.state.kind_data {
                 InodeKindData::File {} => panic!("root is always a directory"),
                 InodeKindData::Directory { children, .. } => _ = children.insert(file_name.into(), inode.clone()),
             }
@@ -839,7 +857,7 @@ mod tests {
 
         // Verify that the stat is invalid
         let inode = superblock.inner.get(ino).unwrap();
-        let stat = inode.get_inode_state().unwrap().stat.clone();
+        let stat = inode.get_inode_state().unwrap().state.stat.clone();
         assert!(!stat.is_valid());
 
         // Should be able to reset expiry back and make stat valid when calling setattr
