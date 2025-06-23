@@ -165,7 +165,6 @@ impl Inode {
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
                 lookup_count: 1,
-                reader_count: 0,
             },
         )
     }
@@ -199,7 +198,6 @@ impl Inode {
             // We can NOT protect from later changes to the old inode's lookup count
             // by concurrent operations, when the VFS lock does not prohibit this.
             lookup_count: old_inode_state.lookup_count,
-            reader_count: 0,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -269,8 +267,6 @@ pub(super) struct InodeState {
     /// Number of references the kernel is holding to the [Inode].
     /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
     lookup_count: u64,
-    /// Number of active prefetching streams on the [Inode].
-    reader_count: u64,
 }
 
 impl InodeState {
@@ -280,7 +276,6 @@ impl InodeState {
             kind_data: InodeKindData::default_for(kind),
             write_status,
             lookup_count: 0,
-            reader_count: 0,
         }
     }
 }
@@ -480,7 +475,12 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
         is_truncate: bool,
     ) -> Result<Self, InodeError> {
         let mut state = inode.get_mut_inode_state()?;
-        if state.reader_count > 0 {
+        if inner
+            .reader_counts
+            .read()
+            .unwrap()
+            .is_anyone_reading(inode.ino(), &state)
+        {
             return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
         }
         match state.write_status {
@@ -572,26 +572,35 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
 /// Handle for a file being read
 #[derive(Debug)]
 pub struct ReadHandle {
+    inner: Arc<SuperblockInner>,
     inode: Inode,
 }
 
 impl ReadHandle {
     /// Create a new read handle
-    pub(super) fn new(inode: Inode) -> Result<Self, InodeError> {
-        let mut state = inode.get_mut_inode_state()?;
+    pub(super) fn new(inner: Arc<SuperblockInner>, inode: Inode) -> Result<Self, InodeError> {
+        let state = inode.get_mut_inode_state()?;
         if !matches!(state.write_status, WriteStatus::Remote | WriteStatus::PendingRename) {
             return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
         }
-        state.reader_count += 1;
+        inner
+            .reader_counts
+            .write()
+            .unwrap()
+            .increase_reader_count(inode.ino(), &state);
         drop(state);
-        Ok(Self { inode })
+        Ok(Self { inner, inode })
     }
 
     /// Update status of the inode to reflect the read being finished
     pub fn finish(self) -> Result<(), InodeError> {
         // Decrease reader count for the inode
-        let mut state = self.inode.get_mut_inode_state()?;
-        state.reader_count -= 1;
+        let state = self.inode.get_mut_inode_state()?;
+        self.inner
+            .reader_counts
+            .write()
+            .unwrap()
+            .decrease_reader_count(self.inode.ino(), &state);
         Ok(())
     }
 }
@@ -631,7 +640,6 @@ mod tests {
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
                 lookup_count: 5,
-                reader_count: 0,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
@@ -771,7 +779,6 @@ mod tests {
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
                     lookup_count: 1,
-                    reader_count: 0,
                 }),
             }),
         };
@@ -825,7 +832,6 @@ mod tests {
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
                     lookup_count: 5,
-                    reader_count: 0,
                 }),
             }),
         };

@@ -111,6 +111,7 @@ struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     bucket: String,
     prefix: Prefix,
     inodes: RwLock<InodeMap>,
+    reader_counts: RwLock<ReaderCountMap>,
     negative_cache: NegativeCache,
     cached_rename_support: RenameCache,
     next_ino: AtomicU64,
@@ -239,6 +240,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             bucket: bucket.to_owned(),
             prefix: prefix.clone(),
             inodes: RwLock::new(inodes),
+            reader_counts: RwLock::new(ReaderCountMap::new()),
             negative_cache,
             next_ino: AtomicU64::new(2),
             mount_time,
@@ -404,7 +406,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
-        ReadHandle::new(inode)
+        ReadHandle::new(self.inner.clone(), inode)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -1391,6 +1393,36 @@ impl InodeMap {
     fn remove_metrics(inode: &Inode) {
         metrics::gauge!("fs.inodes").decrement(1.0);
         metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).decrement(1.0);
+    }
+}
+
+#[derive(Debug, Default)]
+struct ReaderCountMap {
+    map: HashMap<InodeNo, u32>,
+}
+
+impl ReaderCountMap {
+    fn new() -> Self {
+        ReaderCountMap { map: HashMap::new() }
+    }
+
+    fn is_anyone_reading(&self, ino: InodeNo, _lockguard: &RwLockWriteGuard<'_, InodeState>) -> bool {
+        self.map.get(&ino).is_some_and(|&count| count > 0)
+    }
+
+    fn increase_reader_count(&mut self, ino: InodeNo, _lockguard: &RwLockWriteGuard<'_, InodeState>) {
+        *self.map.entry(ino).or_insert(0) += 1;
+    }
+
+    fn decrease_reader_count(&mut self, ino: InodeNo, _lockguard: &RwLockWriteGuard<'_, InodeState>) {
+        if let Some(count) = self.map.get_mut(&ino) {
+            if *count > 0 {
+                *count -= 1;
+            }
+            if *count == 0 {
+                self.map.remove(&ino);
+            }
+        }
     }
 }
 
