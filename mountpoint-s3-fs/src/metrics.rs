@@ -33,7 +33,7 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 /// done with their work; metrics generated after shutting down the sink will be lost.
 ///
 /// Panics if a sink has already been installed.
-pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, Box<dyn std::error::Error>> {
+pub fn install(otlp_config: Option<OtlpConfig>) -> anyhow::Result<MetricsSinkHandle> {
     let sink = Arc::new(MetricsSink::new(otlp_config)?);
     let mut sys = System::new();
 
@@ -66,7 +66,7 @@ pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, Box
 
     let recorder = MetricsRecorder { sink };
     metrics::set_global_recorder(recorder)
-        .map_err(|e| Box::<dyn std::error::Error>::from(format!("Failed to set global metrics recorder: {}", e)))?;
+        .map_err(|e| anyhow::anyhow!("Failed to set global metrics recorder: {}", e))?;
 
     Ok(handle)
 }
@@ -98,12 +98,14 @@ struct MetricsSink {
 }
 
 impl MetricsSink {
-    fn new(otlp_config: Option<OtlpConfig>) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
         // Initialise the OTLP exporter if a config is provided
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
             if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
-                return Err("Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".into());
+                return Err(anyhow::anyhow!(
+                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://"
+                ));
             }
 
             match OtlpMetricsExporter::new(&config) {
@@ -117,10 +119,10 @@ impl MetricsSink {
 
                     // If the user explicitly requested metrics export but it failed,
                     // we should return an error rather than silently continuing without metrics
-                    return Err(format!(
+                    return Err(anyhow::anyhow!(
                         "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.", 
                         e
-                    ).into());
+                    ));
                 }
             }
         } else {
