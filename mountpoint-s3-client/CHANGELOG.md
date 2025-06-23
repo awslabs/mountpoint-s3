@@ -1,6 +1,7 @@
 ## Unreleased (v0.18.0)
 
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+* Add `CredentialsProvider::new_delegate`, which can be used to implement custom credential providers in Rust. ([#1477](https://github.com/awslabs/mountpoint-s3/pull/1477))
 
 ## v0.17.0 (Jun 27, 2025)
 

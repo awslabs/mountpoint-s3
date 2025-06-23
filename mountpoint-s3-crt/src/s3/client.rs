@@ -1,6 +1,6 @@
 //! A client for high-throughput access to Amazon S3
 
-use crate::auth::credentials::CredentialsProvider;
+use crate::auth::credentials_providers::CredentialsProvider;
 use crate::auth::signing_config::{SigningAlgorithm, SigningConfig, SigningConfigInner};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;

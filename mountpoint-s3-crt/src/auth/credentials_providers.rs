@@ -1,8 +1,13 @@
 //! AWS credentials providers
 
-use std::fmt::Debug;
-use std::ptr::NonNull;
-
+use crate::auth::auth_library_init;
+use crate::auth::crt_credentials::CrtCredentials;
+use crate::auth::delegate::DelegateProvider;
+use crate::common::allocator::Allocator;
+use crate::common::error::Error;
+use crate::io::channel_bootstrap::ClientBootstrap;
+use crate::io::event_loop::EventLoopGroup;
+use crate::{CrtError as _, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::{
     aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_cached_options,
     aws_credentials_provider_chain_default_options, aws_credentials_provider_new_anonymous,
@@ -11,12 +16,10 @@ use mountpoint_s3_crt_sys::{
     aws_credentials_provider_profile_options, aws_credentials_provider_release,
     aws_credentials_provider_static_options,
 };
-
-use crate::auth::auth_library_init;
-use crate::common::allocator::Allocator;
-use crate::common::error::Error;
-use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::{CrtError as _, ToAwsByteCursor as _};
+use std::fmt::Debug;
+use std::future::Future;
+use std::ptr::NonNull;
+use std::sync::Arc;
 
 /// Options for creating a default credentials provider
 #[derive(Debug)]
@@ -59,6 +62,7 @@ impl Debug for CredentialsProviderStaticOptions<'_> {
 #[derive(Debug)]
 pub struct CredentialsProvider {
     pub(crate) inner: NonNull<aws_credentials_provider>,
+    on_delegate_callback: Option<Arc<DelegateProvider>>,
 }
 
 // SAFETY: aws_credentials_provider is thread-safe.
@@ -84,7 +88,10 @@ impl CredentialsProvider {
             aws_credentials_provider_new_chain_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            on_delegate_callback: None,
+        })
     }
 
     /// Creates the anonymous credential provider.
@@ -97,7 +104,10 @@ impl CredentialsProvider {
             aws_credentials_provider_new_anonymous(allocator.inner.as_ptr(), std::ptr::null_mut()).ok_or_last_error()?
         };
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            on_delegate_callback: None,
+        })
     }
 
     /// Creates the profile credential provider.
@@ -133,7 +143,10 @@ impl CredentialsProvider {
             cached_provider
         };
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            on_delegate_callback: None,
+        })
     }
 
     /// Creates a static credential provider that always returns the given credentials
@@ -155,7 +168,31 @@ impl CredentialsProvider {
             aws_credentials_provider_new_static(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            on_delegate_callback: None,
+        })
+    }
+
+    /// Creates a delegate credential provider which uses the credentials returned by the callback.
+    /// The callback is ran in `event_loop_group`.
+    pub fn new_delegate<F, Fut>(
+        allocator: &Allocator,
+        event_loop_group: EventLoopGroup,
+        delegate: F,
+    ) -> Result<Self, Error>
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Option<CrtCredentials>> + Send,
+    {
+        auth_library_init(allocator);
+
+        let (inner, on_delegate_callback) = DelegateProvider::new(allocator, event_loop_group, delegate)?;
+
+        Ok(Self {
+            inner,
+            on_delegate_callback: Some(on_delegate_callback),
+        })
     }
 }
 
@@ -166,7 +203,10 @@ impl Clone for CredentialsProvider {
             aws_credentials_provider_acquire(self.inner.as_ptr());
         }
 
-        Self { inner: self.inner }
+        Self {
+            inner: self.inner,
+            on_delegate_callback: self.on_delegate_callback.clone(),
+        }
     }
 }
 
