@@ -45,6 +45,7 @@ def _mounted_bucket(
             subprocess.check_output(["umount", mount_dir])
             log.debug(f"{mount_dir} unmounted")
             os.rmdir(mount_dir)
+            os.remove(mount_metadata["mount_s3_env"]["UNSTABLE_MOUNTPOINT_PID_FILE"])
         except Exception:
             log.error(f"Error cleaning up Mountpoint at {mount_dir}:", exc_info=True)
 
@@ -140,6 +141,8 @@ def _mount_mp(
     if cfg['mountpoint_congestion_threshold'] is not None:
         subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg["mountpoint_congestion_threshold"])
 
+    subprocess_env["UNSTABLE_MOUNTPOINT_PID_FILE"] = f"{mount_dir}.pid"
+
     if stub_mode != "off" and cfg["mountpoint_binary"] is not None:
         raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
     match stub_mode:
@@ -160,13 +163,15 @@ def _mount_mp(
         log.error(f"Error during mounting: {e}")
         raise MountError() from e
 
-    log.info("Mountpoint output: %s", output.decode("utf-8").strip())
+    mountpoint_pid = _get_mount_s3_pid(subprocess_env["UNSTABLE_MOUNTPOINT_PID_FILE"])
+    log.info("Mountpoint pid: %d, output: %s", mountpoint_pid, output.decode("utf-8").strip())
 
     return {
         "mount_dir": mount_dir,
         "mount_s3_command": " ".join(subprocess_args),
         "mount_s3_env": subprocess_env,
         "mp_version": mountpoint_version_output.strip(),
+        "mp_pid": mountpoint_pid,
     }
 
 
@@ -258,15 +263,36 @@ def _get_ec2_instance_id() -> Optional[str]:
     return instance_id
 
 
+def _get_mount_s3_pid(pid_file: str) -> int:
+    try:
+        with open(pid_file, 'r') as f:
+            pid = int(f.read().strip())
+
+        log.debug(f"Read mount-s3 pid: {pid} from file: {pid_file}")
+
+        return pid
+
+    except FileNotFoundError:
+        raise RuntimeError(f"Mountpoint pid file not found: {pid_file}")
+    except Exception as e:
+        raise RuntimeError("Could not determine mountpoint pid") from e
+
+
 class ResourceMonitoring:
-    def __init__(self, with_bwm: bool):
+    def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool):
         """Resource monitoring setup.
 
+        target_pid: Process pid to monitor where applicable
         with_bwm: Whether to start bandwidth monitor tool `bwm-ng`.  Optional because it's not available
-        in the default AL2023 distro so you have to install it first."""
+        in the default AL2023 distro so you have to install it first.
+        with_perf_stat: Whether to gather performance counter statistics."""
+
+        self.target_pid = target_pid
         self.mpstat_process = None
         self.bwm_ng_process = None
+        self.perf_stat_process = None
         self.with_bwm = with_bwm
+        self.with_perf_stat = with_perf_stat
         self.output_files = []
 
     def _start(self) -> None:
@@ -274,10 +300,12 @@ class ResourceMonitoring:
         self.mpstat_process = self._start_mpstat()
         if self.with_bwm:
             self.bwm_ng_process = self._start_bwm_ng()
+        if self.with_perf_stat:
+            self.perf_stat_process = self._start_perf_stat()
 
     def _close(self) -> None:
         log.debug("Shutting down resource monitors...")
-        for process in [self.mpstat_process, self.bwm_ng_process]:
+        for process in [self.mpstat_process, self.bwm_ng_process, self.perf_stat_process]:
             self._stop_resource_monitor(process)
 
         for output_file in self.output_files:
@@ -321,9 +349,27 @@ class ResourceMonitoring:
         https://www.gropp.org/?id=projects&sub=bwm-ng"""
         return self._start_monitor_with_builtin_repeat(['/usr/local/bin/bwm-ng', '-o', 'csv'], 'bwm-ng.csv')
 
+    def _start_perf_stat(self) -> any:
+        """Gather perf count statistics"""
+        perf_events = ["cycles", "instructions", "cache-references", "cache-misses", "bus-cycles"]
+
+        # fmt: off
+        perf_args = [
+            "perf", "stat",
+            "-I", "500",              # 500ms interval
+            "-e", ",".join(perf_events),
+            "-j",                     # JSON output format
+            "-p", str(self.target_pid),
+            "-o", "perfstat.json"
+        ]
+        # fmt: on
+
+        log.info("Starting perf stat with args: %s", " ".join(perf_args))
+        return subprocess.Popen(perf_args)
+
     @contextmanager
-    def managed(with_bwm=False):
-        resource = ResourceMonitoring(with_bwm)
+    def managed(target_pid, with_bwm=False, with_perf_stat=False):
+        resource = ResourceMonitoring(target_pid, with_bwm, with_perf_stat)
         try:
             resource._start()
             yield resource
@@ -350,8 +396,9 @@ def run_experiment(cfg: DictConfig) -> None:
     with _mounted_bucket(cfg) as mount_metadata:
         metadata.update(mount_metadata)
         mount_dir = mount_metadata["mount_dir"]
+        mountpoint_pid = mount_metadata["mp_pid"]
         try:
-            with ResourceMonitoring.managed(cfg['with_bwm']):
+            with ResourceMonitoring.managed(mountpoint_pid, cfg['with_bwm'], cfg['with_perf_stat']):
                 _run_fio(cfg, mount_dir)
             metadata["success"] = True
         except Exception as e:

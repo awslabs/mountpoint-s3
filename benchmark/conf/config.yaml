@@ -35,6 +35,8 @@ mountpoint_congestion_threshold: !!null
 
 # For monitoring network bandwidth
 with_bwm: false
+# For gathering performance counter statistics
+with_perf_stat: false
 
 # Works automatically ONLY where this script manages compilation. It has no effect if `mountpoint_binary` is set.
 stub_mode: "off" # fs_handler, s3_client
