@@ -114,8 +114,7 @@ impl MetricsSink {
                     Some(exporter)
                 }
                 Err(e) => {
-                    let error_msg = format!("Failed to initialise OTLP exporter: {}", e);
-                    tracing::error!("{}", error_msg);
+                    tracing::error!("Failed to initialise OTLP exporter: {}", e);
 
                     // If the user explicitly requested metrics export but it failed,
                     // we should return an error rather than silently continuing without metrics
