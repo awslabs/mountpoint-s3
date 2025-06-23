@@ -1,6 +1,7 @@
-## Unreleased (v0.16.1)
+## Unreleased (v0.17.0)
 
 * Update to latest CRT dependencies.
+* Add `CredentialsProvider::new_delegate`, which can be used to implement custom credential providers in Rust.
 
 ## v0.16.0 (Jun 19, 2025)
 
