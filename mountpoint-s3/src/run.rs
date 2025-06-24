@@ -227,11 +227,28 @@ fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Res
         return Ok(None);
     };
     let cache_key = env_unstable_cache_key();
-    let managed_cache_dir =
-        ManagedCacheDir::new_from_parent_with_cache_key(&disk_cache_config.cache_directory, cache_key.as_deref())
-            .context("failed to create cache directory")?;
+    let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(
+        &disk_cache_config.cache_directory,
+        cache_key.as_deref(),
+        should_cleanup_cache_dir(),
+    )
+    .context("failed to create cache directory")?;
     disk_cache_config.cache_directory = managed_cache_dir.as_path_buf();
     Ok(Some(managed_cache_dir))
+}
+
+/// Return if [ManagedCacheDir] should be configured with cleanup disabled or not.
+///
+/// This allows cache directories to be reused, which is useful for testing/benchmarking.
+/// We do not recommend using this configuration option in production and it may be removed at any time without notice.
+fn should_cleanup_cache_dir() -> bool {
+    const ENV_CONFIG_KEY_NAME: &str = "UNSTABLE_MOUNTPOINT_DISABLE_CACHE_CLEANUP";
+    let should_cleanup =
+        std::env::var_os(ENV_CONFIG_KEY_NAME).is_some_and(|x| x.eq_ignore_ascii_case("TRUE") || x == "1");
+    if should_cleanup {
+        tracing::warn!("{ENV_CONFIG_KEY_NAME} is set and 'truthy', disabling cache cleanup");
+    }
+    should_cleanup
 }
 
 fn env_unstable_cache_key() -> Option<OsString> {
