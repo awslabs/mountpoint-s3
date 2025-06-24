@@ -14,6 +14,7 @@ pub mod mem_limiter;
 pub mod memory;
 pub mod metablock;
 pub mod metrics;
+pub mod metrics_otel;
 pub mod object;
 pub mod prefetch;
 pub mod prefix;
