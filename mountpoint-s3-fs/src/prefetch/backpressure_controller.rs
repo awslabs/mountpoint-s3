@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_channel::{unbounded, Receiver, Sender};
+use async_channel::{unbounded, Receiver, RecvError, Sender};
 use humansize::make_format;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
@@ -31,28 +31,43 @@ pub struct BackpressureConfig {
     pub request_range: Range<u64>,
 }
 
+/// A [BackpressureController] should be given to consumers of a byte stream.
+/// It is used to send feedback ([Self::send_feedback]) to its corresponding [BackpressureLimiter],
+/// the counterpart which should be leveraged by the stream producer.
 #[derive(Debug)]
 pub struct BackpressureController<Client: ObjectClient> {
+    /// Sender for the [BackpressureLimiter] to receive size increments from the controller.
     read_window_updater: Sender<usize>,
+    /// Amount by which the producer should be producing data ahead of [Self::next_read_offset].
     preferred_read_window_size: usize,
     min_read_window_size: usize,
     max_read_window_size: usize,
+    /// Multiplier by which [Self::preferred_read_window_size] is scaled.
     read_window_size_multiplier: usize,
-    /// Upper bound of the current read window. The request can return data up to this
-    /// offset *exclusively*. This value must be advanced to continue fetching new data.
+    /// Upper bound of the current read window, relative to the start of the S3 object.
+    ///
+    /// The request can return data up to this offset *exclusively*.
+    /// This value must be advanced to continue fetching new data.
     read_window_end_offset: u64,
-    /// Next offset of the data to be read. It is used for tracking how many bytes of
-    /// data has been read out of the stream.
+    /// Next offset of the data to be read, relative to the start of the S3 object.
     next_read_offset: u64,
-    /// End offset for the request we want to apply backpressure. The request can return
-    /// data up to this offset *exclusively*.
+    /// End offset within the S3 object for the request.
+    ///
+    /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
+    /// Memory limiter is used to guide decisions on how much data to prefetch.
+    ///
+    /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
+/// The [BackpressureLimiter] is used on producer side of a stream, for example,
+/// any [super::part_stream::ObjectPartStream] that supports backpressure.
+///
+/// The producer can call [Self::wait_for_read_window_increment] to wait for feedback from the consumer.
 #[derive(Debug)]
 pub struct BackpressureLimiter {
-    read_window_incrementing_queue: Receiver<usize>,
+    read_window_increment_queue: ReadWindowIncrementQueue,
     /// Upper bound of the current read window.
     /// Calling [BackpressureLimiter::wait_for_read_window_increment()] will block current
     /// thread until this value is advanced.
@@ -63,16 +78,9 @@ pub struct BackpressureLimiter {
 }
 
 /// Creates a [BackpressureController] and its related [BackpressureLimiter].
-/// We use a pair of these to for providing feedback to backpressure stream.
 ///
-/// [BackpressureLimiter] is used on producer side of the object stream, that is, any
-/// [super::part_stream::ObjectPartStream] that support backpressure. The producer can call
-/// `wait_for_read_window_increment` to wait for feedback from the consumer. This method
-/// could block when they know that the producer requires read window incrementing.
-///
-/// [BackpressureController] will be given to the consumer side of the object stream.
-/// It can be used anywhere to set preferred read window size for the stream and tell the
-/// producer when its read window should be increased.
+/// This pair allows a consumer to send feedback ([BackpressureFeedbackEvent]) when starved or bytes are consumed,
+/// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
 pub fn new_backpressure_controller<Client: ObjectClient>(
     config: BackpressureConfig,
     mem_limiter: Arc<MemoryLimiter<Client>>,
@@ -80,8 +88,11 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
-    let (read_window_updater, read_window_incrementing_queue) = unbounded();
     mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
+
+    let (read_window_updater, read_window_increment_queue) = unbounded();
+    let read_window_increment_queue = ReadWindowIncrementQueue::new(read_window_increment_queue);
+
     let controller = BackpressureController {
         read_window_updater,
         preferred_read_window_size: config.initial_read_window_size,
@@ -93,11 +104,13 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
         request_end_offset: config.request_range.end,
         mem_limiter,
     };
+
     let limiter = BackpressureLimiter {
-        read_window_incrementing_queue,
+        read_window_increment_queue,
         read_window_end_offset,
         request_end_offset: config.request_range.end,
     };
+
     (controller, limiter)
 }
 
@@ -158,12 +171,14 @@ impl<Client: ObjectClient> BackpressureController<Client> {
 
     // Send an increment read window request to the stream producer
     async fn increment_read_window(&mut self, len: usize) {
+        let prev_window_end_offset = self.read_window_end_offset;
+        let next_window_end_offset = prev_window_end_offset + len as u64;
         trace!(
-            preferred_read_window_size = self.preferred_read_window_size,
             next_read_offset = self.next_read_offset,
-            read_window_end_offset = self.read_window_end_offset,
+            prev_window_end_offset,
+            next_window_end_offset,
             len,
-            "incrementing read window"
+            "incrementing read window",
         );
 
         // This should not block since the channel is unbounded
@@ -172,11 +187,12 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             .send(len)
             .await
             .inspect_err(|_| trace!("read window incrementing queue is already closed"));
-        self.read_window_end_offset += len as u64;
+        self.read_window_end_offset = next_window_end_offset;
     }
 
-    // Scale up preferred read window size with a multiplier configured at initialization.
-    // Scaling up fails silently if there is no enough free memory to perform it.
+    /// Scale up preferred read window size with a multiplier configured at initialization.
+    ///
+    /// Fails silently if there is insufficient free memory to perform it according to [Self::mem_limiter].
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
             let new_read_window_size = (self.preferred_read_window_size * self.read_window_size_multiplier)
@@ -190,7 +206,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
                 trace!(
-                    current_size = formatter(self.preferred_read_window_size),
+                    prev_size = formatter(self.preferred_read_window_size),
                     new_size = formatter(new_read_window_size),
                     "scaled up preferred read window"
                 );
@@ -201,7 +217,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         }
     }
 
-    // Scale down preferred read window size by a multiplier configured at initialization.
+    /// Scale down [Self::preferred_read_window_size] by a multiplier configured at initialization.
     fn scale_down(&mut self) {
         if self.preferred_read_window_size > self.min_read_window_size {
             assert!(self.read_window_size_multiplier > 1);
@@ -223,8 +239,11 @@ impl<Client: ObjectClient> BackpressureController<Client> {
 
 impl<Client: ObjectClient> Drop for BackpressureController<Client> {
     fn drop(&mut self) {
+        debug_assert!(
+            self.next_read_offset <= self.request_end_offset,
+            "invariant: the next read offset should never be larger than the request end offset",
+        );
         // Free up memory we have reserved for the read window.
-        debug_assert!(self.request_end_offset >= self.next_read_offset);
         let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset);
         self.mem_limiter.release(BufferArea::Prefetch, remaining_window);
     }
@@ -235,53 +254,87 @@ impl BackpressureLimiter {
         self.read_window_end_offset
     }
 
-    /// Checks if there is enough read window to put the next item with a given offset to the stream.
-    /// It blocks until receiving enough incrementing read window requests to serve the next part.
+    /// Wait until the backpressure window moves ahead of the given offset.
     ///
-    /// Returns the new read window offset.
+    /// Returns the new read window offset if it has changed, otherwise [None].
     pub async fn wait_for_read_window_increment<E>(
         &mut self,
         offset: u64,
     ) -> Result<Option<u64>, PrefetchReadError<E>> {
         // There is already enough read window so no need to block
         if self.read_window_end_offset > offset {
-            // Check the read window incrementing queue to see there is an early request to increase read window
-            let new_read_window_offset = if let Ok(len) = self.read_window_incrementing_queue.try_recv() {
-                self.read_window_end_offset += len as u64;
-                Some(self.read_window_end_offset)
+            if let Some(increment_amount) = self.read_window_increment_queue.try_recv_drain() {
+                self.read_window_end_offset += increment_amount as u64;
+                return Ok(Some(self.read_window_end_offset));
             } else {
-                None
-            };
-            return Ok(new_read_window_offset);
+                return Ok(None);
+            }
         }
 
         // Reaching here means there is not enough read window, so we block until it is large enough
         while self.read_window_end_offset <= offset && self.read_window_end_offset < self.request_end_offset {
             trace!(
-                offset,
-                read_window_offset = self.read_window_end_offset,
-                "blocking for read window increment"
+                desired_offset = offset,
+                current_offset = self.read_window_end_offset,
+                "blocking for read window increment",
             );
-            let recv = self.read_window_incrementing_queue.recv().await;
-            match recv {
+            match self.read_window_increment_queue.recv_drain().await {
                 Ok(len) => self.read_window_end_offset += len as u64,
-                Err(_) => return Err(PrefetchReadError::ReadWindowIncrement),
+                Err(RecvError) => return Err(PrefetchReadError::ReadWindowIncrement),
             }
         }
         Ok(Some(self.read_window_end_offset))
     }
 }
 
+/// Wraps a queue, ensuring that all accesses fully drain the queue of values (increments).
+#[derive(Debug)]
+struct ReadWindowIncrementQueue(Receiver<usize>);
+
+impl ReadWindowIncrementQueue {
+    pub fn new(receiver: Receiver<usize>) -> Self {
+        Self(receiver)
+    }
+
+    /// Drain the increment queue, blocking if required for the first increment.
+    ///
+    /// Returns [Err] if the underlying [Receiver] was closed.
+    pub async fn recv_drain(&self) -> Result<usize, RecvError> {
+        let mut increment_total = self.0.recv().await?;
+        while let Ok(len) = self.0.try_recv() {
+            increment_total += len;
+        }
+        Ok(increment_total)
+    }
+
+    /// Drain the increment queue of any available increments.
+    ///
+    /// Returns the total amount to increment if any, otherwise [None].
+    pub fn try_recv_drain(&self) -> Option<usize> {
+        let mut increment_total = 0;
+        while let Ok(len) = self.0.try_recv() {
+            increment_total += len;
+        }
+
+        if increment_total > 0 {
+            Some(increment_total)
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::sync::Arc;
 
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use futures::executor::block_on;
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use test_case::test_case;
 
     use crate::mem_limiter::MemoryLimiter;
-
-    use super::{new_backpressure_controller, BackpressureConfig, BackpressureController, BackpressureLimiter};
 
     #[test_case(1024 * 1024 + 128 * 1024, 2)] // real config
     #[test_case(3 * 1024 * 1024, 4)]
@@ -335,6 +388,52 @@ mod tests {
             backpressure_controller.preferred_read_window_size, backpressure_controller.min_read_window_size,
             "should have scaled down to min read window size"
         );
+    }
+
+    #[test]
+    fn wait_for_read_window_increment_drains_all_events() {
+        const KIB: usize = 1024;
+        const MIB: usize = 1024 * KIB;
+        const GIB: usize = 1024 * MIB;
+
+        // OK, back to basics. Just reproduce what happened, verify it passes after the fix.
+        #[allow(clippy::identity_op)]
+        let backpressure_config = BackpressureConfig {
+            initial_read_window_size: 1 * MIB,
+            min_read_window_size: 8 * MIB,
+            max_read_window_size: 2 * GIB,
+            read_window_size_multiplier: 2,
+            request_range: 0..(5 * GIB as u64),
+        };
+
+        let (mut backpressure_controller, mut backpressure_limiter) =
+            new_backpressure_controller_for_test(backpressure_config);
+
+        block_on(async {
+            #[allow(clippy::identity_op)]
+            let expected_offset = 1 * MIB as u64;
+            assert_eq!(
+                backpressure_limiter.read_window_end_offset(),
+                expected_offset,
+                "read window end offset should already be {expected_offset} due to initial read window size config",
+            );
+
+            // Send more than one increment.
+            backpressure_controller.increment_read_window(7 * MIB).await;
+            backpressure_controller.increment_read_window(8 * MIB).await;
+            backpressure_controller.increment_read_window(8 * MIB).await;
+
+            let curr_offset = backpressure_limiter
+                .wait_for_read_window_increment::<MockClientError>(0)
+                .await
+                .expect("should return OK as we have new values to increment before channels are closed")
+                .expect("value should change as we sent increments");
+            assert_eq!(
+                24 * MIB as u64,
+                curr_offset,
+                "expected offset did not match offset reported by limiter",
+            );
+        });
     }
 
     fn new_backpressure_controller_for_test(

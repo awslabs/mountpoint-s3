@@ -10,7 +10,7 @@ function spawn_mounts() {
 
   # systemd-fstab-generator takes 3 arguments, which are paths to put results in
   # It only actually puts anything in the first directory, but it appears standard to call these normal, early, and late.
-  rm -r "$OUTPUT_DIR" || true
+  rm -rf "$OUTPUT_DIR"
   mkdir -p "$OUTPUT_DIR"/{normal,early,late}
 
   # systemd-fstab-generator takes two environment variables as input: 'SYSTEMD_FSTAB' and 'SYSTEMD_PROC_CMDLINE'

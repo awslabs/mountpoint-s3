@@ -661,7 +661,14 @@ impl MetaRequest {
         MetaRequestWrite::new(self, slice, eof)
     }
 
-    /// Increment the flow-control windows size.
+    /// Increment the end position of the flow-control window.
+    ///
+    /// The AWS CRT uses the flow-control window to determine how many requests to schedule in order to return data,
+    /// allowing consumers to limit the amount of data read ahead to protect memory or other resources.
+    /// The AWS CRT will download any part required to read up to the window size -
+    /// i.e. if you request 4MiB with an 8MiB part size, the 8MiB part will be downloaded to fulfil the requested window.
+    ///
+    /// See CRT's function [aws_s3_meta_request_increment_read_window] for more documentation.
     pub fn increment_read_window(&mut self, bytes: u64) {
         // SAFETY: `self.inner` is a valid `aws_s3_meta_request` since we hold a ref count to it.
         unsafe { aws_s3_meta_request_increment_read_window(self.inner.as_ptr(), bytes) };
@@ -967,7 +974,7 @@ impl Client {
         // dereferencable as long as Client lives.
         let inner_stats = unsafe {
             let client = self.inner.as_ref();
-            aws_s3_buffer_pool_get_usage(client.buffer_pool)
+            aws_s3_default_buffer_pool_get_usage(client.buffer_pool)
         };
 
         let mem_limit = inner_stats.mem_limit as u64;

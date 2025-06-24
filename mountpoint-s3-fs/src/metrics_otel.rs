@@ -94,7 +94,6 @@ impl OtlpMetricsExporter {
         let counter = counters.entry(name.clone()).or_insert_with(|| {
             self.meter
                 .u64_counter(name)
-                .with_description("Mountpoint counter metric")
                 .build()
         });
         counter.add(value, attributes);
@@ -107,7 +106,6 @@ impl OtlpMetricsExporter {
         let gauge = gauges.entry(name.clone()).or_insert_with(|| {
             self.meter
                 .f64_gauge(name)
-                .with_description("Mountpoint gauge metric")
                 .build()
         });
         gauge.record(value, attributes);
@@ -120,7 +118,6 @@ impl OtlpMetricsExporter {
         let histogram = histograms.entry(name.clone()).or_insert_with(|| {
             self.meter
                 .f64_histogram(name)
-                .with_description("Mountpoint histogram metric")
                 .build()
         });
         histogram.record(value, attributes);

@@ -103,11 +103,13 @@ Mountpoint also respects access control lists (ACLs) applied to objects in your 
 
 ## S3 bucket configuration
 
-By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 HTTPS endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
+By default, Mountpoint automatically mounts your S3 bucket based on the bucket name and selects a default S3 HTTPS endpoint.  You can override the default if you want additional control on how Mountpoint connects to your bucket.
 
 ### S3 bucket types
 
-Mountpoint for Amazon S3 supports both general purpose and directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones). In order to mount a general purpose bucket, run Mountpoint with the following command:
+Mountpoint for Amazon S3 supports three bucket types: general purpose, directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones), and outposts buckets. To mount a bucket, provide the bucket name and following command:
+
+For a general purpose bucket use the full bucket name:
 
 ```
 mount-s3 amzn-s3-demo-bucket /path/to/mount
@@ -121,7 +123,13 @@ mount-s3 amzn-s3-demo-bucket--az_id--x-s3 /path/to/mount
 
 For more information on directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html). For more information on directory buckets in Dedicated Local Zones see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-bucket-data-residency.html).
 
-Mountpoint for Amazon S3 also supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
+For an Outposts bucket use the access point ARN or alias:
+
+```
+mount-s3 arn:aws:s3-outposts:region:123456789012:outpost/op-01ac5d28a6a232904/bucket/example-outposts-bucket /path/to/mount
+```
+
+Mountpoint for Amazon S3 supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
 
 ### Mounting a bucket prefix
 
@@ -307,18 +315,26 @@ Where:
 > The `_netdev`, `nosuid`, and `nodev` options are required when using Mountpoint from fstab. If you do not include these options, Mountpoint will fail to start. We recommend you also use the `nofail` option to allow the operating system to start up in case of problems.
 
 > [!IMPORTANT]
-> When running using fstab, Mountpoint will run as root and will use credentials as normal when launched from fstab, but must be available at instance startup. We recommend using IMDS as a credential provider when using Mountpoint with fstab. Given Mountpoint runs as root when using fstab, it will look in root’s home directory for any AWS profile (typically `/root/.aws/config` and `/root/.aws/credentials`).
+> When running using fstab, Mountpoint will run as root and will use credentials as normal when launched from fstab, but must be available at instance startup. We recommend using IMDS as a credential provider when using Mountpoint with fstab. Given Mountpoint runs as root when using fstab, it will look in root’s home directory for any AWS profile (typically `/root/.aws/config` and `/root/.aws/credentials`). Unless you use the `allow-other` flag, only root will be able to access the filesystem.
 
-The options field takes regular Mountpoint CLI arguments as comma separated values in the form `key=value`. For example if you previously used `--allow-delete --uid 7` as CLI arguments, you would use `allow-delete,uid=7` in your fstab file.
+The options field takes regular Mountpoint CLI arguments as comma separated values in the form `key=value`. For example if you previously used `--allow-delete --uid 7 --region us-east-1 --allow-other` as CLI arguments, you would use `allow-delete,uid=7,region=us-east-1,allow-other` in your fstab file.
 
-If you need to include commas in your CLI argument, for example `--cache /tmp/foo,bar`, you would escape the commas in the argument with backslashes like so: `cache=/tmp/foo\,bar`. Characters that need backslash escaping include backslashes (`\`), commas (`,`), and double quotes (`"`).
+```
+s3://amzn-s3-demo-bucket /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,nofail,rw,allow-delete,uid=7,region=us-east-1,allow-other 0 0
+```
+
+If you need to include commas in your CLI argument, for example `--user-agent-prefix foo,bar`, you would escape the commas in the argument with backslashes like so: `user-agent-prefix=foo\,bar`. Characters that need backslash escaping include backslashes (`\`), commas (`,`), and double quotes (`"`).
+
+```
+s3://amzn-s3-demo-bucket /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,nofail,rw,user-agent-prefix=foo\,bar 0 0
+```
 
 To stop Mountpoint from running at boot, remove the corresponding line from your fstab file. The filesystem will no longer be automatically mounted on subsequent reboots.
 
 #### Validating changes to the fstab file
 
 If your fstab file is invalid, your operating system may fail to boot. We recommend making a backup of your fstab file, and also using the `nofail` option to ensure invalid Mountpoint configuration or startup failures do not prevent the instance from booting.
-To validate changes, you can use the following snippet, changing `/mnt/mountpoint` to the local path specified in your fstab file:
+To validate changes, you can use the following snippet, replacing `/mnt/mountpoint` with the local path specified as the mount location for Mountpoint in your fstab file:
 
 ```
 MNT_PATH=/mnt/mountpoint
@@ -329,6 +345,12 @@ sudo systemctl status "$(systemd-escape --suffix=mount --path $MNT_PATH)"
 
 Example output for a successful mount:
 
+`/etc/fstab` content:
+```
+s3://amzn-s3-demo-bucket/ /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,rw,nofail,allow-other
+```
+
+systemd status:
 ```
 ● mnt-mountpoint.mount - /mnt/mountpoint
      Loaded: loaded (/etc/fstab; generated)
@@ -341,12 +363,42 @@ Example output for a successful mount:
      Memory: 22.8M
         CPU: 72ms
      CGroup: /system.slice/mnt-mountpoint.mount
-             └─476 /sbin/mount.mount-s3 amzn-s3-demo-bucket /mnt/mountpoint -o rw,nosuid,nodev,allow-other,_netdev
+             └─476 /sbin/mount.mount-s3 s3://amzn-s3-demo-bucket/ /mnt/mountpoint -o rw,nosuid,nodev,allow-other,_netdev
 
 May 20 10:53:35 ip-172-31-40-171 systemd[1]: Mounting mnt-mountpoint.mount - /mnt/mountpoint...
 May 20 10:53:35 ip-172-31-40-171 mount[466]: Using 'fstab' style options as detected use of `-o` argument.
 May 20 10:53:36 ip-172-31-40-171 mount[466]: bucket amzn-s3-demo-bucket is mounted at /mnt/mountpoint
 May 20 10:53:36 ip-172-31-40-171 systemd[1]: Mounted mnt-mountpoint.mount - /mnt/mountpoint.
+```
+
+Example output for a failed mount:
+
+`/etc/fstab` content:
+```
+s3://amzn-s3-demo-bucket/ /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,rw,nofail,invalid-argument
+```
+
+systemd status:
+```
+× mnt-mountpoint.mount - /mnt/mountpoint
+     Loaded: loaded (/etc/fstab; generated)
+     Active: failed (Result: exit-code) since Mon 2025-06-02 10:12:29 UTC; 125ms ago
+   Duration: 6min 34.936s
+      Where: /mnt/mountpoint
+       What: s3://amzn-s3-demo-bucket/
+       Docs: man:fstab(5)
+             man:systemd-fstab-generator(8)
+        CPU: 5ms
+
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal systemd[1]: Mounting mnt-mountpoint.mount - /mnt/mountpoint...
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal mount[2616]: Using 'fstab' style options as detected use of `-o` argument.
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal mount[2616]: error: unexpected argument '--invalid-argument' found
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal mount[2616]:   tip: to pass '--invalid-argument' as a value, use '-- --invalid-argument'
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal mount[2616]: Usage: mount.mount-s3 <BUCKET_NAME|DIRECTORY|--prefix <PREFIX>|--region <REGION>|--endpoint-url <ENDP>
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal mount[2616]: For more information, try '--help'.
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal systemd[1]: mnt-mountpoint.mount: Mount process exited, code=exited, status=2/INVALIDARGUMENT
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal systemd[1]: mnt-mountpoint.mount: Failed with result 'exit-code'.
+Jun 02 10:12:29 ip-172-31-35-235.eu-north-1.compute.internal systemd[1]: Failed to mount mnt-mountpoint.mount - /mnt/mountpoint.
 ```
 
 After successfully validating the fstab file, Mountpoint will be automatically mounted after subsequent reboots
@@ -355,7 +407,7 @@ After successfully validating the fstab file, Mountpoint will be automatically m
 
 You can set up Mountpoint as part of new instance launches by including a user data script to install Mountpoint and configure the fstab file.
 
-Example user data script (tested on AL2023). This will only work for x86 systems.
+Example user data script for x86 AL2023; you can adapt it for other architectures or operating systems:
 
 ```
 #!/bin/bash -e
@@ -363,7 +415,20 @@ Example user data script (tested on AL2023). This will only work for x86 systems
 # Install Mountpoint
 MP_RPM=$(mktemp --suffix=.rpm)
 curl https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm > $MP_RPM
-yum install -y $MP_RPM
+
+# cloud-init installs conflict with SSM agent: https://github.com/amazonlinux/amazon-linux-2023/issues/397
+attempt=0
+max_attempts=5
+until yum install -y $MP_RPM; do
+    attempt=$((attempt + 1))
+    if [ $attempt -ge $max_attempts ]; then
+        echo "Failed to install mount-s3 after $max_attempts attempts. Exiting."
+        exit 1
+    fi
+    echo "yum install mount-s3 failed (attempt $attempt/$max_attempts), retrying in 3 seconds..."
+    sleep 3
+done
+
 rm $MP_RPM
 
 # Setup the fstab file and create the mount

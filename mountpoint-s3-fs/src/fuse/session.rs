@@ -15,11 +15,13 @@ use crate::sync::Arc;
 use super::config::{FuseSessionConfig, MountPoint};
 
 /// A multi-threaded FUSE session that can be joined to wait for the FUSE filesystem to unmount or
-/// this process to be interrupted.
+/// external shutdown.
 pub struct FuseSession {
     unmounter: SessionUnmounter,
-    /// Waits for messages from threads or signal handler.
+    /// Waits for thread termination or external shutdown.
     receiver: mpsc::Receiver<Message>,
+    /// Send external shutdown signal.
+    sender: mpsc::Sender<Message>,
     /// List of closures or functions to call when session is exiting.
     on_close: Vec<OnClose>,
 }
@@ -100,16 +102,12 @@ impl FuseSession {
                 .context("failed to spawn waiter thread")?
         };
 
-        ctrlc::set_handler(move || {
-            let _ = tx.send(Message::Interrupted);
-        })
-        .context("failed to set interrupt handler")?;
-
         WorkerPool::start(session, workers_tx, max_worker_threads).context("failed to start worker thread pool")?;
 
         Ok(Self {
             unmounter,
             receiver: rx,
+            sender: tx,
             on_close: Default::default(),
         })
     }
@@ -117,6 +115,14 @@ impl FuseSession {
     /// Add a new handler which is executed when this session is shutting down.
     pub fn run_on_close(&mut self, handler: OnClose) {
         self.on_close.push(handler);
+    }
+
+    /// Function to send the shutdown signal.
+    pub fn shutdown_fn(&self) -> impl Fn() {
+        let sender = self.sender.clone();
+        move || {
+            let _ = sender.send(Message::Interrupted);
+        }
     }
 
     /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT.

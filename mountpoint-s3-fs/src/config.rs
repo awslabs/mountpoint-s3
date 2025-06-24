@@ -62,7 +62,9 @@ impl MountpointConfig {
         );
 
         let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);
-        FuseSession::new(fuse_fs, self.fuse_session_config)
+        let session = FuseSession::new(fuse_fs, self.fuse_session_config)?;
+        ctrlc::set_handler(session.shutdown_fn()).context("failed to set interrupt handler")?;
+        Ok(session)
     }
 }
 

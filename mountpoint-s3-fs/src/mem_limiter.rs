@@ -8,6 +8,7 @@ use tracing::{debug, trace};
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
+#[derive(Debug)]
 pub enum BufferArea {
     Upload,
     Prefetch,
