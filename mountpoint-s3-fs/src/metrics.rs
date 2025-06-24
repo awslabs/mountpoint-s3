@@ -3,6 +3,9 @@
 //! This module hooks up the [metrics](https://docs.rs/metrics) facade to a metrics sink that
 //! currently just emits them to a tracing log entry.
 
+use crate::metrics_otel::{OtlpConfig, OtlpMetricsExporter};
+use opentelemetry::KeyValue;
+
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -30,8 +33,8 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 /// done with their work; metrics generated after shutting down the sink will be lost.
 ///
 /// Panics if a sink has already been installed.
-pub fn install() -> MetricsSinkHandle {
-    let sink = Arc::new(MetricsSink::new());
+pub fn install(otlp_config: Option<OtlpConfig>) -> anyhow::Result<MetricsSinkHandle> {
+    let sink = Arc::new(MetricsSink::new(otlp_config)?);
     let mut sys = System::new();
 
     let (tx, rx) = channel();
@@ -62,9 +65,10 @@ pub fn install() -> MetricsSinkHandle {
     };
 
     let recorder = MetricsRecorder { sink };
-    metrics::set_global_recorder(recorder).unwrap();
+    metrics::set_global_recorder(recorder)
+        .map_err(|e| anyhow::anyhow!("Failed to set global metrics recorder: {}", e))?;
 
-    handle
+    Ok(handle)
 }
 
 /// Report process level metrics
@@ -90,13 +94,46 @@ fn poll_process_metrics(sys: &mut System) {
 #[derive(Debug)]
 struct MetricsSink {
     metrics: DashMap<Key, Metric>,
+    otlp_exporter: Option<OtlpMetricsExporter>,
 }
 
 impl MetricsSink {
-    fn new() -> Self {
-        Self {
+    fn new(otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
+        // Initialise the OTLP exporter if a config is provided
+        let otlp_exporter = if let Some(config) = otlp_config {
+            // Basic validation of the endpoint URL
+            if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+                return Err(anyhow::anyhow!(
+                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://"
+                ));
+            }
+
+            match OtlpMetricsExporter::new(&config) {
+                Ok(exporter) => {
+                    tracing::info!("OpenTelemetry metrics export enabled to {}", config.endpoint);
+                    Some(exporter)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to initialise OTLP exporter: {}", e);
+
+                    // If the user explicitly requested metrics export but it failed,
+                    // we should return an error rather than silently continuing without metrics
+                    return Err(anyhow::anyhow!(
+                        "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.",
+                        e
+                    ));
+                }
+            }
+        } else {
+            // No OTLP config provided, running without OpenTelemetry metrics export
+            tracing::debug!("Running without OpenTelemetry metrics export");
+            None
+        };
+
+        Ok(Self {
             metrics: DashMap::with_capacity(64),
-        }
+            otlp_exporter,
+        })
     }
 
     fn counter(&self, key: &Key) -> metrics::Counter {
@@ -115,12 +152,43 @@ impl MetricsSink {
     }
 
     /// Publish all this sink's metrics to `tracing` log messages
+    /// Send metrics to OTLP if enabled
     fn publish(&self) {
         // Collect the output lines so we can sort them to make reading easier
         let mut metrics = vec![];
 
         for mut entry in self.metrics.iter_mut() {
             let (key, metric) = entry.pair_mut();
+
+            // If OTLP export is enabled, also send metrics to OpenTelemetry
+            if let Some(exporter) = &self.otlp_exporter {
+                // Convert labels to OpenTelemetry KeyValue pairs
+                let attributes: Vec<KeyValue> = key
+                    .labels()
+                    .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
+                    .collect();
+
+                // Record the metric based on its type
+                match metric {
+                    Metric::Counter(counter) => {
+                        if let Some((value, _)) = counter.load_and_reset() {
+                            exporter.record_counter(key, value, &attributes);
+                        }
+                    }
+                    Metric::Gauge(gauge) => {
+                        if let Some(value) = gauge.load_if_changed() {
+                            exporter.record_gauge(key, value, &attributes);
+                        }
+                    }
+                    Metric::Histogram(histogram) => {
+                        histogram.run_and_reset(|h| {
+                            let value = h.mean();
+                            exporter.record_histogram(key, value, &attributes);
+                        });
+                    }
+                }
+            }
+
             let Some(metric) = metric.fmt_and_reset() else {
                 continue;
             };
@@ -219,7 +287,7 @@ mod tests {
 
     #[test]
     fn basic_metrics() {
-        let sink = Arc::new(MetricsSink::new());
+        let sink = Arc::new(MetricsSink::new(None).unwrap());
         let recorder = MetricsRecorder { sink: sink.clone() };
         with_local_recorder(&recorder, || {
             // Run twice to check reset works
@@ -309,5 +377,136 @@ mod tests {
                 assert!(inner.load_if_changed().is_none());
             }
         });
+    }
+
+    /// This is a manual test for verifying the integration of the metrics system with OpenTelemetry.
+    /// It provides end-to-end verification of the metrics pipeline without needing to run the full mountpoint application.
+    ///
+    /// # Requirements
+    /// - An OpenTelemetry collector running at the specified endpoint (default: http://localhost:4318/v1/metrics)
+    ///
+    /// # How to run
+    /// ```bash
+    /// # Start the OpenTelemetry collector (e.g., using Docker)
+    /// docker run -p 4317:4317 -p 4318:4318 -v $(pwd)/collector-config.yaml:/etc/otel-collector-config.yaml \
+    ///   otel/opentelemetry-collector:latest --config=/etc/otel-collector-config.yaml
+    ///
+    /// # Run the test with default endpoint (ignored by default)
+    /// cargo test --package mountpoint-s3-fs --lib -- metrics::tests::otlp_metrics --exact --ignored
+    ///
+    /// # Or run with a custom endpoint by setting the MOUNTPOINT_TEST_OTLP_ENDPOINT environment variable
+    /// MOUNTPOINT_TEST_OTLP_ENDPOINT="http://custom-server:4318/v1/metrics" cargo test --package mountpoint-s3-fs --lib -- metrics::tests::otlp_metrics --exact --ignored
+    ///
+    /// # Verify metrics in collector logs
+    /// ```
+    #[test]
+    #[ignore]
+    fn otlp_metrics() {
+        use tracing::info;
+        use tracing_subscriber::fmt::format::FmtSpan;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        // Initialize tracing for better test output
+        tracing_subscriber::fmt()
+            .with_span_events(FmtSpan::CLOSE)
+            .with_target(false)
+            .with_thread_ids(true)
+            .with_level(true)
+            .with_file(true)
+            .with_line_number(true)
+            .with_test_writer()
+            .set_default();
+
+        info!("Starting OTLP metrics test...");
+
+        // Get OTLP endpoint from environment variable or use default
+        let endpoint = std::env::var("MOUNTPOINT_TEST_OTLP_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:4318/v1/metrics".to_string());
+
+        info!("Using OTLP endpoint: {}", endpoint);
+
+        // Initialize metrics with an OTLP config
+        let config = OtlpConfig::new(&endpoint).with_interval_secs(1);
+        let sink = Arc::new(MetricsSink::new(Some(config)).unwrap());
+        let recorder = MetricsRecorder { sink: sink.clone() };
+
+        with_local_recorder(&recorder, || {
+            // Test counter with multiple labels
+            let counter = metrics::counter!(
+                "mountpoint_test_counter",
+                "operation" => "write",
+                "status" => "success",
+                "test" => "true"
+            );
+            counter.increment(100);
+            counter.increment(50);
+            info!("Recorded counter with total value 150");
+
+            // Test gauge with updates
+            let gauge = metrics::gauge!(
+                "mountpoint_test_gauge",
+                "component" => "cache",
+                "test" => "true"
+            );
+            gauge.set(1000.0);
+            info!("Set gauge to 1000.0");
+            gauge.set(500.0);
+            info!("Updated gauge to 500.0");
+
+            // Test histogram with multiple records
+            let histogram = metrics::histogram!(
+                "mountpoint_test_histogram",
+                "operation" => "read",
+                "test" => "true"
+            );
+            histogram.record(10.0);
+            histogram.record(20.0);
+            histogram.record(30.0);
+            info!("Recorded histogram values: 10.0, 20.0, 30.0");
+
+            // Publish metrics immediately to verify initial values
+            info!("Publishing initial metrics...");
+            sink.publish();
+
+            // Sleep to allow metrics to be exported
+            std::thread::sleep(std::time::Duration::from_secs(2));
+
+            // Update metrics to verify changes are tracked
+            counter.increment(200);
+            gauge.set(750.0);
+            histogram.record(40.0);
+            info!("Updated all metrics with new values");
+
+            // Publish again to verify updates
+            info!("Publishing updated metrics...");
+            sink.publish();
+
+            // Wait for final export
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            info!("Test complete. Metrics should show in collector logs.");
+        });
+    }
+
+    #[test]
+    fn test_otlp_endpoint_validation() {
+        // Test with an invalid URI - we need to directly test the MetricsSink::new function
+        // since install() will try to set up a global recorder which can only be done once
+        let config = OtlpConfig::new("not-a-valid-uri");
+        let result = MetricsSink::new(Some(config));
+        assert!(result.is_err());
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains("Invalid OTLP endpoint configuration"),
+            "Error message should indicate invalid configuration: {error}"
+        );
+
+        // Test with no OTLP config (should succeed)
+        let result = MetricsSink::new(None);
+        assert!(result.is_ok());
+
+        // Test with a syntactically valid endpoint (should succeed)
+        let config = OtlpConfig::new("http://example.com:4318/v1/metrics");
+        let result = MetricsSink::new(Some(config));
+        assert!(result.is_ok());
     }
 }
