@@ -33,7 +33,14 @@ where
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
 
-        let _metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+        let otlp_config = args.log_metrics_otlp.as_deref().map(|endpoint| {
+            let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
+            if let Some(interval) = args.log_metrics_otlp_interval {
+                config = config.with_interval_secs(interval);
+            }
+            config
+        });
+        let _metrics = metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
         create_pid_file()?;
 
@@ -65,7 +72,14 @@ where
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
-                let _metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+                let otlp_config = args.log_metrics_otlp.as_deref().map(|endpoint| {
+                    let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
+                    if let Some(interval) = args.log_metrics_otlp_interval {
+                        config = config.with_interval_secs(interval);
+                    }
+                    config
+                });
+                let _metrics = metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
                 create_pid_file()?;
 

@@ -79,6 +79,10 @@ struct ConfigOptions {
     file_mode: Option<u16>,
     uid: Option<u32>,
     gid: Option<u32>,
+
+    // Metrics options
+    metrics_otlp_endpoint: Option<String>,
+    metrics_otlp_interval_secs: Option<u64>,
 }
 
 impl ConfigOptions {
@@ -208,7 +212,17 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
 
 fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHandle)> {
     let logging = init_logging(config.build_logging_config())?;
-    let metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+    
+    let otlp_config = config.metrics_otlp_endpoint.as_deref().map(|endpoint| {
+        let mut otlp_config = metrics::OtlpConfig::new(endpoint);
+        if let Some(interval) = config.metrics_otlp_interval_secs {
+            otlp_config = otlp_config.with_interval_secs(interval);
+        }
+        otlp_config
+    });
+    
+    let metrics = metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+    
     Ok((logging, metrics))
 }
 

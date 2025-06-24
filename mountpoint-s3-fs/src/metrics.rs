@@ -3,7 +3,8 @@
 //! This module hooks up the [metrics](https://docs.rs/metrics) facade to a metrics sink that
 //! currently just emits them to a tracing log entry.
 
-use crate::metrics_otel::{OtlpConfig, OtlpMetricsExporter};
+use crate::metrics_otel::OtlpMetricsExporter;
+pub use crate::metrics_otel::OtlpConfig;
 use opentelemetry::KeyValue;
 
 use std::thread::{self, JoinHandle};
@@ -17,6 +18,7 @@ use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::Arc;
 
 mod data;
+pub use data::MetricValue;
 use data::*;
 
 mod tracing_span;
@@ -33,7 +35,7 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 /// done with their work; metrics generated after shutting down the sink will be lost.
 ///
 /// Panics if a sink has already been installed.
-pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, String> {
+pub fn install(otlp_config: Option<OtlpConfig>) -> anyhow::Result<MetricsSinkHandle> {
     let sink = Arc::new(MetricsSink::new(otlp_config)?);
     let mut sys = System::new();
 
@@ -65,7 +67,8 @@ pub fn install(otlp_config: Option<OtlpConfig>) -> Result<MetricsSinkHandle, Str
     };
 
     let recorder = MetricsRecorder { sink };
-    metrics::set_global_recorder(recorder).map_err(|e| format!("Failed to set global metrics recorder: {}", e))?;
+    metrics::set_global_recorder(recorder)
+        .map_err(|e| anyhow::anyhow!("Failed to set global metrics recorder: {}", e))?;
 
     Ok(handle)
 }
@@ -97,14 +100,14 @@ struct MetricsSink {
 }
 
 impl MetricsSink {
-    fn new(otlp_config: Option<OtlpConfig>) -> Result<Self, String> {
+    fn new(otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
         // Initialise the OTLP exporter if a config is provided
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
             if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
-                return Err(
-                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://".to_string(),
-                );
+                return Err(anyhow::anyhow!(
+                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://"
+                ));
             }
 
             match OtlpMetricsExporter::new(&config) {
@@ -113,12 +116,14 @@ impl MetricsSink {
                     Some(exporter)
                 }
                 Err(e) => {
-                    let error_msg = format!("Failed to initialise OTLP exporter: {}", e);
-                    tracing::error!("{}", error_msg);
+                    tracing::error!("Failed to initialise OTLP exporter: {}", e);
 
                     // If the user explicitly requested metrics export but it failed,
                     // we should return an error rather than silently continuing without metrics
-                    return Err(format!("Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.", e));
+                    return Err(anyhow::anyhow!(
+                        "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.", 
+                        e
+                    ));
                 }
             }
         } else {
@@ -157,7 +162,12 @@ impl MetricsSink {
         for mut entry in self.metrics.iter_mut() {
             let (key, metric) = entry.pair_mut();
 
-            // If OTLP export is enabled, also send metrics to OpenTelemetry
+            // Get both the value and string representation of the metric (this also resets the metric)
+            let Some((value, metric_str)) = metric.value_and_fmt_and_reset() else {
+                continue;
+            };
+
+            // If OTLP export is enabled, send metrics to OpenTelemetry
             if let Some(exporter) = &self.otlp_exporter {
                 // Convert labels to OpenTelemetry KeyValue pairs
                 let attributes: Vec<KeyValue> = key
@@ -165,30 +175,9 @@ impl MetricsSink {
                     .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
                     .collect();
 
-                // Record the metric based on its type
-                match metric {
-                    Metric::Counter(counter) => {
-                        if let Some((value, _)) = counter.load_and_reset() {
-                            exporter.record_counter(key, value, &attributes);
-                        }
-                    }
-                    Metric::Gauge(gauge) => {
-                        if let Some(value) = gauge.load_if_changed() {
-                            exporter.record_gauge(key, value, &attributes);
-                        }
-                    }
-                    Metric::Histogram(histogram) => {
-                        histogram.run_and_reset(|h| {
-                            let value = h.mean();
-                            exporter.record_histogram(key, value, &attributes);
-                        });
-                    }
-                }
+                // Record the metric using its value
+                exporter.record_metric(key, &value, &attributes);
             }
-
-            let Some(metric) = metric.fmt_and_reset() else {
-                continue;
-            };
             let labels = if key.labels().len() == 0 {
                 String::new()
             } else {
@@ -200,7 +189,7 @@ impl MetricsSink {
                         .join(",")
                 )
             };
-            metrics.push(format!("{}{}: {}", key.name(), labels, metric));
+            metrics.push(format!("{}{}: {}", key.name(), labels, metric_str));
         }
 
         metrics.sort();
@@ -491,7 +480,7 @@ mod tests {
         let config = OtlpConfig::new("not-a-valid-uri");
         let result = MetricsSink::new(Some(config));
         assert!(result.is_err());
-        let error = result.unwrap_err();
+        let error = result.unwrap_err().to_string();
         assert!(
             error.contains("Invalid OTLP endpoint configuration"),
             "Error message should indicate invalid configuration: {}",
