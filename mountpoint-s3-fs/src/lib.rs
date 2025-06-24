@@ -10,6 +10,7 @@ pub mod logging;
 pub mod manifest;
 pub mod mem_limiter;
 pub mod metrics;
+pub mod metrics_otel;
 pub mod object;
 pub mod prefetch;
 pub mod prefix;

@@ -33,7 +33,7 @@ where
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
 
-        let _metrics = metrics::install();
+        let _metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
         create_pid_file()?;
 
@@ -65,7 +65,7 @@ where
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
-                let _metrics = metrics::install();
+                let _metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
                 create_pid_file()?;
 
