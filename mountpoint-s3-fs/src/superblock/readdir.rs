@@ -75,12 +75,12 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     ) -> Result<Self, InodeError> {
         let local_entries = {
             let inode = inner.get(dir_ino)?;
-            let kind_data = &inode.get_inode_state()?.state.kind_data;
+            let kind_data = &inode.get_inode_state()?.kind_data;
             let local_files = match kind_data {
                 InodeKindData::File { .. } => return Err(InodeError::NotADirectory(inode.err())),
                 InodeKindData::Directory { writing_children, .. } => writing_children.iter().map(|ino| {
                     let inode = inner.get(*ino)?;
-                    let stat = inode.get_inode_state()?.state.stat.clone();
+                    let stat = inode.get_inode_state()?.stat.clone();
                     Ok(ReaddirEntry::LocalInode {
                         lookup: LookedUp { inode, stat },
                     })
