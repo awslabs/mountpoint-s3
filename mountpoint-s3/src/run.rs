@@ -79,7 +79,8 @@ where
                     }
                     config
                 });
-                let _metrics = metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+                let _metrics =
+                    metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
                 create_pid_file()?;
 

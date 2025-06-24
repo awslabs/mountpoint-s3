@@ -3,8 +3,8 @@
 //! This module hooks up the [metrics](https://docs.rs/metrics) facade to a metrics sink that
 //! currently just emits them to a tracing log entry.
 
-use crate::metrics_otel::OtlpMetricsExporter;
 pub use crate::metrics_otel::OtlpConfig;
+use crate::metrics_otel::OtlpMetricsExporter;
 use opentelemetry::KeyValue;
 
 use std::thread::{self, JoinHandle};

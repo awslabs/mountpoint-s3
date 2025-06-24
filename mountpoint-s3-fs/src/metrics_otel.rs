@@ -79,7 +79,12 @@ impl OtlpMetricsExporter {
         // The meter will be used to create specific metric instruments (counters, gauges, histograms) and record values to them
         let meter = global::meter("mountpoint-s3");
 
-        Ok(Self { meter, counters: Mutex::new(HashMap::new()), gauges: Mutex::new(HashMap::new()), histograms: Mutex::new(HashMap::new()), })
+        Ok(Self {
+            meter,
+            counters: Mutex::new(HashMap::new()),
+            gauges: Mutex::new(HashMap::new()),
+            histograms: Mutex::new(HashMap::new()),
+        })
     }
 
     /// Record a counter metric in OTel format

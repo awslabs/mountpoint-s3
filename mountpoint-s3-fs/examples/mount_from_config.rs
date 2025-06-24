@@ -212,7 +212,7 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
 
 fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHandle)> {
     let logging = init_logging(config.build_logging_config())?;
-    
+
     let otlp_config = config.metrics_otlp_endpoint.as_deref().map(|endpoint| {
         let mut otlp_config = metrics::OtlpConfig::new(endpoint);
         if let Some(interval) = config.metrics_otlp_interval_secs {
@@ -220,9 +220,9 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
         }
         otlp_config
     });
-    
+
     let metrics = metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
-    
+
     Ok((logging, metrics))
 }
 
