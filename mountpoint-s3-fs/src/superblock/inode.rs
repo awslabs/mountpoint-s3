@@ -525,7 +525,7 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
         is_truncate: bool,
     ) -> Result<Self, InodeError> {
         let mut state = inode.get_mut_inode_state()?;
-        if inner.reader_counts.read().unwrap().is_anyone_reading(&state) {
+        if inner.reader_counts.read().unwrap().has_readers(&state) {
             return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
         }
 

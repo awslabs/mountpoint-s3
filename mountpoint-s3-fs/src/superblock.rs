@@ -242,7 +242,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             bucket: bucket.to_owned(),
             prefix: prefix.clone(),
             inodes: RwLock::new(inodes),
-            reader_counts: RwLock::new(ReaderCountMap::new()),
+            reader_counts: Default::default(),
             negative_cache,
             next_ino: AtomicU64::new(2),
             mount_time,
@@ -1404,11 +1404,7 @@ struct ReaderCountMap {
 }
 
 impl ReaderCountMap {
-    fn new() -> Self {
-        ReaderCountMap { map: HashMap::new() }
-    }
-
-    fn is_anyone_reading(&self, locked_inode: &InodeLockedForWriting) -> bool {
+    fn has_readers(&self, locked_inode: &InodeLockedForWriting) -> bool {
         self.map.get(&locked_inode.ino).is_some_and(|&count| count > 0)
     }
 
