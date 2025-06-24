@@ -23,6 +23,7 @@ bytes = { version = "1.10.1", features = ["serde"] }
 clap = { version = "4.5.27", features = ["derive"] }
 const_format = "0.2.34"
 crc32c = "0.6.8"
+csv = { version = "1.3.1", optional = true }
 ctrlc = { version = "3.4.5", features = ["termination"] }
 dashmap = "6.1.0"
 futures = "0.3.31"
@@ -39,18 +40,16 @@ rusqlite = { version = "0.34.0", features = ["bundled"], optional = true }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.137"
 sha2 = "0.10.8"
+signal-hook = "0.3.17"
 supports-color = "3.0.2"
 sysinfo = "0.33.1"
 syslog = "7.0.0"
 tempfile = "3.15.0"
-syscalls = {version = "0.6.18", default-features = false}
 thiserror = "2.0.11"
 time = { version = "0.3.37", features = ["macros", "formatting", "serde-well-known"] }
 tracing = { version = "0.1.41", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-signal-hook = "0.3.17"
-csv = { version = "1.3.1", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.17.0", default-features = false }
@@ -76,6 +75,7 @@ rand_chacha = "0.3.1"
 serial_test = "3.2.0"
 sha2 = "0.10.8"
 shuttle = { version = "0.8.0" }
+syscalls = {version = "0.6.18", default-features = false}
 test-case = "3.3.1"
 tokio = { version = "1.44.2", features = ["rt", "macros"] }
 walkdir = "2.5.0"
