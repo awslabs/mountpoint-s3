@@ -128,7 +128,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub async fn next(&self, client: &OC) -> Result<Option<LookedUp>, InodeError> {
+    pub async fn next(&self) -> Result<Option<LookedUp>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
@@ -138,7 +138,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
         loop {
             let next = {
                 let mut iter = self.iter.lock().await;
-                iter.next(client).await?
+                iter.next(&self.inner.client).await?
             };
 
             if let Some(next) = next {
@@ -212,9 +212,9 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     }
 
     #[cfg(test)]
-    pub(super) async fn collect(&self, client: &OC) -> Result<Vec<LookedUp>, InodeError> {
+    pub(super) async fn collect(&self) -> Result<Vec<LookedUp>, InodeError> {
         let mut result = vec![];
-        while let Some(entry) = self.next(client).await? {
+        while let Some(entry) = self.next().await? {
             result.push(entry);
         }
         Ok(result)

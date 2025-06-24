@@ -389,7 +389,6 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     /// the inflight write and commit it once finished.
     pub async fn write(
         &self,
-        _client: &OC,
         ino: InodeNo,
         mode: &WriteMode,
         is_truncate: bool,
@@ -401,7 +400,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 
     /// Create a new handle for a file being read. The handle can be used to update the state of
     /// the inflight read and commit it once finished.
-    pub async fn read(&self, _client: &OC, ino: InodeNo) -> Result<ReadHandle, InodeError> {
+    pub async fn read(&self, ino: InodeNo) -> Result<ReadHandle, InodeError> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
@@ -1808,7 +1807,7 @@ mod tests {
         // Try it all twice to test inode reuse
         for _ in 0..2 {
             let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-            let entries = dir_handle.collect(&client).await.unwrap();
+            let entries = dir_handle.collect().await.unwrap();
             assert_eq!(
                 entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 &["dir0", "dir1"]
@@ -1819,7 +1818,7 @@ mod tests {
             dir_handle.remember(&entries[0]);
             let dir0_inode = entries[0].inode.ino();
             let dir_handle = superblock.readdir(dir0_inode, 2).await.unwrap();
-            let entries = dir_handle.collect(&client).await.unwrap();
+            let entries = dir_handle.collect().await.unwrap();
             assert_eq!(
                 entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 &["file0.txt", "sdir0", "sdir1"]
@@ -1832,7 +1831,7 @@ mod tests {
             dir_handle.remember(&entries[1]);
             let sdir0_inode = entries[1].inode.ino();
             let dir_handle = superblock.readdir(sdir0_inode, 2).await.unwrap();
-            let entries = dir_handle.collect(&client).await.unwrap();
+            let entries = dir_handle.collect().await.unwrap();
             assert_eq!(
                 entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 &["file0.txt", "file1.txt", "file2.txt"]
@@ -1867,7 +1866,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+                .write(new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename);
@@ -1876,7 +1875,7 @@ mod tests {
         // Try it all twice to test inode reuse
         for _ in 0..2 {
             let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-            let entries = dir_handle.collect(&client).await.unwrap();
+            let entries = dir_handle.collect().await.unwrap();
             assert_eq!(
                 entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 expected_list
@@ -1919,7 +1918,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+                .write(new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename);
@@ -1928,7 +1927,7 @@ mod tests {
         // Try it all twice to test inode reuse
         for _ in 0..2 {
             let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-            let entries = dir_handle.collect(&client).await.unwrap();
+            let entries = dir_handle.collect().await.unwrap();
             assert_eq!(
                 entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
                 expected_list
@@ -1970,7 +1969,7 @@ mod tests {
         );
 
         let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries = dir_handle.collect().await.unwrap();
         assert_eq!(
             entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             vec![dirname]
@@ -2074,7 +2073,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+                .write(new_inode.inode.ino(), &WriteMode::default(), false)
                 .await
                 .expect("should be able to start writing");
         }
@@ -2113,7 +2112,7 @@ mod tests {
 
         // And now walk the root directory to check it contains the right stuff
         let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 20).await.unwrap();
-        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries = dir_handle.collect().await.unwrap();
         let entries: Vec<_> = entries.iter().map(|l| (l.inode.name(), l.inode.kind())).collect();
 
         let expected_entries = [
@@ -2220,7 +2219,7 @@ mod tests {
 
         // removed directory should not appear in readdir of parent
         let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries = dir_handle.collect().await.unwrap();
         assert_eq!(
             entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &[dirname_to_stay]
@@ -2304,7 +2303,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+            .write(new_inode.inode.ino(), &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 
@@ -2374,7 +2373,7 @@ mod tests {
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries = dir_handle.collect().await.unwrap();
         assert_eq!(
             entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &["dir", "dir-1"]
@@ -2418,7 +2417,7 @@ mod tests {
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
         let dir_handle = superblock.readdir(FUSE_ROOT_INODE, 2).await.unwrap();
-        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries = dir_handle.collect().await.unwrap();
         assert_eq!(
             entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &["dir1"]
@@ -2427,7 +2426,7 @@ mod tests {
         dir_handle.remember(&entries[0]);
         let dir1_ino = entries[0].inode.ino();
         let dir_handle = superblock.readdir(dir1_ino, 2).await.unwrap();
-        let entries = dir_handle.collect(&client).await.unwrap();
+        let entries = dir_handle.collect().await.unwrap();
         assert_eq!(
             entries.iter().map(|entry| entry.inode.name()).collect::<Vec<_>>(),
             &["a"]
@@ -2461,7 +2460,7 @@ mod tests {
             .unwrap();
 
         let writehandle = superblock
-            .write(&client, new_inode.inode.ino(), &WriteMode::default(), false)
+            .write(new_inode.inode.ino(), &WriteMode::default(), false)
             .await
             .expect("should be able to start writing");
 

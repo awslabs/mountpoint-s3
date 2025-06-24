@@ -82,7 +82,7 @@ where
     ) -> Result<FileHandleState<Client>, Error> {
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
-        let handle = fs.superblock.write(&fs.client, ino, &write_mode, is_truncate).await?;
+        let handle = fs.superblock.write(ino, &write_mode, is_truncate).await?;
         let bucket = fs.bucket.clone();
         let key = fs.superblock.full_key_for_inode(&lookup.inode);
         let handle = if write_mode.incremental_upload {
@@ -122,7 +122,7 @@ where
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        let handle = fs.superblock.read(&fs.client, lookup.inode.ino()).await?;
+        let handle = fs.superblock.read(lookup.inode.ino()).await?;
         let full_key = fs.superblock.full_key_for_inode(&lookup.inode);
         let object_size = lookup.stat.size as u64;
         let etag = match &lookup.stat.etag {

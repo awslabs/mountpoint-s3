@@ -56,7 +56,6 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     config: S3FilesystemConfig,
-    client: Client,
     superblock: Superblock<Client>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
@@ -178,7 +177,6 @@ where
 
         Self {
             config,
-            client,
             superblock,
             prefetcher,
             uploader,
@@ -724,7 +722,7 @@ where
         }
 
         loop {
-            let next = match readdir_handle.next(&self.client).await? {
+            let next = match readdir_handle.next().await? {
                 None => return Ok(reply.finish(offset, &dir_handle).await),
                 Some(next) => next,
             };
