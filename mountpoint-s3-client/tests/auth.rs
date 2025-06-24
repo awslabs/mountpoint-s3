@@ -18,7 +18,8 @@ use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::types::GetObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_crt::auth::credentials::{Credentials, CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::auth::credentials_providers::{CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::auth::crt_credentials::CrtCredentials;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 
@@ -372,7 +373,7 @@ rusty_fork_test! {
     }
 }
 
-/// Test creating a client with the static credentials provider
+/// Test creating a client with the delegate credentials provider
 #[tokio::test]
 async fn test_delegate_provider() {
     let sdk_client = get_test_sdk_client().await;
@@ -398,13 +399,12 @@ async fn test_delegate_provider() {
     let provider = CredentialsProvider::new_delegate(&Allocator::default(), event_loop_group, move || {
         let credentials = credentials.clone();
         async move {
-            let credentials = Credentials::build_credentials(
+            CrtCredentials::new(
                 credentials.access_key_id(),
                 credentials.secret_access_key(),
                 credentials.session_token(),
                 credentials.expiry(),
-            );
-            Some(credentials)
+            )
         }
     })
     .unwrap();
@@ -418,6 +418,27 @@ async fn test_delegate_provider() {
         .await
         .expect("get_object should succeed");
     check_get_result(result, None, &body[..]).await;
+}
+
+/// Test creating a client with the delegate credentials provider, which returns no credentials
+#[tokio::test]
+async fn test_delegate_provider_failure() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_delegate_provider_failure");
+    let event_loop_group = EventLoopGroup::new_default(&Allocator::default(), None, || {}).unwrap();
+
+    let provider =
+        CredentialsProvider::new_delegate(&Allocator::default(), event_loop_group, move || async move { None })
+            .unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client = S3CrtClient::new(config).unwrap();
+
+    let err = client
+        .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
+        .await
+        .expect_err("should fail when using invalid credentials");
+    assert!(matches!(err, ObjectClientError::ClientError(_)));
 }
 
 /// Test using a client with scoped-down credentials

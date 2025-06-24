@@ -1,6 +1,7 @@
-## Unreleased (v0.12.4)
+## Unreleased (v0.13.0)
 
 * Update to latest CRT dependencies.
+* Rename `auth::credentials` to `auth::credential_providers`.
 
 ## v0.12.3 (May 9, 2025)
 
