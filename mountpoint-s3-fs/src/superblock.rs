@@ -47,7 +47,7 @@ use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::superblock::inode::InodeLockedForWriting;
 use crate::sync::atomic::{AtomicU64, Ordering};
-use crate::sync::{Arc, RwLock, RwLockWriteGuard};
+use crate::sync::{Arc, RwLock};
 mod expiry;
 use expiry::Expiry;
 
@@ -171,8 +171,8 @@ impl Drop for PendingRenameGuard<'_> {
 }
 /// A manager for automatically locking two inodes in filesysyem locking order.
 pub struct RenameLockGuard<'a> {
-    src_parent_lock: RwLockWriteGuard<'a, InodeState>,
-    dst_parent_lock: Option<RwLockWriteGuard<'a, InodeState>>,
+    src_parent_lock: InodeLockedForWriting<'a>,
+    dst_parent_lock: Option<InodeLockedForWriting<'a>>,
 }
 
 /// A manager for automatically locking two inodes in filesysyem locking order.
@@ -187,21 +187,21 @@ impl<'a> RenameLockGuard<'a> {
 
         if src_ino == dst_ino {
             return Ok(RenameLockGuard {
-                src_parent_lock: source_parent.get_mut_inode_state()?.state,
+                src_parent_lock: source_parent.get_mut_inode_state()?,
                 dst_parent_lock: None,
             });
         }
 
-        let dst_parent_lock: Option<RwLockWriteGuard<'a, InodeState>>;
-        let src_parent_lock: RwLockWriteGuard<'a, InodeState>;
+        let dst_parent_lock: Option<InodeLockedForWriting<'a>>;
+        let src_parent_lock: InodeLockedForWriting<'a>;
         // Take read lock
         let ancestor_check = Self::dst_is_ancestor(&superblock_inner.inodes.read().unwrap(), source_parent, dst_ino);
         if ancestor_check || src_ino > dst_ino {
-            dst_parent_lock = Some(dest_parent.get_mut_inode_state()?.into());
-            src_parent_lock = source_parent.get_mut_inode_state()?.into();
+            dst_parent_lock = Some(dest_parent.get_mut_inode_state()?);
+            src_parent_lock = source_parent.get_mut_inode_state()?;
         } else {
-            src_parent_lock = source_parent.get_mut_inode_state()?.into();
-            dst_parent_lock = Some(dest_parent.get_mut_inode_state()?.into());
+            src_parent_lock = source_parent.get_mut_inode_state()?;
+            dst_parent_lock = Some(dest_parent.get_mut_inode_state()?);
         }
         Ok(RenameLockGuard {
             src_parent_lock,
@@ -1398,23 +1398,24 @@ impl InodeMap {
     }
 }
 
+/// Stores the number of readers (if they are > 0) for Inodes.
+/// Ensures that the Inodes are locked for writing while performing these operations.
 #[derive(Debug, Default)]
-/// A wrapper around a `HashMap<InodeNo, u32>` to manage reader counts for Inodes
-/// Ensures that the inodes are locked for writing while performing these operations.
 struct ReaderCountMap {
     map: HashMap<InodeNo, u32>,
 }
 
 impl ReaderCountMap {
     fn has_readers(&self, locked_inode: &InodeLockedForWriting) -> bool {
-        self.map.get(&locked_inode.ino).is_some_and(|&count| count > 0)
+        // Suffices we only store non-zero counts
+        self.map.contains_key(&locked_inode.ino)
     }
 
-    fn increase_reader_count(&mut self, locked_inode: &InodeLockedForWriting) {
+    fn add_reader(&mut self, locked_inode: &InodeLockedForWriting) {
         *self.map.entry(locked_inode.ino).or_insert(0) += 1;
     }
 
-    fn decrease_reader_count(&mut self, locked_inode: &InodeLockedForWriting) {
+    fn remove_reader(&mut self, locked_inode: &InodeLockedForWriting) {
         if let Entry::Occupied(mut entry) = self.map.entry(locked_inode.ino) {
             let count = entry.get_mut();
             if *count > 0 {

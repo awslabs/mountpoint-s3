@@ -29,8 +29,8 @@ const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 // 200 years seems long enough
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
-#[derive(Debug)]
 /// Write-locked inode state with its inode number, ensuring other operations use the correct inode number.
+#[derive(Debug)]
 pub(super) struct InodeLockedForWriting<'a> {
     pub ino: InodeNo,
     pub state: RwLockWriteGuard<'a, InodeState>,
@@ -50,14 +50,8 @@ impl DerefMut for InodeLockedForWriting<'_> {
     }
 }
 
-impl<'a> From<InodeLockedForWriting<'a>> for RwLockWriteGuard<'a, InodeState> {
-    fn from(locked: InodeLockedForWriting<'a>) -> Self {
-        locked.state
-    }
-}
-
-#[derive(Debug)]
 /// Read-locked inode state with its inode number, ensuring other operations use the correct inode number.
+#[derive(Debug)]
 pub(super) struct InodeLockedForReading<'a> {
     #[expect(unused)]
     pub ino: InodeNo,
@@ -632,11 +626,7 @@ impl ReadHandle {
         ) {
             return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
         }
-        inner
-            .reader_counts
-            .write()
-            .unwrap()
-            .increase_reader_count(&locked_inode);
+        inner.reader_counts.write().unwrap().add_reader(&locked_inode);
         drop(locked_inode);
         Ok(Self { inner, inode })
     }
@@ -645,7 +635,7 @@ impl ReadHandle {
     pub fn finish(self) -> Result<(), InodeError> {
         // Decrease reader count for the inode
         let state = self.inode.get_mut_inode_state()?;
-        self.inner.reader_counts.write().unwrap().decrease_reader_count(&state);
+        self.inner.reader_counts.write().unwrap().remove_reader(&state);
         Ok(())
     }
 }
