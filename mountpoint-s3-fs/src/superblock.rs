@@ -1401,6 +1401,8 @@ impl InodeMap {
 /// Stores the number of readers (if they are > 0) for Inodes.
 /// Ensures that the Inodes are locked for writing while performing these operations.
 #[derive(Debug, Default)]
+/// A wrapper around a `HashMap<InodeNo, u32>` to manage reader counts for Inodes
+/// Ensures that the inodes are locked for writing while performing these operations.
 struct ReaderCountMap {
     map: HashMap<InodeNo, u32>,
 }
