@@ -91,11 +91,9 @@ impl OtlpMetricsExporter {
     pub fn record_counter(&self, key: &Key, value: u64, attributes: &[KeyValue]) {
         let name = format!("mountpoint.{}", key.name());
         let mut counters = self.counters.lock().unwrap();
-        let counter = counters.entry(name.clone()).or_insert_with(|| {
-            self.meter
-                .u64_counter(name)
-                .build()
-        });
+        let counter = counters
+            .entry(name.clone())
+            .or_insert_with(|| self.meter.u64_counter(name).build());
         counter.add(value, attributes);
     }
 
@@ -103,11 +101,9 @@ impl OtlpMetricsExporter {
     pub fn record_gauge(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
         let name = format!("mountpoint.{}", key.name());
         let mut gauges = self.gauges.lock().unwrap();
-        let gauge = gauges.entry(name.clone()).or_insert_with(|| {
-            self.meter
-                .f64_gauge(name)
-                .build()
-        });
+        let gauge = gauges
+            .entry(name.clone())
+            .or_insert_with(|| self.meter.f64_gauge(name).build());
         gauge.record(value, attributes);
     }
 
@@ -115,11 +111,9 @@ impl OtlpMetricsExporter {
     pub fn record_histogram(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
         let name = format!("mountpoint.{}", key.name());
         let mut histograms = self.histograms.lock().unwrap();
-        let histogram = histograms.entry(name.clone()).or_insert_with(|| {
-            self.meter
-                .f64_histogram(name)
-                .build()
-        });
+        let histogram = histograms
+            .entry(name.clone())
+            .or_insert_with(|| self.meter.f64_histogram(name).build());
         histogram.record(value, attributes);
     }
 
