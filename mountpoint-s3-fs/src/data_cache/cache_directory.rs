@@ -26,6 +26,7 @@ pub struct ManagedCacheDir {
     mountpoint_cache_path: PathBuf,
     /// `<parent_path>/mountpoint-cache` or `<parent_path>/mountpoint-cache/<hashed_cache_key>`
     managed_cache_path: PathBuf,
+    /// Indicates if directory should be removed before construction and when dropped.
     should_cleanup: bool,
 }
 
@@ -143,6 +144,7 @@ mod tests {
     const EXPECTED_DIR_MODE: u32 = 0o700;
 
     const SHOULD_CLEANUP: bool = true;
+    const SHOULD_NOT_CLEANUP: bool = !SHOULD_CLEANUP;
 
     macro_rules! assert_dir_does_not_exist {
         ($path:expr, $($arg:tt)+) => {
@@ -179,7 +181,7 @@ mod tests {
         };
     }
 
-    #[test_matrix([SHOULD_CLEANUP, !SHOULD_CLEANUP])]
+    #[test_matrix([SHOULD_CLEANUP, SHOULD_NOT_CLEANUP])]
     fn test_unused(should_cleanup: bool) {
         let temp_dir = tempfile::tempdir().unwrap();
         let expected_path = temp_dir.path().join("mountpoint-cache");
@@ -194,7 +196,7 @@ mod tests {
         temp_dir.close().unwrap();
     }
 
-    #[test_matrix([SHOULD_CLEANUP, !SHOULD_CLEANUP])]
+    #[test_matrix([SHOULD_CLEANUP, SHOULD_NOT_CLEANUP])]
     fn test_cache_key_unused(should_cleanup: bool) {
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_key = OsStr::new("cache_key");
@@ -216,7 +218,7 @@ mod tests {
         temp_dir.close().unwrap();
     }
 
-    #[test_matrix([SHOULD_CLEANUP, !SHOULD_CLEANUP])]
+    #[test_matrix([SHOULD_CLEANUP, SHOULD_NOT_CLEANUP])]
     fn test_used(should_cleanup: bool) {
         let temp_dir = tempfile::tempdir().unwrap();
         let expected_path = temp_dir.path().join("mountpoint-cache");
@@ -237,7 +239,7 @@ mod tests {
         temp_dir.close().unwrap();
     }
 
-    #[test_matrix([SHOULD_CLEANUP, !SHOULD_CLEANUP])]
+    #[test_matrix([SHOULD_CLEANUP, SHOULD_NOT_CLEANUP])]
     fn test_cache_key_used(should_cleanup: bool) {
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_key = OsStr::new("cache_key");
@@ -265,7 +267,7 @@ mod tests {
         temp_dir.close().unwrap();
     }
 
-    #[test_matrix([SHOULD_CLEANUP, !SHOULD_CLEANUP])]
+    #[test_matrix([SHOULD_CLEANUP, SHOULD_NOT_CLEANUP])]
     fn test_already_exists(should_cleanup: bool) {
         let temp_dir = tempfile::tempdir().unwrap();
         let expected_path = temp_dir.path().join("mountpoint-cache");
