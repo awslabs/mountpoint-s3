@@ -404,7 +404,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 
     /// Create a new handle for a file being read. The handle can be used to update the state of
     /// the inflight read and commit it once finished.
-    pub async fn read(&self, ino: InodeNo) -> Result<ReadHandle, InodeError> {
+    pub async fn read(&self, ino: InodeNo) -> Result<ReadHandle<OC>, InodeError> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
@@ -1187,7 +1187,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         name: ValidName,
         remote: Option<RemoteLookup>,
     ) -> Result<LookedUp, InodeError> {
-        let mut parent_state = parent.get_mut_inode_state()?.state;
+        let mut parent_state = parent.get_mut_inode_state()?;
         let inode = match &parent_state.kind_data {
             InodeKindData::File { .. } => unreachable!("we know parent is a directory"),
             InodeKindData::Directory { children, .. } => children.get(name.as_ref()).cloned(),

@@ -611,14 +611,14 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
 
 /// Handle for a file being read
 #[derive(Debug)]
-pub struct ReadHandle {
-    inner: Arc<SuperblockInner>,
+pub struct ReadHandle<OC: ObjectClient + Send + Sync> {
+    inner: Arc<SuperblockInner<OC>>,
     inode: Inode,
 }
 
-impl ReadHandle {
+impl<OC: ObjectClient + Send + Sync> ReadHandle<OC> {
     /// Create a new read handle
-    pub(super) fn new(inner: Arc<SuperblockInner>, inode: Inode) -> Result<Self, InodeError> {
+    pub(super) fn new(inner: Arc<SuperblockInner<OC>>, inode: Inode) -> Result<Self, InodeError> {
         let locked_inode = inode.get_mut_inode_state()?;
         if !matches!(
             locked_inode.write_status,
