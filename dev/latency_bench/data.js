@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750838207082,
+  "lastUpdate": 1750862477194,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "ee6d44ac1096251bd7d18601587f6bc3da3392a4",
-          "message": "Update CRT submodules to latest releases (#1430)\n\nUpdate the CRT libraries to the latest releases. \n\nIn particular, we pick up - but do not adopt in this change - the new\nMemory pool interface\n([awslabs/aws-c-s3#517](https://github.com/awslabs/aws-c-s3/pull/517)),\nwhich requires minor adjustments to the bindings and the\n`poll_buffer_pool_usage_stats` function.\n\n<details>\n  <summary>Full CRT changelog:</summary>\n  \n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-cal fa108de5..938d0fea:\n  > Remove clang-3 from CI (#218)\n  > Fix casing on Windows header files (#217)\n  > dlopen(NULL) returns NULL on static linked executable (#215)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-common 8ae8f48e..aaa2f11e:\n  > Fix invalid XML Buffer Overflow Error (#1201)\n  > Add aws_cbor_decoder_reset_src api for aws_cbor_decoder (#1202)\n  > Fix casing on Windows header files (#1199)\n  > Error handling docs (#1197)\n  > make exports consistent (#1196)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-http ca7e0e29..3eedf1ef:\n  > fix mock server window update on 0 length body (#517)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-io 8286c781..689dee3c:\n  > Fix warnings in iOS Cross Compile CI (#733)\n  > Remove clang-3 from CI (#731)\n  > Acquire/Release Event Loop (#725)\n  > Fix casing on Windows header files (#730)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-s3 7d2d4b30..52c90d39:\n  > Memory pool interface (#517)\n  > Remove clang-3 from CI (#520)\n  > Revert \"[s3_meta_request]: Retry on ExpiredToken\" (#518)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-sdkutils ba6a28fa..f678bda9:\n  > Fix double free on malformed rulesets (#53)\n  > make exports consistent (#52)\n```\n</details>\n\n### Does this change impact existing behavior?\n\nNo change in behavior.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes. Updated as required.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-05-23T08:36:19Z",
-          "tree_id": "7c9069bfb532b9dd1630e0e8fa60f3c9fc716208",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/ee6d44ac1096251bd7d18601587f6bc3da3392a4"
-        },
-        "date": 1747990927485,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 235.3100859599999,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.06,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.149,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.841,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.537,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 27.4125627,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 16.5163606,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 20.6042547,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 25.8301866,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sahityad@amazon.com",
+            "name": "Sahitya Damera",
+            "username": "sahityadg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20f3c0202371b8f012bd25067093dfcc97653d8a",
+          "message": "Add support to collect perf stat counters in benchmark.py (#1474)\n\nAdd support to collect perf stat counters in benchmark.py\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, only affects benchmark.py\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Sahitya Damera <sahityad@amazon.com>",
+          "timestamp": "2025-06-25T14:15:10Z",
+          "tree_id": "4a663775b6bd393e9e4638b97df3bb28c05c2be8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/20f3c0202371b8f012bd25067093dfcc97653d8a"
+        },
+        "date": 1750862476268,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 326.24862000999997,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.087,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.139,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 1.012,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 9.967,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 35.9675865,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 19.376281300000002,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 21.6295483,
             "unit": "milliseconds"
           }
         ]
