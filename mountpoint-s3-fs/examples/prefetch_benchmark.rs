@@ -35,6 +35,10 @@ fn init_tracing_subscriber() {
         .expect("should succeed as first and only subscriber init call");
 }
 
+const CLIENT_OPTIONS_HEADER: &str = "S3 client options";
+const BENCHMARK_OPTIONS_HEADER: &str = "Benchmark options";
+const PREFETCHER_OPTIONS_HEADER: &str = "Prefetcher options";
+
 #[derive(Parser, Debug)]
 #[clap(
     name = "Mountpoint Prefetcher Benchmark",
@@ -58,18 +62,25 @@ pub struct CliArgs {
     #[clap(
         long,
         help = "Target throughput in gibibits per second",
-        value_name = "N",
+        help_heading = CLIENT_OPTIONS_HEADER,
+        value_name = "Gib/s",
         value_parser = value_parser!(u64).range(1..),
         alias = "throughput-target-gbps",
     )]
     pub maximum_throughput_gbps: Option<u64>,
 
-    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
+    #[arg(
+        long,
+        help = "Override value for CRT memory limit in gibibytes",
+        help_heading = CLIENT_OPTIONS_HEADER,
+        value_name = "GiB",
+    )]
     pub crt_memory_limit_gib: Option<u64>,
 
     #[clap(
         long,
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
+        help_heading = PREFETCHER_OPTIONS_HEADER,
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
     )]
@@ -78,6 +89,7 @@ pub struct CliArgs {
     #[clap(
         long,
         help = "Part size for multi-part GET in bytes",
+        help_heading = CLIENT_OPTIONS_HEADER,
         value_name = "BYTES",
         value_parser = value_parser!(u64).range(1..usize::MAX as u64),
         alias = "read-part-size",
@@ -87,36 +99,54 @@ pub struct CliArgs {
     #[arg(
         long,
         help = "Size of read requests requests to the prefetcher",
+        help_heading = PREFETCHER_OPTIONS_HEADER,
         default_value_t = 128 * 1024,
         value_name = "BYTES",
     )]
     read_size: usize,
 
-    #[arg(long, help = "Number of times to download the S3 object", default_value_t = 1)]
+    #[arg(
+        long,
+        help = "Number of times to download the S3 object",
+        help_heading = BENCHMARK_OPTIONS_HEADER,
+        default_value_t = 1,
+        value_name = "N",
+    )]
     iterations: usize,
 
-    #[arg(long, help = "Number of concurrent downloads", default_value_t = 1, value_name = "N")]
+    #[arg(
+        long,
+        help = "Number of concurrent downloads",
+        help_heading = BENCHMARK_OPTIONS_HEADER,
+        default_value_t = 1,
+        value_name = "N",
+    )]
     downloads: usize,
 
     #[clap(
         long,
         help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
-        value_name = "NETWORK_INTERFACE"
+        help_heading = CLIENT_OPTIONS_HEADER,
+        value_name = "NETWORK_INTERFACE",
     )]
     pub bind: Option<Vec<String>>,
 
     #[clap(
         long,
-        help = "Enable caching of object content to the given directory.",
-        value_name = "DIRECTORY"
+        help = "Enable caching of object content to the given directory. \
+                The disk cache has no max size for this benchmark, so you must ensure there is enough available space.",
+        help_heading = PREFETCHER_OPTIONS_HEADER,
+        value_name = "DIRECTORY",
+        visible_alias = "cache",
     )]
     pub disk_cache: Option<PathBuf>,
 
     #[clap(
         long,
         help = "Configure how the benchmark cleans the data cache directory.",
+        help_heading = PREFETCHER_OPTIONS_HEADER,
         default_value = "every-iteration",
-        value_name = "MODE"
+        value_name = "MODE",
     )]
     pub disk_cache_cleanup: CacheCleanupMode,
 }
