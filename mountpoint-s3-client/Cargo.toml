@@ -60,6 +60,7 @@ supports-color = "3.0.2"
 built = { version = "0.7.5", features = ["git2"] }
 
 [features]
+restore_buffer_copy = []
 mock = ["dep:async-io", "dep:async-lock", "dep:md-5", "dep:rand", "dep:rand_chacha"]
 # Features for choosing tests
 s3_tests = []

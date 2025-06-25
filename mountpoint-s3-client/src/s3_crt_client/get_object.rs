@@ -11,6 +11,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
+use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::pin_project;
 use tracing::trace;
@@ -100,13 +101,8 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
-                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
-                        offset,
-                        data: Bytes::from_owner(
-                            data.to_owned_buffer()
-                                .expect("can acquire ownership of buffers from GetObject"),
-                        ),
-                    }));
+                    let body_part = make_body_part(offset, data);
+                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(body_part));
                 },
                 parse_get_object_error,
                 move |result| {
@@ -148,6 +144,25 @@ impl S3CrtClient {
             headers,
             next_offset,
         })
+    }
+}
+
+#[cfg(not(feature = "restore_buffer_copy"))]
+fn make_body_part(offset: u64, data: &Buffer) -> GetBodyPart {
+    GetBodyPart {
+        offset,
+        data: Bytes::from_owner(
+            data.to_owned_buffer()
+                .expect("can acquire ownership of buffers from GetObject"),
+        ),
+    }
+}
+
+#[cfg(feature = "restore_buffer_copy")]
+fn make_body_part(offset: u64, data: &Buffer) -> GetBodyPart {
+    GetBodyPart {
+        offset,
+        data: Bytes::copy_from_slice(data),
     }
 }
 
