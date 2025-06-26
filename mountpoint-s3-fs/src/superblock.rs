@@ -48,7 +48,6 @@ use crate::manifest::{Manifest, ManifestEntry, ManifestError};
 use crate::metablock::AttibuteInformationProvider;
 use crate::metablock::LookedUp;
 use crate::prefix::Prefix;
-use crate::s3::config::BucketName;
 use crate::s3::config::S3Path;
 use crate::s3::S3Personality;
 use crate::superblock::inode::InodeLockedForWriting;
@@ -116,8 +115,7 @@ impl RenameCache {
 
 #[derive(Debug)]
 struct SuperblockInner<OC: ObjectClient + Send + Sync> {
-    bucket: String,
-    prefix: Prefix,
+    s3_path: Arc<S3Path>,
     inodes: RwLock<InodeMap>,
     reader_counts: RwLock<ReaderCountMap>,
     negative_cache: NegativeCache,
@@ -245,8 +243,10 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         );
 
         let inner = SuperblockInner {
-            bucket: bucket.to_owned(),
-            prefix: prefix.clone(),
+            s3_path: Arc::new(S3Path {
+                bucket_name: bucket.to_owned(),
+                prefix: prefix.clone(),
+            }),
             inodes: RwLock::new(inodes),
             reader_counts: Default::default(),
             negative_cache,
@@ -265,7 +265,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     pub fn convert_to_generic_lookup(&self, to_convert: LookedUpWithInode) -> LookedUp {
         // First create location for this inode
         let location = Some(S3Location::new(
-            S3Path::new(BucketName(self.inner.bucket.clone()), self.inner.prefix.clone()).into(),
+            self.inner.s3_path.clone(),
             self.inner.valid_key_for_inode(&to_convert.inode),
         ));
         let kind = to_convert.inode.kind();
@@ -720,7 +720,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                 return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
             }
             WriteStatus::Remote => {
-                let bucket = self.inner.bucket.as_str();
+                let bucket = &self.inner.s3_path.bucket_name;
                 let s3_key = self.full_key_for_inode(&inode);
                 debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
                 let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
@@ -764,7 +764,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         Ok(())
     }
 
-    pub fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
+    fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
         self.inner.full_key_for_inode(inode)
     }
     /// Rename inode described by source parent and name to instead be linked under the given destination and name.
@@ -834,7 +834,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .valid_key()
             .new_child(dest_name, InodeKind::File)
             .map_err(|_| InodeError::NotADirectory(dst_parent.err()))?;
-        let dest_key: String = format!("{}{}", self.inner.prefix, dest_full_valid_name.as_ref());
+        let dest_key: String = format!("{}{}", self.inner.s3_path.prefix, dest_full_valid_name.as_ref());
         debug!(?src_key, ?dest_key, "rename on remote file will now be actioned");
         // TODO-RENAME: Consider adding ETag-matching here
         let rename_params = if allow_overwrite {
@@ -846,7 +846,12 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let rename_object_result = self
             .inner
             .client
-            .rename_object(&self.inner.bucket, src_key.as_ref(), &dest_key, &rename_params)
+            .rename_object(
+                &self.inner.s3_path.bucket_name,
+                src_key.as_ref(),
+                &dest_key,
+                &rename_params,
+            )
             .await;
 
         match rename_object_result {
@@ -878,7 +883,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                     _ => Err(InodeError::client_error(
                         error,
                         "RenameObject failed",
-                        &self.inner.bucket,
+                        &self.inner.s3_path.bucket_name,
                         src_key.as_ref(),
                     )),
                 };
@@ -924,7 +929,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                     let dst_name_as_str: Box<str> = dest_name.as_ref().into();
                     let new_inode = src_inode.try_clone_with_new_key(
                         dest_full_valid_name,
-                        &self.inner.prefix,
+                        &self.inner.s3_path.prefix,
                         self.inner.config.cache_config.file_ttl,
                         dst_parent_ino,
                     )?;
@@ -976,12 +981,12 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             .get_inode(&ino)
             .cloned()
             .ok_or(InodeError::InodeDoesNotExist(ino))?;
-        inode.verify_inode(ino, &self.prefix)?;
+        inode.verify_inode(ino, &self.s3_path.prefix)?;
         Ok(inode)
     }
 
     fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
-        inode.valid_key().full_key(&self.prefix)
+        inode.valid_key().full_key(&self.s3_path.prefix)
     }
 
     fn valid_key_for_inode(&self, inode: &Inode) -> ValidKey {
@@ -1031,7 +1036,9 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             }
         };
 
-        lookup.inode.verify_child(parent_ino, name.as_ref(), &self.prefix)?;
+        lookup
+            .inode
+            .verify_child(parent_ino, name.as_ref(), &self.s3_path.prefix)?;
         Ok(lookup)
     }
 
@@ -1166,11 +1173,11 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         let head_object_params = HeadObjectParams::new();
         let mut file_lookup = self
             .client
-            .head_object(&self.bucket, object_key, &head_object_params)
+            .head_object(&self.s3_path.bucket_name, object_key, &head_object_params)
             .fuse();
         let mut dir_lookup = self
             .client
-            .list_objects(&self.bucket, None, "/", 1, directory_prefix)
+            .list_objects(&self.s3_path.bucket_name, None, "/", 1, directory_prefix)
             .fuse();
 
         let mut file_state = None;
@@ -1185,12 +1192,12 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::client_error(e, "HeadObject failed", &self.bucket, object_key)),
+                        Err(e) => return Err(InodeError::client_error(e, "HeadObject failed", &self.s3_path.bucket_name, object_key)),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed", &self.bucket, object_key))?;
+                    let result = result.map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed", &self.s3_path.bucket_name, object_key))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1462,7 +1469,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             .new_child(name, kind)
             .map_err(|_| InodeError::NotADirectory(parent.err()))?;
         let next_ino = self.next_ino.fetch_add(1, Ordering::SeqCst);
-        let inode = Inode::new(next_ino, parent.ino(), key, &self.prefix, state);
+        let inode = Inode::new(next_ino, parent.ino(), key, &self.s3_path.prefix, state);
         trace!(parent=?inode.parent(), name=?inode.name(), kind=?inode.kind(), new_ino=?inode.ino(), key=?inode.key(), "created new inode");
 
         match &mut parent_locked.kind_data {

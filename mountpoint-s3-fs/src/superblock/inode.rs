@@ -493,7 +493,7 @@ mod tests {
             ValidKey::root()
                 .new_child(inode_name.try_into().unwrap(), InodeKind::File)
                 .unwrap(),
-            &superblock.inner.prefix,
+            &superblock.inner.s3_path.prefix,
             InodeState {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
@@ -662,7 +662,7 @@ mod tests {
         let inode_name = "made-up-inode";
         let mut hasher = crc32c::Hasher::new();
         hasher.update(ino.to_be_bytes().as_ref());
-        hasher.update(superblock.inner.prefix.as_str().as_bytes());
+        hasher.update(superblock.inner.s3_path.prefix.as_str().as_bytes());
         hasher.update(inode_name.as_bytes());
         let checksum = hasher.finalize();
         let inode = Inode {

@@ -104,18 +104,18 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
         #[cfg(feature = "manifest")]
         let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
             trace!("using manifest readdir iter");
-            ReaddirIter::manifest(manifest, &inner.bucket, &full_path, inner.mount_time)?
+            ReaddirIter::manifest(manifest, &inner.s3_path.bucket_name, &full_path, inner.mount_time)?
         } else if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         };
 
         #[cfg(not(feature = "manifest"))]
         let iter = if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         };
 
         Ok(Self {
