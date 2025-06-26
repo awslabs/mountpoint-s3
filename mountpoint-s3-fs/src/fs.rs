@@ -17,14 +17,14 @@ use mountpoint_s3_client::ObjectClient;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::metablock::AttibuteInformationProvider;
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
-use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
+pub use crate::superblock::InodeNo;
+use crate::superblock::{InodeError, InodeKind, LookedUpWithInode, ReaddirHandle, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::Uploader;
-
-pub use crate::superblock::InodeNo;
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
@@ -102,7 +102,7 @@ pub struct DirectoryEntry {
     pub attr: FileAttr,
     pub generation: u64,
     pub ttl: Duration,
-    lookup: LookedUp,
+    lookup: LookedUpWithInode,
 }
 
 /// Reply to a 'statfs' call
@@ -256,7 +256,7 @@ where
         Ok(())
     }
 
-    fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
+    fn make_attr(&self, lookup: &dyn AttibuteInformationProvider) -> FileAttr {
         /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
         /// the file, in 512-byte units."
         const STAT_BLOCK_SIZE: u64 = 512;
@@ -267,9 +267,9 @@ where
         // We don't implement hard links, and don't want to have to list a directory to count its
         // hard links, so we just assume one link for files (itself) and two links for directories
         // (itself + the "." link).
-        let (perm, nlink) = match lookup.inode.kind() {
+        let (perm, nlink) = match lookup.kind() {
             InodeKind::File => {
-                if lookup.stat.is_readable {
+                if lookup.stat().is_readable {
                     (self.config.file_mode, 1)
                 } else {
                     (0o000, 1)
@@ -279,14 +279,14 @@ where
         };
 
         FileAttr {
-            ino: lookup.inode.ino(),
-            size: lookup.stat.size as u64,
-            blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
-            atime: lookup.stat.atime.into(),
-            mtime: lookup.stat.mtime.into(),
-            ctime: lookup.stat.ctime.into(),
+            ino: lookup.ino(),
+            size: lookup.stat().size as u64,
+            blocks: (lookup.stat().size as u64).div_ceil(STAT_BLOCK_SIZE),
+            atime: lookup.stat().atime.into(),
+            mtime: lookup.stat().mtime.into(),
+            ctime: lookup.stat().ctime.into(),
             crtime: UNIX_EPOCH,
-            kind: lookup.inode.kind().into(),
+            kind: lookup.kind().into(),
             perm,
             nlink,
             uid: self.config.uid,
@@ -387,37 +387,38 @@ where
         }
 
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
-        let lookup = self.superblock.getattr(ino, force_revalidate).await?;
+        let lookup = self
+            .superblock
+            .convert_to_generic_lookup(self.superblock.getattr(ino, force_revalidate).await?);
 
-        match lookup.inode.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
+        match lookup.kind() {
+            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
             InodeKind::File => (),
         }
 
         let state = if flags.contains(OpenFlags::O_RDWR) {
-            if !lookup.inode.is_remote()?
+            if !lookup.is_remote()
                 || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
                 || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
             {
                 // If the file is new or if it was opened in truncate or in append mode,
                 // we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
         } else {
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let full_key = self.superblock.full_key_for_inode(&lookup.inode);
         let handle = FileHandle {
             ino,
-            full_key,
+            location: lookup.try_into_s3_location()?,
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
@@ -493,7 +494,7 @@ where
         }
 
         let lookup = self.superblock.create(parent, name, InodeKind::File).await?;
-        debug!(ino = lookup.inode.ino(), "new inode created");
+        debug!(ino = lookup.ino(), "new inode created");
         let attr = self.make_attr(&lookup);
         Ok(Entry {
             ttl: lookup.validity(),
@@ -842,14 +843,14 @@ where
         };
 
         let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.full_key)
+            .complete_if_in_progress(self, file_handle.ino, &file_handle.location.full_key())
             .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {
             Ok(upload_completed_async) => {
                 if upload_completed_async {
-                    debug!(key = ?&file_handle.full_key, "upload completed async after file was closed");
+                    debug!(key = ?&file_handle.location.full_key(), "upload completed async after file was closed");
                 }
                 Ok(())
             }
