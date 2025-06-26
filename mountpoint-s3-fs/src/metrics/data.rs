@@ -6,7 +6,7 @@ use crate::sync::{Arc, Mutex};
 pub enum MetricValue {
     Counter(u64),
     Gauge(f64),
-    Histogram(f64), // Mean value of the histogram
+    Histogram(f64),
 }
 
 /// A single metric
