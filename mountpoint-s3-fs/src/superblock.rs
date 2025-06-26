@@ -1388,7 +1388,7 @@ impl InodeMap {
 
     fn insert(&mut self, ino: InodeNo, inode: Inode, lookup_count: u64) -> Option<Inode> {
         Self::add_metrics(&inode);
-        trace!(ino, lookup_count, "inserting inode with lookup count");
+        trace!(ino, lookup_count, "inserting inode");
         self.map
             .insert(ino, (inode, lookup_count))
             .inspect(|(inode, _count)| {
@@ -1403,15 +1403,11 @@ impl InodeMap {
             .and_modify(|(inode, count)| {
                 Self::remove_metrics(inode);
                 Self::add_metrics(new_inode);
-                trace!(
-                    ino = inode.ino(),
-                    lookup_count = count,
-                    "replaced inode with lookup count"
-                );
+                trace!(ino = inode.ino(), lookup_count = count, "replaced inode");
                 *inode = new_inode.clone();
             })
             .or_insert_with(|| {
-                trace!(ino, lookup_count = 1, "inserting inode with lookup count");
+                trace!(ino, lookup_count = 1, "inserting inode");
                 Self::add_metrics(new_inode);
                 (new_inode.clone(), 1)
             });
@@ -1427,7 +1423,7 @@ impl InodeMap {
             })
             .or_insert_with(|| {
                 Self::add_metrics(inode);
-                trace!(ino = inode.ino(), lookup_count = 1, "inserting inode with lookup count");
+                trace!(ino = inode.ino(), lookup_count = 1, "inserting inode");
                 (inode.clone(), 1)
             });
     }
