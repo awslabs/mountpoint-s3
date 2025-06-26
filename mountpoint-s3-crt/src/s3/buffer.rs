@@ -1,7 +1,7 @@
 //! Data buffers used by the S3 Client.
 
+use std::ops::Deref;
 use std::ptr::NonNull;
-use std::{mem::ManuallyDrop, ops::Deref};
 
 use mountpoint_s3_crt_sys::{
     aws_byte_cursor, aws_s3_buffer_ticket, aws_s3_buffer_ticket_acquire, aws_s3_buffer_ticket_release,
@@ -12,27 +12,35 @@ use crate::aws_byte_cursor_as_slice;
 /// A slice of a data buffer.
 ///
 /// Wrapper for a [aws_byte_cursor] pointing to (part of) the body returned by
-/// a meta request. It can optionally hold a reference to a [BufferTicket] which
-/// can be used to acquire ownership of the underlying memory pool buffer.
+/// a meta request. If built with a non-null ticket, it can be used to
+/// acquire ownership of the underlying memory pool buffer.
 #[derive(Debug)]
 pub struct Buffer<'slice> {
     slice: &'slice aws_byte_cursor,
-    ticket: Option<&'slice BufferTicket>,
+    /// Potentially null [aws_s3_buffer_ticket] pointer.
+    ticket: &'slice *mut aws_s3_buffer_ticket,
 }
 
 impl<'slice> Buffer<'slice> {
     /// Create a new instance from a [aws_byte_cursor] and optional associated [aws_s3_buffer_ticket].
     ///
-    /// SAFETY: slice must be a valid `aws_byte_cursor`.
-    pub(crate) fn new_unchecked(slice: &'slice aws_byte_cursor, ticket: Option<&'slice BufferTicket>) -> Self {
+    /// # Safety
+    /// slice must be a valid `aws_byte_cursor` and, if not null, ticket must be a valid
+    /// `aws_s3_buffer_ticket` for the `'slice` lifetime.
+    ///
+    /// Note that [Buffer] does not need to acquire the ticket, because the lifetime constraint already
+    /// guarantees that the ticket will remain valid.
+    pub(crate) fn new_unchecked(slice: &'slice aws_byte_cursor, ticket: &'slice *mut aws_s3_buffer_ticket) -> Self {
         Self { slice, ticket }
     }
 
     /// Acquire ownership of the underlying memory pool buffer and return an [OwnedBuffer].
     ///
-    /// Fails and returns [None] if no [BufferTicket] was provided.
+    /// Fails and returns [None] if no ticket was provided.
     pub fn to_owned_buffer(&self) -> Option<OwnedBuffer> {
-        let ticket = self.ticket?.clone();
+        let ticket_ptr = NonNull::new(*self.ticket)?;
+        // SAFETY: `ticket_ptr` is a valid `aws_s3_buffer_ticket`.
+        let ticket = unsafe { BufferTicket::new(ticket_ptr) };
         Some(OwnedBuffer::new(*self.slice, ticket))
     }
 }
@@ -86,9 +94,9 @@ impl AsRef<[u8]> for OwnedBuffer {
     }
 }
 
-/// Wraps a valid [aws_s3_buffer_ticket].
+/// Wraps a valid [aws_s3_buffer_ticket] and manages its refcount.
 #[derive(Debug)]
-pub(crate) struct BufferTicket {
+struct BufferTicket {
     inner: NonNull<aws_s3_buffer_ticket>,
 }
 
@@ -100,16 +108,6 @@ impl BufferTicket {
     pub unsafe fn new(ticket: NonNull<aws_s3_buffer_ticket>) -> Self {
         aws_s3_buffer_ticket_acquire(ticket.as_ptr());
         Self { inner: ticket }
-    }
-
-    /// Create an instance without incrementing the reference count of the underlying ticket.
-    /// Returns `None` if `ticket` is `null`.
-    ///
-    /// # Safety
-    /// `ticket` must be valid for the lifetime of the returned `Self`.
-    pub unsafe fn new_unowned(ticket: *mut aws_s3_buffer_ticket) -> Option<ManuallyDrop<Self>> {
-        let inner = NonNull::new(ticket)?;
-        Some(ManuallyDrop::new(Self { inner }))
     }
 }
 

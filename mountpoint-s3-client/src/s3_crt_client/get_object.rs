@@ -149,12 +149,12 @@ impl S3CrtClient {
 
 #[cfg(not(feature = "restore_buffer_copy"))]
 fn make_body_part(offset: u64, data: &Buffer) -> GetBodyPart {
+    let owned_buffer = data
+        .to_owned_buffer()
+        .expect("buffers returned from GetObject can always be acquired");
     GetBodyPart {
         offset,
-        data: Bytes::from_owner(
-            data.to_owned_buffer()
-                .expect("can acquire ownership of buffers from GetObject"),
-        ),
+        data: Bytes::from_owner(owned_buffer),
     }
 }
 

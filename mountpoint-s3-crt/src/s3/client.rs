@@ -9,7 +9,6 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
-use crate::s3::buffer::BufferTicket;
 use crate::s3::s3_library_init;
 use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
 use futures::Future;
@@ -572,8 +571,7 @@ unsafe extern "C" fn meta_request_receive_body_callback_ex(
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
     if let Some(callback) = user_data.on_body_ex.as_mut() {
-        let ticket = BufferTicket::new_unowned(meta.ticket);
-        let buffer = Buffer::new_unchecked(&*body, ticket.as_deref());
+        let buffer = Buffer::new_unchecked(&*body, &meta.ticket);
         callback(meta.range_start, &buffer);
     }
 

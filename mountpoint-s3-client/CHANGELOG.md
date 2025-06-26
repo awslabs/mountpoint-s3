@@ -4,8 +4,8 @@
 
 * Reduce memory fragmentation and peak usage by avoiding copying data returned by GetObject into newly allocated buffers.
   Callers of the `get_object` method are now responsible for returning the buffers to the internal memory pool by dropping
-  the received `Bytes` instances after use. Failure to do so may eventually lead to reduced throughput when the memory pool
-  reaches capacity.
+  the received `Bytes` instances after use. Failure to do so may eventually lead to reduced or zero throughput when the
+  memory pool reaches capacity.
   ([#1481](https://github.com/awslabs/mountpoint-s3/pull/1481))
 
 ## v0.16.0 (Jun 19, 2025)
