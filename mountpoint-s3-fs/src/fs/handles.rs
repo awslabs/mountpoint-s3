@@ -4,27 +4,57 @@ use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::ETag;
 use tracing::{debug, error};
 
+use super::{Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
+use crate::metablock::Lookup;
+use crate::metablock::S3Location;
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
-use crate::superblock::path::ValidKey;
-use crate::superblock::{LookedUp, ReaddirHandle};
+use crate::superblock::LookedUpInode;
+use crate::superblock::ReaddirHandle;
 use crate::sync::AsyncMutex;
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::upload::{AppendUploadRequest, UploadRequest};
+use std::ffi::OsString;
 
-use super::{DirectoryEntry, Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
-
-#[derive(Debug)]
-pub struct DirHandle<OC: ObjectClient + Send + Sync> {
-    #[allow(unused)]
-    ino: InodeNo,
-    pub handle: AsyncMutex<ReaddirHandle<OC>>,
-    offset: AtomicI64,
-    pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntry>)>>,
+#[derive(Debug, Clone)]
+pub struct DirectoryEntryReaddir {
+    pub lookup: LookedUpInode,
+    pub offset: i64,
+    pub name: OsString,
+    pub generation: u64,
 }
 
-impl<OC: ObjectClient + Send + Sync> DirHandle<OC> {
-    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle<OC>) -> Self {
+impl DirectoryEntryReaddir {
+    pub fn new(lookup: LookedUpInode, generation: u64, name: impl Into<OsString>, offset: i64) -> Self {
+        Self {
+            lookup,
+            generation,
+            name: name.into(),
+            offset,
+        }
+    }
+
+    pub fn new_with_inode_name(lookup: LookedUpInode, generation: u64, offset: i64) -> Self {
+        Self {
+            name: lookup.inode.name().into(),
+            lookup,
+            generation,
+            offset,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DirHandle {
+    #[allow(unused)]
+    ino: InodeNo,
+    pub handle: AsyncMutex<ReaddirHandle>,
+    offset: AtomicI64,
+    pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntryReaddir>)>>,
+}
+
+impl DirHandle {
+    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle) -> Self {
         Self {
             ino,
             handle: AsyncMutex::new(readdir_handle),
@@ -51,7 +81,7 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     pub ino: InodeNo,
-    pub full_key: ValidKey,
+    pub location: S3Location,
     pub state: AsyncMutex<FileHandleState<Client>>,
     /// Process that created the handle
     pub open_pid: u32,
@@ -62,7 +92,7 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     pub fn file_name(&self) -> &str {
-        self.full_key.name()
+        self.location.name()
     }
 }
 
@@ -82,7 +112,7 @@ where
     Client: ObjectClient + Clone + Send + Sync,
 {
     pub async fn new_write_handle(
-        lookup: &LookedUp,
+        lookup: &Lookup,
         ino: InodeNo,
         flags: OpenFlags,
         fs: &S3Filesystem<Client>,
@@ -90,18 +120,22 @@ where
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
         fs.superblock.start_writing(ino, &write_mode, is_truncate).await?;
-        let bucket = fs.bucket.clone();
-        let key = fs.superblock.full_key_for_inode(&lookup.inode);
+        let location = lookup.s3_location()?;
+        let bucket = location.bucket_name();
+        let key = location.full_key();
         let handle = if write_mode.incremental_upload {
             let initial_etag = if is_truncate {
                 None
             } else {
-                lookup.stat.etag.as_ref().map(|e| e.into())
+                lookup.stat().etag.as_ref().map(|e| e.into())
             };
-            let current_offset = if is_truncate { 0 } else { lookup.stat.size as u64 };
-            let request =
-                fs.uploader
-                    .start_incremental_upload(bucket, key.into(), current_offset, initial_etag.clone());
+            let current_offset = if is_truncate { 0 } else { lookup.stat().size as u64 };
+            let request = fs.uploader.start_incremental_upload(
+                bucket.to_string(),
+                key.into(),
+                current_offset,
+                initial_etag.clone(),
+            );
             FileHandleState::Write(UploadState::AppendInProgress {
                 request,
                 initial_etag,
@@ -110,7 +144,7 @@ where
         } else {
             let request = fs
                 .uploader
-                .start_atomic_upload(bucket, key.into())
+                .start_atomic_upload(bucket.to_string(), key.into())
                 .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
             FileHandleState::Write(UploadState::MPUInProgress { request })
         };
@@ -118,21 +152,18 @@ where
         Ok(handle)
     }
 
-    pub async fn new_read_handle(
-        lookup: &LookedUp,
-        fs: &S3Filesystem<Client>,
-    ) -> Result<FileHandleState<Client>, Error> {
-        if !lookup.stat.is_readable {
+    pub async fn new_read_handle(lookup: &Lookup, fs: &S3Filesystem<Client>) -> Result<FileHandleState<Client>, Error> {
+        if !lookup.stat().is_readable {
             return Err(err!(
                 libc::EACCES,
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        fs.superblock.start_reading(lookup.inode.ino()).await?;
-        let full_key = fs.superblock.full_key_for_inode(&lookup.inode);
-        let object_size = lookup.stat.size as u64;
-        let etag = match &lookup.stat.etag {
-            None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.inode.ino())),
+        fs.superblock.start_reading(lookup.ino()).await?;
+        let full_key = lookup.s3_location()?.full_key();
+        let object_size = lookup.stat().size as u64;
+        let etag = match &lookup.stat().etag {
+            None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.ino())),
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
         let object_id = ObjectId::new(full_key.into(), etag);
@@ -187,10 +218,16 @@ where
                 return Err(err!(
                     libc::EIO,
                     "upload already completed for key {:?}",
-                    handle.full_key
+                    handle.location.full_key()
                 ));
             }
-            UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", handle.full_key)),
+            UploadState::Failed(e) => {
+                return Err(err!(
+                    *e,
+                    "upload already aborted for key {:?}",
+                    handle.location.full_key()
+                ));
+            }
         };
 
         match result {
@@ -204,7 +241,7 @@ where
                     UploadState::MPUInProgress { .. } | UploadState::AppendInProgress { .. } => {
                         if let Err(err) = fs.superblock.finish_writing(handle.ino, None) {
                             // Log the issue but still return the write error.
-                            error!(?err, key=?handle.full_key, "error updating the inode status");
+                            error!(?err, key=?handle.location.full_key(), "error updating the inode status");
                         }
                     }
                     UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
@@ -217,7 +254,13 @@ where
     pub async fn commit(&mut self, fs: &S3Filesystem<Client>, handle: &FileHandle<Client>) -> Result<(), Error> {
         match &self {
             UploadState::Completed => return Ok(()),
-            UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", handle.full_key)),
+            UploadState::Failed(e) => {
+                return Err(err!(
+                    *e,
+                    "upload already aborted for key {:?}",
+                    handle.location.full_key()
+                ));
+            }
             _ => {}
         };
 
@@ -228,13 +271,13 @@ where
                 written_bytes,
             } => {
                 let current_offset = request.current_offset();
-                match Self::commit_append(request, &handle.full_key).await {
+                match Self::commit_append(request, &handle.location.full_key()).await {
                     Ok(etag) => {
                         // Restart append request.
                         let initial_etag = etag.or(initial_etag);
                         let request = fs.uploader.start_incremental_upload(
-                            fs.bucket.clone(),
-                            handle.full_key.to_owned(),
+                            handle.location.bucket_name().to_owned(),
+                            handle.location.full_key().to_string(),
                             current_offset,
                             initial_etag.clone(),
                         );
@@ -252,7 +295,7 @@ where
                 }
             }
             UploadState::MPUInProgress { request, .. } => {
-                let result = Self::complete_upload(fs, handle.ino, &handle.full_key, request).await;
+                let result = Self::complete_upload(fs, handle.ino, handle.location.full_key().as_ref(), request).await;
                 if let Err(e) = &result {
                     *self = UploadState::Failed(e.to_errno());
                 }
@@ -278,27 +321,33 @@ where
             }
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
-                    debug!(key=?handle.full_key, "not completing upload because nothing was written yet");
+                    debug!(key=?handle.location.full_key(), "not completing upload because nothing was written yet");
                     return Ok(());
                 }
                 if !are_from_same_process(open_pid, pid) {
                     debug!(
-                        key=?handle.full_key,
+                        key=?handle.location.full_key(),
                         pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
                     return Ok(());
                 }
             }
             UploadState::Completed => return Ok(()),
-            UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", handle.full_key)),
+            UploadState::Failed(e) => {
+                return Err(err!(
+                    *e,
+                    "upload already aborted for key {:?}",
+                    handle.location.full_key()
+                ));
+            }
         };
 
         let result = match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
-            } => Self::complete_append(fs, handle.ino, &handle.full_key, request, initial_etag).await,
+            } => Self::complete_append(fs, handle.ino, &handle.location.full_key(), request, initial_etag).await,
             UploadState::MPUInProgress { request, .. } => {
-                Self::complete_upload(fs, handle.ino, &handle.full_key, request).await
+                Self::complete_upload(fs, handle.ino, &handle.location.full_key(), request).await
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         };

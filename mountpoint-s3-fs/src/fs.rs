@@ -17,14 +17,14 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
-use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
+pub use crate::superblock::InodeNo;
+use crate::superblock::{InodeError, InodeKind, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::Uploader;
-
-pub use crate::superblock::InodeNo;
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
@@ -40,7 +40,7 @@ mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
-use handles::{DirHandle, FileHandle, FileHandleState};
+pub use handles::{DirHandle, DirectoryEntryReaddir, FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};
@@ -61,7 +61,6 @@ where
     uploader: Uploader<Client>,
     bucket: String,
     next_handle: AtomicU64,
-    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle<Client>>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
 
@@ -102,7 +101,6 @@ pub struct DirectoryEntry {
     pub attr: FileAttr,
     pub generation: u64,
     pub ttl: Duration,
-    lookup: LookedUp,
 }
 
 /// Reply to a 'statfs' call
@@ -182,7 +180,6 @@ where
             uploader,
             bucket: bucket.to_string(),
             next_handle: AtomicU64::new(1),
-            dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),
         }
     }
@@ -254,7 +251,7 @@ where
         Ok(())
     }
 
-    fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
+    fn make_attr(&self, lookup: &InodeInformation) -> FileAttr {
         /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
         /// the file, in 512-byte units."
         const STAT_BLOCK_SIZE: u64 = 512;
@@ -265,9 +262,9 @@ where
         // We don't implement hard links, and don't want to have to list a directory to count its
         // hard links, so we just assume one link for files (itself) and two links for directories
         // (itself + the "." link).
-        let (perm, nlink) = match lookup.inode.kind() {
+        let (perm, nlink) = match lookup.kind() {
             InodeKind::File => {
-                if lookup.stat.is_readable {
+                if lookup.stat().is_readable {
                     (self.config.file_mode, 1)
                 } else {
                     (0o000, 1)
@@ -277,14 +274,14 @@ where
         };
 
         FileAttr {
-            ino: lookup.inode.ino(),
-            size: lookup.stat.size as u64,
-            blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
-            atime: lookup.stat.atime.into(),
-            mtime: lookup.stat.mtime.into(),
-            ctime: lookup.stat.ctime.into(),
+            ino: lookup.ino(),
+            size: lookup.stat().size as u64,
+            blocks: (lookup.stat().size as u64).div_ceil(STAT_BLOCK_SIZE),
+            atime: lookup.stat().atime.into(),
+            mtime: lookup.stat().mtime.into(),
+            ctime: lookup.stat().ctime.into(),
             crtime: UNIX_EPOCH,
-            kind: lookup.inode.kind().into(),
+            kind: lookup.kind().into(),
             perm,
             nlink,
             uid: self.config.uid,
@@ -309,9 +306,10 @@ where
                 }
                 _ => err.into(),
             })?;
-        let attr = self.make_attr(&lookup);
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
         Ok(Entry {
-            ttl: lookup.validity(),
+            ttl,
             attr,
             generation: 0,
         })
@@ -321,12 +319,10 @@ where
         trace!("fs:getattr with ino {:?}", ino);
 
         let lookup = self.superblock.getattr(ino, false).await?;
-        let attr = self.make_attr(&lookup);
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
 
-        Ok(Attr {
-            ttl: lookup.validity(),
-            attr,
-        })
+        Ok(Attr { ttl, attr })
     }
 
     pub async fn setattr(
@@ -359,12 +355,10 @@ where
             }
             (Err(e), _) => return Err(e.into()),
         };
-        let attr = self.make_attr(&lookup);
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
 
-        Ok(Attr {
-            ttl: lookup.validity(),
-            attr,
-        })
+        Ok(Attr { ttl, attr })
     }
 
     pub async fn forget(&self, ino: InodeNo, n: u64) {
@@ -389,35 +383,34 @@ where
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
         let lookup = self.superblock.getattr(ino, force_revalidate).await?;
 
-        match lookup.inode.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
+        match lookup.kind() {
+            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
             InodeKind::File => (),
         }
 
         let state = if flags.contains(OpenFlags::O_RDWR) {
-            if !lookup.inode.is_remote()?
+            if !lookup.is_remote()
                 || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
                 || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
             {
                 // If the file is new or if it was opened in truncate or in append mode,
                 // we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
         } else {
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let full_key = self.superblock.full_key_for_inode(&lookup.inode);
         let handle = FileHandle {
             ino,
-            full_key,
+            location: lookup.try_into_s3_location()?,
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
@@ -490,10 +483,11 @@ where
         }
 
         let lookup = self.superblock.create(parent, name, InodeKind::File).await?;
-        debug!(ino = lookup.inode.ino(), "new inode created");
-        let attr = self.make_attr(&lookup);
+        debug!(ino = lookup.ino(), "new inode created");
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
         Ok(Entry {
-            ttl: lookup.validity(),
+            ttl,
             attr,
             generation: 0,
         })
@@ -501,9 +495,10 @@ where
 
     pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
         let lookup = self.superblock.create(parent, name, InodeKind::Directory).await?;
-        let attr = self.make_attr(&lookup);
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
         Ok(Entry {
-            ttl: lookup.validity(),
+            ttl,
             attr,
             generation: 0,
         })
@@ -548,199 +543,66 @@ where
     }
 
     /// Creates a new ReaddirHandle for the provided parent and default page size
-    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle<Client>, InodeError> {
-        self.superblock.readdir(parent, 1000).await
+    async fn readdir_handle(&self, parent: InodeNo) -> Result<u64, InodeError> {
+        self.superblock.new_readdir_handle(parent).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
         trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
 
         let readdir_handle = self.readdir_handle(parent).await?;
-        let handle = DirHandle::new(parent, readdir_handle);
-        let fh = self.next_handle();
-        let mut dir_handles = self.dir_handles.write().await;
-        dir_handles.insert(fh, Arc::new(handle));
-
-        Ok(Opened { fh, flags: 0 })
+        trace!(fh = readdir_handle, "Opened new directory handle");
+        Ok(Opened {
+            fh: readdir_handle,
+            flags: 0,
+        })
     }
 
-    pub async fn readdir<R: DirectoryReplier>(
+    pub async fn readdir<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         reply: R,
-    ) -> Result<R, Error> {
+    ) -> Result<(), Error> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         self.readdir_impl(parent, fh, offset, false, reply).await
     }
 
-    pub async fn readdirplus<R: DirectoryReplier>(
+    pub async fn readdirplus<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         reply: R,
-    ) -> Result<R, Error> {
+    ) -> Result<(), Error> {
         trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         self.readdir_impl(parent, fh, offset, true, reply).await
     }
 
-    async fn readdir_impl<R: DirectoryReplier>(
+    async fn readdir_impl<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
         mut reply: R,
-    ) -> Result<R, Error> {
-        let dir_handle = {
-            let dir_handles = self.dir_handles.read().await;
-            dir_handles
-                .get(&fh)
-                .cloned()
-                .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
-        };
+    ) -> Result<(), Error> {
+        let adder: TryAddDirEntry = Box::new(move |information, name, offset, generation| {
+            reply.add(DirectoryEntry {
+                ino: information.ino(),
+                offset,
+                name,
+                attr: self.make_attr(&information),
+                generation,
+                ttl: information.validity(),
+            })
+        });
 
-        // special case where we need to rewind and restart the streaming but only when it is not the first time we see offset 0
-        if offset == 0 && dir_handle.offset() != 0 {
-            let new_handle = self.readdir_handle(parent).await?;
-            *dir_handle.handle.lock().await = new_handle;
-            dir_handle.rewind_offset();
-            // drop any cached entries, as new response may be unordered and cache would be stale
-            *dir_handle.last_response.lock().await = None;
-        }
-
-        let readdir_handle = dir_handle.handle.lock().await;
-
-        // If offset is 0 we've already restarted the request and do not use cache, otherwise we're using the same request
-        // and it is safe to repeat the response. We do not repeat the response if negative offset was provided.
-        if offset != dir_handle.offset() && offset > 0 {
-            // POSIX allows seeking an open directory. That's a pain for us since we are streaming
-            // the directory entries and don't want to keep them all in memory. But one common case
-            // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
-            // request offset 0 twice in a row. So we remember the last response and, if repeated,
-            // we return it again. Last response may also be used partially, if an interrupt occured
-            // (https://github.com/awslabs/mountpoint-s3/issues/955), which caused entries from it to
-            // be only partially fetched by kernel.
-
-            let last_response = dir_handle.last_response.lock().await;
-            if let Some((last_offset, entries)) = last_response.as_ref() {
-                let offset = offset as usize;
-                let last_offset = *last_offset as usize;
-                if (last_offset..last_offset + entries.len()).contains(&offset) {
-                    trace!(offset, "repeating readdir response");
-                    for entry in entries[offset - last_offset..].iter() {
-                        if reply.add(entry.clone()) {
-                            break;
-                        }
-                        // We are returning this result a second time, so the contract is that we
-                        // must remember it again, except that readdirplus specifies that . and ..
-                        // are never incremented.
-                        if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            readdir_handle.remember(&entry.lookup);
-                        }
-                    }
-                    return Ok(reply);
-                }
-            }
-
-            return Err(err!(
-                libc::EINVAL,
-                "out-of-order readdir, expected={}, actual={}",
-                dir_handle.offset(),
-                offset
-            ));
-        }
-
-        /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
-        /// we can re-use them if the directory handle rewinds
-        struct Reply<R: DirectoryReplier> {
-            reply: R,
-            entries: Vec<DirectoryEntry>,
-        }
-
-        impl<R: DirectoryReplier> Reply<R> {
-            async fn finish<O: ObjectClient + Send + Sync>(self, offset: i64, dir_handle: &DirHandle<O>) -> R {
-                *dir_handle.last_response.lock().await = Some((offset, self.entries));
-                self.reply
-            }
-        }
-
-        impl<R: DirectoryReplier> DirectoryReplier for Reply<R> {
-            fn add(&mut self, entry: DirectoryEntry) -> bool {
-                let result = self.reply.add(entry.clone());
-                if !result {
-                    self.entries.push(entry);
-                }
-                result
-            }
-        }
-
-        let mut reply = Reply { reply, entries: vec![] };
-
-        if dir_handle.offset() < 1 {
-            let lookup = self.superblock.getattr(parent, false).await?;
-            let attr = self.make_attr(&lookup);
-            let entry = DirectoryEntry {
-                ino: parent,
-                offset: dir_handle.offset() + 1,
-                name: ".".into(),
-                attr,
-                generation: 0,
-                ttl: lookup.validity(),
-                lookup,
-            };
-            if reply.add(entry) {
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            dir_handle.next_offset();
-        }
-        if dir_handle.offset() < 2 {
-            let lookup = self.superblock.getattr(readdir_handle.parent(), false).await?;
-            let attr = self.make_attr(&lookup);
-            let entry = DirectoryEntry {
-                ino: readdir_handle.parent(),
-                offset: dir_handle.offset() + 1,
-                name: "..".into(),
-                attr,
-                generation: 0,
-                ttl: lookup.validity(),
-                lookup,
-            };
-            if reply.add(entry) {
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            dir_handle.next_offset();
-        }
-
-        loop {
-            let next = match readdir_handle.next().await? {
-                None => return Ok(reply.finish(offset, &dir_handle).await),
-                Some(next) => next,
-            };
-            trace!(next_inode = ?next.inode, "new inode yielded by readdir handle");
-
-            let attr = self.make_attr(&next);
-            let entry = DirectoryEntry {
-                ino: attr.ino,
-                offset: dir_handle.offset() + 1,
-                name: next.inode.name().into(),
-                attr,
-                generation: 0,
-                ttl: next.validity(),
-                lookup: next.clone(),
-            };
-
-            if reply.add(entry) {
-                readdir_handle.readd(next);
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            if is_readdirplus {
-                readdir_handle.remember(&next);
-            }
-            dir_handle.next_offset();
-        }
+        self.superblock
+            .readdir(parent, fh, offset, is_readdirplus, adder)
+            .await?;
+        Ok(())
     }
 
     pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
@@ -836,14 +698,14 @@ where
         };
 
         let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.full_key)
+            .complete_if_in_progress(self, file_handle.ino, &file_handle.location.full_key())
             .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {
             Ok(upload_completed_async) => {
                 if upload_completed_async {
-                    debug!(key = ?&file_handle.full_key, "upload completed async after file was closed");
+                    debug!(key = ?&file_handle.location.full_key(), "upload completed async after file was closed");
                 }
                 Ok(())
             }
@@ -861,11 +723,8 @@ where
     }
 
     pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
-        let mut dir_handles = self.dir_handles.write().await;
-        dir_handles
-            .remove(&fh)
-            .map(|_| ())
-            .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))
+        self.superblock.releasedir(fh).await?;
+        Ok(())
     }
 
     pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {

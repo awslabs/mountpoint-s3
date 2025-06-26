@@ -53,20 +53,19 @@ use tracing::{error, trace, warn};
 
 use crate::sync::{Arc, AsyncMutex, Mutex};
 
-use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, RemoteLookup, SuperblockInner};
+use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUpInode, RemoteLookup, SuperblockInner};
 
 /// Handle for an inflight directory listing
 #[derive(Debug)]
-pub struct ReaddirHandle<OC: ObjectClient + Send + Sync> {
-    inner: Arc<SuperblockInner<OC>>,
+pub struct ReaddirHandle {
     dir_ino: InodeNo,
     parent_ino: InodeNo,
     iter: AsyncMutex<ReaddirIter>,
-    readded: Mutex<Option<LookedUp>>,
+    readded: Mutex<Option<LookedUpInode>>,
 }
 
-impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
-    pub(super) fn new(
+impl ReaddirHandle {
+    pub(super) fn new<OC: ObjectClient + Send + Sync + Clone>(
         inner: Arc<SuperblockInner<OC>>,
         dir_ino: InodeNo,
         parent_ino: InodeNo,
@@ -82,7 +81,11 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
                     let inode = inner.get(*ino)?;
                     let stat = inode.get_inode_state()?.stat.clone();
                     Ok(ReaddirEntry::LocalInode {
-                        lookup: LookedUp { inode, stat },
+                        lookup: LookedUpInode {
+                            inode,
+                            stat,
+                            path: inner.s3_path.clone(),
+                        },
                     })
                 }),
             };
@@ -102,22 +105,21 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
         #[cfg(feature = "manifest")]
         let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
             trace!("using manifest readdir iter");
-            ReaddirIter::manifest(manifest, &inner.bucket, &full_path, inner.mount_time)?
+            ReaddirIter::manifest(manifest, &inner.s3_path.bucket_name, &full_path, inner.mount_time)?
         } else if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         };
 
         #[cfg(not(feature = "manifest"))]
         let iter = if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         };
 
         Ok(Self {
-            inner,
             dir_ino,
             parent_ino,
             iter: AsyncMutex::new(iter),
@@ -128,7 +130,10 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub async fn next(&self) -> Result<Option<LookedUp>, InodeError> {
+    pub(super) async fn next<OC: ObjectClient + Send + Sync + Clone>(
+        &self,
+        inner: Arc<SuperblockInner<OC>>,
+    ) -> Result<Option<LookedUpInode>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
@@ -138,7 +143,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
         loop {
             let next = {
                 let mut iter = self.iter.lock().await;
-                iter.next(&self.inner.client).await?
+                iter.next(&inner.client).await?
             };
 
             if let Some(next) = next {
@@ -147,8 +152,8 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
                     warn!("{} has an invalid name and will be unavailable", next.description());
                     continue;
                 };
-                let remote_lookup = self.remote_lookup_from_entry(&next);
-                let lookup = self.inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
+                let remote_lookup = self.remote_lookup_from_entry(&inner, &next);
+                let lookup = inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
                 return Ok(Some(lookup));
             } else {
                 return Ok(None);
@@ -157,15 +162,9 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     }
 
     /// Re-add an entry to the front of the queue if the consumer wasn't able to use it
-    pub fn readd(&self, entry: LookedUp) {
+    pub fn readd(&self, entry: LookedUpInode) {
         let old = self.readded.lock().unwrap().replace(entry);
         assert!(old.is_none(), "cannot readd more than one entry");
-    }
-
-    /// Increase the lookup count of the looked up inode and
-    /// ensure it is registered with the superblock.
-    pub fn remember(&self, entry: &LookedUp) {
-        self.inner.remember(&entry.inode);
     }
 
     /// Return the inode number of the parent directory of this directory handle
@@ -174,14 +173,18 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     }
 
     /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
-    fn remote_lookup_from_entry(&self, entry: &ReaddirEntry) -> Option<RemoteLookup> {
+    fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync + Clone>(
+        &self,
+        inner: &Arc<SuperblockInner<OC>>,
+        entry: &ReaddirEntry,
+    ) -> Option<RemoteLookup> {
         match entry {
             // If we made it this far with a local inode, we know there's nothing on the remote with
             // the same name, because [LocalInode] is last in the ordering and so otherwise would
             // have been deduplicated by now.
             ReaddirEntry::LocalInode { .. } => None,
             ReaddirEntry::RemotePrefix { .. } => {
-                let stat = InodeStat::for_directory(self.inner.mount_time, self.inner.config.cache_config.dir_ttl);
+                let stat = InodeStat::for_directory(inner.mount_time, inner.config.cache_config.dir_ttl);
                 Some(RemoteLookup {
                     stat,
                     kind: InodeKind::Directory,
@@ -201,7 +204,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
                     Some(etag.as_str().into()),
                     storage_class.as_deref(),
                     *restore_status,
-                    self.inner.config.cache_config.file_ttl,
+                    inner.config.cache_config.file_ttl,
                 );
                 Some(RemoteLookup {
                     stat,
@@ -209,15 +212,6 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
                 })
             }
         }
-    }
-
-    #[cfg(test)]
-    pub(super) async fn collect(&self) -> Result<Vec<LookedUp>, InodeError> {
-        let mut result = vec![];
-        while let Some(entry) = self.next().await? {
-            result.push(entry);
-        }
-        Ok(result)
     }
 }
 
@@ -247,7 +241,7 @@ enum ReaddirEntry {
         etag: String,
     },
     LocalInode {
-        lookup: LookedUp,
+        lookup: LookedUpInode,
     },
 }
 
