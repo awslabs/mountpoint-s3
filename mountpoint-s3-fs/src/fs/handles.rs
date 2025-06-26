@@ -63,7 +63,7 @@ where
 {
     /// The file handle has been assigned as a read handle
     Read {
-        handle: ReadHandle,
+        handle: ReadHandle<Client>,
         request: PrefetchGetObject<Client>,
     },
     /// The file handle has been assigned as a write handle

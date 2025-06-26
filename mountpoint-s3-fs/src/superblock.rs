@@ -21,6 +21,7 @@
 //! Some cached state is dependent on the inode kind; that state is hidden behind a [InodeStatKind]
 //! enum.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
@@ -44,8 +45,9 @@ use crate::logging;
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
+use crate::superblock::inode::InodeLockedForWriting;
 use crate::sync::atomic::{AtomicU64, Ordering};
-use crate::sync::{Arc, RwLock, RwLockWriteGuard};
+use crate::sync::{Arc, RwLock};
 mod expiry;
 use expiry::Expiry;
 
@@ -111,6 +113,7 @@ struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     bucket: String,
     prefix: Prefix,
     inodes: RwLock<InodeMap>,
+    reader_counts: RwLock<ReaderCountMap>,
     negative_cache: NegativeCache,
     cached_rename_support: RenameCache,
     next_ino: AtomicU64,
@@ -168,8 +171,8 @@ impl Drop for PendingRenameGuard<'_> {
 }
 /// A manager for automatically locking two inodes in filesysyem locking order.
 pub struct RenameLockGuard<'a> {
-    src_parent_lock: RwLockWriteGuard<'a, InodeState>,
-    dst_parent_lock: Option<RwLockWriteGuard<'a, InodeState>>,
+    src_parent_lock: InodeLockedForWriting<'a>,
+    dst_parent_lock: Option<InodeLockedForWriting<'a>>,
 }
 
 /// A manager for automatically locking two inodes in filesysyem locking order.
@@ -189,8 +192,8 @@ impl<'a> RenameLockGuard<'a> {
             });
         }
 
-        let dst_parent_lock: Option<RwLockWriteGuard<'a, InodeState>>;
-        let src_parent_lock: RwLockWriteGuard<'a, InodeState>;
+        let dst_parent_lock: Option<InodeLockedForWriting<'a>>;
+        let src_parent_lock: InodeLockedForWriting<'a>;
         // Take read lock
         let ancestor_check = Self::dst_is_ancestor(&superblock_inner.inodes.read().unwrap(), source_parent, dst_ino);
         if ancestor_check || src_ino > dst_ino {
@@ -239,6 +242,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             bucket: bucket.to_owned(),
             prefix: prefix.clone(),
             inodes: RwLock::new(inodes),
+            reader_counts: Default::default(),
             negative_cache,
             next_ino: AtomicU64::new(2),
             mount_time,
@@ -400,11 +404,11 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 
     /// Create a new handle for a file being read. The handle can be used to update the state of
     /// the inflight read and commit it once finished.
-    pub async fn read(&self, ino: InodeNo) -> Result<ReadHandle, InodeError> {
+    pub async fn read(&self, ino: InodeNo) -> Result<ReadHandle<OC>, InodeError> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
-        ReadHandle::new(inode)
+        ReadHandle::new(self.inner.clone(), inode)
     }
 
     /// Start a readdir stream for the given directory inode
@@ -1391,6 +1395,36 @@ impl InodeMap {
     fn remove_metrics(inode: &Inode) {
         metrics::gauge!("fs.inodes").decrement(1.0);
         metrics::gauge!("fs.inode_kinds", "kind" => inode.kind().as_str()).decrement(1.0);
+    }
+}
+
+/// Stores the number of readers (if they are > 0) for Inodes.
+/// Ensures that the Inodes are locked for writing while performing these operations.
+#[derive(Debug, Default)]
+struct ReaderCountMap {
+    map: HashMap<InodeNo, u32>,
+}
+
+impl ReaderCountMap {
+    fn has_readers(&self, locked_inode: &InodeLockedForWriting) -> bool {
+        // Suffices we only store non-zero counts
+        self.map.contains_key(&locked_inode.ino)
+    }
+
+    fn add_reader(&mut self, locked_inode: &InodeLockedForWriting) {
+        *self.map.entry(locked_inode.ino).or_insert(0) += 1;
+    }
+
+    fn remove_reader(&mut self, locked_inode: &InodeLockedForWriting) {
+        if let Entry::Occupied(mut entry) = self.map.entry(locked_inode.ino) {
+            let count = entry.get_mut();
+            if *count > 0 {
+                *count -= 1;
+            }
+            if *count == 0 {
+                entry.remove();
+            }
+        }
     }
 }
 

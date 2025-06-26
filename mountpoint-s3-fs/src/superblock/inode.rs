@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display};
+use std::ops::{Deref, DerefMut};
 use std::time::{Duration, SystemTime};
 
 use fuser::FileType;
@@ -27,6 +28,43 @@ const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
 // 200 years seems long enough
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
+
+/// Write-locked inode state with its inode number, ensuring other operations use the correct inode number.
+#[derive(Debug)]
+pub(super) struct InodeLockedForWriting<'a> {
+    pub ino: InodeNo,
+    pub state: RwLockWriteGuard<'a, InodeState>,
+}
+
+impl Deref for InodeLockedForWriting<'_> {
+    type Target = InodeState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl DerefMut for InodeLockedForWriting<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
+/// Read-locked inode state with its inode number, ensuring other operations use the correct inode number.
+#[derive(Debug)]
+pub(super) struct InodeLockedForReading<'a> {
+    #[expect(unused)]
+    pub ino: InodeNo,
+    pub state: RwLockReadGuard<'a, InodeState>,
+}
+
+impl Deref for InodeLockedForReading<'_> {
+    type Target = InodeState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
 
 #[derive(Debug)]
 struct InodeInner {
@@ -115,20 +153,26 @@ impl Inode {
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
-    pub(super) fn get_inode_state(&self) -> Result<RwLockReadGuard<InodeState>, InodeError> {
+    pub(super) fn get_inode_state(&self) -> Result<InodeLockedForReading, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
-            _ => Ok(inode_state),
+            _ => Ok(InodeLockedForReading {
+                state: inode_state,
+                ino: self.ino(),
+            }),
         }
     }
 
     /// return Inode State with write lock after checking whether the directory inode is deleted or not.
-    pub(super) fn get_mut_inode_state(&self) -> Result<RwLockWriteGuard<InodeState>, InodeError> {
+    pub(super) fn get_mut_inode_state(&self) -> Result<InodeLockedForWriting, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
-            _ => Ok(inode_state),
+            _ => Ok(InodeLockedForWriting {
+                state: inode_state,
+                ino: self.ino(),
+            }),
         }
     }
 
@@ -165,7 +209,6 @@ impl Inode {
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
                 lookup_count: 1,
-                reader_count: 0,
             },
         )
     }
@@ -199,7 +242,6 @@ impl Inode {
             // We can NOT protect from later changes to the old inode's lookup count
             // by concurrent operations, when the VFS lock does not prohibit this.
             lookup_count: old_inode_state.lookup_count,
-            reader_count: 0,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -269,8 +311,6 @@ pub(super) struct InodeState {
     /// Number of references the kernel is holding to the [Inode].
     /// A number of FS operations increment this, while the kernel calls [`Inode::forget(ino, n)`] to decrement.
     lookup_count: u64,
-    /// Number of active prefetching streams on the [Inode].
-    reader_count: u64,
 }
 
 impl InodeState {
@@ -280,7 +320,6 @@ impl InodeState {
             kind_data: InodeKindData::default_for(kind),
             write_status,
             lookup_count: 0,
-            reader_count: 0,
         }
     }
 }
@@ -480,9 +519,10 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
         is_truncate: bool,
     ) -> Result<Self, InodeError> {
         let mut state = inode.get_mut_inode_state()?;
-        if state.reader_count > 0 {
+        if inner.reader_counts.read().unwrap().has_readers(&state) {
             return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
         }
+
         match state.write_status {
             WriteStatus::LocalUnopened => {
                 state.write_status = WriteStatus::LocalOpen;
@@ -539,7 +579,7 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
             .map(|inode| inode.get_mut_inode_state())
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut state = self.inode.get_mut_inode_state()?;
+        let mut state = self.inode.get_mut_inode_state()?.state;
         match state.write_status {
             WriteStatus::LocalOpen => {
                 state.write_status = WriteStatus::Remote;
@@ -571,27 +611,31 @@ impl<OC: ObjectClient + Send + Sync> WriteHandle<OC> {
 
 /// Handle for a file being read
 #[derive(Debug)]
-pub struct ReadHandle {
+pub struct ReadHandle<OC: ObjectClient + Send + Sync> {
+    inner: Arc<SuperblockInner<OC>>,
     inode: Inode,
 }
 
-impl ReadHandle {
+impl<OC: ObjectClient + Send + Sync> ReadHandle<OC> {
     /// Create a new read handle
-    pub(super) fn new(inode: Inode) -> Result<Self, InodeError> {
-        let mut state = inode.get_mut_inode_state()?;
-        if !matches!(state.write_status, WriteStatus::Remote | WriteStatus::PendingRename) {
+    pub(super) fn new(inner: Arc<SuperblockInner<OC>>, inode: Inode) -> Result<Self, InodeError> {
+        let locked_inode = inode.get_mut_inode_state()?;
+        if !matches!(
+            locked_inode.write_status,
+            WriteStatus::Remote | WriteStatus::PendingRename
+        ) {
             return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
         }
-        state.reader_count += 1;
-        drop(state);
-        Ok(Self { inode })
+        inner.reader_counts.write().unwrap().add_reader(&locked_inode);
+        drop(locked_inode);
+        Ok(Self { inner, inode })
     }
 
     /// Update status of the inode to reflect the read being finished
     pub fn finish(self) -> Result<(), InodeError> {
         // Decrease reader count for the inode
-        let mut state = self.inode.get_mut_inode_state()?;
-        state.reader_count -= 1;
+        let state = self.inode.get_mut_inode_state()?;
+        self.inner.reader_counts.write().unwrap().remove_reader(&state);
         Ok(())
     }
 }
@@ -631,7 +675,6 @@ mod tests {
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
                 lookup_count: 5,
-                reader_count: 0,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone());
@@ -771,7 +814,6 @@ mod tests {
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
                     lookup_count: 1,
-                    reader_count: 0,
                 }),
             }),
         };
@@ -825,7 +867,6 @@ mod tests {
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
                     lookup_count: 5,
-                    reader_count: 0,
                 }),
             }),
         };
