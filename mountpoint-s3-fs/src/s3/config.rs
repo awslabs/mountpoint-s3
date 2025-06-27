@@ -70,7 +70,7 @@ pub enum S3PathError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct BucketName(String);
+pub struct BucketName(pub String);
 
 impl From<BucketName> for String {
     fn from(bucket_name: BucketName) -> Self {

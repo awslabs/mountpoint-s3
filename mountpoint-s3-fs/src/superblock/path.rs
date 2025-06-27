@@ -10,7 +10,7 @@ use super::{InodeError, InodeKind};
 /// Key associated with an [Inode](super::Inode).
 ///
 /// May not include the [Prefix](super::Prefix). Guaranteed to end in '/' for directories.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ValidKey {
     key: Box<str>,
     name_offset: usize,

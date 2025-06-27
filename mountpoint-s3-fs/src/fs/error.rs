@@ -185,6 +185,7 @@ impl ToErrno for InodeError {
             InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
+            InodeError::VirtualFileNotAccessible { .. } => libc::EIO,
         }
     }
 }

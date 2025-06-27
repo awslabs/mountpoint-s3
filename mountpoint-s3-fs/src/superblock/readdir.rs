@@ -53,7 +53,9 @@ use tracing::{error, trace, warn};
 
 use crate::sync::{Arc, AsyncMutex, Mutex};
 
-use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUp, RemoteLookup, SuperblockInner};
+use super::{
+    InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUpWithInode, RemoteLookup, SuperblockInner,
+};
 
 /// Handle for an inflight directory listing
 #[derive(Debug)]
@@ -62,7 +64,7 @@ pub struct ReaddirHandle<OC: ObjectClient + Send + Sync> {
     dir_ino: InodeNo,
     parent_ino: InodeNo,
     iter: AsyncMutex<ReaddirIter>,
-    readded: Mutex<Option<LookedUp>>,
+    readded: Mutex<Option<LookedUpWithInode>>,
 }
 
 impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
@@ -82,7 +84,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
                     let inode = inner.get(*ino)?;
                     let stat = inode.get_inode_state()?.stat.clone();
                     Ok(ReaddirEntry::LocalInode {
-                        lookup: LookedUp { inode, stat },
+                        lookup: LookedUpWithInode { inode, stat },
                     })
                 }),
             };
@@ -102,18 +104,18 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
         #[cfg(feature = "manifest")]
         let iter = if let Some(manifest) = inner.config.manifest.as_ref() {
             trace!("using manifest readdir iter");
-            ReaddirIter::manifest(manifest, &inner.bucket, &full_path, inner.mount_time)?
+            ReaddirIter::manifest(manifest, &inner.s3_path.bucket_name, &full_path, inner.mount_time)?
         } else if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         };
 
         #[cfg(not(feature = "manifest"))]
         let iter = if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
         };
 
         Ok(Self {
@@ -128,7 +130,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub async fn next(&self) -> Result<Option<LookedUp>, InodeError> {
+    pub async fn next(&self) -> Result<Option<LookedUpWithInode>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
         }
@@ -157,14 +159,14 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     }
 
     /// Re-add an entry to the front of the queue if the consumer wasn't able to use it
-    pub fn readd(&self, entry: LookedUp) {
+    pub fn readd(&self, entry: LookedUpWithInode) {
         let old = self.readded.lock().unwrap().replace(entry);
         assert!(old.is_none(), "cannot readd more than one entry");
     }
 
     /// Increase the lookup count of the looked up inode and
     /// ensure it is registered with the superblock.
-    pub fn remember(&self, entry: &LookedUp) {
+    pub fn remember(&self, entry: &LookedUpWithInode) {
         self.inner.remember(&entry.inode);
     }
 
@@ -212,7 +214,7 @@ impl<OC: ObjectClient + Send + Sync> ReaddirHandle<OC> {
     }
 
     #[cfg(test)]
-    pub(super) async fn collect(&self) -> Result<Vec<LookedUp>, InodeError> {
+    pub(super) async fn collect(&self) -> Result<Vec<LookedUpWithInode>, InodeError> {
         let mut result = vec![];
         while let Some(entry) = self.next().await? {
             result.push(entry);
@@ -247,7 +249,7 @@ enum ReaddirEntry {
         etag: String,
     },
     LocalInode {
-        lookup: LookedUp,
+        lookup: LookedUpWithInode,
     },
 }
 
