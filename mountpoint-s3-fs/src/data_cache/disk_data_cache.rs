@@ -327,6 +327,12 @@ impl DiskDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
+        trace!(
+            key = ?cache_key.key(),
+            offset = block_offset,
+            path = ?path.as_ref(),
+            "reading cache block",
+        );
         let mut file = match fs::File::open(path.as_ref()) {
             Ok(file) => file,
             Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
