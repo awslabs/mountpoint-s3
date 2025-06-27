@@ -1,9 +1,12 @@
-use opentelemetry::global;
 use opentelemetry::KeyValue;
+use opentelemetry::global;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use std::time::Duration;
 
+use crate::metrics::MetricValue;
 use metrics::Key;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 /// Configuration for OpenTelemetry metrics export
 #[derive(Debug, Clone)]
@@ -33,17 +36,31 @@ impl OtlpConfig {
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
     meter: opentelemetry::metrics::Meter,
+    counters: Mutex<HashMap<String, opentelemetry::metrics::Counter<u64>>>,
+    gauges: Mutex<HashMap<String, opentelemetry::metrics::Gauge<f64>>>,
+    histograms: Mutex<HashMap<String, opentelemetry::metrics::Histogram<f64>>>,
 }
 
 impl OtlpMetricsExporter {
     /// Create a new OtlpMetricsExporter with the specified configuration
     /// Returns a Result containing the new exporter or an error if initialisation failed
     pub fn new(config: &OtlpConfig) -> Result<Self, Box<dyn std::error::Error>> {
+        // Ensure endpoint ends with /v1/metrics
+        let endpoint_url = if !config.endpoint.ends_with("/v1/metrics") {
+            if config.endpoint.ends_with('/') {
+                format!("{}v1/metrics", config.endpoint)
+            } else {
+                format!("{}/v1/metrics", config.endpoint)
+            }
+        } else {
+            config.endpoint.to_string()
+        };
+
         // Initialise OTLP exporter using HTTP binary protocol with the specified endpoint
         let exporter = opentelemetry_otlp::MetricExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpBinary)
-            .with_endpoint(&config.endpoint)
+            .with_endpoint(&endpoint_url)
             .build()?;
 
         // Create a meter provider with the OTLP Metric Exporter that will collect and export metrics at regular intervals
@@ -62,28 +79,54 @@ impl OtlpMetricsExporter {
         // The meter will be used to create specific metric instruments (counters, gauges, histograms) and record values to them
         let meter = global::meter("mountpoint-s3");
 
-        Ok(Self { meter })
+        Ok(Self {
+            meter,
+            counters: Mutex::new(HashMap::new()),
+            gauges: Mutex::new(HashMap::new()),
+            histograms: Mutex::new(HashMap::new()),
+        })
     }
 
     /// Record a counter metric in OTel format
     pub fn record_counter(&self, key: &Key, value: u64, attributes: &[KeyValue]) {
-        let counter = self.meter.u64_counter(key.name().to_string()).build();
-
+        let name = format!("mountpoint.{}", key.name());
+        let mut counters = self.counters.lock().unwrap();
+        let counter = counters
+            .entry(name.clone())
+            .or_insert_with(|| self.meter.u64_counter(name).build());
         counter.add(value, attributes);
     }
 
     /// Record a gauge metric in OTel format
     pub fn record_gauge(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let gauge = self.meter.f64_gauge(key.name().to_string()).build();
-
+        let name = format!("mountpoint.{}", key.name());
+        let mut gauges = self.gauges.lock().unwrap();
+        let gauge = gauges
+            .entry(name.clone())
+            .or_insert_with(|| self.meter.f64_gauge(name).build());
         gauge.record(value, attributes);
     }
 
     /// Record a histogram metric in OTel format
     pub fn record_histogram(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let histogram = self.meter.f64_histogram(key.name().to_string()).build();
-
+        let name = format!("mountpoint.{}", key.name());
+        let mut histograms = self.histograms.lock().unwrap();
+        let histogram = histograms
+            .entry(name.clone())
+            .or_insert_with(|| self.meter.f64_histogram(name).build());
         histogram.record(value, attributes);
+    }
+
+    /// Record a metric using its MetricValue
+    pub fn record_metric(&self, key: &Key, value: &MetricValue, attributes: &[KeyValue]) {
+        match value {
+            MetricValue::Counter(count) => self.record_counter(key, *count, attributes),
+            MetricValue::Gauge(val) => self.record_gauge(key, *val, attributes),
+            MetricValue::Histogram(_mean) => {
+                // Do nothing for histograms for now
+                // Will be implemented later
+            }
+        }
     }
 }
 

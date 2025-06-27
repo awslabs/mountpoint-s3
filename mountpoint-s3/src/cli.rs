@@ -280,6 +280,24 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     #[clap(long, help = "Enable logging of summarized performance metrics", help_heading = LOGGING_OPTIONS_HEADER)]
     pub log_metrics: bool,
 
+    #[clap(
+        long,
+        help = "Enable OTLP metrics export to the specified endpoint",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "ENDPOINT"
+    )]
+    pub log_metrics_otlp: Option<String>,
+
+    #[clap(
+        long,
+        help = "OTLP metrics export interval in seconds [default: 5]",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "SECONDS",
+        value_parser = value_parser!(u64).range(1..),
+        requires = "log_metrics_otlp"
+    )]
+    pub log_metrics_otlp_interval: Option<u64>,
+
     #[clap(short, long, help = "Enable debug logging for Mountpoint", help_heading = LOGGING_OPTIONS_HEADER)]
     pub debug: bool,
 
