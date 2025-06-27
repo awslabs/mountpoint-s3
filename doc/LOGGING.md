@@ -77,3 +77,118 @@ See below an example of what the emitted metrics may look like in the logs.
 
 We recommend using the metrics only for debugging at this time.
 Metrics are currently output in an unstructured format and are subject to change in future releases.
+
+### Publishing Metrics
+
+Additionally, metrics can be published to a specified endpoint (in OpenTelemetry format), for example to the endpoint that CloudWatch agent listens to and can be configured to forward metrics to CloudWatch/Prometheus. 
+
+To opt-in, use the `--log-metrics-otlp <ENDPOINT>` command-line argument and provide an endpoint as a parameter. To optionally specify a time interval for Mountpoint to collect and export metrics, use the `--log-metrics-otlp-interval <SECONDS>` command-line argument. Metrics will be collected by Mountpoint and exported to the endpoint every 5 seconds by default, or every specified seconds.
+
+#### Example Command
+
+```bash
+# Mount an S3 bucket and publish metrics to a local CloudWatch agent
+mount-s3 my-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --log-metrics-otlp-interval 10
+```
+
+Note that publishing metrics to CloudWatch may incur additional AWS costs depending on the volume of metrics and your AWS account's billing tier. Publishing metrics is entirely optional, and you can still use Mountpoint without enabling this feature.
+
+#### CloudWatch Agent Installation 
+
+Follow [CloudWatch Agent installation guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html). If installing on EC2 instance, ensure that you attach the CloudWatchAgentServerPolicy to the IAM role that is attached to your instance.
+
+"If you create or edit the agent configuration file manually, you can give it any name. For simplicity in troubleshooting, we recommend that you name it /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json on a Linux server and $Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json on servers running Windows Server."
+
+#### CloudWatch Agent Configuration
+
+Basic configuration for forwarding metrics to CloudWatch:
+
+```json
+{
+    "agent": {
+        "metrics_collection_interval": 60,
+        "run_as_user": "cwagent"
+    },
+    "metrics": {
+        "namespace": "Mountpoint",
+        "metrics_collected": {
+            "otlp": {
+                "grpc_endpoint": "127.0.0.1:4317",
+                "http_endpoint": "127.0.0.1:4318"
+            }
+        }
+    }
+}
+```
+
+This configuration will forward metrics that are received at the otlp endpoint/s to CloudWatch. (If no destination is provided, the default of CloudWatch is used.) 
+
+Configuration to publish to both CloudWatch and Prometheus:
+
+```json
+{
+    "agent": {
+        "metrics_collection_interval": 60,
+        "run_as_user": "cwagent"
+    },
+    "metrics": {
+        "namespace": "Mountpoint",
+        "metrics_destinations": {
+           "cloudwatch": {},
+           "amp": {
+             "workspace_id": "ws-abcd1234-ef56-7890-ab12-example"
+            }
+        },
+        "metrics_collected": {
+            "otlp": {
+                "grpc_endpoint": "127.0.0.1:4317",
+                "http_endpoint": "127.0.0.1:4318"
+            }
+        }
+    }
+}
+```
+
+For more detailed configurations, follow [CloudWatch Agent Configuration File Details](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-Configuration-File-Details.html).
+
+#### Viewing Metrics in CloudWatch
+
+Starting CloudWatch Agent with the configured json file: 
+
+```
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json
+```
+
+Then run mountpoint with the cli flag and metrics will be visible in your CloudWatch console.
+
+Stop the CloudWatch Agent:
+
+```
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
+```
+
+#### Troubleshooting
+
+Check if CloudWatch Agent is running:
+
+```
+systemctl status amazon-cloudwatch-agent
+```
+
+Verify listening on ports:
+
+```
+sudo lsof -i :4317,4318
+```
+
+Check CloudWatch Agent logs:
+
+```
+sudo tail -n 50 /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
+```
+
+Set Debug logs:
+
+```
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a set-log-level -l DEBUG
+```
