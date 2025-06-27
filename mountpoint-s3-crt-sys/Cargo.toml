@@ -74,16 +74,16 @@ exclude = [
 ]
 
 [build-dependencies]
-bindgen = { version = "0.71.1", default-features = false, features = [
+bindgen = { version = "0.72.0", default-features = false, features = [
     "runtime",
 ] }
-cc = "1.2.10"
-cmake = "0.1.52"
-rustflags = "0.1.6"
-which = "7.0.1"
+cc = "1.2.27"
+cmake = "0.1.54"
+rustflags = "0.1.7"
+which = "8.0.0"
 
 [dependencies]
-libc = "0.2.169"
+libc = "0.2.174"
 
 [lib]
 doctest = false

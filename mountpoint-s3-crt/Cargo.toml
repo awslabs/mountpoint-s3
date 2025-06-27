@@ -11,19 +11,19 @@ description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazo
 mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.14.0" }
 
 futures = "0.3.31"
-libc = "0.2.169"
-log = "0.4.25"
+libc = "0.2.174"
+log = "0.4.27"
 smallstr = "0.3.0"
 static_assertions = "1.1.0"
-thiserror = "2.0.11"
+thiserror = "2.0.12"
 
 [dev-dependencies]
-anyhow = { version = "1.0.95", features = ["backtrace"] }
-clap = { version = "4.5.27", features = ["derive"] }
+anyhow = { version = "1.0.98", features = ["backtrace"] }
+clap = { version = "4.5.40", features = ["derive"] }
 criterion = "0.6.0"
-ctor = "0.2.9"
+ctor = "0.4.2"
 rand = { version = "0.8.5", features = ["small_rng"] }
-serde_json = "1.0.137"
+serde_json = "1.0.140"
 test-case = "3.3.1"
 tracing = { version = "0.1.41", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
