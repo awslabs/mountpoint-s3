@@ -88,7 +88,15 @@ impl LookedUp {
     }
 
     pub fn inode_err(&self) -> InodeErrorInfo {
-        InodeErrorInfo(self.ino, self.location.as_ref().unwrap().full_key().to_string())
+        let (key, bucket) = match &self.location {
+            Some(location) => (location.full_key().to_string(), location.bucket_name().to_string()),
+            None => ("VIRTUAL".to_string(), "VIRTUAL".to_string()),
+        };
+        InodeErrorInfo {
+            ino: self.ino,
+            key: key.into(),
+            bucket: Some(bucket.into()),
+        }
     }
 }
 

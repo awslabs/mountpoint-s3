@@ -245,25 +245,38 @@ impl Inode {
 
     /// Produce a description of this Inode for use in errors
     pub fn err(&self) -> InodeErrorInfo {
-        InodeErrorInfo(self.ino(), self.key().to_string())
+        InodeErrorInfo {
+            ino: self.ino(),
+            key: self.key().to_string().into(),
+            bucket: None,
+        }
     }
 }
 
 /// A wrapper that prints useful customer-facing error messages for inodes by including the object
-/// key rather than just the inode number.
-pub struct InodeErrorInfo(pub InodeNo, pub String);
+/// key and bucket rather than just the inode number.
+pub struct InodeErrorInfo {
+    pub ino: InodeNo,
+    pub key: Box<str>,
+    pub bucket: Option<Box<str>>,
+}
 
 impl Display for InodeErrorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} (key {:?})", self.0, self.1)
+        if let Some(bucket) = &self.bucket {
+            write!(f, "{} (bucket {:?}, key {:?})", self.ino, bucket, self.key)
+        } else {
+            write!(f, "{} (key {:?})", self.ino, self.key)
+        }
     }
 }
 
 impl Debug for InodeErrorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InodeErrorInfo")
-            .field("inode", &self.0)
-            .field("key", &self.1)
+            .field("ino", &self.ino)
+            .field("key", &self.key)
+            .field("bucket", &self.bucket)
             .finish()
     }
 }

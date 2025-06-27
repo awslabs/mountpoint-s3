@@ -266,7 +266,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         // First create location for this inode
         let location = Some(S3Location::new(
             self.inner.s3_path.clone(),
-            self.inner.valid_key_for_inode(&to_convert.inode),
+            to_convert.inode.valid_key().clone(),
         ));
         let kind = to_convert.inode.kind();
         LookedUp::new(
@@ -987,10 +987,6 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
 
     fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
         inode.valid_key().full_key(&self.s3_path.prefix)
-    }
-
-    fn valid_key_for_inode(&self, inode: &Inode) -> ValidKey {
-        inode.valid_key().clone()
     }
 
     /// Increase the lookup count of the given inode and
