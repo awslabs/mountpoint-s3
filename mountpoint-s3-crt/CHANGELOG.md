@@ -1,6 +1,10 @@
-## Unreleased (v0.12.4)
+## Unreleased
 
-* Update to latest CRT dependencies.
+## v0.12.4 (Jun 27, 2025)
+
+* Adopt the new `body_callback_ex` provided in the latest CRT update and expose the returned data slices as `Buffer`
+  references, which allow callers to acquire ownership of the underlying memory pool buffers, avoiding a copy.
+  ([#1481](https://github.com/awslabs/mountpoint-s3/pull/1481))
 
 ## v0.12.3 (May 9, 2025)
 
