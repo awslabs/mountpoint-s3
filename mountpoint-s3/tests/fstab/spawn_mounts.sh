@@ -34,7 +34,7 @@ function spawn_mounts() {
     sudo systemctl daemon-reload
 
     # Emit logs only if Mountpoint fails to start
-    trap "sudo journalctl -u \"$unit\" --since \"$(date '+%Y-%m-%d %H:%M:%S')\" | cat" ERR
+    trap "sudo journalctl -u \"$unit\" --since \"$(date '+%Y-%m-%d %H:%M:%S')\" | cat; journalctl -xe" ERR
     sudo systemctl start "$unit"
 
     echo -e "\nStatus of systemd unit $unit:"
