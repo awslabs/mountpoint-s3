@@ -43,6 +43,9 @@
 // Make async trait docs not-ugly on docs.rs (https://github.com/dtolnay/async-trait/issues/213)
 #![cfg_attr(docsrs, feature(async_fn_in_trait))]
 
+pub mod access_grants;
+pub mod access_grants_client;
+pub mod access_grants_provider;
 mod build_info;
 pub mod checksums;
 mod endpoint_config;
@@ -67,6 +70,7 @@ pub use s3_crt_client::{
 
 /// Configuration for the S3 client
 pub mod config {
+    pub use super::access_grants::{AccessGrantsConfig, AccessGrantsPermission, AccessGrantsPrivilege};
     pub use super::endpoint_config::{AddressingStyle, EndpointConfig, SigningAlgorithm, Uri};
     pub use super::s3_crt_client::{
         CredentialsProvider, CredentialsProviderStaticOptions, EventLoopGroup, S3ClientAuthConfig, S3ClientConfig,
