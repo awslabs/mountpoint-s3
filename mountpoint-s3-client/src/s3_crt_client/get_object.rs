@@ -1,8 +1,8 @@
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
@@ -23,8 +23,8 @@ use crate::object_client::{
 };
 
 use super::{
-    parse_checksum, CancellingMetaRequest, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient,
-    S3Operation, S3RequestError,
+    CancellingMetaRequest, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient, S3Operation,
+    S3RequestError, parse_checksum,
 };
 
 impl S3CrtClient {

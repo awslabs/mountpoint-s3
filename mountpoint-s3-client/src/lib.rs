@@ -62,7 +62,7 @@ pub mod error_metadata;
 pub use object_client::{ObjectClient, PutObjectRequest};
 
 pub use s3_crt_client::{
-    get_object::S3GetObjectResponse, put_object::S3PutObjectRequest, OnTelemetry, S3CrtClient, S3RequestError,
+    OnTelemetry, S3CrtClient, S3RequestError, get_object::S3GetObjectResponse, put_object::S3PutObjectRequest,
 };
 
 /// Configuration for the S3 client
@@ -73,7 +73,7 @@ pub mod config {
     };
 
     pub use mountpoint_s3_crt::common::allocator::Allocator;
-    pub use mountpoint_s3_crt::common::rust_log_adapter::{RustLogAdapter, AWSCRT_LOG_TARGET};
+    pub use mountpoint_s3_crt::common::rust_log_adapter::{AWSCRT_LOG_TARGET, RustLogAdapter};
 
     #[doc(hidden)]
     pub use mountpoint_s3_crt::io::io_library_init;
