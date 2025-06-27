@@ -52,10 +52,10 @@ fn test_readdir_manifest(
 
 #[test]
 fn test_readdir_manifest_20k_keys() {
-    let manifest_keys = (0..20000).map(|i| format!("dir1/file_{}", i)).collect::<Vec<_>>();
+    let manifest_keys = (0..20000).map(|i| format!("dir1/file_{i}")).collect::<Vec<_>>();
     let excluded_keys = &["dir1/excluded_file".to_string()];
     let directory_to_list = "dir1";
-    let mut expected_children = (0..20000).map(|i| format!("file_{}", i)).collect::<Vec<_>>();
+    let mut expected_children = (0..20000).map(|i| format!("file_{i}")).collect::<Vec<_>>();
     expected_children.sort(); // children are expected to be in the sorted order
 
     let (_tmp_dir, db_path) = create_dummy_manifest(&manifest_keys, 0).expect("manifest must be created");
@@ -261,7 +261,7 @@ async fn put_object(
 ) -> String {
     use aws_sdk_s3::primitives::ByteStream;
 
-    let full_key = format!("{}{}", prefix, key);
+    let full_key = format!("{prefix}{key}");
     let put_resp = sdk_client
         .put_object()
         .bucket(bucket)

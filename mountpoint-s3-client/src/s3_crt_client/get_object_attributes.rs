@@ -122,14 +122,14 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             if let Some(max_parts) = max_parts {
-                let value = format!("{}", max_parts);
+                let value = format!("{max_parts}");
                 message
                     .set_header(&Header::new("x-amz-max-parts", value))
                     .map_err(S3RequestError::construction_failure)?;
             }
 
             if let Some(part_number_marker) = part_number_marker {
-                let value = format!("{}", part_number_marker);
+                let value = format!("{part_number_marker}");
                 message
                     .set_header(&Header::new("x-amz-part-number-marker", value))
                     .map_err(S3RequestError::construction_failure)?;

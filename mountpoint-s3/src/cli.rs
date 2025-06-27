@@ -653,7 +653,7 @@ impl CliArgs {
                 String::from("warn")
             };
             let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
-            filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
+            filter.push_str(&format!(",{AWSCRT_LOG_TARGET}={crt_verbosity}"));
             if self.log_metrics {
                 filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
             }
@@ -688,9 +688,9 @@ impl CliArgs {
 
     fn user_agent(&self, instance_info: &InstanceInfo, version: &str) -> UserAgent {
         let user_agent_prefix = if let Some(custom_prefix) = &self.user_agent_prefix {
-            format!("{} mountpoint-s3/{}", custom_prefix, version)
+            format!("{custom_prefix} mountpoint-s3/{version}")
         } else {
-            format!("mountpoint-s3/{}", version)
+            format!("mountpoint-s3/{version}")
         };
         let mut user_agent = UserAgent::new_with_instance_info(Some(user_agent_prefix), instance_info);
         if self.read_only {
@@ -825,9 +825,7 @@ mod tests {
         assert_eq!(
             valid,
             _parse_cli_args(bucket_name).is_some(),
-            "bucket_name: {}, expected: {}",
-            bucket_name,
-            valid
+            "bucket_name: {bucket_name}, expected: {valid}"
         );
     }
 
@@ -852,20 +850,17 @@ mod tests {
             (Ok(s3_path), Ok(expected_path)) => {
                 assert_eq!(
                     expected_path, s3_path,
-                    "bucket_name: {:?}, expected: {:?}",
-                    s3_path, expected_path,
+                    "bucket_name: {s3_path:?}, expected: {expected_path:?}",
                 );
             }
             (Err(err), Err(should_contain)) => {
                 assert!(
-                    format!("{:#}", err).contains(&should_contain),
-                    "Actual error `{:#}` does not contain string {:?}",
-                    err,
-                    should_contain
+                    format!("{err:#}").contains(&should_contain),
+                    "Actual error `{err:#}` does not contain string {should_contain:?}"
                 )
             }
             (s3_path, expected_path) => {
-                panic!("bucket_name: {:?}, expected: {:?}", s3_path, expected_path);
+                panic!("bucket_name: {s3_path:?}, expected: {expected_path:?}");
             }
         }
     }

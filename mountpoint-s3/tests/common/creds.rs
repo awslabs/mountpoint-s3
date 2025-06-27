@@ -17,7 +17,7 @@ fn mask_aws_creds_if_on_gha(credentials: &Credentials) {
         println!("::add-mask::{}", credentials.access_key_id());
         println!("::add-mask::{}", credentials.secret_access_key());
         if let Some(token) = credentials.session_token() {
-            println!("::add-mask::{}", token);
+            println!("::add-mask::{token}");
         }
     }
 }

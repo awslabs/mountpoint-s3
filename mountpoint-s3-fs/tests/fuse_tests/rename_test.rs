@@ -268,8 +268,7 @@ where
     for s3_key in ["dir/source.txt", "dir/destination.txt"] {
         assert!(
             test_client.contains_key(s3_key).unwrap(),
-            "object with key {:?} should exist in S3",
-            s3_key
+            "object with key {s3_key:?} should exist in S3"
         );
     }
 }
@@ -792,7 +791,7 @@ fn generic_rename_test<F>(
 
     // Add all the keys to the S3 bucket with random content
     for key in keys.iter() {
-        let content = format!("Random content for {}", key);
+        let content = format!("Random content for {key}");
         test_client
             .put_object(key, content.as_bytes())
             .expect("PutObject should succeed");
@@ -811,10 +810,7 @@ fn generic_rename_test<F>(
         if result.is_err() {
             any_op_failed = true;
             if success {
-                panic!(
-                    "Rename operation failed when it should have succeeded: {:?} to {:?}",
-                    src, dst
-                );
+                panic!("Rename operation failed when it should have succeeded: {src:?} to {dst:?}");
             }
         }
     }
@@ -826,12 +822,12 @@ fn generic_rename_test<F>(
 
     // Check that each file in the positive list is present
     for file in positive {
-        assert!(mount_point.join(file).exists(), "File should exist: {}", file);
+        assert!(mount_point.join(file).exists(), "File should exist: {file}");
     }
 
     // Check that each file in the negative list is not present
     for file in negative {
-        assert!(!mount_point.join(file).exists(), "File should not exist: {}", file);
+        assert!(!mount_point.join(file).exists(), "File should not exist: {file}");
     }
 }
 
@@ -1350,20 +1346,14 @@ fn compare_directories<P: AsRef<Path>>(dir1: P, dir2: P) {
     let missing_in_dir2: Vec<_> = files1.difference(&files2).collect();
     assert!(
         missing_in_dir2.is_empty(),
-        "Files present in {:?} but missing in {:?}: {:?}",
-        dir1,
-        dir2,
-        missing_in_dir2
+        "Files present in {dir1:?} but missing in {dir2:?}: {missing_in_dir2:?}"
     );
 
     // Check for files in dir2 that don't exist in dir1
     let missing_in_dir1: Vec<_> = files2.difference(&files1).collect();
     assert!(
         missing_in_dir1.is_empty(),
-        "Files present in {:?} but missing in {:?}: {:?}",
-        dir2,
-        dir1,
-        missing_in_dir1
+        "Files present in {dir2:?} but missing in {dir1:?}: {missing_in_dir1:?}"
     );
 
     // Compare contents of all files
@@ -1373,7 +1363,7 @@ fn compare_directories<P: AsRef<Path>>(dir1: P, dir2: P) {
 
         let contents1 = std::fs::read(&path1).unwrap();
         let contents2 = std::fs::read(&path2).unwrap();
-        assert_eq!(contents1, contents2, "Contents differ for file {:?}", rel_path);
+        assert_eq!(contents1, contents2, "Contents differ for file {rel_path:?}");
     }
 }
 
@@ -1397,7 +1387,7 @@ fn compare_directories_only_readdir_on_dir1<P: AsRef<Path>>(dir1: P, dir2: P) {
 
         let contents1 = fs::read_to_string(&path1).unwrap();
         let contents2 = fs::read_to_string(&path2).unwrap();
-        assert_eq!(contents1, contents2, "Contents differ for file {:?}", rel_path);
+        assert_eq!(contents1, contents2, "Contents differ for file {rel_path:?}");
     }
 }
 
@@ -1907,7 +1897,7 @@ where
     let mut files: Vec<(PathBuf, String)> = (0..INITIAL_FILES)
         .map(|i| {
             let path = generate_random_path(MAX_DEPTH);
-            let content = format!("content_{}", i);
+            let content = format!("content_{i}");
             (path, content)
         })
         .collect();
@@ -2167,8 +2157,7 @@ where
 
         assert!(
             valid_outcome,
-            "Iteration {}: Result {:?} and state {:?} don't match any valid ordering",
-            iteration, actual_result, actual_fs_state
+            "Iteration {iteration}: Result {actual_result:?} and state {actual_fs_state:?} don't match any valid ordering"
         );
 
         // Cleanup for next iteration

@@ -58,13 +58,13 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
     };
     server.mock(|when, then| {
         when.method(Method::GET)
-            .path(format!("/{}/", bucket))
+            .path(format!("/{bucket}/"))
             .query_param("list-type", "2")
             .query_param("prefix", format!("{key}/"));
         then.status(list_http_code).body(list_response);
     });
     server.mock(|when, then| {
-        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
+        when.method(Method::HEAD).path(format!("/{bucket}/{key}"));
         set_response_headers(then.status(head_object_http_code), head_object_headers);
     });
 
@@ -77,8 +77,7 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
     let expected_errno = nix::errno::Errno::EIO;
     assert_eq!(
         actual_errno, expected_errno,
-        "lookup failure due to HTTP 503 must return {:?}",
-        expected_errno,
+        "lookup failure due to HTTP 503 must return {expected_errno:?}",
     );
     let metadata = err.meta();
     assert_eq!(
@@ -103,13 +102,13 @@ async fn test_lookup_unhandled_error_mock() {
     let (fs, server) = create_fs_with_mock_s3(bucket);
     server.mock(|when, then| {
         when.method(Method::GET)
-            .path(format!("/{}/", bucket))
+            .path(format!("/{bucket}/"))
             .query_param("list-type", "2")
             .query_param("prefix", format!("{key}/"));
         then.status(200).body(list_empty_response(bucket, key));
     });
     server.mock(|when, then| {
-        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
+        when.method(Method::HEAD).path(format!("/{bucket}/{key}"));
         then.status(409); // let's say S3 adds 409 response code for HeadObject in future
     });
     // perform a lookup
@@ -153,17 +152,17 @@ async fn test_read_unhandled_error_mock() {
     // set up a mock for a successful lookup but a failed read
     server.mock(|when, then| {
         when.method(Method::GET)
-            .path(format!("/{}/", bucket))
+            .path(format!("/{bucket}/"))
             .query_param("list-type", "2")
             .query_param("prefix", format!("{key}/"));
         then.status(200).body(list_empty_response(bucket, key));
     });
     server.mock(|when, then| {
-        when.method(Method::HEAD).path(format!("/{}/{}", bucket, key));
+        when.method(Method::HEAD).path(format!("/{bucket}/{key}"));
         set_response_headers(then.status(200), &head_object_ok_headers);
     });
     server.mock(|when, then| {
-        when.method(Method::GET).path(format!("/{}/{}", bucket, key));
+        when.method(Method::GET).path(format!("/{bucket}/{key}"));
         then.status(418).body(get_object_error_resp);
     });
 

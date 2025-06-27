@@ -30,7 +30,7 @@ enum BucketPrefix {
 impl std::fmt::Display for BucketPrefix {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BucketPrefix::Some(prefix) => write!(f, "{}", prefix),
+            BucketPrefix::Some(prefix) => write!(f, "{prefix}"),
             BucketPrefix::None => write!(f, ""),
         }
     }

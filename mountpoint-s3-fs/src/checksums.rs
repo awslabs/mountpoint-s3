@@ -100,15 +100,11 @@ impl ChecksummedBytes {
 
             assert!(
                 slice_start_offset <= slice_end_offset,
-                "range start must not be greater than end: {:?} <= {:?}",
-                slice_start_offset,
-                slice_end_offset,
+                "range start must not be greater than end: {slice_start_offset:?} <= {slice_end_offset:?}",
             );
             assert!(
                 slice_end_offset <= original_len,
-                "range end out of bounds: {:?} <= {:?}",
-                slice_end_offset,
-                original_len,
+                "range end out of bounds: {slice_end_offset:?} <= {original_len:?}",
             );
 
             (original_start + slice_start_offset)..(original_start + slice_end_offset)

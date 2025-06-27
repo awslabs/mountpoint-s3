@@ -50,13 +50,13 @@ impl Metric {
             Metric::Counter(inner) => {
                 let (sum, n) = inner.load_and_reset()?;
                 if n == 1 {
-                    Some(format!("{}", sum))
+                    Some(format!("{sum}"))
                 } else {
-                    Some(format!("{} (n={})", sum, n))
+                    Some(format!("{sum} (n={n})"))
                 }
             }
             // Gauges can't reset because they can be incremented/decremented
-            Metric::Gauge(inner) => inner.load_if_changed().map(|value| format!("{}", value)),
+            Metric::Gauge(inner) => inner.load_if_changed().map(|value| format!("{value}")),
             Metric::Histogram(histogram) => histogram.run_and_reset(|histogram| {
                 format!(
                     "n={}: min={} p10={} p50={} avg={:.2} p90={} p99={} p99.9={} max={}",
@@ -179,7 +179,7 @@ impl Histogram {
     /// result. Otherwise return None.
     pub fn run_and_reset<T>(&self, f: impl FnOnce(&hdrhistogram::Histogram<u64>) -> T) -> Option<T> {
         let mut histogram = self.histogram.lock().unwrap();
-        if histogram.len() == 0 {
+        if histogram.is_empty() {
             return None;
         }
 

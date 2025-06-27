@@ -481,7 +481,7 @@ pub fn get_s3_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> 
             .chain_update(cache_key.etag().as_str())
             .finalize(),
     );
-    format!("{}/{}/{:010}", prefix, hashed_cache_key, block_idx)
+    format!("{prefix}/{hashed_cache_key}/{block_idx:010}")
 }
 
 #[cfg(test)]
@@ -532,8 +532,7 @@ mod tests {
             .expect("cache should be accessible");
         assert!(
             block.is_none(),
-            "no entry should be available to return but got {:?}",
-            block,
+            "no entry should be available to return but got {block:?}",
         );
 
         // PUT and GET, OK?

@@ -322,7 +322,7 @@ fn run(ops: &[Op], mut f1: DirectoryFileSystem, mut f2: MountpointFileSystem) {
 
     // Pre-populate the file system with some interesting files
     for i in 1..5 {
-        let file_path = PathBuf::from(format!("file_{}", i));
+        let file_path = PathBuf::from(format!("file_{i}"));
         let content = vec![i as u8; 100000 * i];
 
         f1.put(&file_path, &content).unwrap();

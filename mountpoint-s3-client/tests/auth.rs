@@ -107,9 +107,9 @@ async fn test_profile_provider_static_async() {
     // because we'll be truncating the access key ID later, so we want it last in the file.
     let profile_name = "mountpoint-profile";
     let mut config_file = NamedTempFile::new().unwrap();
-    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
     if let Some(session_token) = credentials.session_token() {
-        writeln!(config_file, "aws_session_token = {}", session_token).unwrap()
+        writeln!(config_file, "aws_session_token = {session_token}").unwrap()
     }
     writeln!(
         config_file,
@@ -181,14 +181,14 @@ async fn test_profile_provider_assume_role_async() {
 
     // Populate source profile from the default credentials chain
     let credentials = get_sdk_default_chain_creds().await;
-    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "[profile {source_profile}]").unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
     if let Some(session_token) = credentials.session_token() {
         writeln!(config_file, "aws_session_token={session_token}").unwrap();
     }
 
-    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
 
     // Set up the environment variables to use this new config file. This is only OK to do because
     // this test is run in a forked process, so won't affect any other concurrently running tests.
@@ -210,8 +210,8 @@ async fn test_profile_provider_assume_role_async() {
         .expect_err("role arn is not set");
 
     // Build a S3CrtClient that uses the right config, now the request should succeed.
-    writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
-    writeln!(config_file, "source_profile = {}", source_profile).unwrap();
+    writeln!(config_file, "role_arn = {subsession_role}").unwrap();
+    writeln!(config_file, "source_profile = {source_profile}").unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
         .endpoint_config(get_test_endpoint_config());
@@ -286,7 +286,7 @@ async fn test_credential_process_behind_source_profile_async() {
     // Create two source profiles to provide credentials from previously created files using `credential_process`.
     let (correct_source_profile, incorrect_source_profile) = {
         let correct = "correct-source-profile";
-        writeln!(config_file, "[profile {}]", correct).unwrap();
+        writeln!(config_file, "[profile {correct}]").unwrap();
         writeln!(
             config_file,
             "credential_process=cat {}",
@@ -294,7 +294,7 @@ async fn test_credential_process_behind_source_profile_async() {
         )
         .unwrap();
         let incorrect = "incorrect-source-profile";
-        writeln!(config_file, "[profile {}]", incorrect).unwrap();
+        writeln!(config_file, "[profile {incorrect}]").unwrap();
         writeln!(
             config_file,
             "credential_process=cat {}",
@@ -307,14 +307,14 @@ async fn test_credential_process_behind_source_profile_async() {
     // Create two profiles to assume our test role with previously created source profiles.
     let (correct_profile, incorrect_profile) = {
         let correct = "correct-profile";
-        writeln!(config_file, "[profile {}]", correct).unwrap();
+        writeln!(config_file, "[profile {correct}]").unwrap();
         writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
-        writeln!(config_file, "source_profile={}", correct_source_profile).unwrap();
+        writeln!(config_file, "source_profile={correct_source_profile}").unwrap();
         writeln!(config_file, "region={}", &get_test_region()).unwrap();
         let incorrect = "incorrect-profile";
-        writeln!(config_file, "[profile {}]", incorrect).unwrap();
+        writeln!(config_file, "[profile {incorrect}]").unwrap();
         writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
-        writeln!(config_file, "source_profile={}", incorrect_source_profile).unwrap();
+        writeln!(config_file, "source_profile={incorrect_source_profile}").unwrap();
         writeln!(config_file, "region={}", &get_test_region()).unwrap();
         (correct, incorrect)
     };

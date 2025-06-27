@@ -283,7 +283,7 @@ impl ReaddirEntry {
                 format!("directory '{name}'")
             }
             Self::RemoteObject { name, full_key, .. } => {
-                format!("file '{}' (full key {:?})", name, full_key)
+                format!("file '{name}' (full key {full_key:?})")
             }
             Self::LocalInode { lookup } => {
                 let kind = match lookup.inode.kind() {

@@ -33,7 +33,7 @@ impl LoggerImpl for RustLogAdapter {
     fn log(&self, log_level: Level, subject: Subject, message: &str) {
         let mut target = SmallString::<[u8; 64]>::new();
         let _ = write!(target, "{}::{}", AWSCRT_LOG_TARGET, subject.name());
-        log::log!(target: target.as_str(), log_level.into(), "{}", message);
+        log::log!(target: target.as_str(), log_level.into(), "{message}");
     }
     fn get_log_level(&self, _subject: Subject) -> Level {
         log::max_level().to_level().map(|l| l.into()).unwrap_or(Level::None)

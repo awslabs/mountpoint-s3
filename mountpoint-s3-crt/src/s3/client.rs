@@ -1413,7 +1413,7 @@ impl From<aws_s3_request_type> for RequestType {
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_COPY_OBJECT => RequestType::CopyObject,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_PUT_OBJECT => RequestType::PutObject,
-            _ => panic!("unknown request type {:?}", value),
+            _ => panic!("unknown request type {value:?}"),
         }
     }
 }
@@ -1521,7 +1521,7 @@ impl Display for ChecksumAlgorithm {
             ChecksumAlgorithm::Crc32 => f.write_str("CRC32"),
             ChecksumAlgorithm::Sha1 => f.write_str("SHA1"),
             ChecksumAlgorithm::Sha256 => f.write_str("SHA256"),
-            ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {:?}", algorithm),
+            ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {algorithm:?}"),
         }
     }
 }
