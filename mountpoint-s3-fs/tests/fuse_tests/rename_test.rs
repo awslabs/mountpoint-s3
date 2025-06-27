@@ -1,12 +1,12 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSession, TestSessionConfig};
+use crate::common::fuse::{self, TestSession, TestSessionConfig, read_dir_to_entry_names};
+use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::fs::CacheConfig;
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::S3FilesystemConfig;
 #[cfg(target_os = "linux")]
 use nix::fcntl::RenameFlags;
+use rand::Rng;
 use rand::distributions::Alphanumeric;
 use rand::thread_rng;
-use rand::Rng;
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::ffi::CString;

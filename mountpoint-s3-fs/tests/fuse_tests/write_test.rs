@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::fs::{metadata, read, read_dir, File, OpenOptions};
+use std::fs::{File, OpenOptions, metadata, read, read_dir};
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::os::unix::prelude::*;
 use std::path::Path;
@@ -12,12 +12,12 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use test_case::{test_case, test_matrix};
 
-use mountpoint_s3_fs::fs::CacheConfig;
 use mountpoint_s3_fs::S3FilesystemConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::ServerSideEncryption;
+use mountpoint_s3_fs::fs::CacheConfig;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use crate::common::{creds::get_scoped_down_credentials, s3::get_test_kms_key_id};
 

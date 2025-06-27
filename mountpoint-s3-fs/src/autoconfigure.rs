@@ -1,6 +1,6 @@
 use std::env;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 
 use crate::s3::config::Region;

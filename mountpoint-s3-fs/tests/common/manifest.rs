@@ -1,4 +1,4 @@
-use mountpoint_s3_fs::manifest::{create_db, DbEntry, ManifestError};
+use mountpoint_s3_fs::manifest::{DbEntry, ManifestError, create_db};
 use rusqlite::{Connection, Row};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;

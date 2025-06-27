@@ -10,16 +10,16 @@ use anyhow::Context;
 use rand::Rng;
 use signal_hook::consts::SIGUSR2;
 use signal_hook::iterator::{Handle as SignalsHandle, Signals};
+use time::OffsetDateTime;
 use time::format_description::FormatItem;
 use time::macros;
-use time::OffsetDateTime;
 use tracing::Span;
 use tracing_log::log::warn;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use mountpoint_s3_client::config::{RustLogAdapter, AWSCRT_LOG_TARGET};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, RustLogAdapter};
 
 use crate::metrics::metrics_tracing_span_layer;
 
@@ -27,7 +27,7 @@ use crate::metrics::metrics_tracing_span_layer;
 mod testing;
 
 mod envfilter;
-use envfilter::{toggleable, ToggleableHandle};
+use envfilter::{ToggleableHandle, toggleable};
 
 #[cfg(feature = "event_log")]
 pub mod error_logger;

@@ -8,10 +8,10 @@ use fuser::{Filesystem, Session, SessionUnmounter};
 use tracing::{debug, error, trace, warn};
 
 use super::config::{FuseSessionConfig, MountPoint};
+use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
 use crate::sync::thread::{self, JoinHandle};
-use crate::sync::Arc;
 /// A multi-threaded FUSE session that can be joined to wait for the FUSE filesystem to unmount or
 /// external shutdown.
 pub struct FuseSession {
@@ -116,7 +116,7 @@ impl FuseSession {
     }
 
     /// Function to send the shutdown signal.
-    pub fn shutdown_fn(&self) -> impl Fn() {
+    pub fn shutdown_fn(&self) -> impl Fn() + use<> {
         let sender = self.sender.clone();
         move || {
             let _ = sender.send(Message::Interrupted);
@@ -224,11 +224,7 @@ impl<W: Work> WorkerPool<W> {
             .state
             .worker_count
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |i| {
-                if i < self.max_workers {
-                    Some(i + 1)
-                } else {
-                    None
-                }
+                if i < self.max_workers { Some(i + 1) } else { None }
             })
         else {
             return Ok(false);
@@ -327,8 +323,8 @@ fn get_thread_id_string() -> String {
 #[cfg(test)]
 mod tests {
     use crate::sync::{
-        mpsc::{self, Receiver},
         Condvar, Mutex,
+        mpsc::{self, Receiver},
     };
     use std::time::Duration;
     use test_case::test_case;

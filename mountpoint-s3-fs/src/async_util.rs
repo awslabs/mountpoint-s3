@@ -96,13 +96,13 @@ impl<T, E> Drop for RemoteResult<T, E> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use futures::executor::{block_on, ThreadPool};
+    use futures::executor::{ThreadPool, block_on};
     use test_case::test_case;
 
-    use super::{result_channel, Runtime};
+    use super::{Runtime, result_channel};
 
     #[test_case(Ok(42))]
     #[test_case(Err("error"))]

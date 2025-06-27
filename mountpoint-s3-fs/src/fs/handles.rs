@@ -1,15 +1,15 @@
 use std::str::FromStr as _;
 
-use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::types::ETag;
 use tracing::{debug, error};
 
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
 use crate::superblock::path::ValidKey;
 use crate::superblock::{LookedUp, ReaddirHandle};
-use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::AsyncMutex;
+use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::upload::{AppendUploadRequest, UploadRequest};
 
 use super::{DirectoryEntry, Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
@@ -188,7 +188,7 @@ where
                     libc::EIO,
                     "upload already completed for key {:?}",
                     handle.full_key
-                ))
+                ));
             }
             UploadState::Failed(e) => return Err(err!(*e, "upload already aborted for key {:?}", handle.full_key)),
         };

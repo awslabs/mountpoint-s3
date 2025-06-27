@@ -1,7 +1,7 @@
 use super::ManifestError;
 use crate::{
-    manifest::db::{Db, DbEntry},
     manifest::CsvReader,
+    manifest::db::{Db, DbEntry},
     superblock::path::ValidName,
 };
 use std::fs::File;

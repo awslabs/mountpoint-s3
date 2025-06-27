@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_channel::{unbounded, Receiver, RecvError, Sender};
+use async_channel::{Receiver, RecvError, Sender, unbounded};
 use humansize::make_format;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
@@ -175,10 +175,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         let next_window_end_offset = prev_window_end_offset + len as u64;
         trace!(
             next_read_offset = self.next_read_offset,
-            prev_window_end_offset,
-            next_window_end_offset,
-            len,
-            "incrementing read window",
+            prev_window_end_offset, next_window_end_offset, len, "incrementing read window",
         );
 
         // This should not block since the channel is unbounded

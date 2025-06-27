@@ -5,24 +5,23 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
 use mountpoint_s3_fs::{
-    autoconfigure,
+    MountpointConfig, Runtime, S3FilesystemConfig, autoconfigure,
     data_cache::DataCacheConfig,
     fs::CacheConfig,
     fuse::{
+        ErrorLogger,
         config::{FuseOptions, FuseSessionConfig, MountPoint},
         session::FuseSession,
-        ErrorLogger,
     },
-    logging::{error_logger::FileErrorLogger, init_logging, LoggingConfig, LoggingHandle},
-    manifest::{ingest_manifest, Manifest},
+    logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
+    manifest::{Manifest, ingest_manifest},
     metrics::{self, MetricsSinkHandle},
     prefix::Prefix,
     s3::config::{ClientConfig, PartConfig, Region, S3Path},
-    MountpointConfig, Runtime, S3FilesystemConfig,
 };
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::checksums::{crc32c, crc32c_from_base64, Crc32c};
+use mountpoint_s3_client::checksums::{Crc32c, crc32c, crc32c_from_base64};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
@@ -8,9 +8,9 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::error;
 
+use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
-use crate::ServerSideEncryption;
 
 use super::UploadError;
 
@@ -200,12 +200,12 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::fs::SseCorruptedError;
-    use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
+    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
     use crate::sync::Arc;
     use crate::upload::Uploader;
 
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
+    use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use mountpoint_s3_client::types::ChecksumAlgorithm;
     use test_case::test_case;

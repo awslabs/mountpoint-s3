@@ -1,23 +1,23 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-#[cfg(feature = "s3_tests")]
-use mountpoint_s3_client::config::S3ClientConfig;
-#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
-use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
-use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
-use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::S3CrtClient;
 #[cfg(feature = "s3_tests")]
+use mountpoint_s3_client::config::S3ClientConfig;
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
+use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
+use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
+use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
+#[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{CacheConfig, OpenFlags, RenameFlags, TimeToLive, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags, RenameFlags, TimeToLive, ToErrno};
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
@@ -37,7 +37,7 @@ mod common;
 use common::creds::get_scoped_down_credentials;
 #[cfg(feature = "s3_tests")]
 use common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
-use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply};
+use common::{DirectoryReply, assert_attr, make_test_filesystem, make_test_filesystem_with_client};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
 
@@ -1407,9 +1407,11 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     assert_eq!(new_entries.len(), 14); // 10 original remote files + 1 new local file + 1 new remote file + 2 dirs (. and ..) = 13 entries
 
     // assert entries contain new local file
-    assert!(new_entries
-        .iter()
-        .any(|(_, name)| name.as_os_str().to_str().unwrap() == file_name));
+    assert!(
+        new_entries
+            .iter()
+            .any(|(_, name)| name.as_os_str().to_str().unwrap() == file_name)
+    );
 
     // Request more entries but there is no more
     let new_entries = ls(&fs, dir_handle, 14, 20).await;

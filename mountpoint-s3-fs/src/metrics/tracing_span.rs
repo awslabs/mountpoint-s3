@@ -3,10 +3,10 @@ use std::time::Instant;
 use metrics::histogram;
 use tracing::span::Attributes;
 use tracing::{Id, Level, Subscriber};
+use tracing_subscriber::Layer;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::{LookupSpan, SpanRef};
-use tracing_subscriber::Layer;
 
 /// The name of the module containing the FUSE operations whose spans this layer will track.
 const FUSE_MODULE_NAME: &str = "mountpoint_s3_fs::fuse";

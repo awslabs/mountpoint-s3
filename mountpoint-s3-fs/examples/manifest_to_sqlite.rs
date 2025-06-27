@@ -1,5 +1,5 @@
 use clap::Parser;
-use mountpoint_s3_fs::manifest::{create_db, CsvReader};
+use mountpoint_s3_fs::manifest::{CsvReader, create_db};
 use std::{fs::File, io::BufReader, path::PathBuf, time::Instant};
 
 #[derive(Parser, Debug)]

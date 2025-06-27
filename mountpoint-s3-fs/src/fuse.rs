@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::time::SystemTime;
 use time::OffsetDateTime;
-use tracing::{field, instrument, Instrument};
+use tracing::{Instrument, field, instrument};
 
 use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno};
 #[cfg(target_os = "macos")]

@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use metrics::{Key, Metadata, Recorder};
-use sysinfo::{get_current_pid, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, System};
+use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, System, get_current_pid};
 
-use crate::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use crate::sync::Arc;
+use crate::sync::mpsc::{RecvTimeoutError, Sender, channel};
 
 mod data;
 use data::*;
@@ -211,7 +211,7 @@ impl Drop for MetricsSinkHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use metrics::{with_local_recorder, Label};
+    use metrics::{Label, with_local_recorder};
 
     const TEST_COUNTER: &str = "test_counter";
     const TEST_GAUGE: &str = "test_gauge";

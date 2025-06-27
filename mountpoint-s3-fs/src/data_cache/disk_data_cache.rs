@@ -618,9 +618,9 @@ mod tests {
 
     use super::*;
 
-    use futures::executor::{block_on, ThreadPool};
-    use futures::task::SpawnExt;
     use futures::StreamExt as _;
+    use futures::executor::{ThreadPool, block_on};
+    use futures::task::SpawnExt;
     use mountpoint_s3_client::types::ETag;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;

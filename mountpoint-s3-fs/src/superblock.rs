@@ -29,13 +29,13 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use futures::{select_biased, FutureExt};
+use futures::{FutureExt, select_biased};
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, RenameObjectError};
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use mountpoint_s3_client::types::{
     ETag, HeadObjectParams, HeadObjectResult, RenameObjectParams, RenamePreconditionTypes,
 };
-use mountpoint_s3_client::ObjectClient;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
@@ -144,7 +144,7 @@ impl<'a> PendingRenameGuard<'a> {
         let mut locked = inode.get_mut_inode_state()?;
         match locked.write_status {
             WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
-                return Err(InodeError::RenameNotPermittedWhileWriting(inode.err()))
+                return Err(InodeError::RenameNotPermittedWhileWriting(inode.err()));
             }
             WriteStatus::Remote => {} // All OK.
         }
@@ -405,7 +405,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                 state.stat.size = 0;
             }
             WriteStatus::LocalOpen | WriteStatus::PendingRename => {
-                return Err(InodeError::InodeAlreadyWriting(inode.err()))
+                return Err(InodeError::InodeAlreadyWriting(inode.err()));
             }
             WriteStatus::Remote => {
                 if !mode.is_inode_writable(is_truncate) {
@@ -888,7 +888,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                     debug_assert!(false, "inodes never change kind");
                     return Err(InodeError::NotADirectory(src_parent.err()));
                 }
-                InodeKindData::Directory { ref mut children, .. } => {
+                InodeKindData::Directory { children, .. } => {
                     let dst_name_as_str: Box<str> = dest_name.as_ref().into();
                     let new_inode = src_inode.try_clone_with_new_key(
                         dest_full_valid_name,
@@ -1717,7 +1717,7 @@ mod tests {
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
 
-    use crate::fs::{TimeToLive, ToErrno, FUSE_ROOT_INODE};
+    use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
 
     use super::*;
 

@@ -452,9 +452,13 @@ impl WriteMode {
             true
         } else {
             if is_truncate {
-                tracing::warn!("file overwrite is disabled by default, you need to remount with --allow-overwrite flag to enable it");
+                tracing::warn!(
+                    "file overwrite is disabled by default, you need to remount with --allow-overwrite flag to enable it"
+                );
             } else {
-                tracing::warn!("modifying an existing file is disabled by default, you need to remount with the --allow-overwrite or the --incremental-upload flag to enable it");
+                tracing::warn!(
+                    "modifying an existing file is disabled by default, you need to remount with the --allow-overwrite or the --incremental-upload flag to enable it"
+                );
             }
             false
         }

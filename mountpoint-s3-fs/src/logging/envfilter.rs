@@ -1,6 +1,6 @@
 use anyhow::Result;
-use tracing_subscriber::reload::{Handle as ReloadHandle, Layer};
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::reload::{Handle as ReloadHandle, Layer};
 
 /// A List of filters to toggle between.
 type ToggleableFilters = Vec<Box<dyn FnMut() -> EnvFilter + Send + 'static>>;

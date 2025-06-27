@@ -7,12 +7,12 @@ use std::ffi::{OsStr, OsString};
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{debug, trace, Level};
+use tracing::{Level, debug, trace};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 
 use crate::async_util::Runtime;
 use crate::logging;
@@ -352,8 +352,10 @@ where
                 // We want to provide better feedback to users to prompt them to opt-in to file overwrites if it looks like what the application needs.
                 // Instead of complex logic to match `setattr` truncation only, we just check for the error and if the size was set in the request.
                 // If so, we assume its probably a truncation.
-                return Err(
-                    err!(libc::EPERM, "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"));
+                return Err(err!(
+                    libc::EPERM,
+                    "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
+                ));
             }
             (Err(e), _) => return Err(e.into()),
         };
@@ -440,10 +442,7 @@ where
     ) -> Result<Bytes, Error> {
         trace!(
             "fs:read with ino {:?} fh {:?} offset {:?} size {:?}",
-            ino,
-            fh,
-            offset,
-            size
+            ino, fh, offset, size
         );
 
         if option_env!("MOUNTPOINT_BUILD_STUB_FS_HANDLER").is_some() {
@@ -524,10 +523,7 @@ where
         let len = data.len();
         trace!(
             "fs:write with ino {:?} fh {:?} offset {:?} size {:?}",
-            ino,
-            fh,
-            offset,
-            len
+            ino, fh, offset, len
         );
 
         let handle = {
@@ -1007,6 +1003,9 @@ mod tests {
             .await
             .expect_err("open after the corruption should fail");
         assert_eq!(err.errno, libc::EIO);
-        assert_eq!(format!("{err}"), "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)");
+        assert_eq!(
+            format!("{err}"),
+            "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)"
+        );
     }
 }

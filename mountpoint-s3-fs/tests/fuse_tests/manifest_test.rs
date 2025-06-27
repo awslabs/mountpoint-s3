@@ -1,9 +1,9 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestClient, TestSessionConfig};
+use crate::common::fuse::{self, TestClient, TestSessionConfig, read_dir_to_entry_names};
 use crate::common::manifest::{create_dummy_manifest, create_manifest, insert_entries};
 #[cfg(feature = "s3_tests")]
 use crate::common::s3::{get_test_bucket_and_prefix, get_test_region, get_test_sdk_client};
-use mountpoint_s3_fs::manifest::{DbEntry, Manifest};
 use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::manifest::{DbEntry, Manifest};
 use std::fs::{self, metadata};
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
