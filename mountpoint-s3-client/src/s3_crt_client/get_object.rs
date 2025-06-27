@@ -101,7 +101,10 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
-                    let body_part = make_body_part(offset, data);
+                    let body_part = GetBodyPart {
+                        offset,
+                        data: make_owned_bytes(data),
+                    };
                     _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(body_part));
                 },
                 parse_get_object_error,
@@ -148,22 +151,16 @@ impl S3CrtClient {
 }
 
 #[cfg(not(feature = "restore_buffer_copy"))]
-fn make_body_part(offset: u64, data: &Buffer) -> GetBodyPart {
+fn make_owned_bytes(data: &Buffer) -> Bytes {
     let owned_buffer = data
         .to_owned_buffer()
         .expect("buffers returned from GetObject can always be acquired");
-    GetBodyPart {
-        offset,
-        data: Bytes::from_owner(owned_buffer),
-    }
+    Bytes::from_owner(owned_buffer)
 }
 
 #[cfg(feature = "restore_buffer_copy")]
-fn make_body_part(offset: u64, data: &Buffer) -> GetBodyPart {
-    GetBodyPart {
-        offset,
-        data: Bytes::copy_from_slice(data),
-    }
+fn make_owned_bytes(data: &Buffer) -> Bytes {
+    Bytes::copy_from_slice(data)
 }
 
 #[derive(Debug)]

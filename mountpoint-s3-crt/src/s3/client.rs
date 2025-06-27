@@ -571,7 +571,8 @@ unsafe extern "C" fn meta_request_receive_body_callback_ex(
     let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
 
     if let Some(callback) = user_data.on_body_ex.as_mut() {
-        let buffer = Buffer::new_unchecked(&*body, &meta.ticket);
+        // SAFETY: `body` and `meta.ticket` outlive `buffer`.
+        let buffer = unsafe { Buffer::new_unchecked(&*body, &meta.ticket) };
         callback(meta.range_start, &buffer);
     }
 
