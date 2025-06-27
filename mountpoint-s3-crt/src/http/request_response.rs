@@ -12,7 +12,7 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::http::http_library_init;
 use crate::io::stream::InputStream;
-use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
+use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 
 /// An HTTP header.
 #[derive(Debug)]
@@ -107,7 +107,8 @@ impl Headers {
     ///
     /// `ptr` must point to a valid `aws_http_headers` struct.
     pub(crate) unsafe fn from_crt(ptr: NonNull<aws_http_headers>) -> Self {
-        aws_http_headers_acquire(ptr.as_ptr());
+        // SAFETY: `ptr` points to a valid `aws_http_headers`.
+        unsafe { aws_http_headers_acquire(ptr.as_ptr()) };
         Self { inner: ptr }
     }
 

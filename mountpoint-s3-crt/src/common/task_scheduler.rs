@@ -123,7 +123,7 @@ impl Task {
     /// to leak memory though, so scheduling the task is not required to uphold the safety contract.
     /// Safety: Don't move the task out of the pointed-to struct.
     pub(crate) unsafe fn into_aws_task_ptr(self) -> *mut aws_task {
-        // Safety: this function gets the inner aws_task pointer and gives to aws_task_run to
+        // SAFETY: this function gets the inner aws_task pointer and gives to aws_task_run to
         // run it on the current thread. The aws_task struct contains a self-referential pointer
         // to TaskInner struct. So we need to leak the Box containing the TaskInner so that the
         // memory isn't freed when the Box is dropped at the end of this function. In the task_fn
@@ -131,8 +131,8 @@ impl Task {
         // From the CRT comments:
         // "* Once added to the scheduler, a task must remain in memory until its function is executed."
         // "* The task should not be cleaned up or modified until its function is executed."
-
-        let task = Box::leak(Pin::into_inner_unchecked(self.0));
+        let boxed_task = unsafe { Pin::into_inner_unchecked(self.0) };
+        let task = Box::leak(boxed_task);
         &mut task.inner
     }
 
@@ -149,10 +149,10 @@ impl Task {
 /// from the unsafe C bindings to the Rust callback from the user.
 /// Safety: Don't call this function directly, it should only be given to aws_task_init as a callback.
 unsafe extern "C" fn task_fn(task: *mut aws_task, arg: *mut libc::c_void, status: aws_task_status) {
-    // Safety: the only caller of this function is the CRT after we give this to aws_task_init with
+    // SAFETY: the only caller of this function is the CRT after we give this to aws_task_init with
     // an arg that is the Box containing TaskInner. We leaked the Box in into_aws_task_ptr, so it
     // still will be live here.
-    let task_inner = Box::from_raw(arg as *mut TaskInner);
+    let task_inner = unsafe { Box::from_raw(arg as *mut TaskInner) };
 
     // This should always be true, since the TaskInner contains the aws_task. But let's double check
     // to make sure nothing super strange is happening.

@@ -2,7 +2,7 @@
 name = "mountpoint-s3-crt"
 # See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
 version = "0.12.4"
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazon S3."

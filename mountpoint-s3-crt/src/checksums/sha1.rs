@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use mountpoint_s3_crt_sys::{
-    aws_hash, aws_hash_destroy, aws_hash_finalize, aws_hash_update, aws_sha1_new, AWS_SHA1_LEN,
+    AWS_SHA1_LEN, aws_hash, aws_hash_destroy, aws_hash_finalize, aws_hash_update, aws_sha1_new,
 };
 
 use crate::common::allocator::Allocator;
@@ -92,7 +92,9 @@ mod tests {
         let sha1 = checksum(buf).expect("checksum failed");
         assert_eq!(
             sha1,
-            Sha1([247, 195, 188, 29, 128, 142, 4, 115, 42, 223, 103, 153, 101, 204, 195, 76, 167, 174, 52, 65])
+            Sha1([
+                247, 195, 188, 29, 128, 142, 4, 115, 42, 223, 103, 153, 101, 204, 195, 76, 167, 174, 52, 65
+            ])
         );
     }
 
@@ -105,7 +107,9 @@ mod tests {
         let sha1 = hasher.finalize(&allocator).expect("hasher finalization failed");
         assert_eq!(
             sha1,
-            Sha1([247, 195, 188, 29, 128, 142, 4, 115, 42, 223, 103, 153, 101, 204, 195, 76, 167, 174, 52, 65])
+            Sha1([
+                247, 195, 188, 29, 128, 142, 4, 115, 42, 223, 103, 153, 101, 204, 195, 76, 167, 174, 52, 65
+            ])
         );
     }
 }

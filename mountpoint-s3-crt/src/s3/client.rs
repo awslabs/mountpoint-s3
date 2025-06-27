@@ -10,7 +10,7 @@ use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
 use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
+use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
 
@@ -282,7 +282,8 @@ impl<'a> MetaRequestOptionsInner<'a> {
     /// [MetaRequestOptionsInner] is unconstrained, so the caller must make sure that the lifetime
     /// of the returned reference does not outlive the [MetaRequestOptionsInner].
     unsafe fn from_user_data_ptr(user_data: *mut libc::c_void) -> &'a mut Self {
-        (user_data as *mut Self).as_mut().unwrap()
+        // SAFETY: `user_data` is initialized in `MetaRequestOptions::new`.
+        unsafe { (user_data as *mut Self).as_mut().unwrap() }
     }
 
     /// Convert from user_data in a callback to an owned Box holding this struct, so it will be
@@ -292,7 +293,8 @@ impl<'a> MetaRequestOptionsInner<'a> {
     ///
     /// Don't use except in the shutdown callback, once we are certain not to be called back again.
     unsafe fn from_user_data_ptr_owned(user_data: *mut libc::c_void) -> Box<Self> {
-        Box::from_raw(user_data as *mut Self)
+        // SAFETY: `user_data` is leaked in `MetaRequestOptions::new`.
+        unsafe { Box::from_raw(user_data as *mut Self) }
     }
 }
 
@@ -528,7 +530,7 @@ unsafe extern "C" fn meta_request_telemetry_callback(
 ) {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     if let Some(callback) = user_data.on_telemetry.as_ref() {
         let metrics = NonNull::new(metrics).expect("request metrics is never null");
@@ -548,11 +550,12 @@ unsafe extern "C" fn meta_request_headers_callback(
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     if let Some(callback) = user_data.on_headers.as_mut() {
         let headers = NonNull::new(headers as *mut aws_http_headers).expect("request headers is never null");
-        let headers = Headers::from_crt(headers);
+        // SAFETY: `headers` is a valid `aws_http_headers` returned by the CRT.
+        let headers = unsafe { Headers::from_crt(headers) };
         callback(&headers, response_status);
     }
 
@@ -568,7 +571,7 @@ unsafe extern "C" fn meta_request_receive_body_callback_ex(
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     if let Some(callback) = user_data.on_body_ex.as_mut() {
         // SAFETY: `body` and `meta.ticket` outlive `buffer`.
@@ -585,15 +588,17 @@ unsafe extern "C" fn meta_request_finish_callback(
     result: *const aws_s3_meta_request_result,
     user_data: *mut libc::c_void,
 ) {
-    let result = result.as_ref().expect("result cannot be NULL");
+    // SAFETY: `result` points to a valid `aws_s3_meta_request_result`.
+    let result = unsafe { result.as_ref().expect("result cannot be NULL") };
 
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     // take ownership of the callback, since it can only be called once.
     if let Some(callback) = user_data.on_finish.take() {
-        callback(MetaRequestResult::from_crt_result(result));
+        // SAFETY: `result` is a valid `aws_s3_meta_request_result` returned by the CRT.
+        callback(unsafe { MetaRequestResult::from_crt_result(result) });
     }
 }
 
@@ -602,7 +607,7 @@ unsafe extern "C" fn meta_request_shutdown_callback(user_data: *mut libc::c_void
     // Take back ownership of the user data so it will be freed when dropped.
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr_owned(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr_owned(user_data) };
 
     // SAFETY: at this point, we shouldn't receieve any more callbacks for this request.
     std::mem::drop(user_data);
@@ -616,19 +621,23 @@ unsafe extern "C" fn meta_request_upload_review_callback(
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     let Some(callback) = user_data.on_upload_review.take() else {
         return AWS_OP_SUCCESS;
     };
 
-    let upload_review = upload_review
-        .as_ref()
-        .expect("CRT should provide a valid upload_review");
+    // SAFETY: `upload_review` points to a valid `aws_s3_upload_review`.
+    let upload_review = unsafe {
+        upload_review
+            .as_ref()
+            .expect("CRT should provide a valid upload_review")
+    };
     if callback(UploadReview::new(upload_review)) {
         AWS_OP_SUCCESS
     } else {
-        aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32)
+        // SAFETY: we are returning from the CRT callback.
+        unsafe { aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32) }
     }
 }
 
@@ -780,8 +789,8 @@ impl<'s> Future for MetaRequestWrite<'_, 's> {
 
 /// Safety: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn poll_write_waker_callback(user_data: *mut ::libc::c_void) {
-    // Take ownership of the `Arc` in `user_data`.
-    let waker = Arc::from_raw(user_data as *mut Mutex<Option<Waker>>);
+    // SAFETY: `user_data` was returned by `Arc::into_raw` in `MetaRequestWrite::poll`.
+    let waker = unsafe { Arc::from_raw(user_data as *mut Mutex<Option<Waker>>) };
     // Notify the waker.
     waker
         .lock()
@@ -1063,16 +1072,22 @@ impl MetaRequestResult {
     /// SAFETY: This copies from the raw pointer inside of the request result, so only call on
     /// results given to us from the CRT.
     unsafe fn from_crt_result(inner: &aws_s3_meta_request_result) -> Self {
-        let error_response_headers = inner
-            .error_response_headers
-            .as_ref()
-            .map(|headers| Headers::from_crt(NonNull::from(headers)));
+        // SAFETY: `.error_response_headers` points to a valid `aws_http_headers`.
+        let error_response_headers = unsafe {
+            inner
+                .error_response_headers
+                .as_ref()
+                .map(|headers| Headers::from_crt(NonNull::from(headers)))
+        };
 
-        let error_response_body: Option<OsString> = inner.error_response_body.as_ref().map(|byte_buf| {
-            assert!(!byte_buf.buffer.is_null(), "error_response_body.buffer is null");
-            let slice: &[u8] = std::slice::from_raw_parts(byte_buf.buffer, byte_buf.len);
-            OsStr::from_bytes(slice).to_owned()
-        });
+        // SAFETY: `.error_response_body` points to a valid `aws_byte_buf`.
+        let error_response_body: Option<OsString> = unsafe {
+            inner.error_response_body.as_ref().map(|byte_buf| {
+                assert!(!byte_buf.buffer.is_null(), "error_response_body.buffer is null");
+                let slice: &[u8] = std::slice::from_raw_parts(byte_buf.buffer, byte_buf.len);
+                OsStr::from_bytes(slice).to_owned()
+            })
+        };
 
         Self {
             response_status: inner.response_status,

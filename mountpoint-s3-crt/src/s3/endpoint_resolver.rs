@@ -9,9 +9,8 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    aws_byte_cursor_as_slice,
+    CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice,
     common::{allocator::Allocator, error::Error},
-    CrtError, ToAwsByteCursor,
 };
 
 use super::s3_library_init;

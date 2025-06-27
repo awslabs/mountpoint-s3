@@ -5,8 +5,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use mountpoint_s3_crt_sys::{
-    aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set, aws_logger_vtable, aws_string,
-    logging_shim, AWS_OP_ERR, AWS_OP_SUCCESS,
+    AWS_OP_ERR, AWS_OP_SUCCESS, aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set,
+    aws_logger_vtable, aws_string, logging_shim,
 };
 
 use crate::common::allocator::Allocator;

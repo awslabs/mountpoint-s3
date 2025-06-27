@@ -1,11 +1,11 @@
 //! A client for retrieving ec2 instance metadata.
 
+use crate::CrtError;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
-use crate::CrtError;
-use crate::{auth::auth_library_init, ToAwsByteCursor};
+use crate::{ToAwsByteCursor, auth::auth_library_init};
 use mountpoint_s3_crt_sys::{
     aws_byte_buf, aws_imds_client, aws_imds_client_get_resource_async, aws_imds_client_new, aws_imds_client_options,
     aws_imds_client_release,
@@ -108,13 +108,13 @@ unsafe extern "C" fn imds_client_get_resource_callback(
 ) {
     // SAFETY: `user_data` is a raw pointer to a `Box<ImdsClientGetResourceCallback>` created and leaked at query time.
     // This function will be executed at most once, so the Box is still valid right now.
-    let callback = Box::from_raw(user_data as *mut ImdsClientGetResourceCallback).0;
+    let callback = unsafe { Box::from_raw(user_data as *mut ImdsClientGetResourceCallback).0 };
 
     let result = if 0 != error_code {
         Err(error_code.into())
     } else {
         // SAFETY: The CRT guarantees `resource` is a valid `*const aws_byte_buf` if the IMDS query succeeded.
-        let resource = std::slice::from_raw_parts((*resource).buffer, (*resource).len).to_vec();
+        let resource = unsafe { std::slice::from_raw_parts((*resource).buffer, (*resource).len).to_vec() };
         Ok(String::from_utf8(resource).expect("resource response should be encoded with utf8."))
     };
 
