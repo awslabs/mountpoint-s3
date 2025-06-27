@@ -102,13 +102,30 @@ pub struct CliArgs {
         value_name = "NETWORK_INTERFACE"
     )]
     pub bind: Option<Vec<String>>,
+
+    #[clap(long, help = "OTLP metrics endpoint URL", value_name = "ENDPOINT")]
+    pub metrics_otlp_endpoint: Option<String>,
+
+    #[clap(
+        long,
+        help = "OTLP metrics export interval in seconds [default: 5]",
+        value_name = "SECONDS",
+        requires = "metrics_otlp_endpoint"
+    )]
+    pub metrics_otlp_interval_secs: Option<u64>,
 }
 
 fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
-
     let args = CliArgs::parse();
+    let otlp_config = args.metrics_otlp_endpoint.as_deref().map(|endpoint| {
+        let mut otlp_config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
+        if let Some(interval) = args.metrics_otlp_interval_secs {
+            otlp_config = otlp_config.with_interval_secs(interval);
+        }
+        otlp_config
+    });
+    let _metrics_handle = mountpoint_s3_fs::metrics::install(otlp_config);
 
     let bucket = args.bucket.as_str();
     let key = args.s3_key.as_str();

@@ -1,6 +1,14 @@
 use crate::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex};
 
+/// Represents the value of a metric
+#[derive(Debug, Clone)]
+pub enum MetricValue {
+    Counter(u64),
+    Gauge(f64),
+    Histogram(f64),
+}
+
 /// A single metric
 #[derive(Debug)]
 pub enum Metric {
@@ -43,34 +51,44 @@ impl Metric {
         metrics::Histogram::from_arc(inner.clone())
     }
 
-    /// Generate a string representation of this metric, or None if the metric has had no values
+    /// Generate both the value and string representation of this metric, or None if the metric has had no values
     /// emitted since the last call to this function.
-    pub fn fmt_and_reset(&self) -> Option<String> {
+    pub fn value_and_fmt_and_reset(&self) -> Option<(MetricValue, String)> {
         match self {
             Metric::Counter(inner) => {
                 let (sum, n) = inner.load_and_reset()?;
-                if n == 1 {
-                    Some(format!("{}", sum))
+                let fmt = if n == 1 {
+                    format!("{}", sum)
                 } else {
-                    Some(format!("{} (n={})", sum, n))
-                }
+                    format!("{} (n={})", sum, n)
+                };
+                Some((MetricValue::Counter(sum), fmt))
             }
             // Gauges can't reset because they can be incremented/decremented
-            Metric::Gauge(inner) => inner.load_if_changed().map(|value| format!("{}", value)),
-            Metric::Histogram(histogram) => histogram.run_and_reset(|histogram| {
-                format!(
-                    "n={}: min={} p10={} p50={} avg={:.2} p90={} p99={} p99.9={} max={}",
-                    histogram.len(),
-                    histogram.min(),
-                    histogram.value_at_quantile(0.1),
-                    histogram.value_at_quantile(0.5),
-                    histogram.mean(),
-                    histogram.value_at_quantile(0.9),
-                    histogram.value_at_quantile(0.99),
-                    histogram.value_at_quantile(0.999),
-                    histogram.max(),
-                )
-            }),
+            Metric::Gauge(inner) => {
+                let value = inner.load_if_changed()?;
+                let fmt = format!("{}", value);
+                Some((MetricValue::Gauge(value), fmt))
+            }
+            Metric::Histogram(histogram) => {
+                // run_and_reset already returns an Option, so we map it to our return type
+                histogram.run_and_reset(|histogram| {
+                    let mean = histogram.mean();
+                    let fmt = format!(
+                        "n={}: min={} p10={} p50={} avg={:.2} p90={} p99={} p99.9={} max={}",
+                        histogram.len(),
+                        histogram.min(),
+                        histogram.value_at_quantile(0.1),
+                        histogram.value_at_quantile(0.5),
+                        mean,
+                        histogram.value_at_quantile(0.9),
+                        histogram.value_at_quantile(0.99),
+                        histogram.value_at_quantile(0.999),
+                        histogram.max(),
+                    );
+                    (MetricValue::Histogram(mean), fmt)
+                })
+            }
         }
     }
 }
