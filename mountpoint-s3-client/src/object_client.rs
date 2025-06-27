@@ -944,7 +944,7 @@ impl fmt::Display for ObjectAttribute {
             ObjectAttribute::StorageClass => "StorageClass",
             ObjectAttribute::ObjectSize => "ObjectSize",
         };
-        write!(f, "{}", attr_name)
+        write!(f, "{attr_name}")
     }
 }
 

@@ -242,7 +242,7 @@ mod tests {
 
                 for mut entry in sink.metrics.iter_mut() {
                     let (key, metric) = entry.pair_mut();
-                    assert_eq!(key.labels().count(), 1, "{} has no labels", key);
+                    assert_eq!(key.labels().count(), 1, "{key} has no labels");
                     match metric {
                         Metric::Counter(inner) => {
                             assert_eq!(key.name(), TEST_COUNTER);

@@ -100,8 +100,7 @@ mod tests {
             .expect("cache is accessible");
         assert!(
             block.is_none(),
-            "no entry should be available to return but got {:?}",
-            block,
+            "no entry should be available to return but got {block:?}",
         );
 
         // PUT and GET, OK?

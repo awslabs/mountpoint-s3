@@ -819,7 +819,7 @@ fn dd_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     let exit_status = Command::new("dd")
         .arg("if=/dev/random")
         .arg(format!("of={}", path.to_str().unwrap()))
-        .arg(format!("bs={}", SIZE))
+        .arg(format!("bs={SIZE}"))
         .arg("count=1")
         .status()
         .expect("Unable to spawn dd");

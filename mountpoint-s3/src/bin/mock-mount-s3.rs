@@ -87,7 +87,7 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         } else if size > 10u64.pow(3) {
             format!("test-{}kB", size / 10u64.pow(3))
         } else {
-            format!("test-{}B", size)
+            format!("test-{size}B")
         };
         client.add_object(&key, MockObject::ramp(0x11, size as usize, ETag::for_tests()));
     }

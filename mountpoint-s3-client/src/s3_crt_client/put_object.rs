@@ -57,7 +57,7 @@ impl S3CrtClient {
 
             for (name, value) in &params.object_metadata {
                 message
-                    .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
+                    .set_header(&Header::new(format!("x-amz-meta-{name}"), value))
                     .map_err(S3RequestError::construction_failure)?
             }
             for (name, value) in &params.custom_headers {
@@ -162,7 +162,7 @@ impl S3CrtClient {
             }
             for (name, value) in &params.object_metadata {
                 message
-                    .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
+                    .set_header(&Header::new(format!("x-amz-meta-{name}"), value))
                     .map_err(S3RequestError::construction_failure)?;
             }
             for (name, value) in &params.custom_headers {

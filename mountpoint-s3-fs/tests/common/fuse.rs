@@ -532,7 +532,7 @@ pub mod s3_session {
                 mountpoint_s3_client::types::ChecksumAlgorithm::Crc32 => ChecksumAlgorithm::Crc32,
                 mountpoint_s3_client::types::ChecksumAlgorithm::Sha1 => ChecksumAlgorithm::Sha1,
                 mountpoint_s3_client::types::ChecksumAlgorithm::Sha256 => ChecksumAlgorithm::Sha256,
-                other => panic!("Unsupported algorithm: {}", other),
+                other => panic!("Unsupported algorithm: {other}"),
             });
             let full_key = format!("{}{}", self.prefix, key);
             let mut request = self

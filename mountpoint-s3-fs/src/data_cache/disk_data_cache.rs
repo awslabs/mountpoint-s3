@@ -740,8 +740,7 @@ mod tests {
             .expect("cache should be accessible");
         assert!(
             block.is_none(),
-            "no entry should be available to return but got {:?}",
-            block,
+            "no entry should be available to return but got {block:?}",
         );
 
         // PUT and GET, OK?
@@ -1052,7 +1051,7 @@ mod tests {
             "key" => (24, cache_key.key().len()),
             "etag" => (32 + cache_key.key().len(), cache_key.etag().as_str().len()),
             "data" => (16, original_length),
-            _ => panic!("invalid length: {}", length_to_corrupt),
+            _ => panic!("invalid length: {length_to_corrupt}"),
         };
 
         assert_eq!(
@@ -1071,7 +1070,7 @@ mod tests {
                 DiskBlockReadWriteError::DecodeError(DecodeError::LimitExceeded)
             )),
             "data" => assert!(matches!(err, DiskBlockReadWriteError::InvalidBlockLength(_))),
-            _ => panic!("invalid length: {}", length_to_corrupt),
+            _ => panic!("invalid length: {length_to_corrupt}"),
         }
     }
 

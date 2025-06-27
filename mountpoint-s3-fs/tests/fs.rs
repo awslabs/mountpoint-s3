@@ -423,7 +423,7 @@ async fn test_mknod_cached() {
         .await
         .expect_err("file already exists")
         .to_errno();
-    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {:?}", err_no);
+    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {err_no:?}");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
@@ -434,7 +434,7 @@ async fn test_mknod_cached() {
         .await
         .expect_err("should fail as directory entry still cached")
         .to_errno();
-    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {:?}", err_no);
+    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {err_no:?}");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 }

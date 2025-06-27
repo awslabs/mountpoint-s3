@@ -125,6 +125,6 @@ mod tests {
             "OpenFlags({:#x} = O_WRONLY | O_APPEND)",
             libc::O_WRONLY | libc::O_APPEND
         );
-        assert_eq!(format!("{:?}", flags), expected);
+        assert_eq!(format!("{flags:?}"), expected);
     }
 }

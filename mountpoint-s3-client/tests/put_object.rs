@@ -640,13 +640,13 @@ async fn test_concurrent_put_objects(throughput_target_gbps: f64, max_concurrent
         .endpoint_config(get_test_endpoint_config())
         .throughput_target_gbps(throughput_target_gbps);
     let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let not_existing_key = format!("{}not-there", prefix);
+    let not_existing_key = format!("{prefix}not-there");
     let request_params = PutObjectParams::new();
 
     // Initiate requests.
     let mut req_vec = Vec::new();
     for num_writes in 0..max_concurrent_puts {
-        let key = format!("{}obj-{}", prefix, num_writes);
+        let key = format!("{prefix}obj-{num_writes}");
         let request = client
             .put_object(&bucket, &key, &request_params)
             .await

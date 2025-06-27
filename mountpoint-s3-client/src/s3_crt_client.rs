@@ -494,7 +494,7 @@ impl S3CrtClientInner {
         let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();
         let hostname_header = if port > 0 {
-            format!("{}:{}", hostname, port)
+            format!("{hostname}:{port}")
         } else {
             hostname.to_string()
         };
@@ -1727,7 +1727,7 @@ mod tests {
         let result = make_result(301, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::IncorrectRegion(region, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(region, "us-west-2");
     }
@@ -1738,7 +1738,7 @@ mod tests {
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "Access Denied");
     }
@@ -1749,7 +1749,7 @@ mod tests {
         let result = make_result(400, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "The provided token is malformed or otherwise invalid.");
     }
@@ -1760,7 +1760,7 @@ mod tests {
         let result = make_result(400, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "The provided token has expired.");
     }
@@ -1772,7 +1772,7 @@ mod tests {
         let result = make_result(400, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::IncorrectRegion(region, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(region, "us-west-2");
     }
@@ -1783,7 +1783,7 @@ mod tests {
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "The request signature we calculated does not match the signature you provided. Check your key and signing method.");
     }
@@ -1795,7 +1795,7 @@ mod tests {
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "This error is made up.");
     }
@@ -1815,7 +1815,7 @@ mod tests {
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::NoSigningCredentials) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
     }
 
@@ -1826,7 +1826,7 @@ mod tests {
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::CrtError(error)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(error, error_code.into());
     }

@@ -215,7 +215,7 @@ async fn express_cache_verify_fail_non_express() {
         .expect_err("cannot use standard bucket as shared cache");
 
     if let DataCacheError::IoFailure(err) = err {
-        let body = format!("{:?}", err);
+        let body = format!("{err:?}");
         assert!(body.contains("<Code>InvalidStorageClass</Code>"));
     } else {
         panic!("wrong error type");
@@ -263,7 +263,7 @@ async fn express_cache_verify_fail_forbidden() {
     let err = cache.verify_cache_valid().await.expect_err("cache must be write-able");
 
     if let DataCacheError::IoFailure(err) = err {
-        let body = format!("{:?}", err);
+        let body = format!("{err:?}");
         assert!(body.contains("AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED"))
     } else {
         panic!("wrong error type");
@@ -356,10 +356,10 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
     if owner_checked && !owner_matches {
         match cache_valid {
             Err(DataCacheError::IoFailure(err)) => {
-                let body = format!("{:?}", err);
+                let body = format!("{err:?}");
                 assert!(body.contains("Forbidden"));
             }
-            _ => panic!("expected S3RequestError::Forbidden, got: {:?}", cache_valid),
+            _ => panic!("expected S3RequestError::Forbidden, got: {cache_valid:?}"),
         }
     } else {
         cache_valid.expect("should succeed if not enforcing bucket owner");

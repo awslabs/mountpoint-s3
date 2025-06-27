@@ -386,7 +386,7 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!exit_status.success());
 
     // verify error message
-    let error_message = format!("mount point {} is not a valid file descriptor", mount_point);
+    let error_message = format!("mount point {mount_point} is not a valid file descriptor");
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -416,10 +416,8 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!exit_status.success());
 
     // verify error message
-    let error_message = format!(
-        "expected mount point {} to be a /dev/fuse device file descriptor but got Pipe",
-        mount_point
-    );
+    let error_message =
+        format!("expected mount point {mount_point} to be a /dev/fuse device file descriptor but got Pipe");
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -1128,7 +1126,7 @@ fn mount_exists(source: &str, mount_point: &str) -> bool {
 fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Option<String> {
     // macOS wrap its temp directory under /private but it's not visible to users
     #[cfg(target_os = "macos")]
-    let mount_point = format!("/private{}", mount_point);
+    let mount_point = format!("/private{mount_point}");
 
     let mut cmd = Command::new("mount");
     #[cfg(target_os = "linux")]
@@ -1230,7 +1228,7 @@ fn create_cli_config_file(
 
     // Populate source profile from the default credentials chain
     let credentials = tokio_block_on(get_sdk_default_chain_creds());
-    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "[profile {source_profile}]").unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
     if let Some(session_token) = credentials.session_token() {
@@ -1238,11 +1236,11 @@ fn create_cli_config_file(
     }
 
     // Then populate the profile for testing
-    writeln!(config_file, "[profile {}]", profile_name).unwrap();
-    writeln!(config_file, "source_profile = {}", source_profile).unwrap();
-    writeln!(config_file, "role_arn = {}", role_arn).unwrap();
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
+    writeln!(config_file, "source_profile = {source_profile}").unwrap();
+    writeln!(config_file, "role_arn = {role_arn}").unwrap();
     if let Some(region) = region {
-        writeln!(config_file, "region = {}", region).unwrap();
+        writeln!(config_file, "region = {region}").unwrap();
     }
 
     Ok(config_file)

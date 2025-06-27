@@ -173,7 +173,7 @@ impl Visit for FormatFields<'_> {
             // Skip fields added by `tracing-log` that are handled by normalized_metadata above
             name if name.starts_with("log.") => (),
             "message" => {
-                let _ = write!(self.buf, "{:?}", value);
+                let _ = write!(self.buf, "{value:?}");
             }
             _ => {
                 if !self.buf.is_empty() {
@@ -189,7 +189,7 @@ impl Visit for FormatFields<'_> {
             // Skip fields added by `tracing-log` that are handled by normalized_metadata above
             name if name.starts_with("log.") => (),
             "message" => {
-                let _ = write!(self.buf, "{}", value);
+                let _ = write!(self.buf, "{value}");
             }
             _ => {
                 if !self.buf.is_empty() {
@@ -229,19 +229,15 @@ mod tests {
         let expected = "[INFO] span1{msg1=1 field1=1 field2=2}:span2{msg2=2 field3=3 field4=4}: mountpoint_s3_fs::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6";
         assert!(
             output.ends_with(expected),
-            "expected payload {:?} to end with {:?}",
-            output,
-            expected
+            "expected payload {output:?} to end with {expected:?}",
         );
         assert!(
             output.contains("mount-s3"),
-            "expected payload {:?} to contain mount-s3",
-            output
+            "expected payload {output:?} to contain mount-s3",
         );
         assert!(
             output.starts_with("<14>"),
-            "expected payload {:?} to start with syslog PRI <14>",
-            output
+            "expected payload {output:?} to start with syslog PRI <14>",
         );
     }
 }

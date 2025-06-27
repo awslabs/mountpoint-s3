@@ -115,7 +115,7 @@ impl MountPoint {
         };
         use std::os::fd::{FromRawFd, OwnedFd};
 
-        let mount_point = format!("/dev/fd/{}", fd);
+        let mount_point = format!("/dev/fd/{fd}");
 
         let process = Process::myself().unwrap();
         let fd_info = match process.fd_from_fd(fd) {

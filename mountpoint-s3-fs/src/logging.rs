@@ -99,7 +99,7 @@ fn log_file_name_time_suffix() -> String {
 fn tracing_panic_hook(panic_info: &PanicHookInfo) {
     let location = panic_info
         .location()
-        .map(|l| format!("{}", l))
+        .map(|l| format!("{l}"))
         .unwrap_or_else(|| String::from("<unknown>"));
 
     let payload = panic_info.payload();

@@ -193,12 +193,10 @@ where
 
     /// Helper to return the u16 value in an environment variable, or panic.  Useful for unstable overrides.
     fn parse_env_var_to_u16(var_name: &str, var_value: std::ffi::OsString) -> u16 {
-        var_value.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
-            panic!(
-                "Invalid value for environment variable {}. Must be positive integer.",
-                var_name
-            )
-        })
+        var_value
+            .to_string_lossy()
+            .parse::<u16>()
+            .unwrap_or_else(|_| panic!("Invalid value for environment variable {var_name}. Must be positive integer."))
     }
 
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
@@ -211,7 +209,7 @@ where
             let max_background = Self::parse_env_var_to_u16(ENV_VAR_KEY_MAX_BACKGROUND, user_max_background);
             let old = config
                 .set_max_background(max_background)
-                .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {}", max_background));
+                .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {max_background}"));
             tracing::warn!(
                 "Successfully overridden FUSE max_background configuration to {} (was {}) from unstable environment variable.",
                 max_background,
@@ -235,7 +233,7 @@ where
                 Self::parse_env_var_to_u16(ENV_VAR_KEY_CONGESTION_THRESHOLD, user_congestion_threshold);
             let old = config
                 .set_congestion_threshold(congestion_threshold)
-                .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {}", congestion_threshold));
+                .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {congestion_threshold}"));
             tracing::warn!(
                 "Successfully overridden FUSE congestion_threshold configuration to {} (was {}) from unstable environment variable.",
                 congestion_threshold,
@@ -1009,6 +1007,6 @@ mod tests {
             .await
             .expect_err("open after the corruption should fail");
         assert_eq!(err.errno, libc::EIO);
-        assert_eq!(format!("{}", err), "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)");
+        assert_eq!(format!("{err}"), "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)");
     }
 }

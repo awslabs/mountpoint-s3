@@ -119,7 +119,7 @@ impl ConfigOptions {
 
     fn build_client_config(&self) -> Result<ClientConfig> {
         let user_agent_string = match &self.user_agent_prefix {
-            Some(prefix) => format!("{}/mp-exmpl", prefix),
+            Some(prefix) => format!("{prefix}/mp-exmpl"),
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
         };
         let target_throughput = self.determine_throughput()?;

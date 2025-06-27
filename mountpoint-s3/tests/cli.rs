@@ -37,13 +37,8 @@ fn prefix_doesnt_end_in_slash() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("mount-s3")?;
 
     let prefix = "foo";
-    cmd.arg("test-bucket")
-        .arg(dir.path())
-        .arg(format!("--prefix={}", prefix));
-    let error_message = format!(
-        "error: invalid value '{}' for '--prefix <PREFIX>': prefix must end in '/'",
-        prefix
-    );
+    cmd.arg("test-bucket").arg(dir.path()).arg(format!("--prefix={prefix}"));
+    let error_message = format!("error: invalid value '{prefix}' for '--prefix <PREFIX>': prefix must end in '/'");
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -163,8 +158,7 @@ fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
     let expected_dir_perm = 0o750;
     assert_eq!(
         expected_dir_perm, dir_perm,
-        "log directory created by mountpoint should have {:#o} permissions, not {:#o}",
-        expected_dir_perm, dir_perm,
+        "log directory created by mountpoint should have {expected_dir_perm:#o} permissions, not {dir_perm:#o}",
     );
 
     // verify log files metadata
@@ -178,8 +172,7 @@ fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
         let expected_file_perm = 0o640;
         assert_eq!(
             expected_file_perm, file_perm,
-            "log file should have {:#o} permissions, not {:#o}",
-            expected_file_perm, file_perm,
+            "log file should have {expected_file_perm:#o} permissions, not {file_perm:#o}",
         );
     }
 
@@ -210,7 +203,7 @@ fn max_ttl_exceeded() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("test-bucket")
         .arg(dir.path())
         .arg("--metadata-ttl")
-        .arg(format!("{}", INVALID_TTL));
+        .arg(format!("{INVALID_TTL}"));
     let error_message =
         "'--metadata-ttl <SECONDS|indefinite|minimal>': TTL must not be greater than 3153600000s (~100 years)";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
@@ -279,10 +272,10 @@ fn verify_new_part_size_config_conflict_with_old_one(
     cmd.arg("test-bucket").arg(dir.path()).arg("--part-size=1024");
 
     if let Some(read_part_size) = read_part_size {
-        cmd.arg(format!("--read-part-size={}", read_part_size));
+        cmd.arg(format!("--read-part-size={read_part_size}"));
     }
     if let Some(write_part_size) = write_part_size {
-        cmd.arg(format!("--write-part-size={}", write_part_size));
+        cmd.arg(format!("--write-part-size={write_part_size}"));
     }
 
     let error_message = "cannot be used with";

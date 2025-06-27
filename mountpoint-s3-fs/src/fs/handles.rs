@@ -405,7 +405,7 @@ fn get_tgid(pid: u32) -> Option<u32> {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
 
-        let path = format!("/proc/{}/task/{}/status", pid, pid);
+        let path = format!("/proc/{pid}/task/{pid}/status");
         let file = File::open(path).ok()?;
         for line in BufReader::new(file).lines() {
             let line = line.ok()?;

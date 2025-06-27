@@ -69,7 +69,7 @@ impl FsTabCliArgs {
     fn rename_option(option: String) -> String {
         match option.as_str() {
             "ro" => "--read-only".to_string(),
-            _ => format!("--{}", option),
+            _ => format!("--{option}"),
         }
     }
 
@@ -209,7 +209,7 @@ mod tests {
     fn test_fstab_cli_args_parses(args: Vec<&str>, should_parse: bool, expected_prefix: Result<String, String>) {
         let res: Result<CliArgs, clap::Error> =
             FsTabCliArgs::try_parse_from(&args).and_then(|fstab_cli_args| fstab_cli_args.try_into());
-        assert_eq!(res.is_ok(), should_parse, "args={:?}\n res={:?}", args, res);
+        assert_eq!(res.is_ok(), should_parse, "args={args:?}\n res={res:?}");
 
         if let Ok(cli_args) = res {
             match expected_prefix {
@@ -263,9 +263,8 @@ mod tests {
             .s3_path()
             .expect_err("CliArgs should not produce a valid s3 path");
         assert!(
-            format!("{:#}", err).contains("explicit prefix option not allowed with S3 URI"),
-            "{:#}",
-            err
+            format!("{err:#}").contains("explicit prefix option not allowed with S3 URI"),
+            "{err:#}"
         )
     }
 

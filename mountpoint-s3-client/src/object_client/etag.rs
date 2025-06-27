@@ -34,7 +34,7 @@ impl ETag {
         hasher.update(data);
 
         let hash = hasher.finalize();
-        let result = format!("{:x}", hash);
+        let result = format!("{hash:x}");
         Self(result)
     }
 }

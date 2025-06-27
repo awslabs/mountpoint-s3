@@ -46,7 +46,7 @@ fn run_benchmark(
                 let received_size_clone = Arc::clone(&received_size);
                 scope.spawn(|| {
                     futures::executor::block_on(async move {
-                        let mut request = client
+                        let request = client
                             .get_object(bucket, key, &GetObjectParams::new())
                             .await
                             .expect("couldn't create get request");
