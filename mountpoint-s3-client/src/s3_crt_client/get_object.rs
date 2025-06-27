@@ -11,6 +11,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
+use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::pin_project;
 use tracing::trace;
@@ -100,10 +101,11 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
-                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
+                    let body_part = GetBodyPart {
                         offset,
-                        data: Bytes::copy_from_slice(data),
-                    }));
+                        data: make_owned_bytes(data),
+                    };
+                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(body_part));
                 },
                 parse_get_object_error,
                 move |result| {
@@ -146,6 +148,19 @@ impl S3CrtClient {
             next_offset,
         })
     }
+}
+
+#[cfg(not(feature = "restore_buffer_copy"))]
+fn make_owned_bytes(data: &Buffer) -> Bytes {
+    let owned_buffer = data
+        .to_owned_buffer()
+        .expect("buffers returned from GetObject can always be acquired");
+    Bytes::from_owner(owned_buffer)
+}
+
+#[cfg(feature = "restore_buffer_copy")]
+fn make_owned_bytes(data: &Buffer) -> Bytes {
+    Bytes::copy_from_slice(data)
 }
 
 #[derive(Debug)]
