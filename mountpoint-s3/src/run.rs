@@ -243,12 +243,12 @@ fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Res
 /// We do not recommend using this configuration option in production and it may be removed at any time without notice.
 fn should_cleanup_cache_dir() -> bool {
     const ENV_CONFIG_KEY_NAME: &str = "UNSTABLE_MOUNTPOINT_DISABLE_CACHE_CLEANUP";
-    let should_cleanup =
+    let disable_cleanup =
         std::env::var_os(ENV_CONFIG_KEY_NAME).is_some_and(|x| x.eq_ignore_ascii_case("TRUE") || x == "1");
-    if should_cleanup {
+    if disable_cleanup {
         tracing::warn!("{ENV_CONFIG_KEY_NAME} is set and 'truthy', disabling cache cleanup");
     }
-    should_cleanup
+    !disable_cleanup
 }
 
 fn env_unstable_cache_key() -> Option<OsString> {
