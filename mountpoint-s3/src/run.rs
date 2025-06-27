@@ -18,6 +18,22 @@ use nix::unistd::ForkResult;
 use crate::cli::CliArgs;
 use crate::{build_info, parse_cli_args};
 
+/// Initialize metrics based on CLI arguments.
+/// Returns a handle that must be kept alive for the duration of metrics collection.
+fn init_metrics(
+    log_metrics_otlp: &Option<String>,
+    log_metrics_otlp_interval: Option<u64>,
+) -> anyhow::Result<impl Drop> {
+    let otlp_config = log_metrics_otlp.as_deref().map(|endpoint| {
+        let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
+        if let Some(interval) = log_metrics_otlp_interval {
+            config = config.with_interval_secs(interval);
+        }
+        config
+    });
+    metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))
+}
+
 /// Run Mountpoint with the given [CliArgs].
 pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
 where
@@ -32,15 +48,7 @@ where
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
-
-        let otlp_config = args.log_metrics_otlp.as_deref().map(|endpoint| {
-            let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
-            if let Some(interval) = args.log_metrics_otlp_interval {
-                config = config.with_interval_secs(interval);
-            }
-            config
-        });
-        let _metrics = metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+        let _metrics = init_metrics(&args.log_metrics_otlp, args.log_metrics_otlp_interval)?;
 
         create_pid_file()?;
 
@@ -71,16 +79,7 @@ where
             ForkResult::Child => {
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
-
-                let otlp_config = args.log_metrics_otlp.as_deref().map(|endpoint| {
-                    let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
-                    if let Some(interval) = args.log_metrics_otlp_interval {
-                        config = config.with_interval_secs(interval);
-                    }
-                    config
-                });
-                let _metrics =
-                    metrics::install(otlp_config).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+                let _metrics = init_metrics(&args.log_metrics_otlp, args.log_metrics_otlp_interval)?;
 
                 create_pid_file()?;
 
