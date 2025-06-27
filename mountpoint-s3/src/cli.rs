@@ -7,7 +7,9 @@ use clap::{value_parser, ArgGroup, Parser, ValueEnum};
 use mountpoint_s3_client::config::{AddressingStyle, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
-use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
+use mountpoint_s3_fs::data_cache::{
+    CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig, DEFAULT_CACHE_BLOCK_SIZE,
+};
 use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::logging::{prepare_log_file_name, LoggingConfig};
@@ -528,7 +530,7 @@ impl CliArgs {
         if let Some(kib) = self.cache_block_size {
             return kib * 1024;
         }
-        1024 * 1024 // 1 MiB block size - default for disk cache and for express cache
+        DEFAULT_CACHE_BLOCK_SIZE // default for both disk cache and express cache
     }
 
     fn cache_config(&self) -> CacheConfig {

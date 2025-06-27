@@ -39,7 +39,7 @@ pub struct DiskDataCache {
 }
 
 /// Configuration for a [DiskDataCache].
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DiskDataCacheConfig {
     pub cache_directory: PathBuf,
     /// Size of data blocks.
@@ -49,7 +49,7 @@ pub struct DiskDataCacheConfig {
 }
 
 /// Limit the cache size.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CacheLimit {
     Unbounded,
     TotalSize { max_size: usize },
