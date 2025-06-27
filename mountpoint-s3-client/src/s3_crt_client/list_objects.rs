@@ -20,13 +20,13 @@ use super::{QueryFragment, S3CrtClient, S3Operation, S3RequestError};
 #[non_exhaustive]
 pub enum ParseError {
     #[error("XML response was not valid: problem = {1}, xml node = {0:?}")]
-    InvalidResponse(xmltree::Element, String),
+    InvalidResponse(Box<xmltree::Element>, String),
 
     #[error("XML parsing error: {0:?}")]
     Xml(#[from] xmltree::ParseError),
 
     #[error("Missing field {1} from XML element {0:?}")]
-    MissingField(xmltree::Element, String),
+    MissingField(Box<xmltree::Element>, String),
 
     #[error("Failed to parse field {1} as bool: {0:?}")]
     Bool(#[source] std::str::ParseBoolError, String),
@@ -42,7 +42,7 @@ pub enum ParseError {
 fn get_text(element: &xmltree::Element) -> Result<String, ParseError> {
     Ok(element
         .get_text()
-        .ok_or_else(|| ParseError::InvalidResponse(element.clone(), "field has no text".to_string()))?
+        .ok_or_else(|| ParseError::InvalidResponse(element.clone().into(), "field has no text".to_string()))?
         .to_string())
 }
 
@@ -50,7 +50,7 @@ fn get_text(element: &xmltree::Element) -> Result<String, ParseError> {
 fn get_child<'a>(element: &'a xmltree::Element, name: &str) -> Result<&'a xmltree::Element, ParseError> {
     element
         .get_child(name)
-        .ok_or_else(|| ParseError::MissingField(element.clone(), name.to_string()))
+        .ok_or_else(|| ParseError::MissingField(element.clone().into(), name.to_string()))
 }
 
 /// Get the text out of a child node, with the right error type.
@@ -86,7 +86,7 @@ fn parse_result_from_xml(element: &mut xmltree::Element) -> Result<ListObjectsRe
 
     if is_truncated != next_continuation_token.is_some() {
         return Err(ParseError::InvalidResponse(
-            element.clone(),
+            element.clone().into(),
             "IsTruncated doesn't match NextContinuationToken".to_string(),
         ));
     }
