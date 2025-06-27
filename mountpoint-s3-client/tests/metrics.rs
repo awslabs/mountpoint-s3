@@ -207,14 +207,14 @@ async fn test_get_object_metrics() {
     let Metric::Histogram(ttfb) = ttfb else {
         panic!("expected histogram for first byte latency");
     };
-    assert!(ttfb.lock().unwrap().len() > 0);
+    assert!(!ttfb.lock().unwrap().is_empty());
     let (_, total) = metrics
         .get("s3.requests.total_latency_us", Some("op"), Some("get_object"))
         .expect("total latency should exist");
     let Metric::Histogram(total) = total else {
         panic!("expected histogram for total latency");
     };
-    assert!(total.lock().unwrap().len() > 0);
+    assert!(!total.lock().unwrap().is_empty());
 }
 
 rusty_fork_test! {
