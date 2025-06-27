@@ -1,6 +1,7 @@
 ## Unreleased (v0.16.1)
 
 * Update to latest CRT dependencies.
+* Add `CredentialsProvider::new_delegate`, which can be used to implement custom credential providers in Rust. ([#1477](https://github.com/awslabs/mountpoint-s3/pull/1477))
 
 ## v0.16.0 (Jun 19, 2025)
 
