@@ -5,13 +5,13 @@ use std::os::fd::AsRawFd;
 use std::time::Duration;
 use std::{env, fs};
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::{metrics, MountpointConfig, Runtime};
+use mountpoint_s3_fs::{MountpointConfig, Runtime, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 

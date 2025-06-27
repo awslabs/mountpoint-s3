@@ -980,7 +980,9 @@ fn write_with_no_permissions_for_a_key_sse() {
     let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, Some(credentials));
     write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
 
-    let log_line_pattern = format!("^.*WARN.*User: [^ ]* is not authorized to perform: kms:GenerateDataKey on resource: {key_id} because no session policy allows the kms:GenerateDataKey action.*$");
+    let log_line_pattern = format!(
+        "^.*WARN.*User: [^ ]* is not authorized to perform: kms:GenerateDataKey on resource: {key_id} because no session policy allows the kms:GenerateDataKey action.*$"
+    );
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
@@ -1035,7 +1037,9 @@ fn read_with_no_permissions_for_a_key_sse() {
         read_result.expect("should be able to read a default-encrypted file after the first read failure");
     }
 
-    let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read failed with errno 5: get request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
+    let log_line_pattern = format!(
+        "^.*WARN.*{encrypted_object}.*read failed with errno 5: get request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$"
+    );
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }

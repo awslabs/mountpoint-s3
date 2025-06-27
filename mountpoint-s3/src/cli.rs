@@ -2,20 +2,20 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context as _};
-use clap::{value_parser, ArgGroup, Parser, ValueEnum};
-use mountpoint_s3_client::config::{AddressingStyle, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
+use anyhow::{Context as _, anyhow};
+use clap::{ArgGroup, Parser, ValueEnum, value_parser};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
 use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
-use mountpoint_s3_fs::logging::{prepare_log_file_name, LoggingConfig};
+use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
+use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
+use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 use sysinfo::{RefreshKind, System};
 
 use crate::build_info;
