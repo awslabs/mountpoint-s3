@@ -52,7 +52,7 @@ Arguments:
     ),
     group(
         ArgGroup::new("access_grants_group")
-            .requires("access_grants_account_id")
+            .requires("expected_bucket_owner")
             .args(&["use_access_grants"]),
     ),
     after_help = FSTAB_DOCS,
@@ -131,28 +131,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub use_access_grants: bool,
 
-    #[clap(
-        long,
-        help = "AWS account ID for Access Grants (required when using --use-access-grants)",
-        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
-    )]
-    pub access_grants_account_id: Option<String>,
 
-    #[clap(
-        long,
-        help = "Permission level for Access Grants (READ, WRITE, READWRITE) [default: READ]",
-        value_parser = ["READ", "WRITE", "READWRITE"],
-        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
-    )]
-    pub access_grants_permission: Option<String>,
-
-    #[clap(
-        long,
-        help = "Duration for Access Grants credentials in seconds (900-43200) [default: 3600]",
-        value_parser = value_parser!(u32).range(900..=43200),
-        help_heading = AWS_CREDENTIALS_OPTIONS_HEADER
-    )]
-    pub access_grants_duration: Option<u32>,
 
     #[clap(
         long,
@@ -800,13 +779,11 @@ impl CliArgs {
     }
 
     fn build_access_grants_config(&self) -> mountpoint_s3_client::config::AccessGrantsConfig {
-        // Parse permission, default to READ
-        let permission = match self.access_grants_permission.as_deref() {
-            Some("READ") | None => mountpoint_s3_client::config::AccessGrantsPermission::Read,
-            Some("WRITE") => mountpoint_s3_client::config::AccessGrantsPermission::Write,
-            Some("READWRITE") => mountpoint_s3_client::config::AccessGrantsPermission::ReadWrite,
-            // This case should never happen due to clap validation
-            _ => mountpoint_s3_client::config::AccessGrantsPermission::Read,
+        // Determine permission based on read_only flag
+        let permission = if self.read_only {
+            mountpoint_s3_client::config::AccessGrantsPermission::Read
+        } else {
+            mountpoint_s3_client::config::AccessGrantsPermission::ReadWrite
         };
 
         // Build target S3 URI from bucket and prefix
@@ -830,17 +807,11 @@ impl CliArgs {
 
         // Account ID is required - validation ensures it's present
         let account_id = self
-            .access_grants_account_id
+            .expected_bucket_owner
             .clone()
-            .expect("access_grants_account_id is required when use_access_grants is set");
+            .expect("expected_bucket_owner is required when use_access_grants is set");
 
-        let mut config = mountpoint_s3_client::config::AccessGrantsConfig::new(account_id, target, permission);
-
-        if let Some(duration) = self.access_grants_duration {
-            config = config.duration_seconds(duration);
-        }
-
-        config
+        mountpoint_s3_client::config::AccessGrantsConfig::new(account_id, target, permission)
     }
 
     pub fn client_config(&self, version: &str) -> ClientConfig {
