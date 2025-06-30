@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn test_access_grants_provider_creation() {
         let config = AccessGrantsConfig::new(
-            "123456789012".to_string(),
+            Some("123456789012".to_string()),
             "s3://test-bucket/prefix".to_string(),
             AccessGrantsPermission::Read,
         );

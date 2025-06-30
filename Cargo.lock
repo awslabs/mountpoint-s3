@@ -2894,6 +2894,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-s3",
  "aws-sdk-s3control",
+ "aws-sdk-sts",
  "aws-smithy-runtime-api",
  "base64ct",
  "built",

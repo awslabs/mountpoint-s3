@@ -6,8 +6,8 @@ use thiserror::Error;
 /// Configuration for S3 Access Grants authentication
 #[derive(Debug, Clone)]
 pub struct AccessGrantsConfig {
-    /// AWS account ID that owns the Access Grants instance
-    pub account_id: String,
+    /// AWS account ID that owns the Access Grants instance (None = auto-detect)
+    pub account_id: Option<String>,
     /// The target S3 prefix or object for access (e.g., "s3://bucket/prefix")
     pub target: String,
     /// Permission requested (READ, WRITE, or READWRITE)
@@ -118,7 +118,7 @@ impl AccessGrantsCredentials {
 
 impl AccessGrantsConfig {
     /// Create new AccessGrantsConfig with required fields
-    pub fn new(account_id: String, target: String, permission: AccessGrantsPermission) -> Self {
+    pub fn new(account_id: Option<String>, target: String, permission: AccessGrantsPermission) -> Self {
         Self {
             account_id,
             target,

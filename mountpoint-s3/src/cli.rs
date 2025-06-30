@@ -50,11 +50,6 @@ Arguments:
         ArgGroup::new("cache_group")
             .multiple(true),
     ),
-    group(
-        ArgGroup::new("access_grants_group")
-            .requires("expected_bucket_owner")
-            .args(&["use_access_grants"]),
-    ),
     after_help = FSTAB_DOCS,
 )]
 pub struct CliArgs {
@@ -805,11 +800,9 @@ impl CliArgs {
             }
         };
 
-        // Account ID is required - validation ensures it's present
-        let account_id = self
-            .expected_bucket_owner
-            .clone()
-            .expect("expected_bucket_owner is required when use_access_grants is set");
+        // Account ID from expected_bucket_owner if provided
+        // If not provided, we'll detect it from the current credentials in the provider
+        let account_id = self.expected_bucket_owner.clone();
 
         mountpoint_s3_client::config::AccessGrantsConfig::new(account_id, target, permission)
     }

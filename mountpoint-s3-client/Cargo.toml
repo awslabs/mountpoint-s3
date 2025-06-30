@@ -23,6 +23,7 @@ platform-info = "2.0.5"
 regex = "1.11.1"
 aws-config = "1.5.15"
 aws-sdk-s3control = "1.0"
+aws-sdk-sts = "1.0"
 aws-credential-types = "1.2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.137"

@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 use aws_sdk_s3control::Client as S3ControlClient;
+use aws_sdk_sts::Client as StsClient;
 
 use crate::access_grants::{AccessGrantsConfig, AccessGrantsCredentials, AccessGrantsError};
 use crate::endpoint_config::EndpointConfig;
@@ -14,6 +15,7 @@ pub struct AccessGrantsClient {
     endpoint_config: EndpointConfig,
     s3control_client: S3ControlClient,
     cached_credentials: Arc<Mutex<Option<CachedCredentials>>>,
+    detected_account_id: Option<String>,
 }
 
 /// Cached credentials with expiration tracking
@@ -46,12 +48,38 @@ impl AccessGrantsClient {
         };
 
         let s3control_client = S3ControlClient::new(&aws_config);
+        
+        // Detect account ID if not provided
+        let detected_account_id = if config.account_id.is_none() {
+            info!("No account ID provided, detecting from current credentials");
+            let sts_client = StsClient::new(&aws_config);
+            let caller_identity = sts_client.get_caller_identity()
+                .send()
+                .await
+                .map_err(|e| AccessGrantsError::AwsServiceError {
+                    code: "GetCallerIdentityError".to_string(),
+                    message: format!("Failed to detect account ID: {}", e),
+                })?;
+            
+            let account_id = caller_identity.account()
+                .ok_or_else(|| AccessGrantsError::AwsServiceError {
+                    code: "MissingAccountId".to_string(),
+                    message: "GetCallerIdentity response missing account ID".to_string(),
+                })?
+                .to_string();
+            
+            info!("Detected account ID: {}", account_id);
+            Some(account_id)
+        } else {
+            None
+        };
 
         Ok(Self {
             config,
             endpoint_config,
             s3control_client,
             cached_credentials: Arc::new(Mutex::new(None)),
+            detected_account_id,
         })
     }
 
@@ -88,16 +116,23 @@ impl AccessGrantsClient {
         info!("Calling GetDataAccess API for Access Grants token");
         info!("Target: {}", self.config.target);
         info!("Permission: {:?}", self.config.permission);
-        info!("Account ID: {}", self.config.account_id);
+        let account_id = self.detected_account_id.as_ref()
+            .or(self.config.account_id.as_ref())
+            .expect("Account ID should be available either from config or detection");
+        info!("Account ID: {}", account_id);
         info!("Region: {}", self.endpoint_config.get_region());
         
         // Convert permission to AWS SDK enum
         let permission = self.config.permission.to_sdk_permission();
         
         // Make the GetDataAccess API call
+        let account_id = self.detected_account_id.as_ref()
+            .or(self.config.account_id.as_ref())
+            .expect("Account ID should be available either from config or detection");
+        
         let mut request = self.s3control_client
             .get_data_access()
-            .account_id(&self.config.account_id)
+            .account_id(account_id)
             .target(&self.config.target)
             .permission(permission);
             
