@@ -82,6 +82,8 @@ Metrics are currently output in an unstructured format and are subject to change
 
 Additionally, metrics can be published to a specified endpoint (in OpenTelemetry format), for example to the endpoint that CloudWatch agent listens to and can be configured to forward metrics to CloudWatch/Prometheus. 
 
+For more information about the CloudWatch agent, see the [CloudWatch Agent Installation Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Install-CloudWatch-Agent.html) and [Using the CloudWatch agent to collect OpenTelemetry metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-OpenTelemetry-metrics.html).
+
 To opt-in, use the `--log-metrics-otlp <ENDPOINT>` command-line argument and provide an endpoint as a parameter. To optionally specify a time interval for Mountpoint to collect and export metrics, use the `--log-metrics-otlp-interval <SECONDS>` command-line argument. Metrics will be collected by Mountpoint and exported to the endpoint every 5 seconds by default, or every specified seconds.
 
 #### Example Command
