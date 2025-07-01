@@ -1,6 +1,6 @@
-## Unreleased (v0.5.1)
+## Unreleased (v0.6.0)
 
-* Update underlying S3 client version.
+* Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
 
 ## v0.5.0 (Jun 19, 2025)
 
