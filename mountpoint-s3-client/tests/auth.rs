@@ -119,7 +119,7 @@ async fn test_profile_provider_static_async() {
     .unwrap();
     writeln!(config_file, "aws_access_key_id = {}", credentials.access_key_id()).unwrap();
 
-    // Set up the environment variables to use thiseii new config file.
+    // Set up the environment variables to use this new config file.
     // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
     unsafe {
         std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());

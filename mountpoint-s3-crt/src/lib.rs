@@ -76,7 +76,9 @@ pub(crate) trait CrtError: Sized {
 
     /// # Safety
     /// This must only be used immediately on a pointer returned from the CRT, with no other
-    /// CRT code being run beforehand, or else it will return the wrong error.
+    /// CRT code being run beforehand on the same thread, or else it will return the wrong error.
+    /// In particular, there should not be any `await` point between the return from the CRT
+    /// function and the invocation of this method.
     unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error>;
 }
 

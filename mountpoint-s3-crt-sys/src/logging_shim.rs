@@ -63,7 +63,8 @@ unsafe extern "C" fn aws_crt_s3_rs_logging_shim_log_fn(
     body: *mut aws_string,
     body_length: usize,
 ) -> libc::c_int {
-    // SAFETY: `LOGGER_LOG_FN` is only mutated in `try_init`.
+    // SAFETY: this function is only called after `try_init`, which is the only place
+    // where `LOGGER_LOG_FN` is initialized.
     unsafe {
         if let Some(f) = LOGGER_LOG_FN {
             f(logger, log_level, subject, body, body_length)
