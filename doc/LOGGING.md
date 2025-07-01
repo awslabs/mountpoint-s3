@@ -84,6 +84,8 @@ Additionally, metrics can be published to a specified endpoint (in OpenTelemetry
 
 For more information about the CloudWatch agent, see the [CloudWatch Agent Installation Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Install-CloudWatch-Agent.html) and [Using the CloudWatch agent to collect OpenTelemetry metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-OpenTelemetry-metrics.html).
 
+Note that publishing metrics to CloudWatch may incur additional AWS costs depending on the volume of metrics and your AWS account's billing tier. Publishing metrics is entirely optional, and you can still use Mountpoint without enabling this feature.
+
 To opt-in, use the `--log-metrics-otlp <ENDPOINT>` command-line argument and provide an endpoint as a parameter. To optionally specify a time interval for Mountpoint to collect and export metrics, use the `--log-metrics-otlp-interval <SECONDS>` command-line argument. Metrics will be collected by Mountpoint and exported to the endpoint every 5 seconds by default, or every specified seconds.
 
 #### Example Command
@@ -92,8 +94,6 @@ To opt-in, use the `--log-metrics-otlp <ENDPOINT>` command-line argument and pro
 # Mount an S3 bucket and publish metrics to a local CloudWatch agent
 mount-s3 my-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --log-metrics-otlp-interval 10
 ```
-
-Note that publishing metrics to CloudWatch may incur additional AWS costs depending on the volume of metrics and your AWS account's billing tier. Publishing metrics is entirely optional, and you can still use Mountpoint without enabling this feature.
 
 #### CloudWatch Agent Installation 
 
