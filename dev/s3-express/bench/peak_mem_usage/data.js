@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1751370914959,
+  "lastUpdate": 1751385331631,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "chagem@amazon.com",
-            "name": "Christian Hagemeier",
-            "username": "c-hagem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b2d1e773481408c95e9e36dd7588b0c53f7cbbc6",
-          "message": "Fstab tests: Ignore empty directory (#1443)\n\nCurrently, our fstab tests can fail if run in an environment where the\noutput dir does not exist.\nThis PR changes the `rm -r` call to a `rm -rf` to ignore cases where the\ndirectory is empty.\n\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Christian Hagemeier <chagem@amazon.com>",
-          "timestamp": "2025-05-30T14:50:18Z",
-          "tree_id": "178e0afe47f45a9481ecd6e6de7e1ddb96bf2084",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/b2d1e773481408c95e9e36dd7588b0c53f7cbbc6"
-        },
-        "date": 1748624495400,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 16122.64453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 24231.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 35193.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 159.7109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 385.9453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 154.55859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 408.89453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 85.46875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 318.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 90.8359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 322.76171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 37995.17578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 390.34375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 41527.796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 396.17578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 14139.4296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 259.73046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 14715.3046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 12936.3828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 263.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 367.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 239.97265625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 236.82421875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "05e964c915cb1254fcbcbd4f316cda41603b5954",
+          "message": "Explicitly edit fstab file when running on Github runners to avoid a failure (#1482)\n\nIn the fstab CI tests, comment out a fstab entry for\n`\\dev/disk/cloud/azure_resource-part1` if we're running in Github\nActions.\n\n### Does this change impact existing behavior?\n\nFixes a failure in Github CI.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2025-07-01T13:42:48Z",
+          "tree_id": "52581fc3fe4d6383ee758bb8b3f771e646bd97f3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/05e964c915cb1254fcbcbd4f316cda41603b5954"
+        },
+        "date": 1751385331579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 17187.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 25629.88671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 39766.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 130.66015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 298.67578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 218.390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 304.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 70.65625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 229.796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 78.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 231.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 37106.4609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 374.17578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 37522.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 391.28515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 12990.35546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 265.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12702.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11279.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 260.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 385.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 236.88671875,
             "unit": "MiB"
           }
         ]
