@@ -2,13 +2,13 @@ use std::num::NonZeroUsize;
 
 use common::make_test_filesystem_with_client;
 use httpmock::{Method, MockServer, Then};
+use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::{
     AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
 };
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
-use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{OpenFlags, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3_fs::fs::{FUSE_ROOT_INODE, OpenFlags, ToErrno};
 
 use mountpoint_s3_fs::S3Filesystem;
 use test_case::test_case;

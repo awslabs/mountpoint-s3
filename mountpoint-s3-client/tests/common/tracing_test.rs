@@ -2,10 +2,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use tracing::{Event, Level, Subscriber};
+use tracing_subscriber::Layer;
 use tracing_subscriber::field::VisitOutput;
 use tracing_subscriber::fmt::format::{DefaultVisitor, Writer};
 use tracing_subscriber::layer::Context;
-use tracing_subscriber::Layer;
 
 static TRACING_TEST_LAYER: LazyLock<TracingTestLayer> = LazyLock::new(TracingTestLayer::new);
 

@@ -4,8 +4,8 @@ pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
-use mountpoint_s3_client::error::{CopyObjectError, ObjectClientError};
 use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::error::{CopyObjectError, ObjectClientError};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
 #[tokio::test]

@@ -4,12 +4,12 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
-use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
-use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::Arc;
+use crate::sync::async_channel::{Receiver, RecvError, Sender, unbounded};
+use crate::sync::atomic::{AtomicUsize, Ordering};
 
-use super::part::Part;
 use super::PrefetchReadError;
+use super::part::Part;
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.

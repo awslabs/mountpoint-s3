@@ -1,9 +1,9 @@
 use std::os::unix::ffi::OsStrExt as _;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use clap::Parser;
 use futures::channel::oneshot;
 use futures::executor::block_on;
@@ -18,7 +18,7 @@ use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::s3::buffer::Buffer;
-use mountpoint_s3_crt::s3::client::{init_signing_config, Client, ClientConfig, MetaRequestOptions, MetaRequestType};
+use mountpoint_s3_crt::s3::client::{Client, ClientConfig, MetaRequestOptions, MetaRequestType, init_signing_config};
 use mountpoint_s3_crt::s3::endpoint_resolver::{RequestContext, RuleEngine};
 use tracing::trace;
 

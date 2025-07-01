@@ -59,9 +59,7 @@ pub enum S3PathError {
     ExpectedS3URI,
     #[error("the bucket must have a valid name (only letters, numbers, . and -) or a valid ARN")]
     InvalidBucketName,
-    #[error(
-        "the bucket must have a valid name (only letters, numbers, . and -). ARNs are not supported in s3:// URIs"
-    )]
+    #[error("the bucket must have a valid name (only letters, numbers, . and -). ARNs are not supported in s3:// URIs")]
     InvalidBucketNameS3URI,
     #[error("bucket names must be 3-255 characters long")]
     InvalidBucketLength,

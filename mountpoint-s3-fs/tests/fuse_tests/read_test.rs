@@ -1,4 +1,4 @@
-use std::fs::{read_dir, File};
+use std::fs::{File, read_dir};
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
@@ -6,14 +6,14 @@ use std::path::Path;
 #[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
-use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
 use test_case::test_matrix;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 const READ_ONLY: bool = true;
 const READ_WRITE: bool = false;

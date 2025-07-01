@@ -5,10 +5,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fuser::{BackgroundSession, Mount, MountOption, Session};
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::crc32c;
 use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
-use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_fs::data_cache::DataCache;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
@@ -299,7 +299,7 @@ pub mod mock_session {
         }
     }
 
-    fn create_test_client(client: Arc<MockClient>, prefix: &str) -> impl TestClient {
+    fn create_test_client(client: Arc<MockClient>, prefix: &str) -> impl TestClient + use<> {
         MockTestClient {
             prefix: prefix.to_owned(),
             client,
@@ -399,13 +399,13 @@ pub mod s3_session {
     use crate::common::s3::{
         get_test_bucket_and_prefix, get_test_endpoint_config, get_test_region, get_test_sdk_client,
     };
+    use aws_sdk_s3::Client;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use aws_sdk_s3::primitives::ByteStream;
     use aws_sdk_s3::types::{ChecksumAlgorithm, GlacierJobParameters, RestoreRequest, Tier};
-    use aws_sdk_s3::Client;
+    use mountpoint_s3_client::S3CrtClient;
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_client::types::Checksum;
-    use mountpoint_s3_client::S3CrtClient;
     use mountpoint_s3_fs::prefetch::Prefetcher;
 
     /// Create a FUSE mount backed by a real S3 client
@@ -504,7 +504,7 @@ pub mod s3_session {
         S3CrtClient::new(client_config).unwrap()
     }
 
-    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient {
+    fn create_test_client(region: &str, bucket: &str, prefix: &str) -> impl TestClient + use<> {
         let sdk_client = tokio_block_on(async { get_test_sdk_client(region).await });
         SDKTestClient {
             prefix: prefix.to_owned(),

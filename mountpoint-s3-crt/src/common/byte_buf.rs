@@ -4,9 +4,9 @@ use mountpoint_s3_crt_sys::*;
 
 use std::mem::MaybeUninit;
 
+use crate::CrtError as _;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
-use crate::CrtError as _;
 
 /// Rust wrapper for a CRT [aws_byte_buf].
 ///

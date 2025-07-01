@@ -46,8 +46,8 @@ use std::collections::VecDeque;
 
 #[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
-use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
 

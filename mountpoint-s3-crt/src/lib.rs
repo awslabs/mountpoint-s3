@@ -37,9 +37,9 @@ pub(crate) trait ToAwsByteCursor {
 }
 
 impl<S: AsRef<OsStr>> ToAwsByteCursor for S {
-    /// SAFETY: See comment on [ToAwsByteCursor::as_aws_byte_cursor].
     unsafe fn as_aws_byte_cursor(&self) -> aws_byte_cursor {
-        self.as_ref().as_bytes().as_aws_byte_cursor()
+        // SAFETY: See comment on [ToAwsByteCursor::as_aws_byte_cursor].
+        unsafe { self.as_ref().as_bytes().as_aws_byte_cursor() }
     }
 }
 
@@ -58,13 +58,14 @@ impl ToAwsByteCursor for [u8] {
 /// inside the aws_byte_cursor. The caller must ensure that the returned slice does not outlive
 /// the bytes pointed to by the cursor, for example, by copying the bytes out.
 pub(crate) unsafe fn aws_byte_cursor_as_slice<'a>(cursor: &aws_byte_cursor) -> &'a [u8] {
-    // SAFETY: from_raw_parts can't be used on null pointers, even if the length is 0. So we handle
-    // that as a special case. If the pointer is null, the length must be 0 and we return an empty slice.
     if cursor.ptr.is_null() {
+        // If the pointer is null, the length must be 0 and we return an empty slice
         assert_eq!(cursor.len, 0, "length must be 0 for null cursors");
         &[]
     } else {
-        std::slice::from_raw_parts(cursor.ptr, cursor.len)
+        // SAFETY: from_raw_parts can't be used on null pointers, even if the length is 0. So we handle
+        // that as a special case above.
+        unsafe { std::slice::from_raw_parts(cursor.ptr, cursor.len) }
     }
 }
 
@@ -73,24 +74,39 @@ pub(crate) unsafe fn aws_byte_cursor_as_slice<'a>(cursor: &aws_byte_cursor) -> &
 pub(crate) trait CrtError: Sized {
     type Return;
 
-    /// Safety: This must only be used immediately on a pointer returned from the CRT, with no other
-    /// CRT code being run beforehand, or else it will return the wrong error.
+    /// # Safety
+    /// This must only be used immediately on a pointer returned from the CRT, with no other
+    /// CRT code being run beforehand on the same thread, or else it will return the wrong error.
+    /// In particular, there should not be any `await` point between the return from the CRT
+    /// function and the invocation of this method.
     unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error>;
 }
 
 impl<T> CrtError for *const T {
     type Return = NonNull<T>;
 
+    /// # Safety
+    /// This reads a thread local, so the caller must ensure no other CRT code has run on
+    /// the same thread since the error was last set, otherwise the result will be the wrong error.
     unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
-        NonNull::new(self as *mut T).ok_or_else(|| Error::last_error())
+        NonNull::new(self as *mut T).ok_or_else(|| {
+            // SAFETY: Must be guaranteed by the caller.
+            unsafe { Error::last_error() }
+        })
     }
 }
 
 impl<T> CrtError for *mut T {
     type Return = NonNull<T>;
 
+    /// # Safety
+    /// This reads a thread local, so the caller must ensure no other CRT code has run on
+    /// the same thread since the error was last set, otherwise the result will be the wrong error.
     unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
-        NonNull::new(self).ok_or_else(|| Error::last_error())
+        NonNull::new(self).ok_or_else(|| {
+            // SAFETY: Must be guaranteed by the caller.
+            unsafe { Error::last_error() }
+        })
     }
 }
 
@@ -99,10 +115,14 @@ impl<T> CrtError for *mut T {
 impl CrtError for i32 {
     type Return = ();
 
+    /// # Safety
+    /// This reads a thread local, so the caller must ensure no other CRT code has run on
+    /// the same thread since the error was last set, otherwise the result will be the wrong error.
     unsafe fn ok_or_last_error(self) -> Result<Self::Return, Error> {
         match self {
             AWS_OP_SUCCESS => Ok(()),
-            AWS_OP_ERR => Err(Error::last_error()),
+            // SAFETY: Must be guaranteed by the caller.
+            AWS_OP_ERR => Err(unsafe { Error::last_error() }),
             // This case shouldn't happen if used correctly since we should use this on functions
             // that only return SUCCESS or ERR. But if it does happen, we can attempt to convert the
             // error code directly, which may or may not work (but at least the Error won't be swallowed).

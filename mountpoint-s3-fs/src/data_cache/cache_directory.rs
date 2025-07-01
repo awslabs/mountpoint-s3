@@ -134,7 +134,7 @@ fn hash_cache_key(cache_key: &[u8]) -> String {
 mod tests {
     use test_case::test_matrix;
 
-    use super::{hash_cache_key, ManagedCacheDir};
+    use super::{ManagedCacheDir, hash_cache_key};
 
     use std::ffi::OsStr;
     use std::fs;

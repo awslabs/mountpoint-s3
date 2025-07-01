@@ -1,4 +1,4 @@
-use crate::common::manifest::{create_dummy_manifest, select_all, TestDbEntry, DUMMY_ETAG, DUMMY_SIZE};
+use crate::common::manifest::{DUMMY_ETAG, DUMMY_SIZE, TestDbEntry, create_dummy_manifest, select_all};
 use mountpoint_s3_fs::manifest::ManifestError;
 use test_case::test_case;
 

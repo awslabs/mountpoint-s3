@@ -15,17 +15,17 @@ use std::time::Duration;
 
 use fuser::FileType;
 use futures::future::{BoxFuture, FutureExt};
-use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_fs::fs::{CacheConfig, InodeNo, OpenFlags, ToErrno, FUSE_ROOT_INODE};
+use mountpoint_s3_client::mock_client::{MockClient, MockObject};
+use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, InodeNo, OpenFlags, ToErrno};
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use tracing::{debug, debug_span, trace};
 
-use crate::common::{make_test_filesystem, DirectoryReply};
-use crate::reftests::generators::{flatten_tree, gen_tree, FileContent, FileSize, Name, TreeNode, ValidName};
+use crate::common::{DirectoryReply, make_test_filesystem};
+use crate::reftests::generators::{FileContent, FileSize, Name, TreeNode, ValidName, flatten_tree, gen_tree};
 use crate::reftests::reference::{File, Node, Reference};
 
 /// Operations that the mutating proptests can perform on the file system.

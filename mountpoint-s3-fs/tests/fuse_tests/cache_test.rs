@@ -4,10 +4,10 @@ use crate::common::fuse::s3_session::create_crt_client;
 use crate::common::s3::{get_test_bucket, get_test_prefix};
 
 use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::Runtime;
 
 use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
@@ -24,7 +24,7 @@ use crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_stan
 #[cfg(feature = "s3express_tests")]
 use mountpoint_s3_client::ObjectClient;
 #[cfg(feature = "s3express_tests")]
-use mountpoint_s3_fs::data_cache::{build_prefix, get_s3_key, BlockIndex, ExpressDataCache, ExpressDataCacheConfig};
+use mountpoint_s3_fs::data_cache::{BlockIndex, ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key};
 
 const CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
@@ -153,8 +153,8 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 #[test_case(None, None, get_express_sse_kms_bucket(); "using the default, aws:kms")]
 #[cfg(feature = "s3express_tests")]
 fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<String>, cache_bucket: String) {
-    use mountpoint_s3_fs::data_cache::ExpressDataCacheConfig;
     use mountpoint_s3_fs::ServerSideEncryption;
+    use mountpoint_s3_fs::data_cache::ExpressDataCacheConfig;
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
@@ -391,7 +391,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
 
 /// Generates random data of the specified size
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
-    let seed = rand::thread_rng().gen();
+    let seed = rand::thread_rng().r#gen();
     let mut rng = ChaChaRng::seed_from_u64(seed);
     let mut data = vec![0; size_in_bytes];
     rng.fill_bytes(&mut data);
@@ -401,7 +401,7 @@ fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
 /// Creates a random key which has a size of at least `min_size_in_bytes`
 /// The `key_prefix` is not included in the return value.
 fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
-    let random_suffix: u64 = rand::thread_rng().gen();
+    let random_suffix: u64 = rand::thread_rng().r#gen();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"
     let full_key = format!("{key_prefix}{last_key_part}");
     let full_key_size = full_key.len();

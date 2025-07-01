@@ -110,8 +110,8 @@ impl MountPoint {
         const FUSE_DEV: &str = "/dev/fuse";
 
         use procfs::{
-            process::{FDPermissions, FDTarget, Process},
             ProcError,
+            process::{FDPermissions, FDTarget, Process},
         };
         use std::os::fd::{FromRawFd, OwnedFd};
 
@@ -121,14 +121,14 @@ impl MountPoint {
         let fd_info = match process.fd_from_fd(fd) {
             Ok(fd_info) => fd_info,
             Err(ProcError::NotFound(_)) => {
-                return Err(anyhow!("mount point {} is not a valid file descriptor", &mount_point))
+                return Err(anyhow!("mount point {} is not a valid file descriptor", &mount_point));
             }
             Err(err) => {
                 return Err(anyhow!(
                     "failed to get file descriptor information for mount point {}: {}",
                     &mount_point,
                     err
-                ))
+                ));
             }
         };
         let FDTarget::Path(path) = &fd_info.target else {

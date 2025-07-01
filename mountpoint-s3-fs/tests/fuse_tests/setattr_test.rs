@@ -1,4 +1,4 @@
-use std::fs::{metadata, File};
+use std::fs::{File, metadata};
 use std::os::unix::prelude::MetadataExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime};

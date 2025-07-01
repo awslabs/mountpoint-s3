@@ -28,8 +28,8 @@ pub use integ_only::*;
 mod integ_only {
     use super::*;
 
-    use aws_config::sts::AssumeRoleProvider;
     use aws_config::Region;
+    use aws_config::sts::AssumeRoleProvider;
     use aws_credential_types::provider::ProvideCredentials;
 
     use crate::common::s3::get_test_region;

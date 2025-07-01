@@ -2,7 +2,7 @@ use crate::{data_cache::DataCache, sync::Arc};
 
 use mountpoint_s3_client::ObjectClient;
 
-use crate::{mem_limiter::MemoryLimiter, Runtime};
+use crate::{Runtime, mem_limiter::MemoryLimiter};
 
 use super::caching_stream::CachingPartStream;
 use super::part_stream::{ClientPartStream, PartStream};

@@ -4,10 +4,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use std::thread::{self, JoinHandle};
-use time::{serde::rfc3339, OffsetDateTime};
+use time::{OffsetDateTime, serde::rfc3339};
 
-use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fs::Error;
+use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fuse::ErrorLogger;
 use crate::logging::log_file_name_time_suffix;
 use crate::sync::mpsc::{self, Receiver, SyncSender};

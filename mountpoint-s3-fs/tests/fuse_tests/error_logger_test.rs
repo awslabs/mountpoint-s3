@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_INTERNAL;
 use mountpoint_s3_fs::{
+    S3FilesystemConfig,
     logging::error_logger::{Event, FileErrorLogger},
     manifest::Manifest,
-    S3FilesystemConfig,
 };
 use tempfile::tempdir;
 use time::OffsetDateTime;

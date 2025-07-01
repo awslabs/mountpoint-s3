@@ -240,8 +240,8 @@ impl ObjectClient for ThroughputMockClient {
 mod tests {
     use std::time::Instant;
 
-    use futures::executor::block_on;
     use futures::StreamExt;
+    use futures::executor::block_on;
 
     use crate::mock_client::MockObject;
     use crate::types::ETag;

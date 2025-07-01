@@ -19,7 +19,7 @@ use proptest_derive::Arbitrary;
 use tempfile::TempDir;
 use tracing::{info, info_span};
 
-use crate::common::fuse::{mock_session, TestSession, TestSessionConfig};
+use crate::common::fuse::{TestSession, TestSessionConfig, mock_session};
 
 const MAX_NUM_FILES: usize = 10;
 const MAX_FILE_SIZE: usize = 1024 * 1024;
@@ -414,7 +414,9 @@ fn run(ops: &[Op], mut f1: DirectoryFileSystem, mut f2: MountpointFileSystem) {
 
                 // TODO fix https://github.com/awslabs/mountpoint-s3/issues/791 and then remove this check
                 if fd.mode.is_write() {
-                    info!("skipping read to write-mode FD due to page cache bug; see https://github.com/awslabs/mountpoint-s3/issues/791");
+                    info!(
+                        "skipping read to write-mode FD due to page cache bug; see https://github.com/awslabs/mountpoint-s3/issues/791"
+                    );
                     continue;
                 }
 

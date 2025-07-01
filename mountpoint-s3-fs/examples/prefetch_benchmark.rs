@@ -1,22 +1,22 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Instant;
 
 use anyhow::Context;
-use clap::{value_parser, Parser};
+use clap::{Parser, value_parser};
 use futures::executor::block_on;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
-use mountpoint_s3_fs::Runtime;
 use sysinfo::{RefreshKind, System};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
@@ -177,7 +177,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn make_s3_client_from_args(args: &CliArgs) -> Result<S3CrtClient, impl std::error::Error> {
+fn make_s3_client_from_args(args: &CliArgs) -> anyhow::Result<S3CrtClient> {
     let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     let mut client_config = S3ClientConfig::new()
         .read_backpressure(true)
@@ -195,5 +195,5 @@ fn make_s3_client_from_args(args: &CliArgs) -> Result<S3CrtClient, impl std::err
     if let Some(interfaces) = &args.bind {
         client_config = client_config.network_interface_names(interfaces.clone());
     }
-    S3CrtClient::new(client_config)
+    Ok(S3CrtClient::new(client_config)?)
 }

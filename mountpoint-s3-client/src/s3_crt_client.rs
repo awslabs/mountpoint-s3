@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
+use futures::future::{Fuse, FusedFuture};
 pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
@@ -28,16 +28,16 @@ use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryS
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
-    init_signing_config, BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions,
-    MetaRequestResult, MetaRequestType, RequestMetrics, RequestType,
+    BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
+    MetaRequestType, RequestMetrics, RequestType, init_signing_config,
 };
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
-use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
 use pin_project::pin_project;
 use thiserror::Error;
-use tracing::{debug, error, trace, Span};
+use tracing::{Span, debug, error, trace};
 
 use crate::checksums::{crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, sha1_to_base64, sha256_to_base64};
 use crate::endpoint_config::EndpointError;
@@ -1577,9 +1577,11 @@ mod tests {
             .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
-        assert!(user_agent_header_value
-            .to_string_lossy()
-            .starts_with(expected_user_agent));
+        assert!(
+            user_agent_header_value
+                .to_string_lossy()
+                .starts_with(expected_user_agent)
+        );
     }
 
     fn assert_expected_host(expected_host: &str, endpoint_config: EndpointConfig) {
@@ -1609,7 +1611,10 @@ mod tests {
         fn test_endpoint_favors_parameter_over_env_variable() {
             let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();
             let endpoint_config = EndpointConfig::new("region-place-holder").endpoint(endpoint_uri);
-            std::env::set_var("AWS_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com");
+
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::set_var("AWS_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com"); }
+
             // even though we set the environment variable, the parameter takes precedence
             assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
         }
@@ -1617,14 +1622,20 @@ mod tests {
         #[test]
         fn test_endpoint_favors_env_variable() {
             let endpoint_config = EndpointConfig::new("us-east-1");
-            std::env::set_var("AWS_ENDPOINT_URL", "https://s3.eu-west-1.amazonaws.com");
+
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::set_var("AWS_ENDPOINT_URL", "https://s3.eu-west-1.amazonaws.com"); }
+
             assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
         }
 
         #[test]
         fn test_endpoint_with_invalid_env_variable() {
             let endpoint_config = EndpointConfig::new("us-east-1");
-            std::env::set_var("AWS_ENDPOINT_URL", "htp:/bad:url");
+
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::set_var("AWS_ENDPOINT_URL", "htp:/bad:url"); }
+
             let config = S3ClientConfig {
                 endpoint_config,
                 ..Default::default()
@@ -1660,9 +1671,11 @@ mod tests {
             .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
-        assert!(user_agent_header_value
-            .to_string_lossy()
-            .starts_with(expected_user_agent));
+        assert!(
+            user_agent_header_value
+                .to_string_lossy()
+                .starts_with(expected_user_agent)
+        );
     }
 
     #[test_case("bytes 200-1000/67589" => Some(200..1001))]
@@ -1698,9 +1711,11 @@ mod tests {
             .expect("the headers should contain x-amz-expected-bucket-owner");
         let expected_bucket_owner_value = expected_bucket_owner_header.value();
 
-        assert!(expected_bucket_owner_value
-            .to_string_lossy()
-            .starts_with(expected_bucket_owner));
+        assert!(
+            expected_bucket_owner_value
+                .to_string_lossy()
+                .starts_with(expected_bucket_owner)
+        );
     }
 
     fn make_result(
@@ -1785,7 +1800,10 @@ mod tests {
         let Some(S3RequestError::Forbidden(message, _)) = result else {
             panic!("wrong result, got: {result:?}");
         };
-        assert_eq!(message, "The request signature we calculated does not match the signature you provided. Check your key and signing method.");
+        assert_eq!(
+            message,
+            "The request signature we calculated does not match the signature you provided. Check your key and signing method."
+        );
     }
 
     #[test]

@@ -1,20 +1,20 @@
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
-use crate::object::ObjectId;
 use crate::ServerSideEncryption;
+use crate::object::ObjectId;
 use std::collections::HashMap;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use base64ct::{Base64, Encoding};
 use bytes::{Bytes, BytesMut};
-use futures::{pin_mut, StreamExt};
+use futures::{StreamExt, pin_mut};
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
     ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse, PutObjectSingleParams,
     UploadChecksum,
 };
-use mountpoint_s3_client::ObjectClient;
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
 
@@ -491,7 +491,7 @@ mod tests {
     use crate::sync::Arc;
     use proptest::{prop_assert, proptest};
 
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
+    use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
     use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
     use mountpoint_s3_client::types::ETag;
     use test_case::test_case;

@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
-use mountpoint_s3_client::ObjectClient;
 
 use thiserror::Error;
 use tracing::error;
@@ -41,7 +41,9 @@ pub struct Uploader<Client: ObjectClient> {
 
 #[derive(Debug, Error)]
 pub enum UploadError<E> {
-    #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
+    #[error(
+        "out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}"
+    )]
     OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
 
     #[error("put request failed")]

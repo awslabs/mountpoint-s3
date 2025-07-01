@@ -5,13 +5,13 @@ use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use regex::Regex;
 use thiserror::Error;
-use time::format_description::well_known::Rfc2822;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc2822;
 use tracing::error;
 
 use crate::object_client::{HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult, RestoreStatus};
 
-use super::{parse_checksum, ChecksumMode, S3CrtClient, S3Operation, S3RequestError};
+use super::{ChecksumMode, S3CrtClient, S3Operation, S3RequestError, parse_checksum};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]

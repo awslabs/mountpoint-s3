@@ -11,9 +11,9 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Record};
 use tracing::{Event, Id, Level, Subscriber};
 use tracing_log::NormalizeEvent;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 /// A [tracing_subscriber::Layer] that emits log events to syslog. This layer does no filtering,
 /// and so should be paired with a [tracing_subscriber::Filter].

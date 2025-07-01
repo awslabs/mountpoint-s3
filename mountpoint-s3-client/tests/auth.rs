@@ -119,9 +119,11 @@ async fn test_profile_provider_static_async() {
     .unwrap();
     writeln!(config_file, "aws_access_key_id = {}", credentials.access_key_id()).unwrap();
 
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    }
 
     // Build a S3CrtClient that uses the config file
     let config = S3ClientConfig::new()
@@ -190,12 +192,14 @@ async fn test_profile_provider_assume_role_async() {
 
     writeln!(config_file, "[profile {profile_name}]").unwrap();
 
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
-    std::env::remove_var("AWS_ACCESS_KEY_ID");
-    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
-    std::env::remove_var("AWS_SESSION_TOKEN");
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+        std::env::remove_var("AWS_ACCESS_KEY_ID");
+        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+        std::env::remove_var("AWS_SESSION_TOKEN");
+    }
 
     // First, verify that we can use this profile for the client but the request should fail because
     // we did not configure which arn to assume yet.
@@ -321,9 +325,11 @@ async fn test_credential_process_behind_source_profile_async() {
 
     config_file.flush().unwrap();
 
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    }
 
     // With correct profile, things should be fine
     let config = S3ClientConfig::new()

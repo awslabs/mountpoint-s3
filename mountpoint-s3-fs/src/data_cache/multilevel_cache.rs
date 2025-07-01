@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::task::SpawnExt;
 use tracing::{trace, warn};
 
-use crate::{object::ObjectId, Runtime};
+use crate::{Runtime, object::ObjectId};
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 

@@ -18,11 +18,11 @@ pub mod manifest;
 use aws_credential_types::Credentials;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::config::{
     Allocator, CredentialsProvider, CredentialsProviderStaticOptions, RustLogAdapter, S3ClientAuthConfig,
 };
 use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
-use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::prefix::Prefix;

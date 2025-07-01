@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.18.0)
+
+* Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
 
 ## v0.17.0 (Jun 27, 2025)
 

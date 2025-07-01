@@ -4,7 +4,7 @@ use std::path::Path;
 
 use criterion::async_executor::{AsyncExecutor, FuturesExecutor};
 use criterion::measurement::WallTime;
-use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
+use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
 
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::data_cache::{ChecksummedBytes, DataCache, DiskDataCache, DiskDataCacheConfig};

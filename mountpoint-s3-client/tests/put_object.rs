@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use common::*;
 
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, pin_mut};
 use rand::Rng;
 use test_case::test_case;
 

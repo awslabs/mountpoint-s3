@@ -3,17 +3,17 @@ use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use clap::{value_parser, Parser};
+use clap::{Parser, value_parser};
 use fuser::{BackgroundSession, MountOption, Session};
-use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
 use tempfile::tempdir;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;

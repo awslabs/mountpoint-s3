@@ -1,7 +1,7 @@
 //! AWS input streams.
 
-use crate::common::{allocator::Allocator, error::Error};
 use crate::CrtError;
+use crate::common::{allocator::Allocator, error::Error};
 use mountpoint_s3_crt_sys::*;
 use std::marker::PhantomData;
 use std::ptr::NonNull;

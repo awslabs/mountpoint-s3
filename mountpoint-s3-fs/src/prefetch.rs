@@ -35,7 +35,7 @@ use std::fmt::Debug;
 
 use metrics::{counter, histogram};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
-use mountpoint_s3_client::{error_metadata::ProvideErrorMetadata, ObjectClient};
+use mountpoint_s3_client::{ObjectClient, error_metadata::ProvideErrorMetadata};
 use thiserror::Error;
 use tracing::trace;
 
@@ -490,17 +490,17 @@ mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
 
-    use crate::data_cache::InMemoryDataCache;
-    use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
-    use crate::sync::Arc;
     use crate::Runtime;
+    use crate::data_cache::InMemoryDataCache;
+    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::sync::Arc;
 
     use super::*;
-    use futures::executor::{block_on, ThreadPool};
+    use futures::executor::{ThreadPool, block_on};
     use mountpoint_s3_client::failure_client::{
-        countdown_failure_client, CountdownFailureConfig, GetObjectFailureMode,
+        CountdownFailureConfig, GetObjectFailureMode, countdown_failure_client,
     };
-    use mountpoint_s3_client::mock_client::{ramp_bytes, MockClient, MockClientConfig, MockClientError, MockObject};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, ramp_bytes};
     use mountpoint_s3_client::types::ETag;
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};

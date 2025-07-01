@@ -97,11 +97,7 @@ impl ValueAndCount {
     pub fn load_and_reset(&self) -> Option<(u64, usize)> {
         let sum = self.sum.swap(0, Ordering::SeqCst);
         let n = self.n.swap(0, Ordering::SeqCst);
-        if n == 0 {
-            None
-        } else {
-            Some((sum, n))
-        }
+        if n == 0 { None } else { Some((sum, n)) }
     }
 }
 

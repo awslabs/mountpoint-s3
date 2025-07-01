@@ -18,9 +18,9 @@ use mountpoint_s3::CliArgs;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
 use mountpoint_s3_client::types::ETag;
-use mountpoint_s3_fs::s3::config::BucketNameOrS3Uri;
-use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::Runtime;
+use mountpoint_s3_fs::s3::S3Personality;
+use mountpoint_s3_fs::s3::config::BucketNameOrS3Uri;
 
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();

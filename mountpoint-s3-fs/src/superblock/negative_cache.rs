@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use linked_hash_map::LinkedHashMap;
 
-use super::{expiry::Expiry, InodeNo};
+use super::{InodeNo, expiry::Expiry};
 
 use crate::sync::RwLock;
 

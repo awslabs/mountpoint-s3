@@ -106,7 +106,8 @@ impl BufferTicket {
     /// # Safety
     /// `ticket` must be a valid `aws_s3_buffer_ticket`.
     pub unsafe fn new(ticket: NonNull<aws_s3_buffer_ticket>) -> Self {
-        aws_s3_buffer_ticket_acquire(ticket.as_ptr());
+        // SAFETY:  `ticket` points to a valid `aws_s3_buffer_ticket`.
+        unsafe { aws_s3_buffer_ticket_acquire(ticket.as_ptr()) };
         Self { inner: ticket }
     }
 }

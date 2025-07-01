@@ -2,10 +2,10 @@ use std::time::Instant;
 use std::{ops::Range, sync::Arc};
 
 use futures::task::{Spawn, SpawnExt};
-use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::types::GetBodyPart;
+use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::ObjectClient;
-use tracing::{debug_span, trace, warn, Instrument};
+use mountpoint_s3_client::types::GetBodyPart;
+use tracing::{Instrument, debug_span, trace, warn};
 
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
@@ -13,14 +13,14 @@ use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 
-use super::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
+use super::PrefetchReadError;
+use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
 use super::part::Part;
-use super::part_queue::{unbounded_part_queue, PartQueueProducer};
+use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::part_stream::{
-    read_from_client_stream, ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig,
+    ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, read_from_client_stream,
 };
 use super::task::RequestTask;
-use super::PrefetchReadError;
 
 /// [ObjectPartStream] implementation which maintains a [DataCache] for the object data
 /// retrieved by an [ObjectClient].
@@ -400,7 +400,7 @@ mod tests {
 
     use std::{thread, time::Duration};
 
-    use futures::executor::{block_on, ThreadPool};
+    use futures::executor::{ThreadPool, block_on};
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockClientConfig, MockObject, Operation},
         types::ETag,
@@ -409,7 +409,7 @@ mod tests {
 
     use crate::{
         data_cache::InMemoryDataCache,
-        mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT},
+        mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
         object::ObjectId,
     };
 

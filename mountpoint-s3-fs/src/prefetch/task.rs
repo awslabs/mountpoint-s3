@@ -1,12 +1,12 @@
 use futures::future::RemoteHandle;
 use mountpoint_s3_client::ObjectClient;
 
+use super::PrefetchReadError;
 use super::backpressure_controller::BackpressureController;
 use super::backpressure_controller::BackpressureFeedbackEvent::{DataRead, PartQueueStall};
 use super::part::Part;
 use super::part_queue::PartQueue;
 use super::part_stream::RequestRange;
-use super::PrefetchReadError;
 
 /// A single GetObject request submitted to the S3 client
 #[derive(Debug)]
