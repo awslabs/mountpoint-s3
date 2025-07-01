@@ -116,7 +116,10 @@ fn get_required_libraries(target_os: &str) -> Vec<CrtLibrary> {
 /// If `cmake3` exists, let's use that as our CMAKE.
 fn discover_cmake3() {
     if which::which("cmake3").is_ok() {
-        std::env::set_var("CMAKE", "cmake3");
+        // SAFETY: build is single-threaded.
+        unsafe {
+            std::env::set_var("CMAKE", "cmake3");
+        }
     }
 }
 
