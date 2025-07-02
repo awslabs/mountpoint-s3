@@ -436,13 +436,12 @@ mod tests {
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController<MockClient>, BackpressureLimiter) {
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: 8 * 1024 * 1024,
-            enable_backpressure: true,
-            initial_read_window_size: backpressure_config.initial_read_window_size,
-            ..Default::default()
-        };
+        let config = MockClientConfig::builder()
+            .bucket("test-bucket")
+            .part_size(8 * 1024 * 1024)
+            .enable_backpressure(true)
+            .initial_read_window_size(backpressure_config.initial_read_window_size)
+            .build();
 
         let client = MockClient::new(config);
         let mem_limiter = Arc::new(MemoryLimiter::new(

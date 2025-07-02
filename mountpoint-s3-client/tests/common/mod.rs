@@ -274,12 +274,13 @@ macro_rules! object_client_test {
             async fn mock() {
                 let (bucket, prefix) = get_test_bucket_and_prefix(stringify!($test_fn_identifier));
 
-                let client = MockClient::new(MockClientConfig {
-                    bucket: bucket.to_string(),
-                    part_size: 1024,
-                    unordered_list_seed: None,
-                    ..Default::default()
-                });
+                let client = MockClient::new(
+                    MockClientConfig::builder()
+                        .bucket(&bucket)
+                        .part_size(1024)
+                        .unordered_list_seed(None)
+                        .build(),
+                );
 
                 let key = format!("{prefix}hello");
                 $test_fn_identifier(&client, &bucket, &key, Default::default()).await;

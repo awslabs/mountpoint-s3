@@ -458,12 +458,7 @@ mod tests {
         let bucket = "test_bucket";
         let key = "foo";
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 128,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::new(MockClientConfig::builder().bucket(bucket).part_size(128).build());
 
         let body = vec![0u8; 50];
         client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
@@ -512,10 +507,7 @@ mod tests {
         let bucket = "test_bucket";
         let key = "foo";
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            ..Default::default()
-        });
+        let client = MockClient::new(MockClientConfig::builder().bucket(bucket).build());
 
         let mut put_single_failures = HashMap::new();
         put_single_failures.insert(2, ObjectClientError::ClientError(MockClientError("error".into())));
