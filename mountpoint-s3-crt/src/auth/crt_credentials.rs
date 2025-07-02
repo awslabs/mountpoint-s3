@@ -1,7 +1,7 @@
 //! Credentials object that can be used by the CRT
 
-use crate::common::allocator::Allocator;
 use crate::ToAwsByteCursor;
+use crate::common::allocator::Allocator;
 use mountpoint_s3_crt_sys::{aws_credentials, aws_credentials_new, aws_credentials_release};
 use std::ffi::OsStr;
 use std::fmt::Debug;

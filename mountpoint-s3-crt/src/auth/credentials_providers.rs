@@ -1,12 +1,10 @@
 //! AWS credentials providers
 
 use crate::auth::auth_library_init;
-use crate::auth::crt_credentials::CrtCredentials;
-use crate::auth::delegate::DelegateProvider;
+use crate::auth::delegate::{DelegateProvider, OnGetCredentialsCallbackResponder};
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
-use crate::io::event_loop::EventLoopGroup;
 use crate::{CrtError as _, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::{
     aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_cached_options,
@@ -17,7 +15,6 @@ use mountpoint_s3_crt_sys::{
     aws_credentials_provider_static_options,
 };
 use std::fmt::Debug;
-use std::future::Future;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
@@ -175,19 +172,13 @@ impl CredentialsProvider {
     }
 
     /// Creates a delegate credential provider which uses the credentials returned by the callback.
-    /// The callback is ran in `event_loop_group`.
-    pub fn new_delegate<F, Fut>(
-        allocator: &Allocator,
-        event_loop_group: EventLoopGroup,
-        delegate: F,
-    ) -> Result<Self, Error>
+    pub fn new_delegate<F>(allocator: &Allocator, delegate: F) -> Result<Self, Error>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Option<CrtCredentials>> + Send,
+        F: Fn(OnGetCredentialsCallbackResponder) + Send + Sync + 'static,
     {
         auth_library_init(allocator);
 
-        let (inner, on_delegate_callback) = DelegateProvider::new(allocator, event_loop_group, delegate)?;
+        let (inner, on_delegate_callback) = DelegateProvider::new(allocator, delegate)?;
 
         Ok(Self {
             inner,

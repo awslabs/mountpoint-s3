@@ -1,28 +1,25 @@
+use crate::CrtError;
 use crate::auth::crt_credentials::CrtCredentials;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
-use crate::io::event_loop::EventLoopGroup;
-use crate::io::futures::FutureSpawner;
-use crate::CrtError;
 use mountpoint_s3_crt_sys::{
-    aws_credentials, aws_credentials_provider, aws_credentials_provider_delegate_options,
-    aws_credentials_provider_new_delegate, aws_on_get_credentials_callback_fn, AWS_OP_ERR, AWS_OP_SUCCESS,
+    AWS_OP_ERR, AWS_OP_SUCCESS, aws_credentials, aws_credentials_provider, aws_credentials_provider_delegate_options,
+    aws_credentials_provider_new_delegate, aws_on_get_credentials_callback_fn,
 };
 use std::fmt::Debug;
-use std::future::Future;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
 type OnGetCredentialsCallbackFn =
     unsafe extern "C" fn(credentials: *mut aws_credentials, error_code: libc::c_int, user_data: *mut libc::c_void);
 
-struct OnGetCredentialsCallbackResponder {
+pub struct OnGetCredentialsCallbackResponder {
     callback: OnGetCredentialsCallbackFn,
     user_data: *mut libc::c_void,
 }
 
 impl OnGetCredentialsCallbackResponder {
-    fn reply_with_credentials(&self, credentials: Option<CrtCredentials>) {
+    pub fn reply_with_credentials(&self, credentials: Option<CrtCredentials>) {
         // SAFETY: credentials.as_ptr is dropped before credentials.
         let (aws_creds, error_code) = unsafe {
             match &credentials {
@@ -45,6 +42,12 @@ impl OnGetCredentialsCallbackResponder {
 // the sts provider (and others) use the `user_data` in other threads via an event loop.
 unsafe impl Send for OnGetCredentialsCallbackResponder {}
 
+impl Debug for OnGetCredentialsCallbackResponder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OnGetCredentialsCallbackResponder").finish()
+    }
+}
+
 pub(crate) struct DelegateProvider {
     delegate: Box<dyn Fn(OnGetCredentialsCallbackResponder) + Send + Sync + 'static>,
 }
@@ -56,26 +59,15 @@ impl Debug for DelegateProvider {
 }
 
 impl DelegateProvider {
-    pub fn new<F, Fut>(
+    pub fn new<F>(
         allocator: &Allocator,
-        event_loop_group: EventLoopGroup,
         delegate: F,
     ) -> Result<(NonNull<aws_credentials_provider>, Arc<DelegateProvider>), Error>
     where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Option<CrtCredentials>> + Send,
+        F: Fn(OnGetCredentialsCallbackResponder) + Send + Sync + 'static,
     {
-        let delegate_arc = Arc::new(delegate);
-
-        // This needs to be a closure here rather than in `callback` because here we have the type `Fut`, so the closure knows how to call it rather than in `callback` where we've erased the type.
         let delegate_callback_provider = Arc::new(DelegateProvider {
-            delegate: Box::new(move |credentials_replier: OnGetCredentialsCallbackResponder| {
-                let delegate_arc_clone = delegate_arc.clone();
-                event_loop_group.spawn_future(async move {
-                    let credentials = delegate_arc_clone().await;
-                    credentials_replier.reply_with_credentials(credentials);
-                });
-            }),
+            delegate: Box::new(delegate),
         });
 
         let callback_raw = Arc::as_ptr(&delegate_callback_provider);
@@ -112,7 +104,13 @@ unsafe extern "C" fn delegate_callback(
                 callback,
                 user_data: callback_user_data,
             };
-            (*on_delegate_cb).callback(on_get_credentials_replier);
+            if on_delegate_cb.is_null() {
+                return AWS_OP_ERR;
+            }
+            // SAFETY: We've just checked it's not null
+            unsafe {
+                (*on_delegate_cb).callback(on_get_credentials_replier);
+            }
             AWS_OP_SUCCESS
         }
         None => AWS_OP_ERR,

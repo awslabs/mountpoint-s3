@@ -21,7 +21,6 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials_providers::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::auth::crt_credentials::CrtCredentials;
 use mountpoint_s3_crt::common::allocator::Allocator;
-use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 
 /// Test creating a client with the static credentials provider
 #[tokio::test]
@@ -396,22 +395,17 @@ async fn test_delegate_provider() {
         .await
         .unwrap();
 
-    let event_loop_group = EventLoopGroup::new_default(&Allocator::default(), None, || {}).unwrap();
-
     // Get some static credentials by just using the SDK's default provider, which we know works
     let credentials = get_sdk_default_chain_creds().await;
 
     // Build a S3CrtClient that uses a delegate credentials provider with the creds we just got, passing through static credentials
-    let provider = CredentialsProvider::new_delegate(&Allocator::default(), event_loop_group, move || {
-        let credentials = credentials.clone();
-        async move {
-            CrtCredentials::new(
-                credentials.access_key_id(),
-                credentials.secret_access_key(),
-                credentials.session_token(),
-                credentials.expiry(),
-            )
-        }
+    let provider = CredentialsProvider::new_delegate(&Allocator::default(), move |replier| {
+        replier.reply_with_credentials(CrtCredentials::new(
+            credentials.access_key_id(),
+            credentials.secret_access_key(),
+            credentials.session_token(),
+            credentials.expiry(),
+        ));
     })
     .unwrap();
     let config = S3ClientConfig::new()
@@ -430,11 +424,11 @@ async fn test_delegate_provider() {
 #[tokio::test]
 async fn test_delegate_provider_failure() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_delegate_provider_failure");
-    let event_loop_group = EventLoopGroup::new_default(&Allocator::default(), None, || {}).unwrap();
 
-    let provider =
-        CredentialsProvider::new_delegate(&Allocator::default(), event_loop_group, move || async move { None })
-            .unwrap();
+    let provider = CredentialsProvider::new_delegate(&Allocator::default(), move |replier| {
+        replier.reply_with_credentials(None)
+    })
+    .unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
         .endpoint_config(get_test_endpoint_config());
