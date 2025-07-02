@@ -246,7 +246,7 @@ Delete operations are immediately actioned against the object in S3, even if the
 
 File rename is supported for objects stored in the S3 Express One Zone storage class.
 Renames that would replace the destination file are only enabled when the `--allow-overwrite` flag is set.
-Rename operations are immediately actioned against the objects in S3, even where the source or any destination file is being read from.
+Rename operations are performed atomically and immediately actioned against the objects in S3, even where the source or any destination file is being read from.
 
 If you want to allow overwriting existing files, use the `--allow-overwrite` flag at mount time. The file must be opened with the `O_TRUNC` flag which will truncate the existing file. All writes must start from the beginning of the file and must be made sequentially.
 
