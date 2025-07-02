@@ -19,7 +19,7 @@ By default, Mountpoint does not allow deleting existing objects with commands li
 
 For objects stored in S3 Express One Zone, Mountpoint supports appending to files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
 
-Mountpoint supports file rename for objects stored in the S3 Express One Zone storage class.
+Mountpoint supports atomic file rename for objects stored in the S3 Express One Zone storage class.
 Attempting to rename files where unsupported by S3 will result in the operation being rejected.
 Mountpoint distinguishes between rename operations that move to an empty destination (non-replacing) and those that replace an existing object at the destination (replacing).
 While non-replacing renames do not require further flags to be set, replacing rename require passing the `--allow-overwrite` flag to Mountpoint at startup time.
