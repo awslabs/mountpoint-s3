@@ -181,7 +181,6 @@ impl InflightWrites {
     }
 }
 
-#[derive(Debug)]
 pub struct Harness {
     /// Max number of entries that a readdir operation will return.
     ///
@@ -732,7 +731,7 @@ impl Harness {
                     }
                 }
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
+                self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
             assert!(

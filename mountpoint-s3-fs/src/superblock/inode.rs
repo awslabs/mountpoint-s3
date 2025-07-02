@@ -3,15 +3,16 @@ use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, SystemTime};
 
+#[cfg(test)]
+use crate::metablock::Metablock;
+use crate::prefix::Prefix;
+use crate::sync::atomic::{AtomicBool, Ordering};
+use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use fuser::FileType;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
 use tracing::debug;
-
-use crate::prefix::Prefix;
-use crate::sync::atomic::{AtomicBool, Ordering};
-use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::path::ValidKey;
 use super::{Expiry, InodeError};
@@ -245,23 +246,30 @@ impl Inode {
 
     /// Produce a description of this Inode for use in errors
     pub fn err(&self) -> InodeErrorInfo {
-        InodeErrorInfo(self.clone())
+        InodeErrorInfo {
+            ino: self.ino(),
+            key: self.key().to_string().into(),
+            bucket: None,
+        }
     }
 }
 
 /// A wrapper that prints useful customer-facing error messages for inodes by including the object
-/// key rather than just the inode number.
-pub struct InodeErrorInfo(Inode);
+/// key and bucket rather than just the inode number.
+#[derive(Debug)]
+pub struct InodeErrorInfo {
+    pub ino: InodeNo,
+    pub key: Box<str>,
+    pub bucket: Option<Box<str>>,
+}
 
 impl Display for InodeErrorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} (key {:?})", self.0.ino(), self.0.key())
-    }
-}
-
-impl Debug for InodeErrorInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        if let Some(bucket) = &self.bucket {
+            write!(f, "{} (bucket {:?}, full key {:?})", self.ino, bucket, self.key)
+        } else {
+            write!(f, "{} (partial key {:?})", self.ino, self.key)
+        }
     }
 }
 
@@ -467,14 +475,13 @@ impl WriteMode {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::superblock::Superblock;
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockClientConfig, MockObject},
         types::ETag,
     };
     use time::Duration;
-
-    use super::*;
 
     #[tokio::test]
     async fn test_forget() {
@@ -494,7 +501,7 @@ mod tests {
             ValidKey::root()
                 .new_child(inode_name.try_into().unwrap(), InodeKind::File)
                 .unwrap(),
-            &superblock.inner.prefix,
+            &superblock.inner.s3_path.prefix,
             InodeState {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
@@ -503,7 +510,7 @@ mod tests {
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
 
-        superblock.forget(ino, 3);
+        superblock.forget(ino, 3).await;
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 2, "lookup should have been reduced");
         assert!(
@@ -511,7 +518,7 @@ mod tests {
             "inode should be present in superblock"
         );
 
-        superblock.forget(ino, 2);
+        superblock.forget(ino, 2).await;
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0, "lookup should have been reduced");
         assert!(
@@ -538,18 +545,14 @@ mod tests {
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        let ino = lookup.inode.ino();
+        let ino = lookup.ino();
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 1);
 
-        superblock.forget(ino, 1);
+        superblock.forget(ino, 1).await;
 
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0);
-        // This test should now hold the only reference to the inode, so we know it's unreferenced
-        // and will be freed
-        assert_eq!(Arc::strong_count(&lookup.inode.inner), 1);
-        drop(lookup);
 
         let err = superblock
             .getattr(ino, false)
@@ -578,20 +581,20 @@ mod tests {
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = superblock.get_lookup_count(ROOT_INODE_NO);
         assert_eq!(lookup_count, 1);
-        let ino = lookup.inode.ino();
+        let ino = lookup.ino();
         drop(lookup);
 
         client.add_object(&format!("{name}/bar"), b"bar".into());
 
         // Should be a directory now, so a different inode
         let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        assert_ne!(ino, new_lookup.inode.ino());
+        assert_ne!(ino, new_lookup.ino());
 
-        superblock.forget(ino, 1);
+        superblock.forget(ino, 1).await;
 
         // Lookup still works after forgetting the old inode
         let new_lookup2 = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-        assert_eq!(new_lookup.inode.ino(), new_lookup2.inode.ino());
+        assert_eq!(new_lookup.ino(), new_lookup2.ino());
     }
 
     #[tokio::test]
@@ -667,7 +670,7 @@ mod tests {
         let inode_name = "made-up-inode";
         let mut hasher = crc32c::Hasher::new();
         hasher.update(ino.to_be_bytes().as_ref());
-        hasher.update(superblock.inner.prefix.as_str().as_bytes());
+        hasher.update(superblock.inner.s3_path.prefix.as_str().as_bytes());
         hasher.update(inode_name.as_bytes());
         let checksum = hasher.finalize();
         let inode = Inode {
@@ -699,7 +702,7 @@ mod tests {
             .setattr(ino, Some(atime), Some(mtime))
             .await
             .expect("setattr should be successful");
-        let stat = lookup.stat;
+        let stat = lookup.stat();
         assert_eq!(stat.atime, atime);
         assert_eq!(stat.mtime, mtime);
         assert!(stat.is_valid());
@@ -734,13 +737,13 @@ mod tests {
                 ));
 
                 let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
-                let ino = lookup.inode.ino();
+                let ino = lookup.ino();
                 let lookup_count = superblock.get_lookup_count(ino);
                 assert_eq!(lookup_count, 1);
 
                 let superblock_clone = superblock.clone();
-                let forget_task = thread::spawn(move || {
-                    superblock_clone.forget(ino, 1);
+                let forget_task = thread::spawn(async move || {
+                    superblock_clone.forget(ino, 1).await;
                 });
 
                 let file_name = "bar";
@@ -749,8 +752,8 @@ mod tests {
                     .await
                     .unwrap();
 
-                forget_task.join().unwrap();
-                let ino = lookup.inode.ino();
+                forget_task.join().unwrap().await;
+                let ino = lookup.ino();
                 let lookup_count = superblock.get_lookup_count(ino);
                 assert_eq!(lookup_count, 0);
             }
@@ -790,10 +793,10 @@ mod tests {
 
                 // Lookup directories to get inodes
                 let dir_lookup = superblock.lookup(ROOT_INODE_NO, dir.as_ref()).await.unwrap();
-                let dir_ino = dir_lookup.inode.ino();
+                let dir_ino = dir_lookup.ino();
 
                 let dirtwo_lookup = superblock.lookup(ROOT_INODE_NO, dirtwo.as_ref()).await.unwrap();
-                let dirtwo_ino = dirtwo_lookup.inode.ino();
+                let dirtwo_ino = dirtwo_lookup.ino();
 
                 // Verify source files exist before rename
                 let source1_lookup = superblock.lookup(dir_ino, source_name.as_ref()).await;
@@ -884,9 +887,9 @@ mod tests {
                 // Create two threads, one that renames and one that tries to open the destination
                 let superblock_clone1 = superblock.clone();
                 let dest_lookup = superblock.lookup(ROOT_INODE_NO, dest_name.as_ref()).await.unwrap();
-                let _dest_ino = dest_lookup.inode.ino();
+                let _dest_ino = dest_lookup.ino();
                 let src_lookup = superblock.lookup(ROOT_INODE_NO, source_name.as_ref()).await.unwrap();
-                let _src_ino = src_lookup.inode.ino();
+                let _src_ino = src_lookup.ino();
 
                 let rename_task1 = thread::spawn(move || {
                     block_on(async {
@@ -910,7 +913,7 @@ mod tests {
                             .lookup(ROOT_INODE_NO, dest_name.as_ref())
                             .await
                             .expect("should succeed as object will be in S3");
-                        lookup.inode.ino()
+                        lookup.ino()
                     })
                 });
                 let _ = rename_task1.join();
