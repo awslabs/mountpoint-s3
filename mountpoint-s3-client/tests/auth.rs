@@ -21,6 +21,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials_providers::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::auth::crt_credentials::CrtCredentials;
 use mountpoint_s3_crt::common::allocator::Allocator;
+use mountpoint_s3_crt::common::error::Error;
 
 /// Test creating a client with the static credentials provider
 #[tokio::test]
@@ -426,7 +427,7 @@ async fn test_delegate_provider_failure() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_delegate_provider_failure");
 
     let provider = CredentialsProvider::new_delegate(&Allocator::default(), move |replier| {
-        replier.reply_with_credentials(None)
+        replier.reply_with_credentials(Err(Error::from(-1)))
     })
     .unwrap();
     let config = S3ClientConfig::new()

@@ -1,7 +1,8 @@
 //! Credentials object that can be used by the CRT
 
-use crate::ToAwsByteCursor;
 use crate::common::allocator::Allocator;
+use crate::common::error::Error;
+use crate::{CrtError, ToAwsByteCursor};
 use mountpoint_s3_crt_sys::{aws_credentials, aws_credentials_new, aws_credentials_release};
 use std::ffi::OsStr;
 use std::fmt::Debug;
@@ -31,7 +32,7 @@ impl CrtCredentials {
         secret_access_key: impl AsRef<OsStr>,
         session_token: Option<impl AsRef<OsStr>>,
         expiration: Option<SystemTime>,
-    ) -> Option<CrtCredentials> {
+    ) -> Result<CrtCredentials, Error> {
         // SAFETY: aws_credentials_new copies all the arguments and takes ownership of them.
         unsafe {
             let session_token = session_token
@@ -43,14 +44,15 @@ impl CrtCredentials {
                     since_epoch.as_secs()
                 })
                 .unwrap_or(u64::MAX);
-            let aws_credentials = aws_credentials_new(
+            let credentials = aws_credentials_new(
                 Allocator::default().inner.as_ptr(),
                 access_key_id.as_aws_byte_cursor(),
                 secret_access_key.as_aws_byte_cursor(),
                 session_token,
                 expiration,
-            );
-            NonNull::new(aws_credentials).map(|credentials| CrtCredentials {
+            )
+            .ok_or_last_error()?;
+            Ok(CrtCredentials {
                 credentials,
                 expiration,
             })

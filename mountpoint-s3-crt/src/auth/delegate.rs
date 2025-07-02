@@ -19,12 +19,12 @@ pub struct OnGetCredentialsCallbackResponder {
 }
 
 impl OnGetCredentialsCallbackResponder {
-    pub fn reply_with_credentials(&self, credentials: Option<CrtCredentials>) {
+    pub fn reply_with_credentials(&self, credentials: Result<CrtCredentials, Error>) {
         // SAFETY: credentials.as_ptr is dropped before credentials.
         let (aws_creds, error_code) = unsafe {
             match &credentials {
-                Some(credentials) => (credentials.as_ptr(), AWS_OP_SUCCESS),
-                None => (std::ptr::null_mut(), AWS_OP_ERR),
+                Ok(credentials) => (credentials.as_ptr(), AWS_OP_SUCCESS),
+                Err(e) => (std::ptr::null_mut(), e.raw_error()),
             }
         };
         // SAFETY: user_data is passed through without modification, and is thread-safe.
