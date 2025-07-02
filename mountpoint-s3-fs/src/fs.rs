@@ -17,6 +17,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::metablock::Metablock;
 use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::prefix::Prefix;
@@ -50,13 +51,12 @@ pub use time_to_live::TimeToLive;
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
-#[derive(Debug)]
 pub struct S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     config: S3FilesystemConfig,
-    superblock: Superblock<Client>,
+    superblock: Arc<dyn Metablock>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
     bucket: String,
@@ -175,7 +175,7 @@ where
 
         Self {
             config,
-            superblock,
+            superblock: Arc::new(superblock),
             prefetcher,
             uploader,
             bucket: bucket.to_string(),
@@ -363,7 +363,7 @@ where
 
     pub async fn forget(&self, ino: InodeNo, n: u64) {
         trace!("fs:forget with ino {:?} n {:?}", ino, n);
-        self.superblock.forget(ino, n);
+        self.superblock.forget(ino, n).await;
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
@@ -691,7 +691,7 @@ where
         let write_state = match file_handle.state.into_inner() {
             FileHandleState::Read(_) => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                self.superblock.finish_reading(file_handle.ino)?;
+                self.superblock.finish_reading(file_handle.ino).await?;
                 return Ok(());
             }
             FileHandleState::Write(write_state) => write_state,

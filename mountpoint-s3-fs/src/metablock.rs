@@ -1,11 +1,14 @@
 use crate::s3::config::S3Path;
 use crate::superblock::InodeErrorInfo;
 use crate::superblock::path::ValidKey;
-use crate::superblock::{InodeError, InodeKind, InodeNo, InodeStat};
+use crate::superblock::{InodeError, InodeKind, InodeNo, InodeStat, WriteMode};
 use crate::sync::Arc;
-use std::ffi::OsString;
+use async_trait::async_trait;
+use mountpoint_s3_client::types::ETag;
+use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::time::Duration;
+use time::OffsetDateTime;
 
 /// Describes a location of a file or directory in S3
 #[derive(Debug, Clone)]
@@ -172,3 +175,57 @@ impl From<Lookup> for InodeInformation {
 ///     If the file system were exported over NFS, these pairs would need to be unique.
 ///     For more information, see the [libfuse documentation](https://github.com/libfuse/libfuse/blob/fc1c8da0cf8a18d222cb1feed0057ba44ea4d18f/include/fuse_lowlevel.h#L70).
 pub type TryAddDirEntry<'r> = Box<dyn FnMut(InodeInformation, OsString, i64, u64) -> bool + Send + Sync + 'r>;
+
+#[async_trait]
+pub trait Metablock: Send + Sync {
+    async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError>;
+
+    async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<Lookup, InodeError>;
+
+    async fn setattr(
+        &self,
+        ino: InodeNo,
+        atime: Option<OffsetDateTime>,
+        mtime: Option<OffsetDateTime>,
+    ) -> Result<Lookup, InodeError>;
+
+    async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<Lookup, InodeError>;
+
+    async fn forget(&self, ino: InodeNo, n: u64);
+
+    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
+
+    async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError>;
+
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
+
+    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+
+    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+
+    async fn new_readdir_handle(&self, dir_ino: InodeNo) -> Result<u64, InodeError>;
+
+    async fn readdir<'a>(
+        &self,
+        parent: InodeNo,
+        fh: u64,
+        offset: i64,
+        is_readdirplus: bool,
+        mut replier: TryAddDirEntry<'a>,
+    ) -> Result<(), InodeError>;
+
+    async fn releasedir(&self, fh: u64) -> Result<(), InodeError>;
+
+    async fn rename(
+        &self,
+        src_parent_ino: InodeNo,
+        src_name: &OsStr,
+        dst_parent_ino: InodeNo,
+        dst_name: &OsStr,
+        allow_overwrite: bool,
+    ) -> Result<(), InodeError>;
+
+    async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
+
+    async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
+}

@@ -3,6 +3,8 @@ use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, SystemTime};
 
+#[cfg(test)]
+use crate::metablock::Metablock;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -508,7 +510,7 @@ mod tests {
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
 
-        superblock.forget(ino, 3);
+        superblock.forget(ino, 3).await;
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 2, "lookup should have been reduced");
         assert!(
@@ -516,7 +518,7 @@ mod tests {
             "inode should be present in superblock"
         );
 
-        superblock.forget(ino, 2);
+        superblock.forget(ino, 2).await;
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0, "lookup should have been reduced");
         assert!(
@@ -547,7 +549,7 @@ mod tests {
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 1);
 
-        superblock.forget(ino, 1);
+        superblock.forget(ino, 1).await;
 
         let lookup_count = superblock.get_lookup_count(ino);
         assert_eq!(lookup_count, 0);
@@ -588,7 +590,7 @@ mod tests {
         let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         assert_ne!(ino, new_lookup.ino());
 
-        superblock.forget(ino, 1);
+        superblock.forget(ino, 1).await;
 
         // Lookup still works after forgetting the old inode
         let new_lookup2 = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
@@ -740,8 +742,8 @@ mod tests {
                 assert_eq!(lookup_count, 1);
 
                 let superblock_clone = superblock.clone();
-                let forget_task = thread::spawn(move || {
-                    superblock_clone.forget(ino, 1);
+                let forget_task = thread::spawn(async move || {
+                    superblock_clone.forget(ino, 1).await;
                 });
 
                 let file_name = "bar";
@@ -750,7 +752,7 @@ mod tests {
                     .await
                     .unwrap();
 
-                forget_task.join().unwrap();
+                forget_task.join().unwrap().await;
                 let ino = lookup.ino();
                 let lookup_count = superblock.get_lookup_count(ino);
                 assert_eq!(lookup_count, 0);

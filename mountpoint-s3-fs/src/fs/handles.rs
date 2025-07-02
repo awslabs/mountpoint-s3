@@ -232,14 +232,14 @@ where
 
         match result {
             Ok(len) => {
-                fs.superblock.inc_file_size(handle.ino, len)?;
+                fs.superblock.inc_file_size(handle.ino, len).await?;
                 Ok(len as u32)
             }
             Err(e) => {
                 // Abort the request.
                 match std::mem::replace(self, UploadState::Failed(e.to_errno())) {
                     UploadState::MPUInProgress { .. } | UploadState::AppendInProgress { .. } => {
-                        if let Err(err) = fs.superblock.finish_writing(handle.ino, None) {
+                        if let Err(err) = fs.superblock.finish_writing(handle.ino, None).await {
                             // Log the issue but still return the write error.
                             error!(?err, key=?handle.location.full_key(), "error updating the inode status");
                         }
@@ -396,7 +396,7 @@ where
             }
             Err(e) => (Err(err!(libc::EIO, source:e, "put failed")), None),
         };
-        if let Err(err) = fs.superblock.finish_writing(ino, etag) {
+        if let Err(err) = fs.superblock.finish_writing(ino, etag).await {
             // Log the issue but still return put_result.
             error!(?err, ?key, "error updating the inode status");
         }
@@ -412,11 +412,11 @@ where
     ) -> Result<(), Error> {
         match Self::commit_append(upload, key).await {
             Ok(etag) => {
-                Self::finish(fs, ino, etag.or(initial_etag));
+                Self::finish(fs, ino, etag.or(initial_etag)).await;
                 Ok(())
             }
             Err(err) => {
-                Self::finish(fs, ino, None);
+                Self::finish(fs, ino, None).await;
                 Err(err)
             }
         }
@@ -436,8 +436,8 @@ where
         }
     }
 
-    fn finish(fs: &S3Filesystem<Client>, ino: InodeNo, etag: Option<ETag>) {
-        if let Err(err) = fs.superblock.finish_writing(ino, etag) {
+    async fn finish(fs: &S3Filesystem<Client>, ino: InodeNo, etag: Option<ETag>) {
+        if let Err(err) = fs.superblock.finish_writing(ino, etag).await {
             // Log the issue but still return put_result.
             error!(?err, "error updating the inode status");
         }
