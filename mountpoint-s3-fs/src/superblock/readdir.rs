@@ -65,8 +65,8 @@ pub struct ReaddirHandle {
 }
 
 impl ReaddirHandle {
-    pub(super) fn new<OC: ObjectClient + Send + Sync + Clone>(
-        inner: Arc<SuperblockInner<OC>>,
+    pub(super) fn new<OC: ObjectClient + Send + Sync>(
+        inner: &SuperblockInner<OC>,
         dir_ino: InodeNo,
         parent_ino: InodeNo,
         full_path: String,
@@ -130,9 +130,9 @@ impl ReaddirHandle {
     /// Return the next inode for the directory stream. If the stream is finished, returns
     /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
     /// is responsible for calling [`remember()`] if required.
-    pub(super) async fn next<OC: ObjectClient + Send + Sync + Clone>(
+    pub(super) async fn next<OC: ObjectClient + Send + Sync>(
         &self,
-        inner: Arc<SuperblockInner<OC>>,
+        inner: &Arc<SuperblockInner<OC>>,
     ) -> Result<Option<LookedUpInode>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
@@ -152,7 +152,7 @@ impl ReaddirHandle {
                     warn!("{} has an invalid name and will be unavailable", next.description());
                     continue;
                 };
-                let remote_lookup = self.remote_lookup_from_entry(&inner, &next);
+                let remote_lookup = self.remote_lookup_from_entry(inner, &next);
                 let lookup = inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
                 return Ok(Some(lookup));
             } else {
@@ -173,7 +173,7 @@ impl ReaddirHandle {
     }
 
     /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
-    fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync + Clone>(
+    fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync>(
         &self,
         inner: &Arc<SuperblockInner<OC>>,
         entry: &ReaddirEntry,

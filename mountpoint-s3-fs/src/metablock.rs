@@ -19,7 +19,7 @@ impl S3Location {
         Self { path, partial_key }
     }
 
-    /// Get the bucket name as a string slice
+    /// Get the bucket name
     pub fn bucket_name(&self) -> &str {
         &self.path.bucket_name
     }
@@ -34,7 +34,8 @@ impl S3Location {
     }
 }
 
-/// Basically a `LookedUp` without a location in S3.
+/// Basic information the filesystem needs about an inode.
+/// Does not include the location in S3, see [`Lookup`] for that.
 #[derive(Debug, Clone)]
 pub struct InodeInformation {
     ino: InodeNo,
@@ -74,8 +75,11 @@ impl InodeInformation {
     }
 }
 
-/// Information about an inode that is supplied to the
-/// fs-layer as a result of i.e., an lookup operation
+/// Information about an inode that is returned to the
+/// filesystem as a result operations like lookup.
+///
+/// Combines InodeInformation with an S3Location, that is `None` for
+/// "virtual" inodes that do not have a mapped key in S3.
 #[derive(Debug, Clone)]
 pub struct Lookup {
     information: InodeInformation,
@@ -83,12 +87,16 @@ pub struct Lookup {
 }
 
 impl Lookup {
-    /// Creates a new LookedUp instance
+    /// Creates a new Lookup instance
     pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind, is_remote: bool, location: Option<S3Location>) -> Self {
         Self {
             information: InodeInformation::new(ino, stat, kind, is_remote),
             location,
         }
+    }
+
+    pub fn new_from_info_and_loc(information: InodeInformation, location: Option<S3Location>) -> Self {
+        Self { information, location }
     }
 
     pub fn kind(&self) -> InodeKind {
@@ -120,8 +128,8 @@ impl Lookup {
     }
 
     pub fn try_into_s3_location(mut self) -> Result<S3Location, InodeError> {
-        // This method needs to be mut as otherwise the lookedup is left
-        // without a correct location.
+        // This method needs to consume self as otherwise the Lookup is left
+        // without the location and would be incorrectly considered virtual.
         self.location
             .take()
             .ok_or(InodeError::OperationNotSupportedOnVirtualInode { ino: self.ino() })
@@ -146,16 +154,21 @@ impl From<Lookup> for InodeInformation {
     }
 }
 
-/// A callback function used to pass information to the fs-layer.
+/// A callback function used to pass information to the filesystem.
 ///
 /// # Parameters (in order)
 ///
 /// * `information` - Contains metadata about the inode
 /// * `name` - The name of the directory entry
 /// * `offset` - Position of this entry
-/// * `generation` -
+/// * `generation` - Generation number[^1]
 ///
 /// # Returns
 ///
 /// Returns `true` if the entry was successfully used
+///
+///
+/// [^1]: The generation number is used to ensure uniqueness of inode/generation pairs.
+///     If the file system were exported over NFS, these pairs would need to be unique.
+///     For more information, see the [libfuse documentation](https://github.com/libfuse/libfuse/blob/fc1c8da0cf8a18d222cb1feed0057ba44ea4d18f/include/fuse_lowlevel.h#L70).
 pub type TryAddDirEntry<'r> = Box<dyn FnMut(InodeInformation, OsString, i64, u64) -> bool + Send + Sync + 'r>;

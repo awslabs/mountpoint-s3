@@ -72,7 +72,7 @@ pub use readdir::ReaddirHandle;
 
 /// Superblock is the root object of the file system
 #[derive(Debug)]
-pub struct Superblock<OC: ObjectClient + Send + Sync + Clone> {
+pub struct Superblock<OC: ObjectClient + Send + Sync> {
     inner: Arc<SuperblockInner<OC>>,
 }
 
@@ -115,7 +115,7 @@ impl RenameCache {
 }
 
 #[derive(Debug)]
-struct SuperblockInner<OC: ObjectClient + Send + Sync + Clone> {
+struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     s3_path: Arc<S3Path>,
     inodes: RwLock<InodeMap>,
     reader_counts: RwLock<ReaderCountMap>,
@@ -184,7 +184,7 @@ pub struct RenameLockGuard<'a> {
 
 /// A manager for automatically locking two inodes in filesysyem locking order.
 impl<'a> RenameLockGuard<'a> {
-    fn new<OC: ObjectClient + Send + Sync + Clone>(
+    fn new<OC: ObjectClient + Send + Sync>(
         source_parent: &'a Inode,
         dest_parent: &'a Inode,
         superblock_inner: &'a SuperblockInner<OC>,
@@ -231,7 +231,7 @@ impl<'a> RenameLockGuard<'a> {
     }
 }
 
-impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
+impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     /// Create a new Superblock that targets the given bucket/prefix
     pub fn new(client: OC, bucket: &str, prefix: &Prefix, config: SuperblockConfig) -> Self {
         let mount_time = OffsetDateTime::now_utc();
@@ -572,7 +572,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
 
         let dir_key = self.inner.full_key_for_inode(&dir);
         assert_eq!(dir_key.kind(), InodeKind::Directory);
-        let handle = ReaddirHandle::new(self.inner.clone(), dir_ino, parent_ino, dir_key.into(), page_size)?;
+        let handle = ReaddirHandle::new(&self.inner, dir_ino, parent_ino, dir_key.into(), page_size)?;
         let handle_id = self.inner.next_dir_handle_id.fetch_add(1, Ordering::SeqCst);
         let dirhandle = DirHandle::new(handle.parent(), handle);
         self.inner
@@ -602,7 +602,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
             trace!("new handle");
             let dir = self.inner.get(parent)?;
             let new_handle = ReaddirHandle::new(
-                self.inner.clone(),
+                &self.inner,
                 dir.ino(),
                 dir.parent(),
                 self.inner.full_key_for_inode(&dir).to_string(),
@@ -640,7 +640,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
                             entry.generation,
                         ) {
                             break;
-                        } // We are returning this result a second time, so the contract is that we
+                        }
+                        // We are returning this result a second time, so the contract is that we
                         // must remember it again, except that readdirplus specifies that . and ..
                         // are never incremented.
                         if is_readdirplus && entry.name != "." && entry.name != ".." {
@@ -649,12 +650,12 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
                     }
                     return Ok(());
                 }
-                return Err(InodeError::OutOfOrderReadDir {
-                    expected: dir_handle.offset(),
-                    actual: offset as i64,
-                    fh,
-                });
             }
+            return Err(InodeError::OutOfOrderReadDir {
+                expected: dir_handle.offset(),
+                actual: offset,
+                fh,
+            });
         }
 
         /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
@@ -696,10 +697,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
                 lookup,
             };
             if reply.add(entry) {
-                return {
-                    reply.finish(offset, &dir_handle).await;
-                    Ok(())
-                };
+                reply.finish(offset, &dir_handle).await;
+                return Ok(());
             }
             dir_handle.next_offset();
         }
@@ -712,21 +711,17 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
                 lookup,
             };
             if reply.add(entry) {
-                return {
-                    reply.finish(offset, &dir_handle).await;
-                    Ok(())
-                };
+                reply.finish(offset, &dir_handle).await;
+                return Ok(());
             }
             dir_handle.next_offset();
         }
 
         loop {
-            let next = match readdir_handle.next(self.inner.clone()).await? {
+            let next = match readdir_handle.next(&self.inner).await? {
                 None => {
-                    return {
-                        reply.finish(offset, &dir_handle).await;
-                        Ok(())
-                    };
+                    reply.finish(offset, &dir_handle).await;
+                    return Ok(());
                 }
                 Some(next) => next,
             };
@@ -740,10 +735,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
 
             if reply.add(entry) {
                 readdir_handle.readd(next);
-                return {
-                    reply.finish(offset, &dir_handle).await;
-                    Ok(())
-                };
+                reply.finish(offset, &dir_handle).await;
+                return Ok(());
             }
             if is_readdirplus {
                 self.inner.remember(&next.inode)
@@ -1163,7 +1156,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Superblock<OC> {
     }
 }
 
-impl<OC: ObjectClient + Send + Sync + Clone> SuperblockInner<OC> {
+impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
     /// Retrieve the inode for the given number if it exists.
     ///
     /// The expiry of its stat field is not checked.
@@ -1238,7 +1231,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> SuperblockInner<OC> {
     /// If no record for the given `name` is found, returns [None].
     /// If an entry is found in the negative cache, returns [Some(Err(InodeError::FileDoesNotExist))].
     fn cache_lookup(&self, parent_ino: InodeNo, name: &str) -> Option<Result<LookedUpInode, InodeError>> {
-        fn do_cache_lookup<O: ObjectClient + Send + Sync + Clone>(
+        fn do_cache_lookup<O: ObjectClient + Send + Sync>(
             superblock: &SuperblockInner<O>,
             parent: Inode,
             name: &str,
@@ -1732,15 +1725,9 @@ impl From<LookedUpInode> for InodeInformation {
 
 impl From<LookedUpInode> for Lookup {
     fn from(val: LookedUpInode) -> Self {
-        let location = Some(S3Location::new(val.path, val.inode.valid_key().clone()));
+        let location = Some(S3Location::new(val.path.clone(), val.inode.valid_key().clone()));
 
-        Lookup::new(
-            val.inode.ino(),
-            val.stat,
-            val.inode.kind(),
-            val.inode.is_remote().unwrap(),
-            location,
-        )
+        Lookup::new_from_info_and_loc(val.into(), location)
     }
 }
 
