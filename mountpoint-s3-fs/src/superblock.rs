@@ -29,6 +29,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use async_trait::async_trait;
 use futures::{FutureExt, select_biased};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, RenameObjectError};
@@ -45,6 +46,7 @@ use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
 #[cfg(feature = "manifest")]
 use crate::manifest::{Manifest, ManifestEntry, ManifestError};
+use crate::metablock::Metablock;
 use crate::metablock::{InodeInformation, Lookup};
 use crate::metablock::{S3Location, TryAddDirEntry};
 use crate::prefix::Prefix;
@@ -263,70 +265,6 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         Self { inner: Arc::new(inner) }
     }
 
-    /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
-    /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
-    /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
-    pub fn forget(&self, ino: InodeNo, n: u64) {
-        let mut inodes = self.inner.inodes.write().unwrap();
-
-        match inodes.decrease_lookup_count(ino, n) {
-            Ok(Some(removed_inode)) => {
-                trace!(ino, "removing inode from superblock");
-                let parent_ino = removed_inode.parent();
-
-                if let Some((parent, _)) = inodes.get_mut(&parent_ino) {
-                    let mut parent_state = parent.get_mut_inode_state_no_check();
-                    let InodeKindData::Directory {
-                        children,
-                        writing_children,
-                        ..
-                    } = &mut parent_state.kind_data
-                    else {
-                        unreachable!("parent is always a directory");
-                    };
-                    if let Some(child) = children.get(removed_inode.name()) {
-                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
-                        if child.ino() == ino {
-                            children.remove(removed_inode.name());
-                        }
-                    }
-                    writing_children.remove(&ino);
-                } else {
-                    // Should be impossible for this to fail (VFS inodes reference their parent, so
-                    // children need to be freed first), but let's not crash in a `forget` function...
-                    debug_assert!(false, "children should be forgotten before parents");
-                }
-
-                drop(inodes);
-
-                if let Ok(state) = removed_inode.get_inode_state() {
-                    metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
-                        .increment(state.stat.is_valid().into());
-                };
-            }
-            Ok(None) => {}
-            Err(_) => {
-                debug_assert!(
-                    false,
-                    "forget should not be called on inode already removed from superblock"
-                );
-                error!("forget called on inode {ino} already removed from the superblock");
-            }
-        }
-    }
-
-    /// Lookup an inode in the parent directory with the given name and
-    /// increments its lookup count.
-    pub async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
-        trace!(parent=?parent_ino, ?name, "lookup");
-        let lookup = self
-            .inner
-            .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
-            .await?;
-        self.inner.remember(&lookup.inode);
-        Ok(lookup.into())
-    }
-
     #[cfg(test)]
     fn get_lookup_count(&self, ino: InodeNo) -> u64 {
         let inode_read = self.inner.inodes.read().unwrap();
@@ -341,13 +279,6 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .get_inode(&ino)
             .and_then(|inode| inode.get_inode_state().ok())
             .map(|state| state.write_status)
-    }
-
-    /// Retrieve the attributes for an inode
-    pub async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<Lookup, InodeError> {
-        self.getattr_with_inode(ino, force_revalidate)
-            .await
-            .map(|lookup| lookup.into())
     }
 
     async fn getattr_with_inode(&self, ino: InodeNo, force_revalidate: bool) -> Result<LookedUpInode, InodeError> {
@@ -373,7 +304,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .await?;
         if lookup.inode.ino() != ino {
             Err(InodeError::StaleInode {
-                remote_key: self.full_key_for_inode(&lookup.inode).into(),
+                remote_key: self.inner.full_key_for_inode(&lookup.inode).into(),
                 old_inode: inode.err(),
                 new_inode: lookup.inode.err(),
             })
@@ -382,8 +313,391 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         }
     }
 
+    async fn new_readdir_handle_with_pagesize(&self, dir_ino: InodeNo, page_size: usize) -> Result<u64, InodeError> {
+        trace!(dir=?dir_ino, "readdir");
+
+        let dir = self.inner.get(dir_ino)?;
+        logging::record_name(dir.name());
+        if dir.kind() != InodeKind::Directory {
+            return Err(InodeError::NotADirectory(dir.err()));
+        }
+        let parent_ino = dir.parent();
+
+        let dir_key = self.inner.full_key_for_inode(&dir);
+        assert_eq!(dir_key.kind(), InodeKind::Directory);
+        let handle = ReaddirHandle::new(&self.inner, dir_ino, parent_ino, dir_key.into(), page_size)?;
+        let handle_id = self.inner.next_dir_handle_id.fetch_add(1, Ordering::SeqCst);
+        let dirhandle = DirHandle::new(handle.parent(), handle);
+        self.inner
+            .dir_handles
+            .write()
+            .unwrap()
+            .insert(handle_id, Arc::new(dirhandle));
+        trace!("Added handle with id: {}", handle_id);
+        Ok(handle_id)
+    }
+}
+
+#[async_trait]
+impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
+    /// Lookup an inode in the parent directory with the given name and
+    /// increments its lookup count.
+    async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
+        trace!(parent=?parent_ino, ?name, "lookup");
+        let lookup = self
+            .inner
+            .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
+            .await?;
+        self.inner.remember(&lookup.inode);
+        Ok(lookup.into())
+    }
+
+    /// Retrieve the attributes for an inode
+    async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<Lookup, InodeError> {
+        self.getattr_with_inode(ino, force_revalidate)
+            .await
+            .map(|lookup| lookup.into())
+    }
+
+    /// Rename inode described by source parent and name to instead be linked under the given destination and name.
+    ///
+    /// Rename is only supported on Amazon S3 directory buckets supporting the RenameObject operation.
+    /// File systems against other buckets will reject `rename` file system operations within the same file system.
+    ///
+    /// As part of this operation, we update the local file system state.
+    async fn rename(
+        &self,
+        src_parent_ino: InodeNo,
+        src_name: &OsStr,
+        dst_parent_ino: InodeNo,
+        dst_name: &OsStr,
+        allow_overwrite: bool,
+    ) -> Result<(), InodeError> {
+        // If we have cached a failed rename, we will directly fail
+        if !self.inner.cached_rename_support.should_try_rename() {
+            trace!("Cached rename failure, returning NotSupported");
+            return Err(InodeError::RenameNotSupported());
+        }
+        let src_parent = self.inner.get(src_parent_ino)?;
+        let dst_parent = self.inner.get(dst_parent_ino)?;
+        let src_inode = self
+            .inner
+            .lookup_by_name(
+                src_parent_ino,
+                src_name,
+                self.inner.config.cache_config.serve_lookup_from_cache,
+            )
+            .await?
+            .inode;
+        if src_inode.kind() == InodeKind::Directory {
+            return Err(InodeError::CannotRenameDirectory(src_inode.err()));
+        }
+        // Check write status from source and set to PendingRename
+        let mut src_status_guard = PendingRenameGuard::try_transition(&src_inode)?;
+
+        let dest_inode = self
+            .inner
+            .lookup_by_name(
+                dst_parent_ino,
+                dst_name,
+                self.inner.config.cache_config.serve_lookup_from_cache,
+            )
+            .await
+            .ok()
+            .map(|looked_up| looked_up.inode);
+        // Check if destination exists and transition to `PendingRename` state if possible.
+        let dest_status_guard = dest_inode
+            .as_ref()
+            .map(|inode| {
+                if !allow_overwrite {
+                    return Err(InodeError::RenameDestinationExists {
+                        dest_key: self.inner.full_key_for_inode(inode).to_string(),
+                        src_inode: src_inode.err(),
+                    });
+                }
+
+                PendingRenameGuard::try_transition(inode)
+            })
+            .transpose()?;
+
+        let src_key = self.inner.full_key_for_inode(&src_inode);
+        let dest_name = ValidName::parse_os_str(dst_name)?;
+        let dest_full_valid_name = dst_parent
+            .valid_key()
+            .new_child(dest_name, InodeKind::File)
+            .map_err(|_| InodeError::NotADirectory(dst_parent.err()))?;
+        let dest_key: String = format!("{}{}", self.inner.s3_path.prefix, dest_full_valid_name.as_ref());
+        debug!(?src_key, ?dest_key, "rename on remote file will now be actioned");
+        // TODO-RENAME: Consider adding ETag-matching here
+        let rename_params = if allow_overwrite {
+            RenameObjectParams::new()
+        } else {
+            RenameObjectParams::new().if_none_match(Some("*".to_string()))
+        };
+
+        let rename_object_result = self
+            .inner
+            .client
+            .rename_object(
+                &self.inner.s3_path.bucket_name,
+                src_key.as_ref(),
+                &dest_key,
+                &rename_params,
+            )
+            .await;
+
+        match rename_object_result {
+            Ok(_res) => {
+                debug!(?src_key, ?dest_key, "RenameObject succeeded");
+            }
+            Err(error) => {
+                debug!(?src_key, ?dest_key, ?error, "RenameObject failed");
+
+                return match error {
+                    ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                        RenamePreconditionTypes::IfNoneMatch,
+                    )) => Err(InodeError::RenameDestinationExists {
+                        dest_key,
+                        src_inode: src_inode.err(),
+                    }),
+                    ObjectClientError::ServiceError(RenameObjectError::KeyNotFound) => {
+                        Err(InodeError::InodeDoesNotExist(src_inode.ino()))
+                    }
+                    ObjectClientError::ServiceError(RenameObjectError::KeyTooLong) => {
+                        Err(InodeError::NameTooLong(dest_key))
+                    }
+                    ObjectClientError::ServiceError(RenameObjectError::NotImplementedError) => {
+                        // We only cache `NotImplemented` responses negatively,
+                        // as other failures do not imply that the bucket does not support rename
+                        self.inner.cached_rename_support.cache_failure();
+                        Err(InodeError::RenameNotSupported())
+                    }
+                    _ => Err(InodeError::client_error(
+                        error,
+                        "RenameObject failed",
+                        &self.inner.s3_path.bucket_name,
+                        src_key.as_ref(),
+                    )),
+                };
+            }
+        };
+
+        self.inner.cached_rename_support.cache_success();
+        // Invalidate destination from negative cache, as it is now in S3
+        self.inner.negative_cache.remove(
+            dst_parent.ino(),
+            dst_name
+                .to_str()
+                .ok_or_else(|| InodeError::InvalidFileName(dst_name.to_owned()))?,
+        );
+        // Acquire locks using RenameLockGuard
+        let mut rename_guard = RenameLockGuard::new(&src_parent, &dst_parent, &self.inner)?;
+        // Handle source parent
+        {
+            let source_state = rename_guard.source_parent_mut();
+
+            match &mut source_state.kind_data {
+                InodeKindData::File { .. } => {
+                    debug_assert!(false, "inodes never change kind");
+                    return Err(InodeError::NotADirectory(src_parent.err()));
+                }
+                InodeKindData::Directory { children, .. } => {
+                    if let Some((_name, child)) = children.remove_entry(src_inode.name()) {
+                        // VFS-locking should guarantee that these are identical
+                        debug_assert_eq!(src_inode.ino(), child.ino(), "inode should have stayed identical");
+                    }
+                }
+            }
+        }
+        // Handle destination parent
+        {
+            let dst_state = rename_guard.destination_parent_mut();
+            match &mut dst_state.kind_data {
+                InodeKindData::File { .. } => {
+                    debug_assert!(false, "inodes never change kind");
+                    return Err(InodeError::NotADirectory(src_parent.err()));
+                }
+                InodeKindData::Directory { children, .. } => {
+                    let dst_name_as_str: Box<str> = dest_name.as_ref().into();
+                    let new_inode = src_inode.try_clone_with_new_key(
+                        dest_full_valid_name,
+                        &self.inner.s3_path.prefix,
+                        self.inner.config.cache_config.file_ttl,
+                        dst_parent_ino,
+                    )?;
+
+                    // Try to remove the inode from the parent, and notice if it was in an unexpected state.
+                    let concurrent_modification_detected =
+                        if let Some((_name, old_inode)) = children.remove_entry(dst_name_as_str.as_ref()) {
+                            dest_inode
+                                .as_ref()
+                                .map(|inode| inode.ino() != old_inode.ino())
+                                .unwrap_or(true)
+                        } else {
+                            dest_inode.is_some()
+                        };
+
+                    if concurrent_modification_detected {
+                        warn!(
+                            src_ino = src_inode.ino(),
+                            "concurrent modification detected during rename of inode {}, dest parent state changed unexpectedly which may cause unexpected behavior",
+                            src_inode.err(),
+                        );
+                    }
+
+                    children.insert(dst_name_as_str, new_inode.clone());
+                    let mut inodes_write = self.inner.inodes.write().unwrap();
+                    inodes_write.replace_or_insert(new_inode.ino(), &new_inode);
+                }
+            }
+        }
+        debug!("Rename completed in superblock");
+        src_status_guard.confirm();
+        if let Some(mut guard) = dest_status_guard {
+            guard.confirm()
+        }
+        Ok(())
+    }
+
+    /// Remove local-only empty directory, i.e., the ones created by mkdir.
+    /// It does not affect empty directories represented remotely with directory markers.
+    async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError> {
+        let LookedUpInode { inode, .. } = self
+            .inner
+            .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
+            .await?;
+
+        if inode.kind() == InodeKind::File {
+            return Err(InodeError::NotADirectory(inode.err()));
+        }
+
+        let parent = self.inner.get(parent_ino)?;
+        let mut parent_state = parent.get_mut_inode_state()?;
+        let mut inode_state = inode.get_mut_inode_state()?;
+
+        match &inode_state.write_status {
+            WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
+            WriteStatus::Remote => {
+                return Err(InodeError::CannotRemoveRemoteDirectory(inode.err()));
+            }
+            WriteStatus::LocalUnopened => match &mut inode_state.kind_data {
+                InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
+                InodeKindData::Directory {
+                    writing_children,
+                    deleted,
+                    ..
+                } => {
+                    if !writing_children.is_empty() {
+                        return Err(InodeError::DirectoryNotEmpty(inode.err()));
+                    }
+                    *deleted = true;
+                }
+            },
+            WriteStatus::PendingRename => unreachable!("Only files can be in PendingRename"),
+        }
+
+        match &mut parent_state.kind_data {
+            InodeKindData::File {} => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.err()));
+            }
+            InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } => {
+                let removed = writing_children.remove(&inode.ino());
+                debug_assert!(
+                    removed,
+                    "should be able to remove the directory from its parents writing children as it was local"
+                );
+                children.remove(inode.name());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Unlink the entry described by `parent_ino` and `name`.
+    ///
+    /// If the entry exists, delete it from S3 and the superblock.
+    ///
+    /// We know that the Linux Kernel's VFS will lock both the parent and child,
+    /// so we can safely ignore concurrent operations within the same Mountpoint process to the file and its parent.
+    /// See: https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
+    async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError> {
+        let parent = self.inner.get(parent_ino)?;
+        let LookedUpInode { inode, .. } = self
+            .inner
+            .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
+            .await?;
+
+        if inode.kind() == InodeKind::Directory {
+            return Err(InodeError::IsDirectory(inode.err()));
+        }
+
+        let write_status = {
+            let inode_state = inode.get_inode_state()?;
+            inode_state.write_status
+        };
+
+        match write_status {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
+                // In the future, we may permit `unlink` and cancel any in-flight uploads.
+                warn!(
+                    parent = parent_ino,
+                    ?name,
+                    "unlink on local file not allowed until write is complete",
+                );
+                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
+            }
+            WriteStatus::Remote => {
+                let bucket = &self.inner.s3_path.bucket_name;
+                let s3_key = self.inner.full_key_for_inode(&inode);
+                debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
+                let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
+
+                match delete_obj_result {
+                    Ok(_res) => (),
+                    Err(e) => {
+                        error!(
+                            inode=%inode.err(),
+                            error=?e,
+                            "DeleteObject failed for unlink",
+                        );
+                        Err(InodeError::client_error(e, "DeleteObject failed", bucket, &s3_key))?;
+                    }
+                };
+            }
+        }
+
+        let mut parent_state = parent.get_mut_inode_state()?;
+        match &mut parent_state.kind_data {
+            InodeKindData::File { .. } => {
+                debug_assert!(false, "inodes never change kind");
+                return Err(InodeError::NotADirectory(parent.err()));
+            }
+            InodeKindData::Directory { children, .. } => {
+                // We want to remove the original child.
+                // We assume that the VFS will hold a lock on the parent and child.
+                // However, we don't hold this lock over remote calls as we don't want to move to async locks right now.
+                // Instead, we will panic when our assumption appears broken.
+                let removed_inode = children
+                    .remove(inode.name())
+                    .expect("parent should contain child assuming VFS does not permit concurrent op on parent");
+                assert_eq!(
+                    removed_inode.ino(),
+                    inode.ino(),
+                    "child ino number shouldn't change assuming VFS does not permit concurrent op on parent",
+                );
+            }
+        };
+
+        Ok(())
+    }
+
     /// Set the attributes for an inode
-    pub async fn setattr(
+    async fn setattr(
         &self,
         ino: InodeNo,
         atime: Option<OffsetDateTime>,
@@ -423,7 +737,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     /// Prepare an inode to start writing.
-    pub async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError> {
+    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
 
@@ -457,7 +771,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     /// Increase the size of a file open for writing.
-    pub fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
+    async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
         let inode = self.inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
         if !matches!(state.write_status, WriteStatus::LocalOpen) {
@@ -469,7 +783,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     /// Update status of the inode and of containing "local" directories.
-    pub fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
         // Collect ancestor inodes that may need updating,
         // from parent to first remote ancestor.
@@ -526,7 +840,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     /// Prepare an inode to start reading.
-    pub async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
+    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
         trace!(?ino, "read");
 
         let inode = self.inner.get(ino)?;
@@ -543,7 +857,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     /// Update status of the inode to reflect the read being finished
-    pub fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
+    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
 
         // Decrease reader count for the inode
@@ -555,41 +869,17 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     /// Start a readdir stream for the given directory inode
     ///
     /// Doesn't currently do any IO, so doesn't need to be async, but reserving it for future use.
-    pub async fn new_readdir_handle(&self, dir_ino: InodeNo) -> Result<u64, InodeError> {
+    async fn new_readdir_handle(&self, dir_ino: InodeNo) -> Result<u64, InodeError> {
         self.new_readdir_handle_with_pagesize(dir_ino, 1000).await
     }
 
-    async fn new_readdir_handle_with_pagesize(&self, dir_ino: InodeNo, page_size: usize) -> Result<u64, InodeError> {
-        trace!(dir=?dir_ino, "readdir");
-
-        let dir = self.inner.get(dir_ino)?;
-        logging::record_name(dir.name());
-        if dir.kind() != InodeKind::Directory {
-            return Err(InodeError::NotADirectory(dir.err()));
-        }
-        let parent_ino = dir.parent();
-
-        let dir_key = self.inner.full_key_for_inode(&dir);
-        assert_eq!(dir_key.kind(), InodeKind::Directory);
-        let handle = ReaddirHandle::new(&self.inner, dir_ino, parent_ino, dir_key.into(), page_size)?;
-        let handle_id = self.inner.next_dir_handle_id.fetch_add(1, Ordering::SeqCst);
-        let dirhandle = DirHandle::new(handle.parent(), handle);
-        self.inner
-            .dir_handles
-            .write()
-            .unwrap()
-            .insert(handle_id, Arc::new(dirhandle));
-        trace!("Added handle with id: {}", handle_id);
-        Ok(handle_id)
-    }
-
-    pub async fn readdir(
+    async fn readdir<'a>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
-        mut try_add: TryAddDirEntry<'_>,
+        mut try_add: TryAddDirEntry<'a>,
     ) -> Result<(), InodeError> {
         let dir_handle = {
             let dir_handles = self.inner.dir_handles.read().unwrap();
@@ -744,7 +1034,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         }
     }
 
-    pub async fn releasedir(&self, fh: u64) -> Result<(), InodeError> {
+    async fn releasedir(&self, fh: u64) -> Result<(), InodeError> {
         let mut dir_handles = self.inner.dir_handles.write().unwrap();
         dir_handles
             .remove(&fh)
@@ -753,7 +1043,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     /// Create a new regular file or directory inode ready to be opened in write-only mode
-    pub async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<Lookup, InodeError> {
+    async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<Lookup, InodeError> {
         trace!(parent=?dir, ?name, "create");
 
         let existing = self
@@ -814,344 +1104,56 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         Ok(lookup.into())
     }
 
-    /// Remove local-only empty directory, i.e., the ones created by mkdir.
-    /// It does not affect empty directories represented remotely with directory markers.
-    pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError> {
-        let LookedUpInode { inode, .. } = self
-            .inner
-            .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
-            .await?;
+    /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
+    /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
+    /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
+    async fn forget(&self, ino: InodeNo, n: u64) {
+        let mut inodes = self.inner.inodes.write().unwrap();
 
-        if inode.kind() == InodeKind::File {
-            return Err(InodeError::NotADirectory(inode.err()));
-        }
+        match inodes.decrease_lookup_count(ino, n) {
+            Ok(Some(removed_inode)) => {
+                trace!(ino, "removing inode from superblock");
+                let parent_ino = removed_inode.parent();
 
-        let parent = self.inner.get(parent_ino)?;
-        let mut parent_state = parent.get_mut_inode_state()?;
-        let mut inode_state = inode.get_mut_inode_state()?;
-
-        match &inode_state.write_status {
-            WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
-            WriteStatus::Remote => {
-                return Err(InodeError::CannotRemoveRemoteDirectory(inode.err()));
-            }
-            WriteStatus::LocalUnopened => match &mut inode_state.kind_data {
-                InodeKindData::File {} => unreachable!("Already checked that inode is a directory"),
-                InodeKindData::Directory {
-                    writing_children,
-                    deleted,
-                    ..
-                } => {
-                    if !writing_children.is_empty() {
-                        return Err(InodeError::DirectoryNotEmpty(inode.err()));
+                if let Some((parent, _)) = inodes.get_mut(&parent_ino) {
+                    let mut parent_state = parent.get_mut_inode_state_no_check();
+                    let InodeKindData::Directory {
+                        children,
+                        writing_children,
+                        ..
+                    } = &mut parent_state.kind_data
+                    else {
+                        unreachable!("parent is always a directory");
+                    };
+                    if let Some(child) = children.get(removed_inode.name()) {
+                        // Don't accidentally remove a newer inode (e.g. remote shadowing local)
+                        if child.ino() == ino {
+                            children.remove(removed_inode.name());
+                        }
                     }
-                    *deleted = true;
+                    writing_children.remove(&ino);
+                } else {
+                    // Should be impossible for this to fail (VFS inodes reference their parent, so
+                    // children need to be freed first), but let's not crash in a `forget` function...
+                    debug_assert!(false, "children should be forgotten before parents");
                 }
-            },
-            WriteStatus::PendingRename => unreachable!("Only files can be in PendingRename"),
-        }
 
-        match &mut parent_state.kind_data {
-            InodeKindData::File {} => {
-                debug_assert!(false, "inodes never change kind");
-                return Err(InodeError::NotADirectory(parent.err()));
+                drop(inodes);
+
+                if let Ok(state) = removed_inode.get_inode_state() {
+                    metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
+                        .increment(state.stat.is_valid().into());
+                };
             }
-            InodeKindData::Directory {
-                children,
-                writing_children,
-                ..
-            } => {
-                let removed = writing_children.remove(&inode.ino());
+            Ok(None) => {}
+            Err(_) => {
                 debug_assert!(
-                    removed,
-                    "should be able to remove the directory from its parents writing children as it was local"
+                    false,
+                    "forget should not be called on inode already removed from superblock"
                 );
-                children.remove(inode.name());
+                error!("forget called on inode {ino} already removed from the superblock");
             }
         }
-
-        Ok(())
-    }
-
-    /// Unlink the entry described by `parent_ino` and `name`.
-    ///
-    /// If the entry exists, delete it from S3 and the superblock.
-    ///
-    /// We know that the Linux Kernel's VFS will lock both the parent and child,
-    /// so we can safely ignore concurrent operations within the same Mountpoint process to the file and its parent.
-    /// See: https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
-    pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError> {
-        let parent = self.inner.get(parent_ino)?;
-        let LookedUpInode { inode, .. } = self
-            .inner
-            .lookup_by_name(parent_ino, name, self.inner.config.cache_config.serve_lookup_from_cache)
-            .await?;
-
-        if inode.kind() == InodeKind::Directory {
-            return Err(InodeError::IsDirectory(inode.err()));
-        }
-
-        let write_status = {
-            let inode_state = inode.get_inode_state()?;
-            inode_state.write_status
-        };
-
-        match write_status {
-            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
-                // In the future, we may permit `unlink` and cancel any in-flight uploads.
-                warn!(
-                    parent = parent_ino,
-                    ?name,
-                    "unlink on local file not allowed until write is complete",
-                );
-                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
-            }
-            WriteStatus::Remote => {
-                let bucket = &self.inner.s3_path.bucket_name;
-                let s3_key = self.full_key_for_inode(&inode);
-                debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
-                let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
-
-                match delete_obj_result {
-                    Ok(_res) => (),
-                    Err(e) => {
-                        error!(
-                            inode=%inode.err(),
-                            error=?e,
-                            "DeleteObject failed for unlink",
-                        );
-                        Err(InodeError::client_error(e, "DeleteObject failed", bucket, &s3_key))?;
-                    }
-                };
-            }
-        }
-
-        let mut parent_state = parent.get_mut_inode_state()?;
-        match &mut parent_state.kind_data {
-            InodeKindData::File { .. } => {
-                debug_assert!(false, "inodes never change kind");
-                return Err(InodeError::NotADirectory(parent.err()));
-            }
-            InodeKindData::Directory { children, .. } => {
-                // We want to remove the original child.
-                // We assume that the VFS will hold a lock on the parent and child.
-                // However, we don't hold this lock over remote calls as we don't want to move to async locks right now.
-                // Instead, we will panic when our assumption appears broken.
-                let removed_inode = children
-                    .remove(inode.name())
-                    .expect("parent should contain child assuming VFS does not permit concurrent op on parent");
-                assert_eq!(
-                    removed_inode.ino(),
-                    inode.ino(),
-                    "child ino number shouldn't change assuming VFS does not permit concurrent op on parent",
-                );
-            }
-        };
-
-        Ok(())
-    }
-
-    fn full_key_for_inode(&self, inode: &Inode) -> ValidKey {
-        self.inner.full_key_for_inode(inode)
-    }
-    /// Rename inode described by source parent and name to instead be linked under the given destination and name.
-    ///
-    /// Rename is only supported on Amazon S3 directory buckets supporting the RenameObject operation.
-    /// File systems against other buckets will reject `rename` file system operations within the same file system.
-    ///
-    /// As part of this operation, we update the local file system state.
-    pub async fn rename(
-        &self,
-        src_parent_ino: InodeNo,
-        src_name: &OsStr,
-        dst_parent_ino: InodeNo,
-        dst_name: &OsStr,
-        allow_overwrite: bool,
-    ) -> Result<(), InodeError> {
-        // If we have cached a failed rename, we will directly fail
-        if !self.inner.cached_rename_support.should_try_rename() {
-            trace!("Cached rename failure, returning NotSupported");
-            return Err(InodeError::RenameNotSupported());
-        }
-        let src_parent = self.inner.get(src_parent_ino)?;
-        let dst_parent = self.inner.get(dst_parent_ino)?;
-        let src_inode = self
-            .inner
-            .lookup_by_name(
-                src_parent_ino,
-                src_name,
-                self.inner.config.cache_config.serve_lookup_from_cache,
-            )
-            .await?
-            .inode;
-        if src_inode.kind() == InodeKind::Directory {
-            return Err(InodeError::CannotRenameDirectory(src_inode.err()));
-        }
-        // Check write status from source and set to PendingRename
-        let mut src_status_guard = PendingRenameGuard::try_transition(&src_inode)?;
-
-        let dest_inode = self
-            .inner
-            .lookup_by_name(
-                dst_parent_ino,
-                dst_name,
-                self.inner.config.cache_config.serve_lookup_from_cache,
-            )
-            .await
-            .ok()
-            .map(|looked_up| looked_up.inode);
-        // Check if destination exists and transition to `PendingRename` state if possible.
-        let dest_status_guard = dest_inode
-            .as_ref()
-            .map(|inode| {
-                if !allow_overwrite {
-                    return Err(InodeError::RenameDestinationExists {
-                        dest_key: self.inner.full_key_for_inode(inode).to_string(),
-                        src_inode: src_inode.err(),
-                    });
-                }
-
-                PendingRenameGuard::try_transition(inode)
-            })
-            .transpose()?;
-
-        let src_key = self.full_key_for_inode(&src_inode);
-        let dest_name = ValidName::parse_os_str(dst_name)?;
-        let dest_full_valid_name = dst_parent
-            .valid_key()
-            .new_child(dest_name, InodeKind::File)
-            .map_err(|_| InodeError::NotADirectory(dst_parent.err()))?;
-        let dest_key: String = format!("{}{}", self.inner.s3_path.prefix, dest_full_valid_name.as_ref());
-        debug!(?src_key, ?dest_key, "rename on remote file will now be actioned");
-        // TODO-RENAME: Consider adding ETag-matching here
-        let rename_params = if allow_overwrite {
-            RenameObjectParams::new()
-        } else {
-            RenameObjectParams::new().if_none_match(Some("*".to_string()))
-        };
-
-        let rename_object_result = self
-            .inner
-            .client
-            .rename_object(
-                &self.inner.s3_path.bucket_name,
-                src_key.as_ref(),
-                &dest_key,
-                &rename_params,
-            )
-            .await;
-
-        match rename_object_result {
-            Ok(_res) => {
-                debug!(?src_key, ?dest_key, "RenameObject succeeded");
-            }
-            Err(error) => {
-                debug!(?src_key, ?dest_key, ?error, "RenameObject failed");
-
-                return match error {
-                    ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
-                        RenamePreconditionTypes::IfNoneMatch,
-                    )) => Err(InodeError::RenameDestinationExists {
-                        dest_key,
-                        src_inode: src_inode.err(),
-                    }),
-                    ObjectClientError::ServiceError(RenameObjectError::KeyNotFound) => {
-                        Err(InodeError::InodeDoesNotExist(src_inode.ino()))
-                    }
-                    ObjectClientError::ServiceError(RenameObjectError::KeyTooLong) => {
-                        Err(InodeError::NameTooLong(dest_key))
-                    }
-                    ObjectClientError::ServiceError(RenameObjectError::NotImplementedError) => {
-                        // We only cache `NotImplemented` responses negatively,
-                        // as other failures do not imply that the bucket does not support rename
-                        self.inner.cached_rename_support.cache_failure();
-                        Err(InodeError::RenameNotSupported())
-                    }
-                    _ => Err(InodeError::client_error(
-                        error,
-                        "RenameObject failed",
-                        &self.inner.s3_path.bucket_name,
-                        src_key.as_ref(),
-                    )),
-                };
-            }
-        };
-
-        self.inner.cached_rename_support.cache_success();
-        // Invalidate destination from negative cache, as it is now in S3
-        self.inner.negative_cache.remove(
-            dst_parent.ino(),
-            dst_name
-                .to_str()
-                .ok_or_else(|| InodeError::InvalidFileName(dst_name.to_owned()))?,
-        );
-        // Acquire locks using RenameLockGuard
-        let mut rename_guard = RenameLockGuard::new(&src_parent, &dst_parent, &self.inner)?;
-        // Handle source parent
-        {
-            let source_state = rename_guard.source_parent_mut();
-
-            match &mut source_state.kind_data {
-                InodeKindData::File { .. } => {
-                    debug_assert!(false, "inodes never change kind");
-                    return Err(InodeError::NotADirectory(src_parent.err()));
-                }
-                InodeKindData::Directory { children, .. } => {
-                    if let Some((_name, child)) = children.remove_entry(src_inode.name()) {
-                        // VFS-locking should guarantee that these are identical
-                        debug_assert_eq!(src_inode.ino(), child.ino(), "inode should have stayed identical");
-                    }
-                }
-            }
-        }
-        // Handle destination parent
-        {
-            let dst_state = rename_guard.destination_parent_mut();
-            match &mut dst_state.kind_data {
-                InodeKindData::File { .. } => {
-                    debug_assert!(false, "inodes never change kind");
-                    return Err(InodeError::NotADirectory(src_parent.err()));
-                }
-                InodeKindData::Directory { children, .. } => {
-                    let dst_name_as_str: Box<str> = dest_name.as_ref().into();
-                    let new_inode = src_inode.try_clone_with_new_key(
-                        dest_full_valid_name,
-                        &self.inner.s3_path.prefix,
-                        self.inner.config.cache_config.file_ttl,
-                        dst_parent_ino,
-                    )?;
-
-                    // Try to remove the inode from the parent, and notice if it was in an unexpected state.
-                    let concurrent_modification_detected =
-                        if let Some((_name, old_inode)) = children.remove_entry(dst_name_as_str.as_ref()) {
-                            dest_inode
-                                .as_ref()
-                                .map(|inode| inode.ino() != old_inode.ino())
-                                .unwrap_or(true)
-                        } else {
-                            dest_inode.is_some()
-                        };
-
-                    if concurrent_modification_detected {
-                        warn!(
-                            src_ino = src_inode.ino(),
-                            "concurrent modification detected during rename of inode {}, dest parent state changed unexpectedly which may cause unexpected behavior",
-                            src_inode.err(),
-                        );
-                    }
-
-                    children.insert(dst_name_as_str, new_inode.clone());
-                    let mut inodes_write = self.inner.inodes.write().unwrap();
-                    inodes_write.replace_or_insert(new_inode.ino(), &new_inode);
-                }
-            }
-        }
-        debug!("Rename completed in superblock");
-        src_status_guard.confirm();
-        if let Some(mut guard) = dest_status_guard {
-            guard.confirm()
-        }
-        Ok(())
     }
 }
 
@@ -2859,7 +2861,7 @@ mod tests {
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        superblock.finish_writing(new_inode.ino(), None).unwrap();
+        superblock.finish_writing(new_inode.ino(), None).await.unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -3021,6 +3023,7 @@ mod tests {
         // Invoke [finish_writing] to make the file remote
         superblock
             .finish_writing(new_inode.ino(), Some(ETag::for_tests()))
+            .await
             .unwrap();
 
         // Should get an error back when calling setattr
