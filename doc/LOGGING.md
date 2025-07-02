@@ -80,9 +80,7 @@ Metrics are currently output in an unstructured format and are subject to change
 
 ### Publishing Metrics
 
-Additionally, metrics can be published to a specified endpoint (in OpenTelemetry format), for example to the endpoint that CloudWatch agent listens to and can be configured to forward metrics to CloudWatch/Prometheus. 
-
-For more information about the CloudWatch agent, see the [CloudWatch Agent Installation Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Install-CloudWatch-Agent.html) and [Using the CloudWatch agent to collect OpenTelemetry metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-OpenTelemetry-metrics.html).
+Additionally, metrics can be published in OpenTelemetry format to a specified endpoint. This allows for integration with OpenTelemetry collectors and agents. For example, the [CloudWatch Agent](#cloudwatch-agent-installation) can listen at port 4318 for metrics in OpenTelemetry format and forward them to CloudWatch and Prometheus.
 
 Note that publishing metrics to CloudWatch may incur additional AWS costs depending on the volume of metrics and your AWS account's billing tier. Publishing metrics is entirely optional, and you can still use Mountpoint without enabling this feature.
 
@@ -97,7 +95,7 @@ mount-s3 my-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --log-metric
 
 #### CloudWatch Agent Installation 
 
-Follow [CloudWatch Agent installation guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html). If installing on EC2 instance, ensure that you attach the CloudWatchAgentServerPolicy to the IAM role that is attached to your instance.
+Follow [CloudWatch Agent installation guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html). For more information about the CloudWatch agent, see the [CloudWatch Agent Installation Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Install-CloudWatch-Agent.html) and [Using the CloudWatch agent to collect OpenTelemetry metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-OpenTelemetry-metrics.html). If installing on EC2 instance, ensure that you attach the CloudWatchAgentServerPolicy to the IAM role that is attached to your instance.
 
 "If you create or edit the agent configuration file manually, you can give it any name. For simplicity in troubleshooting, we recommend that you name it /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json on a Linux server and $Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json on servers running Windows Server."
 
