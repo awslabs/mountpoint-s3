@@ -4,22 +4,23 @@ pub mod common;
 
 use std::io::Write;
 use std::option::Option::None;
+use std::sync::Arc;
 use std::writeln;
 
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
-use rusty_fork::rusty_fork_test;
-use tempfile::NamedTempFile;
-
 use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use common::*;
+use rusty_fork::rusty_fork_test;
+use tempfile::NamedTempFile;
+use tokio::runtime::Handle;
 
+use crate::common::creds::get_sdk_default_chain_provider;
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::types::GetObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials_providers::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::auth::crt_credentials::CrtCredentials;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::error::Error;
 
@@ -401,12 +402,7 @@ async fn test_delegate_provider() {
 
     // Build a S3CrtClient that uses a delegate credentials provider with the creds we just got, passing through static credentials
     let provider = CredentialsProvider::new_delegate(&Allocator::default(), move |replier| {
-        replier.reply_with_credentials(CrtCredentials::new(
-            credentials.access_key_id(),
-            credentials.secret_access_key(),
-            credentials.session_token(),
-            credentials.expiry(),
-        ));
+        replier.reply_with_credentials((&credentials).try_into());
     })
     .unwrap();
     let config = S3ClientConfig::new()
@@ -440,6 +436,40 @@ async fn test_delegate_provider_failure() {
         .await
         .expect_err("should fail when using invalid credentials");
     assert!(matches!(err, ObjectClientError::ClientError(_)));
+}
+
+/// Test creating a client with the Rust SDK credentials provider
+#[tokio::test]
+async fn test_sdk_provider() {
+    let sdk_client = get_test_sdk_client().await;
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_sdk_provider");
+
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let credentials_provider = get_sdk_default_chain_provider().await;
+
+    // Build a S3CrtClient that uses a delegate credentials provider with the creds we just got, passing through static credentials
+    let provider =
+        CredentialsProvider::new_sdk(&Allocator::default(), Handle::current(), Arc::new(credentials_provider)).unwrap();
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client = S3CrtClient::new(config).unwrap();
+
+    let result = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
 }
 
 /// Test using a client with scoped-down credentials

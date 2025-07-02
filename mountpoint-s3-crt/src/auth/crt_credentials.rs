@@ -3,6 +3,7 @@
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::{CrtError, ToAwsByteCursor};
+use aws_credential_types::Credentials;
 use mountpoint_s3_crt_sys::{aws_credentials, aws_credentials_new, aws_credentials_release};
 use std::ffi::OsStr;
 use std::fmt::Debug;
@@ -62,6 +63,27 @@ impl CrtCredentials {
     /// SAFETY: result must be dropped before self.
     pub(crate) unsafe fn as_ptr(&self) -> *mut aws_credentials {
         self.credentials.as_ptr()
+    }
+}
+
+impl TryFrom<&Credentials> for CrtCredentials {
+    type Error = Error;
+
+    fn try_from(credentials: &Credentials) -> Result<Self, Self::Error> {
+        Self::new(
+            credentials.access_key_id(),
+            credentials.secret_access_key(),
+            credentials.session_token(),
+            credentials.expiry(),
+        )
+    }
+}
+
+impl TryFrom<Credentials> for CrtCredentials {
+    type Error = Error;
+
+    fn try_from(credentials: Credentials) -> Result<Self, Self::Error> {
+        Self::try_from(&credentials)
     }
 }
 

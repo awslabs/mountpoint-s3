@@ -6,8 +6,9 @@ use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::{CrtError as _, ToAwsByteCursor};
+use aws_credential_types::provider::ProvideCredentials;
 use mountpoint_s3_crt_sys::{
-    aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_cached_options,
+    AWS_OP_ERR, aws_credentials_provider, aws_credentials_provider_acquire, aws_credentials_provider_cached_options,
     aws_credentials_provider_chain_default_options, aws_credentials_provider_new_anonymous,
     aws_credentials_provider_new_cached, aws_credentials_provider_new_chain_default,
     aws_credentials_provider_new_profile, aws_credentials_provider_new_static,
@@ -17,6 +18,7 @@ use mountpoint_s3_crt_sys::{
 use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use tokio::runtime::Handle;
 
 /// Options for creating a default credentials provider
 #[derive(Debug)]
@@ -168,6 +170,29 @@ impl CredentialsProvider {
         Ok(Self {
             inner,
             on_delegate_callback: None,
+        })
+    }
+
+    /// Creates a CRT credential provider which uses a Rust SDK credential provider as a source.
+    pub fn new_sdk(
+        allocator: &Allocator,
+        handle: Handle,
+        provider: Arc<dyn ProvideCredentials>,
+    ) -> Result<Self, Error> {
+        Self::new_delegate(allocator, move |replier| {
+            let provider = provider.clone();
+            handle.spawn(async move {
+                let credentials = provider.provide_credentials().await;
+                match credentials {
+                    Ok(credentials) => {
+                        replier.reply_with_credentials(credentials.try_into());
+                    }
+                    Err(e) => {
+                        log::warn!("Could not fetch credentials: {e:?}");
+                        replier.reply_with_credentials(Err(Error::from(AWS_OP_ERR)));
+                    }
+                }
+            });
         })
     }
 

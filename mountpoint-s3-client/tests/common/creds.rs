@@ -27,6 +27,7 @@ pub use integ_only::*;
 #[cfg(feature = "s3_tests")]
 mod integ_only {
     use super::*;
+    use aws_config::default_provider::credentials::DefaultCredentialsChain;
 
     use aws_config::Region;
     use aws_config::sts::AssumeRoleProvider;
@@ -34,12 +35,13 @@ mod integ_only {
 
     use crate::common::get_test_region;
 
+    pub async fn get_sdk_default_chain_provider() -> DefaultCredentialsChain {
+        DefaultCredentialsChain::builder().build().await
+    }
+
     /// Grab a set of SDK [Credentials] from the default credential provider chain.
     pub async fn get_sdk_default_chain_creds() -> Credentials {
-        use aws_config::default_provider::credentials::DefaultCredentialsChain;
-        use aws_credential_types::provider::ProvideCredentials;
-
-        let sdk_provider = DefaultCredentialsChain::builder().build().await;
+        let sdk_provider = get_sdk_default_chain_provider().await;
         let credentials = sdk_provider
             .provide_credentials()
             .await
