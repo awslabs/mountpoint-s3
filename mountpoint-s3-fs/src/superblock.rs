@@ -1997,11 +1997,10 @@ mod tests {
     #[tokio::test]
     async fn test_lookup(prefix: &str) {
         let bucket = "test_bucket";
-        let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket(bucket)
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let keys = &[
@@ -2124,11 +2123,10 @@ mod tests {
     async fn test_lookup_with_caching(cached: bool) {
         let bucket = "test_bucket";
         let prefix = "prefix/";
-        let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket(bucket)
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let keys = &[
@@ -2191,11 +2189,7 @@ mod tests {
     async fn test_negative_lookup_with_caching(cached: bool) {
         let bucket = "test_bucket";
         let prefix = "prefix/";
-        let client_config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder().bucket(bucket).part_size(32).build();
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2252,11 +2246,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let keys = &[
@@ -2407,11 +2400,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir_no_remote_keys(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2444,11 +2436,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir_local_keys_after_remote_keys(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2492,11 +2483,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_create_local_dir(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
@@ -2529,11 +2519,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir_lookup_after_rmdir(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
@@ -2585,12 +2574,13 @@ mod tests {
     #[test_case("test_prefix/", false; "prefixed unordered")]
     #[tokio::test]
     async fn test_readdir_unordered(prefix: &str, ordered: bool) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            unordered_list_seed: (!ordered).then_some(123456),
-            ..Default::default()
-        };
+        let mut builder = MockClientConfig::builder().bucket("test_bucket").part_size(1024 * 1024);
+
+        if !ordered {
+            builder = builder.unordered_list_seed(Some(123456));
+        }
+
+        let client_config = builder.build();
         let client = Arc::new(MockClient::new(client_config));
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2704,11 +2694,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_rmdir_delete_status(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
@@ -2756,11 +2745,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_parent_readdir_after_rmdir(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
@@ -2793,11 +2781,10 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_lookup_after_unlink(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket".to_string())
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());
@@ -2827,11 +2814,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket".to_string())
+            .part_size(1024 * 1024)
+            .build();
+
         let client = Arc::new(MockClient::new(client_config));
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
@@ -2880,11 +2867,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_inode_reuse() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket".to_string())
+            .part_size(1024 * 1024)
+            .build();
+
         let client = Arc::new(MockClient::new(client_config));
         client.add_object("dir1/file1.txt", MockObject::constant(0xaa, 30, ETag::for_tests()));
 
@@ -2905,11 +2892,11 @@ mod tests {
     #[test_case("subdir/"; "with subdirectory")]
     #[tokio::test]
     async fn test_lookup_directory_overlap(subdir: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket".to_string())
+            .part_size(1024 * 1024)
+            .build();
+
         let client = Arc::new(MockClient::new(client_config));
         // In this test the `/` delimiter comes back to bite us. `dir-1/` comes before `dir/` in
         // lexicographical order (- is ASCII 0x2d, / is ASCII 0x2f), so `dir-1` will be the first
@@ -2939,11 +2926,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_names() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
+
         let client = Arc::new(MockClient::new(client_config));
 
         // The only valid key here is "dir1/a", so we should see a directory called "dir1" and a
@@ -2988,11 +2975,11 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_setattr(prefix: &str) {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
+
         let client = Arc::new(MockClient::new(client_config));
         let prefix = Prefix::new(prefix).expect("valid prefix");
         let superblock = Superblock::new(client.clone(), "test_bucket", &prefix, Default::default());

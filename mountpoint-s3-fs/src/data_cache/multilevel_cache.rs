@@ -138,13 +138,12 @@ mod tests {
 
     fn create_express_cache() -> (MockClient, ExpressDataCache<MockClient>) {
         let bucket = "test_bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: PART_SIZE,
-            enable_backpressure: true,
-            initial_read_window_size: PART_SIZE,
-            ..Default::default()
-        };
+        let config = MockClientConfig::builder()
+            .bucket(bucket.to_string())
+            .part_size(PART_SIZE)
+            .enable_backpressure(true)
+            .initial_read_window_size(PART_SIZE)
+            .build();
         let client = MockClient::new(config);
         let cache = ExpressDataCache::new(
             client.clone(),

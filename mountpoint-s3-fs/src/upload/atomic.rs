@@ -241,11 +241,9 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::new(
+            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
+        ));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
         let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
 
@@ -267,11 +265,9 @@ mod tests {
         let key = name;
         let storage_class = "INTELLIGENT_TIERING";
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::new(
+            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
+        ));
         let uploader = new_uploader_for_test(
             client.clone(),
             Some(storage_class.to_owned()),
@@ -308,11 +304,9 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::new(
+            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
+        ));
 
         let mut put_failures = HashMap::new();
         put_failures.insert(1, Ok((1, MockClientError("error".to_owned().into()))));
@@ -362,11 +356,9 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: PART_SIZE,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::new(
+            MockClientConfig::builder().bucket(bucket).part_size(PART_SIZE).build(),
+        ));
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
         let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
 
@@ -396,7 +388,7 @@ mod tests {
     #[test_case(Some("aws:kms"), None)]
     #[tokio::test]
     async fn put_with_corrupted_sse_test(sse_type_corrupted: Option<&str>, key_id_corrupted: Option<&str>) {
-        let client = Arc::new(MockClient::new(Default::default()));
+        let client = Arc::new(MockClient::new(MockClientConfig::builder().build()));
         let mut uploader = new_uploader_for_test(
             client,
             None,
@@ -421,11 +413,9 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::new(
+            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
+        ));
         let uploader = new_uploader_for_test(
             client,
             None,

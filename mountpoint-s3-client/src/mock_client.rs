@@ -61,18 +61,110 @@ static RAMP_BYTES: LazyLock<Vec<u8>> = LazyLock::new(|| ramp_bytes(0, RAMP_BUFFE
 
 #[derive(Debug, Default, Clone)]
 pub struct MockClientConfig {
-    /// The bucket name this client will connect to
-    pub bucket: String,
-    /// The size of the parts that GetObject will respond with
-    pub part_size: usize,
-    /// A seed to randomize the order of ListObjectsV2 results, or None to use ordered list
-    pub unordered_list_seed: Option<u64>,
-    /// A flag to enable backpressure read
-    pub enable_backpressure: bool,
-    /// Initial backpressure read window size, ignored if enable_back_pressure is false
-    pub initial_read_window_size: usize,
-    // Is rename supported on this bucket
-    pub enable_rename: bool,
+    bucket: String,
+    part_size: usize,
+    unordered_list_seed: Option<u64>,
+    enable_backpressure: bool,
+    initial_read_window_size: usize,
+    enable_rename: bool,
+}
+
+impl MockClientConfig {
+    /// Create a new builder for MockClientConfig
+    pub fn builder() -> MockClientConfigBuilder {
+        MockClientConfigBuilder::default()
+    }
+
+    /// Get the bucket name
+    pub fn bucket(&self) -> &str {
+        &self.bucket
+    }
+
+    /// Get the part size
+    pub fn part_size(&self) -> usize {
+        self.part_size
+    }
+
+    /// Get the unordered list seed
+    pub fn unordered_list_seed(&self) -> Option<u64> {
+        self.unordered_list_seed
+    }
+
+    /// Check if backpressure is enabled
+    pub fn enable_backpressure(&self) -> bool {
+        self.enable_backpressure
+    }
+
+    /// Get the initial read window size
+    pub fn initial_read_window_size(&self) -> usize {
+        self.initial_read_window_size
+    }
+
+    /// Check if rename is enabled
+    pub fn enable_rename(&self) -> bool {
+        self.enable_rename
+    }
+}
+
+/// Builder for MockClientConfig
+#[derive(Debug, Default)]
+pub struct MockClientConfigBuilder {
+    bucket: String,
+    part_size: usize,
+    unordered_list_seed: Option<u64>,
+    enable_backpressure: bool,
+    initial_read_window_size: usize,
+    enable_rename: bool,
+}
+
+impl MockClientConfigBuilder {
+    /// Set the bucket name
+    pub fn bucket(mut self, bucket: impl Into<String>) -> Self {
+        self.bucket = bucket.into();
+        self
+    }
+
+    /// Set the part size
+    pub fn part_size(mut self, part_size: usize) -> Self {
+        self.part_size = part_size;
+        self
+    }
+
+    /// Set the unordered list seed
+    pub fn unordered_list_seed(mut self, seed: Option<u64>) -> Self {
+        self.unordered_list_seed = seed;
+        self
+    }
+
+    /// Enable or disable backpressure
+    pub fn enable_backpressure(mut self, enable: bool) -> Self {
+        self.enable_backpressure = enable;
+        self
+    }
+
+    /// Set the initial read window size
+    pub fn initial_read_window_size(mut self, size: usize) -> Self {
+        self.initial_read_window_size = size;
+        self
+    }
+
+    /// Enable or disable rename support
+    pub fn enable_rename(mut self, enable: bool) -> Self {
+        self.enable_rename = enable;
+        self
+    }
+
+    /// Build the MockClientConfig
+    pub fn build(self) -> MockClientConfig {
+        MockClientConfig {
+            bucket: self.bucket,
+            part_size: self.part_size,
+            unordered_list_seed: self.unordered_list_seed,
+            enable_backpressure: self.enable_backpressure,
+            initial_read_window_size: self.initial_read_window_size,
+            enable_rename: self.enable_rename,
+        }
+    }
 }
 
 /// A mock implementation of an object client that we can manually add objects to, and then query

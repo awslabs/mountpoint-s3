@@ -808,12 +808,13 @@ mod tests {
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
         let bucket = "bucket";
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            enable_backpressure: true,
-            initial_read_window_size: 1024 * 1024,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::new(
+            MockClientConfig::builder()
+                .bucket(bucket)
+                .enable_backpressure(true)
+                .initial_read_window_size(1024 * 1024)
+                .build(),
+        ));
         // Create "dir1" in the client to avoid creating it locally
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 

@@ -708,13 +708,12 @@ async fn test_upload_aborted_on_write_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_write_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
+    let client_config = MockClientConfig::builder()
+        .bucket(BUCKET_NAME)
+        .part_size(1024 * 1024)
+        .enable_backpressure(true)
+        .initial_read_window_size(256 * 1024)
+        .build();
 
     let client = Arc::new(MockClient::new(client_config));
     let mut put_failures = HashMap::new();
@@ -783,13 +782,12 @@ async fn test_upload_aborted_on_fsync_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
+    let client_config = MockClientConfig::builder()
+        .bucket(BUCKET_NAME)
+        .part_size(1024 * 1024)
+        .enable_backpressure(true)
+        .initial_read_window_size(256 * 1024)
+        .build();
 
     let client = Arc::new(MockClient::new(client_config));
     let mut put_failures = HashMap::new();
@@ -843,13 +841,12 @@ async fn test_upload_aborted_on_release_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
+    let client_config = MockClientConfig::builder()
+        .bucket(BUCKET_NAME)
+        .part_size(1024 * 1024)
+        .enable_backpressure(true)
+        .initial_read_window_size(256 * 1024)
+        .build();
 
     let client = Arc::new(MockClient::new(client_config));
     let mut put_failures = HashMap::new();
@@ -1638,14 +1635,13 @@ async fn test_rename_support_is_cached() {
     const BUCKET_NAME: &str = "test_rename_support_cached_general_purpose";
     const FILE_NAME: &str = "a.txt";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        enable_rename: false,
-        ..Default::default()
-    };
+    let client_config = MockClientConfig::builder()
+        .bucket(BUCKET_NAME)
+        .part_size(1024 * 1024)
+        .enable_backpressure(true)
+        .initial_read_window_size(256 * 1024)
+        .enable_rename(false)
+        .build();
 
     let client = Arc::new(MockClient::new(client_config));
 

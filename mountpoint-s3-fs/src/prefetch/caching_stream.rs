@@ -444,13 +444,13 @@ mod tests {
 
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size,
-            ..Default::default()
-        };
+        let config = MockClientConfig::builder()
+            .bucket(bucket)
+            .part_size(client_part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(initial_read_window_size)
+            .build();
+
         let mock_client = Arc::new(MockClient::new(config));
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
@@ -525,13 +525,13 @@ mod tests {
 
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size,
-            ..Default::default()
-        };
+        let config = MockClientConfig::builder()
+            .bucket(bucket)
+            .part_size(client_part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(initial_read_window_size)
+            .build();
+
         let mock_client = Arc::new(MockClient::new(config));
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());

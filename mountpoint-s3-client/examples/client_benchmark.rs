@@ -157,12 +157,11 @@ fn main() {
             const BUCKET: &str = "bucket";
             const KEY: &str = "key";
 
-            let config = MockClientConfig {
-                bucket: BUCKET.to_owned(),
-                part_size: args.part_size,
-                unordered_list_seed: None,
-                ..Default::default()
-            };
+            let config = MockClientConfig::builder()
+                .bucket(BUCKET)
+                .part_size(args.part_size)
+                .unordered_list_seed(None)
+                .build();
             let client = ThroughputMockClient::new(config, args.throughput_target_gbps);
             let client = Arc::new(client);
 

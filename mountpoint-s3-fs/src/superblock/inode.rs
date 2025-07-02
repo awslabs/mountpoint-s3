@@ -483,11 +483,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
@@ -530,11 +529,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_can_remove_inodes() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
@@ -564,11 +562,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_shadowed_inode() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
@@ -597,11 +594,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_unlink_verify_checksum() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
@@ -656,11 +652,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_setattr_invalid_stat() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket("test_bucket")
+            .part_size(1024 * 1024)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
@@ -717,11 +712,10 @@ mod tests {
         #[test]
         fn test_create_and_forget_race_condition() {
             async fn test_helper() {
-                let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
-                    part_size: 1024 * 1024,
-                    ..Default::default()
-                };
+                let client_config = MockClientConfig::builder()
+                    .bucket("test_bucket")
+                    .part_size(1024 * 1024)
+                    .build();
                 let client = Arc::new(MockClient::new(client_config));
 
                 let name = "foo";
@@ -763,12 +757,11 @@ mod tests {
         #[test]
         fn test_concurrent_rename_different_files() {
             async fn test_helper() {
-                let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
-                    part_size: 1024 * 1024,
-                    enable_rename: true,
-                    ..Default::default()
-                };
+                let client_config = MockClientConfig::builder()
+                    .bucket("test_bucket")
+                    .part_size(1024 * 1024)
+                    .enable_rename(true)
+                    .build();
                 let client = Arc::new(MockClient::new(client_config));
 
                 // Create directories first
@@ -862,12 +855,11 @@ mod tests {
         #[test]
         fn test_concurrent_rename_and_lookup() {
             async fn test_helper() {
-                let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
-                    part_size: 1024 * 1024,
-                    enable_rename: true,
-                    ..Default::default()
-                };
+                let client_config = MockClientConfig::builder()
+                    .bucket("test_bucket")
+                    .part_size(1024 * 1024)
+                    .enable_rename(true)
+                    .build();
                 let client = Arc::new(MockClient::new(client_config));
 
                 let source_name = "source";

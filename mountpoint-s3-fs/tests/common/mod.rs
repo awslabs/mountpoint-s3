@@ -36,13 +36,12 @@ pub fn make_test_filesystem(
     prefix: &Prefix,
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
-    let client_config = MockClientConfig {
-        bucket: bucket.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
+    let client_config = MockClientConfig::builder()
+        .bucket(bucket)
+        .part_size(1024 * 1024)
+        .enable_backpressure(true)
+        .initial_read_window_size(256 * 1024)
+        .build();
 
     let client = Arc::new(MockClient::new(client_config));
     let fs = make_test_filesystem_with_client(client.clone(), bucket, prefix, config);

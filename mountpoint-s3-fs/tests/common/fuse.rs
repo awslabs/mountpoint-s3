@@ -231,14 +231,13 @@ pub mod mock_session {
             format!("{test_name}/")
         };
 
-        let client_config = MockClientConfig {
-            bucket: BUCKET_NAME.to_string(),
-            part_size: test_config.part_size,
-            enable_backpressure: true,
-            initial_read_window_size: test_config.initial_read_window_size,
-            enable_rename: test_config.filesystem_config.allow_rename,
-            ..Default::default()
-        };
+        let client_config = MockClientConfig::builder()
+            .bucket(BUCKET_NAME)
+            .part_size(test_config.part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(test_config.initial_read_window_size)
+            .enable_rename(test_config.filesystem_config.allow_rename)
+            .build();
         let client = Arc::new(MockClient::new(client_config));
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
@@ -272,13 +271,12 @@ pub mod mock_session {
                 format!("{test_name}/")
             };
 
-            let client_config = MockClientConfig {
-                bucket: BUCKET_NAME.to_string(),
-                part_size: test_config.part_size,
-                enable_backpressure: true,
-                initial_read_window_size: test_config.initial_read_window_size,
-                ..Default::default()
-            };
+            let client_config = MockClientConfig::builder()
+                .bucket(BUCKET_NAME)
+                .part_size(test_config.part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(test_config.initial_read_window_size)
+                .build();
             let client = Arc::new(MockClient::new(client_config));
             let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
             let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
