@@ -143,47 +143,42 @@ impl MockClient {
     /// Number of objects a specific mock client bucket
     pub fn object_count_for_bucket(&self, bucket: &str) -> usize {
         let objects = self.get_objects_for_bucket(bucket);
-        let len = objects.write().unwrap().len();
-        len
+        objects.write().unwrap().len()
     }
 
     /// Returns `true` if this mock client's bucket contains the specified key
     pub fn contains_key(&self, bucket: &str, key: &str) -> bool {
         let objects = self.get_objects_for_bucket(bucket);
-        let result = objects.read().unwrap().contains_key(key);
-        result
+        objects.read().unwrap().contains_key(key)
     }
 
     /// Returns `true` if this mock client's bucket contains the specified common prefix
     pub fn contains_prefix(&self, bucket: &str, prefix: &str) -> bool {
         let prefix = format!("{prefix}/");
         let objects = self.get_objects_for_bucket(bucket);
-        let result = objects.read().unwrap().keys().any(|k| k.starts_with(&prefix));
-        result
+        objects.read().unwrap().keys().any(|k| k.starts_with(&prefix))
     }
 
     /// Returns `true` if there is an upload in progress for the specified key
     pub fn is_upload_in_progress(&self, bucket: &str, key: &str) -> bool {
         let bucket = self.get_bucket(bucket);
-        let result = bucket.in_progress_uploads.read().unwrap().contains(key);
-        result
+        bucket.in_progress_uploads.read().unwrap().contains(key)
     }
 
     /// Returns the objects storage class
     pub fn get_object_storage_class(&self, bucket: &str, key: &str) -> Result<Option<String>, MockClientError> {
         let objects = self.get_objects_for_bucket(bucket);
-        let result = if let Some(mock_object) = objects.read().unwrap().get(key) {
+        if let Some(mock_object) = objects.read().unwrap().get(key) {
             Ok(mock_object.storage_class.to_owned())
         } else {
             Err(MockClientError("object not found".into()))
-        };
-        result
+        }
     }
 
     /// Returns error if object does not exist
     pub fn restore_object(&self, bucket: &str, key: &str) -> Result<(), MockClientError> {
         let objects = self.get_objects_for_bucket(bucket);
-        let result = match objects.write().unwrap().get_mut(key) {
+        match objects.write().unwrap().get_mut(key) {
             Some(mock_object) => {
                 mock_object.restore_status = Some(RestoreStatus::Restored {
                     expiry: SystemTime::now() + Duration::from_secs(3600),
@@ -191,21 +186,19 @@ impl MockClient {
                 Ok(())
             }
             None => Err(MockClientError("object not found".into())),
-        };
-        result
+        }
     }
 
     pub fn is_object_restored(&self, bucket: &str, key: &str) -> Result<bool, MockClientError> {
         let objects = self.get_objects_for_bucket(bucket);
-        let result = if let Some(mock_object) = objects.read().unwrap().get(key) {
+        if let Some(mock_object) = objects.read().unwrap().get(key) {
             Ok(matches!(
                 mock_object.restore_status,
                 Some(RestoreStatus::Restored { expiry: _ })
             ))
         } else {
             Err(MockClientError("object not found".into()))
-        };
-        result
+        }
     }
 
     /// Create a new counter for the given operation, starting at 0.
@@ -1146,7 +1139,7 @@ impl ObjectClient for MockClient {
         if !self.config.enable_rename {
             return Err(ObjectClientError::ServiceError(RenameObjectError::NotImplementedError));
         }
-        if bucket != self.config.bucket {
+        if !self.config.allowed_buckets.contains(bucket) {
             return Err(ObjectClientError::ServiceError(RenameObjectError::NoSuchBucket));
         }
 
@@ -1154,7 +1147,8 @@ impl ObjectClient for MockClient {
             return Err(ObjectClientError::ServiceError(RenameObjectError::KeyTooLong));
         }
 
-        let mut objects = self.objects.write().unwrap();
+        let objects_arc = self.get_objects_for_bucket(bucket);
+        let mut objects = objects_arc.write().unwrap();
 
         if objects.contains_key(dst_key) && params.if_none_match == Some("*".to_string()) {
             return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
@@ -2203,13 +2197,13 @@ mod tests {
     #[tokio::test]
     async fn rename_object_without_override() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             enable_rename: true,
             ..Default::default()
         });
 
-        client.add_object("key1", MockObject::constant(1u8, 5, ETag::for_tests()));
-        client.add_object("key2", MockObject::constant(2u8, 5, ETag::for_tests()));
+        client.add_object("test_bucket", "key1", MockObject::constant(1u8, 5, ETag::for_tests()));
+        client.add_object("test_bucket", "key2", MockObject::constant(2u8, 5, ETag::for_tests()));
 
         let mut params = RenameObjectParams::new();
         params.if_none_match = Some("*".to_string());
@@ -2262,7 +2256,7 @@ mod tests {
     #[tokio::test]
     async fn rename_etag_source_matching() {
         let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             enable_rename: true,
             ..Default::default()
         });
@@ -2275,8 +2269,8 @@ mod tests {
         let etag_for_second = mockobj_for_second.etag.clone();
         let etag_for_third = mockobj_for_third.etag.clone();
 
-        client.add_object("key1", mockobj_for_first);
-        client.add_object("key2", mockobj_for_second);
+        client.add_object("test_bucket", "key1", mockobj_for_first);
+        client.add_object("test_bucket", "key2", mockobj_for_second);
         // Try a rename with a source that does not match
         let mut params = RenameObjectParams::new();
         params.if_source_match = Some(etag_for_third.clone());

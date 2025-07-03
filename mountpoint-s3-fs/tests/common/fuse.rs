@@ -56,6 +56,27 @@ pub trait TestClient: Send {
     fn restore_object(&self, bucket: &str, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
     fn is_object_restored(&self, bucket: &str, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
+
+    // Convenience methods that use the default bucket
+    fn put_object_default_bucket(&self, key: &str, value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        self.put_object(&self.get_bucket_name(), key, value)
+    }
+
+    fn remove_object_default_bucket(&self, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.remove_object(&self.get_bucket_name(), key)
+    }
+
+    fn contains_dir_default_bucket(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        self.contains_dir(&self.get_bucket_name(), key)
+    }
+
+    fn contains_key_default_bucket(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        self.contains_key(&self.get_bucket_name(), key)
+    }
+
+    fn is_upload_in_progress_default_bucket(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        self.is_upload_in_progress(&self.get_bucket_name(), key)
+    }
 }
 
 /// Checksum for the whole object, if present, and [Vec] of the checksum for each part, if present.

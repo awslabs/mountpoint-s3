@@ -479,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn test_forget() {
         let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
+            allowed_buckets: HashSet::from(["test_bucket".to_string()]),
             part_size: 1024 * 1024,
             ..Default::default()
         };
@@ -534,7 +534,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
-        client.add_object(bucket, name, b"foo".into());
+        client.add_object(bucket, name, MockObject::from_bytes(b"foo", ETag::for_tests()));
 
         let superblock = Superblock::new(client.clone(), bucket, &Default::default(), Default::default());
 
@@ -572,7 +572,7 @@ mod tests {
         let client = Arc::new(MockClient::new(client_config));
 
         let name = "foo";
-        client.add_object("test_bucket", name, b"foo".into());
+        client.add_object("test_bucket", name, MockObject::from_bytes(b"foo", ETag::for_tests()));
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
@@ -582,7 +582,7 @@ mod tests {
         let ino = lookup.inode.ino();
         drop(lookup);
 
-        client.add_object("test_bucket", &format!("{name}/bar"), b"bar".into());
+        client.add_object("test_bucket", &format!("{name}/bar"), MockObject::from_bytes(b"bar", ETag::for_tests()));
 
         // Should be a directory now, so a different inode
         let new_lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
@@ -729,7 +729,7 @@ mod tests {
                 let client = Arc::new(MockClient::new(client_config));
 
                 let name = "foo";
-                client.add_object("test_bucket", name, b"foo".into());
+                client.add_object("test_bucket", name, MockObject::from_bytes(b"foo", ETag::for_tests()));
 
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
@@ -768,7 +768,7 @@ mod tests {
         fn test_concurrent_rename_different_files() {
             async fn test_helper() {
                 let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
+                    allowed_buckets: HashSet::from(["test_bucket".to_string()]),
                     part_size: 1024 * 1024,
                     enable_rename: true,
                     ..Default::default()
@@ -790,8 +790,8 @@ mod tests {
                 let dest_name = "dest";
 
                 // Create directories and files
-                client.add_object("dir/source", b"content".into());
-                client.add_object("dirtwo/source", b"content".into());
+                client.add_object("test_bucket", "dir/source", MockObject::from_bytes(b"content", ETag::for_tests()));
+                client.add_object("test_bucket", "dirtwo/source", MockObject::from_bytes(b"content", ETag::for_tests()));
 
                 // Lookup directories to get inodes
                 let dir_lookup = superblock.lookup(ROOT_INODE_NO, dir.as_ref()).await.unwrap();
@@ -867,7 +867,7 @@ mod tests {
         fn test_concurrent_rename_and_lookup() {
             async fn test_helper() {
                 let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
+                    allowed_buckets: HashSet::from(["test_bucket".to_string()]),
                     part_size: 1024 * 1024,
                     enable_rename: true,
                     ..Default::default()
@@ -875,10 +875,10 @@ mod tests {
                 let client = Arc::new(MockClient::new(client_config));
 
                 let source_name = "source";
-                client.add_object(source_name, b"foo".into());
+                client.add_object("test_bucket", source_name, MockObject::from_bytes(b"foo", ETag::for_tests()));
 
                 let dest_name = "dest";
-                client.add_object(dest_name, b"dest".into());
+                client.add_object("test_bucket", dest_name, MockObject::from_bytes(b"dest", ETag::for_tests()));
 
                 let superblock = Arc::new(Superblock::new(
                     client,

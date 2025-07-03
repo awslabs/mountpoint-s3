@@ -1674,7 +1674,7 @@ async fn test_rename_support_is_cached() {
     const FILE_NAME: &str = "a.txt";
 
     let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
+        allowed_buckets: HashSet::from([BUCKET_NAME.to_string()]),
         part_size: 1024 * 1024,
         enable_backpressure: true,
         initial_read_window_size: 256 * 1024,
