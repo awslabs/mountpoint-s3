@@ -8,6 +8,7 @@ pub use mountpoint_s3_crt_sys::aws_auth_errors as ErrorCode;
 
 use crate::common::allocator::Allocator;
 
+pub mod access_grants;
 pub mod credentials_providers;
 pub mod crt_credentials;
 mod delegate;

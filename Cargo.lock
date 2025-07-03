@@ -518,6 +518,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-s3control"
+version = "1.86.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "285c2b0b6b3ecf77d1c292a235ae32fbb0ec37b72f9c605fc8ea5a4d2a8c9db5"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-smithy-xml",
+ "aws-types",
+ "fastrand",
+ "http 0.2.12",
+ "md-5",
+ "regex-lite",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "aws-sdk-sso"
 version = "1.73.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -563,9 +587,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.75.0"
+version = "1.76.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3258fa707f2f585ee3049d9550954b959002abd59176975150a01d5cf38ae3f"
+checksum = "cb1cd79a3412751a341a28e2cd0d6fa4345241976da427b075a0c0cd5409f886"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -914,7 +938,7 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "log",
@@ -2849,6 +2873,8 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "aws-sdk-s3control",
+ "aws-sdk-sts",
  "aws-smithy-runtime-api",
  "base64ct",
  "built",
@@ -2889,6 +2915,7 @@ version = "0.13.0"
 dependencies = [
  "anyhow",
  "aws-credential-types",
+ "aws-sdk-s3control",
  "clap",
  "criterion",
  "ctor",

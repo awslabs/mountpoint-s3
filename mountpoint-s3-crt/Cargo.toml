@@ -11,6 +11,7 @@ description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazo
 mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.15.0" }
 
 aws-credential-types = "1.2.1"
+aws-sdk-s3control = "1.86.0"
 futures = "0.3.31"
 libc = "0.2.174"
 log = "0.4.27"
