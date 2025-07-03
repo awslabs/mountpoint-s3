@@ -90,7 +90,7 @@ To opt-in, use the `--log-metrics-otlp <ENDPOINT>` command-line argument and pro
 
 ```bash
 # Mount an S3 bucket and publish metrics to a local CloudWatch agent
-mount-s3 my-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --log-metrics-otlp-interval 10
+mount-s3 amzn-s3-demo-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --log-metrics-otlp-interval 10
 ```
 
 #### CloudWatch Agent Installation 
