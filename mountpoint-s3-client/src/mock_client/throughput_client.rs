@@ -69,8 +69,8 @@ impl ThroughputMockClient {
     }
 
     /// Add an object to this mock client's bucket
-    pub fn add_object(&self, key: &str, value: MockObject) {
-        self.inner.add_object(key, value);
+    pub fn add_object(&self, bucket: &str, key: &str, value: MockObject) {
+        self.inner.add_object(bucket, key, value);
     }
 }
 
@@ -238,6 +238,7 @@ impl ObjectClient for ThroughputMockClient {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::time::Instant;
 
     use futures::StreamExt;
@@ -257,15 +258,17 @@ mod tests {
             for _ in 0..ITERATIONS {
                 let config = MockClientConfig {
                     part_size: 8 * 1024 * 1024,
-                    bucket: "test_bucket".to_owned(),
+                    allowed_buckets: HashSet::from(["test_bucket".to_string()]),
                     unordered_list_seed: None,
                     ..Default::default()
                 };
                 let client = ThroughputMockClient::new(config, rate_gbps);
 
-                client
-                    .inner
-                    .add_object("testfile", MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests()));
+                client.inner.add_object(
+                    "test_bucket",
+                    "testfile",
+                    MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests()),
+                );
 
                 // Stream the entire object and drop it on the floor
                 let start = Instant::now();

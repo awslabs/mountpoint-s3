@@ -38,6 +38,7 @@ fn perm_test(
             ..Default::default()
         },
     );
+    let bucket = test_session.client().get_bucket_name();
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -50,10 +51,13 @@ fn perm_test(
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    test_session.client().put_object("file1.txt", b"hello world").unwrap();
     test_session
         .client()
-        .put_object("dir/file2.txt", b"hello world")
+        .put_object(&bucket, "file1.txt", b"hello world")
+        .unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "dir/file2.txt", b"hello world")
         .unwrap();
 
     // verify readdir works on mount point
@@ -116,6 +120,7 @@ fn perm_test_negative(
             ..Default::default()
         },
     );
+    let bucket = test_session.client().get_bucket_name();
 
     // expected values
     let uid = uid.unwrap_or_else(|| getuid().into());
@@ -127,10 +132,13 @@ fn perm_test_negative(
     assert!(m.file_type().is_dir());
     assert_perm(m, uid, gid, dir_mode);
 
-    test_session.client().put_object("file1.txt", b"hello world").unwrap();
     test_session
         .client()
-        .put_object("dir/file2.txt", b"hello world")
+        .put_object(&bucket, "file1.txt", b"hello world")
+        .unwrap();
+    test_session
+        .client()
+        .put_object(&bucket, "dir/file2.txt", b"hello world")
         .unwrap();
 
     // verify readdir returns permission denied on mount point

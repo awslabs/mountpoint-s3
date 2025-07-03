@@ -6,6 +6,7 @@ use crate::common::fuse::{self, TestSessionCreator, read_dir_to_entry_names};
 
 fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     // Create local directory
     let dirname = "local_dir";
@@ -13,7 +14,7 @@ fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 
     DirBuilder::new().recursive(true).create(&dirpath).unwrap();
 
-    assert!(!test_session.client().contains_dir(dirname).unwrap());
+    assert!(!test_session.client().contains_dir(&bucket, dirname).unwrap());
 
     let m = metadata(&dirpath).unwrap();
     assert!(m.file_type().is_dir());
@@ -29,7 +30,7 @@ fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     // Remove the new object from the client
     test_session
         .client()
-        .remove_object(&format!("{dirname}/{filename}"))
+        .remove_object(&bucket, &format!("{dirname}/{filename}"))
         .unwrap();
 
     // Verify that the directory disappeared

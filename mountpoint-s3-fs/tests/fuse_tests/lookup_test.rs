@@ -16,14 +16,15 @@ use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_
 /// See [mountpoint_s3_fs::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &str, subdir: &str) {
     let test_session = creator_fn(prefix, Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     test_session
         .client()
-        .put_object(&format!("dir/{subdir}hello.txt"), b"hello world")
+        .put_object(&bucket, &format!("dir/{subdir}hello.txt"), b"hello world")
         .unwrap();
     test_session
         .client()
-        .put_object(&format!("dir-1/{subdir}hello.txt"), b"hello world")
+        .put_object(&bucket, &format!("dir-1/{subdir}hello.txt"), b"hello world")
         .unwrap();
 
     let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
@@ -53,6 +54,7 @@ fn lookup_directory_overlap_test_mock(prefix: &str, subdir: &str) {
 
 fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     let keys = &[
         "weird$dir name",
@@ -65,7 +67,7 @@ fn lookup_weird_characters_test(creator_fn: impl TestSessionCreator, prefix: &st
     for (i, key) in keys.iter().enumerate() {
         test_session
             .client()
-            .put_object(key, format!("hello world {i}").as_bytes())
+            .put_object(&bucket, key, format!("hello world {i}").as_bytes())
             .unwrap();
     }
 
@@ -121,17 +123,18 @@ fn lookup_previously_shadowed_file_test(creator_fn: impl TestSessionCreator) {
             ..Default::default()
         },
     );
+    let bucket = test_session.client().get_bucket_name();
 
     let name = "foo";
     let nested = format!("{name}/bar");
-    test_session.client().put_object(&nested, b"bar").unwrap();
+    test_session.client().put_object(&bucket, &nested, b"bar").unwrap();
 
     let path = test_session.mount_path().join(name);
     let m = metadata(&path).unwrap();
     assert!(m.file_type().is_dir());
 
-    test_session.client().remove_object(&nested).unwrap();
-    test_session.client().put_object(name, b"foo").unwrap();
+    test_session.client().remove_object(&bucket, &nested).unwrap();
+    test_session.client().put_object(&bucket, name, b"foo").unwrap();
 
     let m = metadata(&path).unwrap();
     assert!(m.file_type().is_file());
@@ -150,13 +153,14 @@ fn lookup_previously_shadowed_file_test_mock() {
 
 fn lookup_unicode_keys_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());
+    let bucket = test_session.client().get_bucket_name();
 
     let keys = &["مرحبًا", "こんにちは/", "🇦🇺", "🐈/🦀"];
 
     for (i, key) in keys.iter().enumerate() {
         test_session
             .client()
-            .put_object(key, format!("hello world {i}").as_bytes())
+            .put_object(&bucket, key, format!("hello world {i}").as_bytes())
             .unwrap();
     }
 
@@ -204,12 +208,13 @@ fn lookup_with_negative_cache(creator_fn: impl TestSessionCreator) {
         ..Default::default()
     };
     let test_session = creator_fn("lookup_with_negative_cache", config);
+    let bucket = test_session.client().get_bucket_name();
 
     // Check negative caching
     let file_path = test_session.mount_path().join(FILE_NAME);
     metadata(&file_path).expect_err("should fail as no object exists");
 
-    test_session.client().put_object(FILE_NAME, b"hello").unwrap();
+    test_session.client().put_object(&bucket, FILE_NAME, b"hello").unwrap();
 
     metadata(&file_path).expect_err("should fail as mountpoint should use negative cache");
 
@@ -243,11 +248,12 @@ fn lookup_with_negative_cache_ttl(creator_fn: impl TestSessionCreator, ttl: Dura
         ..Default::default()
     };
     let test_session = creator_fn("lookup_with_negative_cache_ttl", config);
+    let bucket = test_session.client().get_bucket_name();
 
     let file_path = test_session.mount_path().join(FILE_NAME);
     metadata(&file_path).expect_err("should fail as no object exists");
 
-    test_session.client().put_object(FILE_NAME, b"hello").unwrap();
+    test_session.client().put_object(&bucket, FILE_NAME, b"hello").unwrap();
     metadata(&file_path).expect_err("should fail as mountpoint should use negative cache");
 
     std::thread::sleep(ttl);

@@ -268,6 +268,7 @@ macro_rules! object_client_test {
         mod $test_fn_identifier {
             use super::$test_fn_identifier;
             use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+            use std::collections::HashSet;
             use $crate::{get_test_bucket_and_prefix, get_test_client};
 
             #[tokio::test]
@@ -275,7 +276,7 @@ macro_rules! object_client_test {
                 let (bucket, prefix) = get_test_bucket_and_prefix(stringify!($test_fn_identifier));
 
                 let client = MockClient::new(MockClientConfig {
-                    bucket: bucket.to_string(),
+                    allowed_buckets: HashSet::from([bucket.to_string()]),
                     part_size: 1024,
                     unordered_list_seed: None,
                     ..Default::default()

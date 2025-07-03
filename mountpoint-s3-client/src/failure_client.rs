@@ -459,14 +459,14 @@ mod tests {
         let key = "foo";
 
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             part_size: 128,
             unordered_list_seed: None,
             ..Default::default()
         });
 
         let body = vec![0u8; 50];
-        client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
+        client.add_object(bucket, key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_failures = HashMap::new();
         get_failures.insert(
@@ -513,7 +513,7 @@ mod tests {
         let key = "foo";
 
         let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
+            allowed_buckets: HashSet::from([bucket.to_string()]),
             ..Default::default()
         });
 

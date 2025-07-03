@@ -35,9 +35,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", b"hello world").unwrap();
 
     let main_dir = mount_point.join("dir");
     let nonexistent_path = main_dir.join("nonexistent.txt");
@@ -65,11 +66,11 @@ where
 
     // S3 structure should match
     assert!(
-        test_client.contains_key("dir/destination.txt").unwrap(),
+        test_client.contains_key(&bucket, "dir/destination.txt").unwrap(),
         "destination object must now exist in S3"
     );
     assert!(
-        !test_client.contains_key("dir/source.txt").unwrap(),
+        !test_client.contains_key(&bucket, "dir/source.txt").unwrap(),
         "source object must no longer exist in S3"
     );
 }
@@ -107,9 +108,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", b"hello world").unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -133,11 +135,11 @@ where
 
     // S3 structure should match
     assert!(
-        test_client.contains_key("dir/destination.txt").unwrap(),
+        test_client.contains_key(&bucket, "dir/destination.txt").unwrap(),
         "destination object must now exist in S3"
     );
     assert!(
-        !test_client.contains_key("dir/source.txt").unwrap(),
+        !test_client.contains_key(&bucket, "dir/source.txt").unwrap(),
         "source object must no longer exist in S3"
     );
 }
@@ -175,10 +177,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
+    let bucket = test_client.get_bucket_name();
     const SOURCE_OBJ_KEY: &str = "dir/source.txt";
 
     // Add a file directly to the bucket
-    test_client.put_object(SOURCE_OBJ_KEY, b"hello world").unwrap();
+    test_client.put_object(&bucket, SOURCE_OBJ_KEY, b"hello world").unwrap();
 
     let main_dir = mount_point.join("dir");
     let nonexistent_path = main_dir.join("nonexistent.txt");
@@ -190,7 +193,7 @@ where
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["source.txt"]);
 
-    test_client.remove_object(SOURCE_OBJ_KEY).unwrap();
+    test_client.remove_object(&bucket, SOURCE_OBJ_KEY).unwrap();
 
     fs::metadata(&source_path).expect("stat should succeed from cache");
 
@@ -211,11 +214,11 @@ where
 
     // Assert expected S3 structure
     assert!(
-        !test_client.contains_key("dir/source.txt").unwrap(),
+        !test_client.contains_key(&bucket, "dir/source.txt").unwrap(),
         "source object must no longer exist in S3 after removal"
     );
     assert!(
-        !test_client.contains_key("dir/destination.txt").unwrap(),
+        !test_client.contains_key(&bucket, "dir/destination.txt").unwrap(),
         "destination object should not exist in S3"
     );
 }
@@ -246,10 +249,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Prepare bucket content
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
-    test_client.put_object("dir/destination.txt", b"foo bar").unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/destination.txt", b"foo bar").unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -267,7 +271,7 @@ where
 
     for s3_key in ["dir/source.txt", "dir/destination.txt"] {
         assert!(
-            test_client.contains_key(s3_key).unwrap(),
+            test_client.contains_key(&bucket, s3_key).unwrap(),
             "object with key {s3_key:?} should exist in S3"
         );
     }
@@ -299,9 +303,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Prepare bucket content
-    test_client.put_object("a/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "a/source.txt", b"hello world").unwrap();
 
     let source_path = mount_point.join("a/source.txt");
     let destination_path = mount_point.join("b/destination.txt");
@@ -314,11 +319,11 @@ where
 
     // S3 structure should match
     assert!(
-        test_client.contains_key("b/destination.txt").unwrap(),
+        test_client.contains_key(&bucket, "b/destination.txt").unwrap(),
         "destination object must now exist in S3"
     );
     assert!(
-        !test_client.contains_key("a/source.txt").unwrap(),
+        !test_client.contains_key(&bucket, "a/source.txt").unwrap(),
         "source object must no longer exist in S3"
     );
 }
@@ -350,10 +355,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
-    test_client.put_object("dir/source.txt", &[0u8; B_IN_MB * 128]).unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", &[0u8; B_IN_MB * 128]).unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -408,9 +414,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
+    test_client.put_object(&bucket, "dir/other.txt", &[0u8; 1024]).unwrap(); // Persist implicit directory for test
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("writing.txt");
@@ -486,10 +493,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Prepare bucket content
-    test_client.put_object("source-dir/a.txt", b"hello world").unwrap();
-    test_client.put_object("source-dir/b.txt", b"foo bar").unwrap();
+    test_client.put_object(&bucket, "source-dir/a.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "source-dir/b.txt", b"foo bar").unwrap();
 
     let src_dir_path = mount_point.join("source-dir");
     let dest_dir_path = mount_point.join("destination-dir");
@@ -529,10 +537,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add a file directly to the bucket
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
-    test_client.put_object("dir/destination.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/destination.txt", b"hello world").unwrap();
 
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
@@ -577,9 +586,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Put a object
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", b"hello world").unwrap();
     let main_dir = mount_point.join("dir");
     let source_path = main_dir.join("source.txt");
     let destination_path = main_dir.join("source.txt");
@@ -615,9 +625,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Put a object
-    test_client.put_object("dir/source.txt", b"hello world").unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", b"hello world").unwrap();
     let main_dir = mount_point.join("dir");
 
     fs::rename(main_dir.clone(), main_dir.clone()).expect("rename of directory into itself should work");
@@ -678,12 +689,13 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     test_client
-        .put_object("a.txt", b"hello world")
+            .put_object(&bucket, "a.txt", b"hello world")
         .expect("put object should succeed");
     test_client
-        .put_object("b.txt", b"fun times")
+            .put_object(&bucket, "b.txt", b"fun times")
         .expect("put object should succeed");
     let result_exchange = renameat2_wrapper(
         &mount_point.join("a.txt"),
@@ -733,10 +745,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add an object
     test_client
-        .put_object("dir/a.txt", b"hello world")
+            .put_object(&bucket, "dir/a.txt", b"hello world")
         .expect("put object should succeed");
 
     let too_long_key = "X".repeat(1027);
@@ -788,12 +801,13 @@ fn generic_rename_test<F>(
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add all the keys to the S3 bucket with random content
     for key in keys.iter() {
         let content = format!("Random content for {key}");
         test_client
-            .put_object(key, content.as_bytes())
+            .put_object(&bucket, key, content.as_bytes())
             .expect("PutObject should succeed");
     }
 
@@ -922,14 +936,15 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add an object
     test_client
-        .put_object("dir/a.txt", b"key for a")
+            .put_object(&bucket, "dir/a.txt", b"key for a")
         .expect("put object should succeed");
 
     test_client
-        .put_object("dir/b.txt", b"key for b")
+            .put_object(&bucket, "dir/b.txt", b"key for b")
         .expect("put object should succeed");
 
     fs::rename(mount_point.join("dir/a.txt"), mount_point.join("dir/b.txt"))
@@ -968,12 +983,13 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     test_client
-        .put_object("a.txt", b"hello world")
+            .put_object(&bucket, "a.txt", b"hello world")
         .expect("put object should succeed");
     test_client
-        .put_object("b.txt", b"fun times")
+            .put_object(&bucket, "b.txt", b"fun times")
         .expect("put object should succeed");
 
     let result_noreplace = renameat2_wrapper(
@@ -1132,9 +1148,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
+    let bucket = test_client.get_bucket_name();
 
     test_client
-        .put_object("dir/a.txt", b"hello world")
+            .put_object(&bucket, "dir/a.txt", b"hello world")
         .expect("put object should succeed");
 
     fs::rename(mount_point.join("dir/a.txt"), mount_point.join("dir/moved.txt")).expect("rename should succeed");
@@ -1171,16 +1188,17 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     test_client
-        .put_object("dir/a.txt", b"key for a")
+            .put_object(&bucket, "dir/a.txt", b"key for a")
         .expect("put object should succeed");
     test_client
-        .put_object("dir/b.txt", b"key for b")
+            .put_object(&bucket, "dir/b.txt", b"key for b")
         .expect("put object should succeed");
 
     test_client
-        .put_object("dirtwo/b.txt", b"key for b in dir2")
+            .put_object(&bucket, "dirtwo/b.txt", b"key for b in dir2")
         .expect("put object should succeed");
 
     // Get the inode number for mount_point.join("dir/a.txt")
@@ -1300,13 +1318,14 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
     // First place two objects in S3
 
     test_client
-        .put_object("dir/a/b.txt", b"key for b nested")
+            .put_object(&bucket, "dir/a/b.txt", b"key for b nested")
         .expect("put object should succeed");
     test_client
-        .put_object("dir/b.txt", b"key for b")
+            .put_object(&bucket, "dir/b.txt", b"key for b")
         .expect("put object should succeed");
     // Try to rename
     fs::rename(mount_point.join("dir/a/b.txt"), mount_point.join("dir/b.txt")).expect("Rename should work");
@@ -1429,6 +1448,7 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let temp_path = temp_dir.path();
@@ -1444,7 +1464,7 @@ where
     for (path, content) in &initial_files {
         // Create in S3
         test_client
-            .put_object(path, content.as_bytes())
+            .put_object(&bucket, path, content.as_bytes())
             .expect("put object should succeed");
         // Create in local temp directory
         let full_path = temp_path.join(path);
@@ -1497,13 +1517,14 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
     // First place two objects in S3
 
     test_client
-        .put_object("dir/a/b.txt", b"key for b nested")
+            .put_object(&bucket, "dir/a/b.txt", b"key for b nested")
         .expect("put object should succeed");
     test_client
-        .put_object("dir/b.txt", b"key for b")
+            .put_object(&bucket, "dir/b.txt", b"key for b")
         .expect("put object should succeed");
     // Try to rename
     fs::rename(mount_point.join("dir/b.txt"), mount_point.join("dir/a/b.txt")).expect("Rename should work");
@@ -1538,20 +1559,21 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
     // First place three objects in S3
 
     test_client
-        .put_object("dir/a/b.txt", b"dir/a/b.txt")
+            .put_object(&bucket, "dir/a/b.txt", b"dir/a/b.txt")
         .expect("put object should succeed");
     test_client
-        .put_object("dirb/b.txt", b"dirb/b.txt")
+            .put_object(&bucket, "dirb/b.txt", b"dirb/b.txt")
         .expect("put object should succeed");
     // Add a file so that the directory does not disappear after rename
     test_client
-        .put_object("dir/a/static", b"dir/a/b.txt")
+            .put_object(&bucket, "dir/a/static", b"dir/a/b.txt")
         .expect("put object should succeed");
     test_client
-        .put_object("dirb/c/d.txt", b"dirb/c/d.txt")
+            .put_object(&bucket, "dirb/c/d.txt", b"dirb/c/d.txt")
         .expect("put object should succeed");
 
     // Do two cross directory renames, then check the contents
@@ -1598,10 +1620,11 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Place an object
     test_client
-        .put_object("dir/a/b.txt", b"dir/a/b.txt")
+            .put_object(&bucket, "dir/a/b.txt", b"dir/a/b.txt")
         .expect("put object should succeed");
     fs::rename(mount_point.join("dir/a/b.txt"), mount_point.join("b.txt")).expect("Can move out of directory");
 
@@ -1624,11 +1647,11 @@ where
 
     // Verify with S3 client that the object has been moved
     assert!(
-        test_client.contains_key("b.txt").unwrap(),
+        test_client.contains_key(&bucket, "b.txt").unwrap(),
         "Object should exist in new location"
     );
     assert!(
-        !test_client.contains_key("dir/a/b.txt").unwrap(),
+        !test_client.contains_key(&bucket, "dir/a/b.txt").unwrap(),
         "Object should not exist in old location"
     );
 }
@@ -1664,16 +1687,17 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
+    let bucket = test_client.get_bucket_name();
     let barrier = Arc::new(Barrier::new(20));
     let success_counter = Arc::new(AtomicUsize::new(0));
     let mut handles = vec![];
 
     // Write both files
     test_client
-        .put_object("a.txt", b"a")
+            .put_object(&bucket, "a.txt", b"a")
         .expect("put object should succeed");
     test_client
-        .put_object("b.txt", b"b")
+            .put_object(&bucket, "b.txt", b"b")
         .expect("put object should succeed");
 
     // Spawn 20 threads that try to rename files
@@ -1751,9 +1775,10 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
+    let bucket = test_client.get_bucket_name();
 
     test_client
-        .put_object("source.txt", b"source")
+            .put_object(&bucket, "source.txt", b"source")
         .expect("put object should succeed");
 
     let _file = OpenOptions::new()
@@ -1798,12 +1823,13 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     // Add a file directly to the bucket
     const B_IN_MB: usize = 1024 * 1024;
-    test_client.put_object("dir/source.txt", &[0u8; B_IN_MB * 140]).unwrap();
+    test_client.put_object(&bucket, "dir/source.txt", &[0u8; B_IN_MB * 140]).unwrap();
     test_client
-        .put_object("dir/destination.txt", &[3u8; B_IN_MB * 140])
+            .put_object(&bucket, "dir/destination.txt", &[3u8; B_IN_MB * 140])
         .unwrap();
 
     let main_dir = mount_point.join("dir");
@@ -1887,6 +1913,7 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path();
+    let bucket = test_client.get_bucket_name();
 
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let temp_path = temp_dir.path();
@@ -1904,7 +1931,7 @@ where
 
     files.iter().for_each(|(path, content)| {
         test_client
-            .put_object(path.to_str().unwrap(), content.as_bytes())
+            .put_object(&bucket, path.to_str().unwrap(), content.as_bytes())
             .expect("put object should succeed");
 
         let full_path = temp_path.join(path);
@@ -2081,6 +2108,7 @@ where
     let test_session = creator_fn(prefix, test_session_config);
     let test_client = test_session.client();
     let mount_point = test_session.mount_path().to_owned();
+    let bucket = test_client.get_bucket_name();
 
     // Run multiple iterations to increase chance of hitting different orderings
     for iteration in 0..30 {
@@ -2088,7 +2116,7 @@ where
 
         // Create initial state: only a.txt exists
         test_client
-            .put_object("a.txt", b"a_content")
+            .put_object(&bucket, "a.txt", b"a_content")
             .expect("put object should succeed");
 
         let barrier = Arc::new(Barrier::new(3));
