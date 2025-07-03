@@ -97,9 +97,9 @@ mount-s3 amzn-s3-demo-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --
 
 Follow [CloudWatch Agent installation guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html). For more information about the CloudWatch agent, see the [CloudWatch Agent Installation Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Install-CloudWatch-Agent.html) and [Using the CloudWatch agent to collect OpenTelemetry metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-OpenTelemetry-metrics.html). If installing on EC2 instance, ensure that you attach the CloudWatchAgentServerPolicy to the IAM role that is attached to your instance.
 
-"If you create or edit the agent configuration file manually, you can give it any name. For simplicity in troubleshooting, we recommend that you name it /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json on a Linux server and $Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json on servers running Windows Server."
-
 #### CloudWatch Agent Configuration
+
+The recommended path for the CloudWatch Agent configuration file is `/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json` on Linux and `$Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json` on Windows.
 
 Basic configuration for forwarding metrics to CloudWatch:
 
