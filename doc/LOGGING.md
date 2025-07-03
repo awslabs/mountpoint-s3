@@ -159,7 +159,13 @@ Starting CloudWatch Agent with the configured json file:
 sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json
 ```
 
-Then run mountpoint with the cli flag and metrics will be visible in your CloudWatch console.
+Then run mountpoint with the CLI flag:
+
+```
+mount-s3 amzn-s3-demo-bucket /mnt/s3 --log-metrics-otlp http://localhost:4318 --log-metrics-otlp-interval 10
+```
+
+After running the command, metrics will be visible in your CloudWatch console.
 
 Stop the CloudWatch Agent:
 
