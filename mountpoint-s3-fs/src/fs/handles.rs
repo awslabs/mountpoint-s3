@@ -9,71 +9,8 @@ use crate::metablock::Lookup;
 use crate::metablock::S3Location;
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
-use crate::superblock::LookedUpInode;
-use crate::superblock::ReaddirHandle;
 use crate::sync::AsyncMutex;
-use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::upload::{AppendUploadRequest, UploadRequest};
-use std::ffi::OsString;
-
-#[derive(Debug, Clone)]
-pub struct DirectoryEntryReaddir {
-    pub lookup: LookedUpInode,
-    pub offset: i64,
-    pub name: OsString,
-    pub generation: u64,
-}
-
-impl DirectoryEntryReaddir {
-    pub fn new(lookup: LookedUpInode, generation: u64, name: impl Into<OsString>, offset: i64) -> Self {
-        Self {
-            lookup,
-            generation,
-            name: name.into(),
-            offset,
-        }
-    }
-
-    pub fn new_with_inode_name(lookup: LookedUpInode, generation: u64, offset: i64) -> Self {
-        Self {
-            name: lookup.inode.name().into(),
-            lookup,
-            generation,
-            offset,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct DirHandle {
-    #[allow(unused)]
-    ino: InodeNo,
-    pub handle: AsyncMutex<ReaddirHandle>,
-    offset: AtomicI64,
-    pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntryReaddir>)>>,
-}
-
-impl DirHandle {
-    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle) -> Self {
-        Self {
-            ino,
-            handle: AsyncMutex::new(readdir_handle),
-            offset: AtomicI64::new(0),
-            last_response: AsyncMutex::new(None),
-        }
-    }
-    pub fn offset(&self) -> i64 {
-        self.offset.load(Ordering::SeqCst)
-    }
-
-    pub fn next_offset(&self) {
-        self.offset.fetch_add(1, Ordering::SeqCst);
-    }
-
-    pub fn rewind_offset(&self) {
-        self.offset.store(0, Ordering::SeqCst);
-    }
-}
 
 #[derive(Debug)]
 pub struct FileHandle<Client>

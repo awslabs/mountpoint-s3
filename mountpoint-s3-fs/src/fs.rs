@@ -40,7 +40,7 @@ mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
-pub use handles::{DirHandle, DirectoryEntryReaddir, FileHandle, FileHandleState};
+pub use handles::{FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};

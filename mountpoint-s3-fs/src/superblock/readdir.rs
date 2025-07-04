@@ -41,19 +41,18 @@
 //!   These children are listed only once, at the start of the readdir operation, and so are a
 //!   snapshot in time of the directory.
 
-use std::cmp::Ordering;
 use std::collections::VecDeque;
+use std::ffi::OsString;
 
+use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUpInode, RemoteLookup, SuperblockInner};
 #[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
+use crate::sync::atomic::{AtomicI64, Ordering};
+use crate::sync::{AsyncMutex, Mutex};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
-
-use crate::sync::{AsyncMutex, Mutex};
-
-use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUpInode, RemoteLookup, SuperblockInner};
 
 /// Handle for an inflight directory listing
 #[derive(Debug)]
@@ -307,7 +306,7 @@ impl PartialOrd for ReaddirEntry {
 // We sort readdir entries by name, and then by kind. So if two entries have the same name, a remote
 // directory sorts before a remote object, which sorts before a local entry.
 impl Ord for ReaddirEntry {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.name()
             .cmp(other.name())
             .then_with(|| self.kind().cmp(&other.kind()))
@@ -628,6 +627,45 @@ mod unordered {
 
             Ok(self.local_iter.pop_front())
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectoryEntryReaddir {
+    pub lookup: LookedUpInode,
+    pub offset: i64,
+    pub name: OsString,
+    pub generation: u64,
+}
+
+#[derive(Debug)]
+pub struct DirHandle {
+    #[allow(unused)]
+    ino: InodeNo,
+    pub handle: AsyncMutex<ReaddirHandle>,
+    offset: AtomicI64,
+    pub last_response: AsyncMutex<Option<(i64, Vec<DirectoryEntryReaddir>)>>,
+}
+
+impl DirHandle {
+    pub fn new(ino: InodeNo, readdir_handle: ReaddirHandle) -> Self {
+        Self {
+            ino,
+            handle: AsyncMutex::new(readdir_handle),
+            offset: AtomicI64::new(0),
+            last_response: AsyncMutex::new(None),
+        }
+    }
+    pub fn offset(&self) -> i64 {
+        self.offset.load(Ordering::SeqCst)
+    }
+
+    pub fn next_offset(&self) {
+        self.offset.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn rewind_offset(&self) {
+        self.offset.store(0, Ordering::SeqCst);
     }
 }
 

@@ -40,8 +40,6 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
-use crate::fs::DirHandle;
-pub use crate::fs::DirectoryEntryReaddir;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
@@ -69,6 +67,7 @@ pub mod path;
 use path::{ValidKey, ValidName};
 mod readdir;
 pub use readdir::ReaddirHandle;
+use readdir::{DirHandle, DirectoryEntryReaddir};
 
 /// Superblock is the root object of the file system
 #[derive(Debug)]
@@ -718,7 +717,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         }
 
         loop {
-            let next = match readdir_handle.next(&*self.inner).await? {
+            let next = match readdir_handle.next(&self.inner).await? {
                 None => {
                     reply.finish(offset, &dir_handle).await;
                     return Ok(());
