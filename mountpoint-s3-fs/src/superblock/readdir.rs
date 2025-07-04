@@ -51,7 +51,7 @@ use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
 
-use crate::sync::{Arc, AsyncMutex, Mutex};
+use crate::sync::{AsyncMutex, Mutex};
 
 use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUpInode, RemoteLookup, SuperblockInner};
 
@@ -132,7 +132,7 @@ impl ReaddirHandle {
     /// is responsible for calling [`remember()`] if required.
     pub(super) async fn next<OC: ObjectClient + Send + Sync>(
         &self,
-        inner: &Arc<SuperblockInner<OC>>,
+        inner: &SuperblockInner<OC>,
     ) -> Result<Option<LookedUpInode>, InodeError> {
         if let Some(readded) = self.readded.lock().unwrap().take() {
             return Ok(Some(readded));
@@ -175,7 +175,7 @@ impl ReaddirHandle {
     /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
     fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync>(
         &self,
-        inner: &Arc<SuperblockInner<OC>>,
+        inner: &SuperblockInner<OC>,
         entry: &ReaddirEntry,
     ) -> Option<RemoteLookup> {
         match entry {

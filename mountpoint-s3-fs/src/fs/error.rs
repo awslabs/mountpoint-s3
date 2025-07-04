@@ -187,7 +187,7 @@ impl ToErrno for InodeError {
             InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
-            InodeError::OperationNotSupportedOnVirtualInode { .. } => libc::EIO,
+            InodeError::OperationNotSupportedOnSyntheticInode { .. } => libc::EIO,
         }
     }
 }

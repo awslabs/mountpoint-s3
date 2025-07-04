@@ -79,7 +79,7 @@ impl InodeInformation {
 /// filesystem as a result operations like lookup.
 ///
 /// Combines InodeInformation with an S3Location, that is `None` for
-/// "virtual" inodes that do not have a mapped key in S3.
+/// "synthetic" inodes that do not have a mapped key in S3.
 #[derive(Debug, Clone)]
 pub struct Lookup {
     information: InodeInformation,
@@ -124,21 +124,21 @@ impl Lookup {
     pub fn s3_location(&self) -> Result<&S3Location, InodeError> {
         self.location
             .as_ref()
-            .ok_or(InodeError::OperationNotSupportedOnVirtualInode { ino: self.ino() })
+            .ok_or(InodeError::OperationNotSupportedOnSyntheticInode { ino: self.ino() })
     }
 
     pub fn try_into_s3_location(mut self) -> Result<S3Location, InodeError> {
         // This method needs to consume self as otherwise the Lookup is left
-        // without the location and would be incorrectly considered virtual.
+        // without the location and would be incorrectly considered synthetic.
         self.location
             .take()
-            .ok_or(InodeError::OperationNotSupportedOnVirtualInode { ino: self.ino() })
+            .ok_or(InodeError::OperationNotSupportedOnSyntheticInode { ino: self.ino() })
     }
 
     pub fn inode_err(&self) -> InodeErrorInfo {
         let (key, bucket) = match &self.location {
             Some(location) => (location.full_key().to_string(), location.bucket_name().to_string()),
-            None => ("VIRTUAL".to_string(), "VIRTUAL".to_string()),
+            None => ("SYNTHETIC".to_string(), "SYNTHETIC".to_string()),
         };
         InodeErrorInfo {
             ino: self.ino(),

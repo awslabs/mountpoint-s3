@@ -718,7 +718,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         }
 
         loop {
-            let next = match readdir_handle.next(&self.inner).await? {
+            let next = match readdir_handle.next(&*self.inner).await? {
                 None => {
                     reply.finish(offset, &dir_handle).await;
                     return Ok(());
@@ -1926,7 +1926,7 @@ pub enum InodeError {
     #[error("manifest error")]
     ManifestError(#[from] ManifestError),
     #[error("operation not supported on virtual inode {ino}")]
-    OperationNotSupportedOnVirtualInode { ino: InodeNo },
+    OperationNotSupportedOnSyntheticInode { ino: InodeNo },
     #[error("out-of-order readdir, expected offset {expected} but got {actual} on dir handle {fh}")]
     OutOfOrderReadDir { expected: i64, actual: i64, fh: u64 },
     #[error("invalid directory handle {fh}")]
