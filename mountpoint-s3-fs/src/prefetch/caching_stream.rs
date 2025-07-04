@@ -402,7 +402,7 @@ mod tests {
 
     use futures::executor::{ThreadPool, block_on};
     use mountpoint_s3_client::{
-        mock_client::{MockClient, MockClientConfig, MockObject, Operation},
+        mock_client::{MockClient, MockObject, Operation},
         types::ETag,
     };
     use test_case::test_case;
@@ -444,14 +444,15 @@ mod tests {
 
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size,
-            ..Default::default()
-        };
-        let mock_client = Arc::new(MockClient::new(config));
+
+        let mock_client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(client_part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(initial_read_window_size)
+                .build(),
+        );
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
@@ -525,14 +526,15 @@ mod tests {
 
         let cache = InMemoryDataCache::new(block_size as u64);
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size,
-            ..Default::default()
-        };
-        let mock_client = Arc::new(MockClient::new(config));
+
+        let mock_client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(client_part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(initial_read_window_size)
+                .build(),
+        );
         let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 

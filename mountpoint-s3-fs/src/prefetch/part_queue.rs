@@ -172,7 +172,7 @@ mod tests {
     }
 
     async fn run_test(ops: Vec<Op>) {
-        let client = MockClient::new(Default::default());
+        let client = MockClient::config().build();
         let mem_limiter = MemoryLimiter::new(client, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
         let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());

@@ -61,18 +61,55 @@ static RAMP_BYTES: LazyLock<Vec<u8>> = LazyLock::new(|| ramp_bytes(0, RAMP_BUFFE
 
 #[derive(Debug, Default, Clone)]
 pub struct MockClientConfig {
-    /// The bucket name this client will connect to
-    pub bucket: String,
-    /// The size of the parts that GetObject will respond with
-    pub part_size: usize,
-    /// A seed to randomize the order of ListObjectsV2 results, or None to use ordered list
-    pub unordered_list_seed: Option<u64>,
-    /// A flag to enable backpressure read
-    pub enable_backpressure: bool,
-    /// Initial backpressure read window size, ignored if enable_back_pressure is false
-    pub initial_read_window_size: usize,
-    // Is rename supported on this bucket
-    pub enable_rename: bool,
+    bucket: String,
+    part_size: usize,
+    unordered_list_seed: Option<u64>,
+    enable_backpressure: bool,
+    initial_read_window_size: usize,
+    enable_rename: bool,
+}
+
+impl MockClientConfig {
+    /// Set the bucket name
+    pub fn bucket(mut self, bucket: impl Into<String>) -> Self {
+        self.bucket = bucket.into();
+        self
+    }
+
+    /// Set the part size
+    pub fn part_size(mut self, part_size: usize) -> Self {
+        self.part_size = part_size;
+        self
+    }
+
+    /// Set the unordered list seed
+    pub fn unordered_list_seed(mut self, seed: Option<u64>) -> Self {
+        self.unordered_list_seed = seed;
+        self
+    }
+
+    /// Enable or disable backpressure
+    pub fn enable_backpressure(mut self, enable: bool) -> Self {
+        self.enable_backpressure = enable;
+        self
+    }
+
+    /// Set the initial read window size
+    pub fn initial_read_window_size(mut self, size: usize) -> Self {
+        self.initial_read_window_size = size;
+        self
+    }
+
+    /// Enable or disable rename support
+    pub fn enable_rename(mut self, enable: bool) -> Self {
+        self.enable_rename = enable;
+        self
+    }
+
+    /// Build the MockClient
+    pub fn build(self) -> MockClient {
+        MockClient::new(self)
+    }
 }
 
 /// A mock implementation of an object client that we can manually add objects to, and then query
@@ -98,6 +135,11 @@ impl MockClient {
             in_progress_uploads: Default::default(),
             operation_counts: Default::default(),
         }
+    }
+
+    /// Create a new builder for MockClient
+    pub fn config() -> MockClientConfig {
+        MockClientConfig::default()
     }
 
     /// Add an object to this mock client's bucket
@@ -1325,12 +1367,7 @@ mod tests {
     ) {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
@@ -1381,14 +1418,13 @@ mod tests {
     ) {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            enable_backpressure: true,
-            enable_rename: false,
-            initial_read_window_size: backpressure_read_window_size,
-        });
+        let client = MockClient::config()
+            .bucket("test_bucket")
+            .part_size(1024)
+            .enable_backpressure(true)
+            .enable_rename(false)
+            .initial_read_window_size(backpressure_read_window_size)
+            .build();
 
         let mut body = vec![0u8; size];
         rng.fill_bytes(&mut body);
@@ -1432,12 +1468,7 @@ mod tests {
     async fn get_object_errors() {
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
         let mut body = vec![0u8; 2000];
         rng.fill_bytes(&mut body);
@@ -1493,14 +1524,13 @@ mod tests {
         let key = "key1";
 
         let mut rng = ChaChaRng::seed_from_u64(0x12345678);
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            enable_backpressure: true,
-            enable_rename: false,
-            initial_read_window_size: 256,
-        });
+        let client = MockClient::config()
+            .bucket("test_bucket")
+            .part_size(1024)
+            .enable_backpressure(true)
+            .enable_rename(false)
+            .initial_read_window_size(256)
+            .build();
 
         let part_size = client.read_part_size().unwrap();
         let size = part_size * 2;
@@ -1534,12 +1564,7 @@ mod tests {
         let bucket = "test_bucket";
         let src_key = "src_copy_key";
         let dst_key = "dst_copy_key";
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket(bucket).part_size(1024).build();
 
         client.add_object(src_key, "test_body".into());
 
@@ -1559,12 +1584,11 @@ mod tests {
         let bucket = "test_bucket";
         let src_key = "src_copy_key";
         let dst_key = "dst_copy_key";
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket(bucket)
+            .part_size(1024)
+            .unordered_list_seed(None)
+            .build();
 
         assert!(matches!(
             client
@@ -1576,12 +1600,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_object_dirs() {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
         let mut keys = vec![];
         for i in 0..5 {
@@ -1665,12 +1684,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_objects_unicode() {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
         let mut keys = vec![];
         for i in 0..5 {
@@ -1713,12 +1727,11 @@ mod tests {
     #[test_case("prefix/1/2/"; "prefixed")]
     #[tokio::test]
     async fn list_objects_unordered(prefix: &str) {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: Some(1234),
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket("test_bucket")
+            .part_size(1024)
+            .unordered_list_seed(Some(1234))
+            .build();
 
         for i in 0..20 {
             client.add_object(
@@ -1787,12 +1800,11 @@ mod tests {
     #[test_case(50, "prefix/1/2/")]
     #[tokio::test]
     async fn list_objects_unordered_delimited_page_size(page_size: usize, prefix: &str) {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: Some(1234),
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket("test_bucket")
+            .part_size(1024)
+            .unordered_list_seed(Some(1234))
+            .build();
 
         for i in 0..20 {
             client.add_object(
@@ -1855,12 +1867,11 @@ mod tests {
     #[test_case(50, "prefix/1/2/")]
     #[tokio::test]
     async fn list_objects_unordered_undelimited_page_size(page_size: usize, prefix: &str) {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: Some(1234),
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket("test_bucket")
+            .part_size(1024)
+            .unordered_list_seed(Some(1234))
+            .build();
 
         for i in 0..20 {
             client.add_object(
@@ -1918,10 +1929,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_objects_checksum() {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").build();
 
         client.add_object("a.txt", MockObject::constant(0u8, 5, ETag::for_tests()));
         let mut object_b = MockObject::constant(1u8, 5, ETag::for_tests());
@@ -1948,12 +1956,11 @@ mod tests {
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket("test_bucket")
+            .part_size(1024)
+            .unordered_list_seed(None)
+            .build();
 
         let object_metadata = HashMap::from([("foo".to_string(), "bar".to_string())]);
         let put_object_params = PutObjectParams::new().object_metadata(object_metadata.clone());
@@ -2019,10 +2026,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checksums_set_after_single_put() {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").build();
 
         let s3_key = "key1";
         let content = vec![42u8; 512];
@@ -2055,11 +2059,7 @@ mod tests {
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
         let s3_key = "key1";
         let put_object_params = PutObjectParams::new().trailing_checksums(trailing_checksums);
@@ -2129,11 +2129,7 @@ mod tests {
 
     #[tokio::test]
     async fn rename_object_without_override() {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            enable_rename: true,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").enable_rename(true).build();
 
         client.add_object("key1", MockObject::constant(1u8, 5, ETag::for_tests()));
         client.add_object("key2", MockObject::constant(2u8, 5, ETag::for_tests()));
@@ -2188,11 +2184,7 @@ mod tests {
 
     #[tokio::test]
     async fn rename_etag_source_matching() {
-        let client = MockClient::new(MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            enable_rename: true,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket("test_bucket").enable_rename(true).build();
 
         let mockobj_for_first: MockObject = b"343".into();
         let mockobj_for_second: MockObject = b"123".into();
@@ -2270,12 +2262,11 @@ mod tests {
         let body = vec![0u8; 16];
 
         let bucket = "test_bucket";
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket(bucket)
+            .part_size(1024)
+            .unordered_list_seed(None)
+            .build();
 
         let key = "key1";
         let put_params = PutObjectParams {
@@ -2300,12 +2291,7 @@ mod tests {
     #[tokio::test]
     async fn counter_test() {
         let bucket = "test_bucket";
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket(bucket).part_size(1024).build();
 
         let head_counter_1 = client.new_counter(Operation::HeadObject);
         let delete_counter_1 = client.new_counter(Operation::DeleteObject);
@@ -2337,12 +2323,11 @@ mod tests {
         let body = vec![0xAAu8; OBJECT_SIZE];
 
         let bucket = "test_bucket";
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: PART_SIZE,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket(bucket)
+            .part_size(PART_SIZE)
+            .unordered_list_seed(None)
+            .build();
 
         let key = "key1";
         let put_params = PutObjectParams {
@@ -2431,12 +2416,11 @@ mod tests {
     #[tokio::test]
     async fn test_append_object(obj: MockObject) {
         let bucket = "test_bucket";
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 1024,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config()
+            .bucket(bucket)
+            .part_size(1024)
+            .unordered_list_seed(None)
+            .build();
 
         let key = "test_object";
         client.add_object(key, obj.clone());
