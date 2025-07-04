@@ -99,7 +99,7 @@ Follow [CloudWatch Agent installation guide](https://docs.aws.amazon.com/AmazonC
 
 #### CloudWatch Agent Configuration
 
-The recommended path for the CloudWatch Agent configuration file is `/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json` on Linux and `$Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json` on Windows.
+You can give the CloudWatch Agent configuration file any name and location. However, for simplicity in troubleshooting, AWS recommends using `/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json` on Linux and `$Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json` on Windows. After creating the file, you can copy it to other servers where you want to install the agent.
 
 Basic configuration for forwarding metrics to CloudWatch:
 
@@ -113,7 +113,6 @@ Basic configuration for forwarding metrics to CloudWatch:
         "namespace": "Mountpoint",
         "metrics_collected": {
             "otlp": {
-                "grpc_endpoint": "127.0.0.1:4317",
                 "http_endpoint": "127.0.0.1:4318"
             }
         }
@@ -141,7 +140,6 @@ Configuration to publish to both CloudWatch and Prometheus:
         },
         "metrics_collected": {
             "otlp": {
-                "grpc_endpoint": "127.0.0.1:4317",
                 "http_endpoint": "127.0.0.1:4318"
             }
         }
