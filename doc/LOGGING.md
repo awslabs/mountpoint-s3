@@ -173,28 +173,8 @@ Stop the CloudWatch Agent:
 sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop
 ```
 
-#### Troubleshooting
+#### Troubleshooting CloudWatch Agent
 
-Check if CloudWatch Agent is running:
+For troubleshooting the CloudWatch Agent, refer to the [AWS CloudWatch Agent Troubleshooting Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/troubleshooting-CloudWatch-Agent.html#CloudWatch-Agent-options-help).
 
-```
-systemctl status amazon-cloudwatch-agent
-```
-
-Verify listening on ports:
-
-```
-sudo lsof -i :4317,4318
-```
-
-Check CloudWatch Agent logs:
-
-```
-sudo tail -n 50 /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
-```
-
-Set Debug logs:
-
-```
-sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a set-log-level -l DEBUG
-```
+After configuring the CloudWatch Agent and starting Mountpoint with the `--log-metrics-otlp` flag, metrics should appear in your CloudWatch console within a few minutes. If metrics are not appearing, verify that the CloudWatch Agent is running and properly configured.
