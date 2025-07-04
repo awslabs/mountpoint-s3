@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -12,7 +13,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
+use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
@@ -39,11 +40,11 @@ fn init_tracing_subscriber() {
     about = "Run workloads against the prefetcher component of Mountpoint. Fetched data is discarded."
 )]
 pub struct CliArgs {
-    #[clap(help = "S3 bucket name containing the S3 object to fetch")]
+    #[clap(help = "S3 bucket name containing the S3 objects to fetch")]
     pub bucket: String,
 
-    #[clap(help = "S3 object key to fetch")]
-    pub s3_key: String,
+    #[clap(help = "List of S3 object keys to fetch", num_args = 1.., value_delimiter = ',')]
+    pub s3_keys: Vec<String>,
 
     #[clap(
         long,
@@ -93,8 +94,13 @@ pub struct CliArgs {
     #[arg(long, help = "Number of times to download the S3 object", default_value_t = 1)]
     iterations: usize,
 
-    #[arg(long, help = "Number of concurrent downloads", default_value_t = 1, value_name = "N")]
-    downloads: usize,
+    #[arg(
+        long,
+        help = "Number of concurrent downloads per object",
+        default_value_t = 1,
+        value_name = "N"
+    )]
+    downloads_per_object: usize,
 
     #[clap(
         long,
@@ -104,6 +110,17 @@ pub struct CliArgs {
     pub bind: Option<Vec<String>>,
 }
 
+fn create_memory_limiter(args: &CliArgs, client: &S3CrtClient) -> Arc<MemoryLimiter<S3CrtClient>> {
+    let max_memory_target = if let Some(target) = args.max_memory_target {
+        target * 1024 * 1024
+    } else {
+        // Default to 95% of total system memory
+        let sys = System::new_with_specifics(RefreshKind::everything());
+        (sys.total_memory() as f64 * 0.95) as u64
+    };
+    Arc::new(MemoryLimiter::new(client.clone(), max_memory_target))
+}
+
 fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
     let _metrics_handle = mountpoint_s3_fs::metrics::install();
@@ -111,54 +128,60 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
-    let key = args.s3_key.as_str();
-
     let client = make_s3_client_from_args(&args).context("failed to create S3 CRT client")?;
-
-    let mem_limiter = {
-        let max_memory_target = if let Some(target) = args.max_memory_target {
-            target * 1024 * 1024
-        } else {
-            // Default to 95% of total system memory
-            let sys = System::new_with_specifics(RefreshKind::everything());
-            (sys.total_memory() as f64 * 0.95) as u64
-        };
-        Arc::new(MemoryLimiter::new(client.clone(), max_memory_target))
-    };
-
-    let head_object_result = block_on(client.head_object(bucket, key, &HeadObjectParams::new()))
-        .context("initial HeadObject to fetch object metadata before benchmark failed")?;
-    let size = head_object_result.size;
-    let object_id = ObjectId::new(key.to_string(), head_object_result.etag);
-
+    let mem_limiter = create_memory_limiter(&args, &client);
     let runtime = Runtime::new(client.event_loop_group());
 
+    // Verify if all objects exist and collect metadata
+    let object_metadata: Vec<(ObjectId, u64)> = args
+        .s3_keys
+        .iter()
+        .map(|key| {
+            let head_result = block_on(client.head_object(bucket, key, &HeadObjectParams::new()))
+                .with_context(|| format!("HeadObject failed for {key}"))?;
+            Ok((ObjectId::new(key.to_string(), head_result.etag), head_result.size))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
     for iteration in 0..args.iterations {
+        let received_bytes = Arc::new(AtomicU64::new(0));
+        let start = Instant::now();
         let manager = Prefetcher::default_builder(client.clone()).build(
             runtime.clone(),
             mem_limiter.clone(),
             PrefetcherConfig::default(),
         );
 
-        let received_bytes = Arc::new(AtomicU64::new(0));
-        let start = Instant::now();
-
         thread::scope(|scope| {
-            for _ in 0..args.downloads {
-                let received_bytes = received_bytes.clone();
-                let mut request = manager.prefetch(bucket.to_string(), object_id.clone(), size);
+            let mut download_tasks = Vec::new();
 
-                scope.spawn(|| {
-                    futures::executor::block_on(async move {
-                        let mut offset = 0;
-                        while offset < size {
-                            let bytes = request.read(offset, args.read_size).await.unwrap();
-                            let length = bytes.len() as u64;
-                            offset += length;
-                            received_bytes.fetch_add(length, Ordering::SeqCst);
+            for (object_id, size) in &object_metadata {
+                for _ in 0..args.downloads_per_object {
+                    let received_bytes = received_bytes.clone();
+                    let object_id = object_id.clone();
+                    let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+                    let read_size = args.read_size;
+
+                    let task = scope.spawn(move || {
+                        let result = block_on(wait_for_download(request, *size, read_size as u64));
+                        if let Ok(bytes_read) = result {
+                            received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
+                        } else {
+                            // As object download failures can produce
+                            // misleading results, exit the benchmarks
+                            // to avoid confusion.
+                            eprintln!("Download failed: {:?}", result.err());
+                            eprintln!("Existing benchmarks due to download failure");
+                            std::process::exit(1);
                         }
-                    })
-                });
+                    });
+
+                    download_tasks.push(task);
+                }
+            }
+
+            for task in download_tasks {
+                task.join().unwrap();
             }
         });
 
@@ -166,15 +189,29 @@ fn main() -> anyhow::Result<()> {
 
         let received_size = received_bytes.load(Ordering::SeqCst);
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
-            iteration,
-            received_size,
+            "{iteration}: received {received_size} bytes in {:.2}s: {:.2} Gib/s",
             elapsed.as_secs_f64(),
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
     }
 
     Ok(())
+}
+
+async fn wait_for_download(
+    mut request: PrefetchGetObject<S3CrtClient>,
+    size: u64,
+    read_size: u64,
+) -> Result<u64, Box<dyn Error>> {
+    let mut offset = 0;
+    let mut total_bytes_read = 0;
+    while offset < size {
+        let bytes = request.read(offset, read_size as usize).await?;
+        let bytes_read = bytes.len() as u64;
+        offset += bytes_read;
+        total_bytes_read += bytes_read;
+    }
+    Ok(total_bytes_read)
 }
 
 fn make_s3_client_from_args(args: &CliArgs) -> anyhow::Result<S3CrtClient> {
