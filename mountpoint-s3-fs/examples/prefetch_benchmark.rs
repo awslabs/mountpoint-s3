@@ -208,7 +208,12 @@ fn make_s3_client_from_args(args: &CliArgs) -> anyhow::Result<S3CrtClient> {
         client_config = client_config.part_size(part_size as usize);
     }
     if let Some(interfaces) = &args.bind {
-        client_config = client_config.network_interface_names(interfaces.clone());
+        let nics: Vec<String> = interfaces
+            .iter()
+            .flat_map(|iface| iface.split(',').map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        client_config = client_config.network_interface_names(nics);
     }
     Ok(S3CrtClient::new(client_config)?)
 }
