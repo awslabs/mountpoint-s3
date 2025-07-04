@@ -71,6 +71,7 @@ pub mod config {
     pub use super::s3_crt_client::{
         CredentialsProvider, CredentialsProviderStaticOptions, EventLoopGroup, S3ClientAuthConfig, S3ClientConfig,
     };
+    pub use mountpoint_s3_crt::auth::access_grants::{AccessGrantsProvider, AccessGrantsProviderConfig};
 
     pub use mountpoint_s3_crt::common::allocator::Allocator;
     pub use mountpoint_s3_crt::common::rust_log_adapter::{AWSCRT_LOG_TARGET, RustLogAdapter};

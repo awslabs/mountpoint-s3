@@ -11,6 +11,10 @@ mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.6.0" }
 mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.18.0" }
 
 anyhow = { version = "1.0.98", features = ["backtrace"] }
+aws-config = "1.8.0"
+aws-sdk-sts = "1.76.0"
+aws-sdk-s3 = "1.94.0"
+aws-sdk-s3control = "1.86.0"
 clap = { version = "4.5.40", features = ["derive"] }
 const_format = "0.2.34"
 futures = "0.3.31"
@@ -20,6 +24,7 @@ regex = "1.11.1"
 serde = "1.0.219"
 serde_json = "1.0.140"
 sysinfo = "0.35.2"
+tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
 tracing = "0.1.41"
 
 [dev-dependencies]

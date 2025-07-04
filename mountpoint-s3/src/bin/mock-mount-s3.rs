@@ -22,12 +22,13 @@ use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::s3::config::BucketNameOrS3Uri;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
-    mountpoint_s3::run(create_mock_client, cli_args)
+    mountpoint_s3::run(create_mock_client, cli_args).await
 }
 
-fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
+async fn create_mock_client(args: CliArgs) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
     let bucket_name: String = match &args.bucket_name {
         BucketNameOrS3Uri::BucketName(bucket_name) => bucket_name.clone().into(),
         BucketNameOrS3Uri::S3Uri(_) => panic!("mock-mount-s3 bucket names do not support S3 URIs"),

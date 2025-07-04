@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 
 use anyhow::Context as _;
 use mountpoint_s3_client::config::{
-    AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
+    AccessGrantsProviderConfig, AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
 };
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::user_agent::UserAgent;
@@ -33,6 +33,9 @@ pub struct ClientConfig {
 
     /// Authentication configuration
     pub auth_config: S3ClientAuthConfig,
+
+    /// Configuration for S3 access grants
+    pub access_grants_config: Option<AccessGrantsProviderConfig>,
 
     /// Set the 'x-amz-request-payer' to 'requester' on S3 requests
     pub requester_pays: bool,
@@ -253,7 +256,7 @@ const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 + 128 * 1024;
 
 impl ClientConfig {
     /// Create an [S3CrtClient]
-    pub fn create_client(self, validate_on_s3_path: Option<&S3Path>) -> anyhow::Result<S3CrtClient> {
+    pub async fn create_client(self, validate_on_s3_path: Option<&S3Path>) -> anyhow::Result<S3CrtClient> {
         let mut client_config = S3ClientConfig::new()
             .auth_config(self.auth_config)
             .throughput_target_gbps(self.throughput_target_gbps)

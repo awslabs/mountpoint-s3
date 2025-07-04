@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};
 use clap::{ArgGroup, Parser, ValueEnum, value_parser};
-use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
+use mountpoint_s3_client::config::{
+    AWSCRT_LOG_TARGET, AccessGrantsProviderConfig, AddressingStyle, S3ClientAuthConfig,
+};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
@@ -41,7 +43,7 @@ Arguments:
           fstab style options. Comma separated list of CLI options, with backslash escapes for commas, backslashes, and double quotes.
           Use of `--` to prefix arguments is not allowed.";
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Clone, Debug)]
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
@@ -118,6 +120,12 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(long, help = "Use a specific profile from your credential file.", help_heading = AWS_CREDENTIALS_OPTIONS_HEADER)]
     pub profile: Option<String>,
+
+    #[clap(long, help = "Use access grants to fetch credentials.", help_heading = AWS_CREDENTIALS_OPTIONS_HEADER)]
+    pub access_grants: bool,
+
+    #[clap(long, help = "Account ID who owns the access grants instance.", help_heading = AWS_CREDENTIALS_OPTIONS_HEADER)]
+    pub access_grants_account_id: Option<String>,
 
     #[clap(
         long,
@@ -760,6 +768,16 @@ impl CliArgs {
         }
     }
 
+    fn access_grants_config(&self) -> Option<AccessGrantsProviderConfig> {
+        let s3_path = self.s3_path().unwrap();
+        Some(AccessGrantsProviderConfig::new(
+            self.access_grants_account_id.clone()?,
+            s3_path.bucket_name.clone(),
+            s3_path.prefix.to_string(),
+            self.read_only,
+        ))
+    }
+
     pub fn client_config(&self, version: &str) -> ClientConfig {
         let instance_info = InstanceInfo::new();
         let user_agent = self.user_agent(&instance_info, version);
@@ -773,6 +791,7 @@ impl CliArgs {
             dual_stack: self.dual_stack,
             transfer_acceleration: self.transfer_acceleration,
             auth_config: self.auth_config(),
+            access_grants_config: self.access_grants_config(),
             requester_pays: self.requester_pays,
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target_gbps,

@@ -18,7 +18,7 @@ log = "0.4.27"
 smallstr = "0.3.0"
 static_assertions = "1.1.0"
 thiserror = "2.0.12"
-tokio = "1.45.1"
+tokio = { version = "1.45.1", features = ["rt", "macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }

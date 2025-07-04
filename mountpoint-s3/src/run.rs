@@ -2,10 +2,18 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{env, fs};
 
+use crate::cli::CliArgs;
+use crate::{build_info, parse_cli_args};
 use anyhow::{Context as _, anyhow};
+use aws_config::default_provider::credentials::DefaultCredentialsChain;
+use aws_sdk_s3::config::BehaviorVersion;
+use aws_sdk_s3::config::Region;
+use mountpoint_s3_client::config::{AccessGrantsProviderConfig, Allocator};
+use mountpoint_s3_client::config::{CredentialsProvider, S3ClientAuthConfig};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
@@ -14,14 +22,15 @@ use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::{MountpointConfig, Runtime, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
-
-use crate::cli::CliArgs;
-use crate::{build_info, parse_cli_args};
+use tokio::runtime::Handle;
 
 /// Run Mountpoint with the given [CliArgs].
-pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
+pub async fn run<ClientBuilder, Client>(
+    client_builder: impl FnOnce(CliArgs) -> ClientBuilder,
+    args: CliArgs,
+) -> anyhow::Result<()>
 where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    ClientBuilder: Future<Output = anyhow::Result<(Client, Runtime, S3Personality)>>,
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     let successful_mount_msg = format!(
@@ -38,7 +47,7 @@ where
         create_pid_file()?;
 
         // mount file system as a foreground process
-        let session = mount(args, client_builder)?;
+        let session = mount(args, client_builder).await?;
 
         println!("{successful_mount_msg}");
 
@@ -69,7 +78,7 @@ where
 
                 create_pid_file()?;
 
-                let session = mount(args, client_builder);
+                let session = mount(args, client_builder).await;
 
                 // close unused file descriptor, we only write from this end.
                 drop(read_fd);
@@ -168,9 +177,12 @@ where
     Ok(())
 }
 
-fn mount<ClientBuilder, Client>(args: CliArgs, client_builder: ClientBuilder) -> anyhow::Result<FuseSession>
+async fn mount<ClientBuilder, Client>(
+    args: CliArgs,
+    client_builder: impl FnOnce(CliArgs) -> ClientBuilder,
+) -> anyhow::Result<FuseSession>
 where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    ClientBuilder: Future<Output = anyhow::Result<(Client, Runtime, S3Personality)>>,
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
@@ -179,7 +191,7 @@ where
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
-    let (client, runtime, s3_personality) = client_builder(&args)?;
+    let (client, runtime, s3_personality) = client_builder(args.clone()).await?;
 
     let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
@@ -206,12 +218,19 @@ where
 }
 
 /// Create a real S3 client
-pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
-    let client_config = args.client_config(build_info::FULL_VERSION);
-
+pub async fn create_s3_client(args: CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
+    let mut client_config = args.client_config(build_info::FULL_VERSION);
     let s3_path = args.s3_path()?;
+
+    if let Some(access_grants_provider_config) = &client_config.access_grants_config {
+        let access_grants_provider =
+            create_access_grants_config(access_grants_provider_config, client_config.region.to_string()).await?;
+        client_config.auth_config = S3ClientAuthConfig::Provider(access_grants_provider);
+    }
+
     let client = client_config
         .create_client(Some(&s3_path))
+        .await
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());
@@ -220,6 +239,31 @@ pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime,
         .unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket_name, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
+}
+
+async fn create_access_grants_config(
+    access_grants_config: &AccessGrantsProviderConfig,
+    region: String,
+) -> anyhow::Result<CredentialsProvider> {
+    // TODO: Ideally we don't use Allocator outside of the Mountpoint client
+    let allocator = Allocator::default();
+
+    // TODO: Default credentials provider
+    let source_credentials_provider = DefaultCredentialsChain::builder().build().await;
+
+    // TODO: Endpoint config + other configs might need to be applied here.
+    println!("REGION: {}", &region);
+    let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new(region))
+        .credentials_provider(source_credentials_provider)
+        .load()
+        .await;
+    let s3control_client = aws_sdk_s3control::Client::new(&sdk_config.clone());
+    let sdk_credentials_provider = access_grants_config.build(s3control_client);
+    let crt_credentials_provider =
+        CredentialsProvider::new_sdk(&allocator, Handle::current(), Arc::new(sdk_credentials_provider))?;
+
+    Ok(crt_credentials_provider)
 }
 
 fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Result<Option<ManagedCacheDir>> {

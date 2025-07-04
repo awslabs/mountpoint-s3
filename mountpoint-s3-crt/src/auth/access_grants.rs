@@ -8,6 +8,38 @@ use std::time::SystemTime;
 
 /// An S3 Access Grants provider
 #[derive(Debug)]
+pub struct AccessGrantsProviderConfig {
+    account_id: String,
+    bucket: String,
+    prefix: String,
+    read_only: bool,
+}
+
+impl AccessGrantsProviderConfig {
+    /// Config for an access grants provider
+    pub fn new(account_id: String, bucket: String, prefix: String, read_only: bool) -> AccessGrantsProviderConfig {
+        Self {
+            account_id,
+            bucket,
+            prefix,
+            read_only,
+        }
+    }
+
+    /// Build an access grants provider given this configuration.
+    pub fn build(&self, client: aws_sdk_s3control::Client) -> AccessGrantsProvider {
+        AccessGrantsProvider::new(
+            client,
+            self.account_id.clone(),
+            &self.bucket,
+            &self.prefix,
+            self.read_only,
+        )
+    }
+}
+
+/// An S3 Access Grants provider
+#[derive(Debug)]
 pub struct AccessGrantsProvider {
     client: aws_sdk_s3control::Client,
     account_id: String,

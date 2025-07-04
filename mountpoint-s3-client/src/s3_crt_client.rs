@@ -269,6 +269,36 @@ pub enum S3ClientAuthConfig {
     Provider(CredentialsProvider),
 }
 
+impl S3ClientAuthConfig {
+    fn build(
+        self,
+        client_bootstrap: &mut ClientBootstrap,
+        allocator: &Allocator,
+    ) -> Result<CredentialsProvider, NewClientError> {
+        match self {
+            S3ClientAuthConfig::Default => {
+                let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
+                    bootstrap: client_bootstrap,
+                };
+                CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
+                    .map_err(NewClientError::ProviderFailure)
+            }
+            S3ClientAuthConfig::NoSigning => {
+                CredentialsProvider::new_anonymous(&allocator).map_err(NewClientError::ProviderFailure)
+            }
+            S3ClientAuthConfig::Profile(profile_name) => {
+                let credentials_profile_options = CredentialsProviderProfileOptions {
+                    bootstrap: client_bootstrap,
+                    profile_name_override: &profile_name,
+                };
+                CredentialsProvider::new_profile(&allocator, credentials_profile_options)
+                    .map_err(NewClientError::ProviderFailure)
+            }
+            S3ClientAuthConfig::Provider(provider) => Ok(provider),
+        }
+    }
+}
+
 /// An S3 client that uses the [AWS Common Runtime (CRT)][crt] to make requests.
 ///
 /// The AWS CRT is a C library that provides a common set of functionality for AWS SDKs. Its S3
@@ -361,28 +391,7 @@ impl S3CrtClientInner {
         };
 
         trace!("constructing client with auth config {:?}", config.auth_config);
-        let credentials_provider = match config.auth_config {
-            S3ClientAuthConfig::Default => {
-                let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
-                    bootstrap: &mut client_bootstrap,
-                };
-                CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
-                    .map_err(NewClientError::ProviderFailure)?
-            }
-            S3ClientAuthConfig::NoSigning => {
-                CredentialsProvider::new_anonymous(&allocator).map_err(NewClientError::ProviderFailure)?
-            }
-            S3ClientAuthConfig::Profile(profile_name) => {
-                let credentials_profile_options = CredentialsProviderProfileOptions {
-                    bootstrap: &mut client_bootstrap,
-                    profile_name_override: &profile_name,
-                };
-                CredentialsProvider::new_profile(&allocator, credentials_profile_options)
-                    .map_err(NewClientError::ProviderFailure)?
-            }
-            S3ClientAuthConfig::Provider(provider) => provider,
-        };
-
+        let credentials_provider = config.auth_config.build(&mut client_bootstrap, &allocator)?;
         let endpoint_config = config.endpoint_config;
         client_config.region(endpoint_config.get_region());
         let signing_config = init_signing_config(

@@ -129,6 +129,7 @@ impl ConfigOptions {
             dual_stack: false,
             transfer_acceleration: false,
             auth_config: mountpoint_s3_client::config::S3ClientAuthConfig::Default,
+            access_grants_config: None,
             requester_pays: false,
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target_gbps: target_throughput,
@@ -211,7 +212,7 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
     Ok((logging, metrics))
 }
 
-fn mount_filesystem(
+async fn mount_filesystem(
     config: &ConfigOptions,
     manifest: Manifest,
     error_logger: impl ErrorLogger + Send + Sync + 'static,
@@ -231,6 +232,7 @@ fn mount_filesystem(
     let client = config
         .build_client_config()?
         .create_client(None)
+        .await
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
@@ -250,7 +252,8 @@ struct Args {
     config: String,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Parse command line arguments
     let args = Args::parse();
     // Read the config
@@ -267,7 +270,9 @@ fn main() -> Result<()> {
     let temporary_dir = tempdir_in(&config.metadata_store_dir).context("Failed to create manifest")?;
     let manifest = process_manifests(&config, temporary_dir.path()).context("Failed to create manifest")?;
     // Build all configurations
-    let fuse_session = mount_filesystem(&config, manifest, error_logger).context("Failed to mount filesystem")?;
+    let fuse_session = mount_filesystem(&config, manifest, error_logger)
+        .await
+        .context("Failed to mount filesystem")?;
     // Join the session and wait until it completes
     fuse_session.join().context("Failed to join session")?;
     Ok(())

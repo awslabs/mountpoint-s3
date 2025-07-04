@@ -2837,6 +2837,8 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "aws-sdk-s3control",
+ "aws-sdk-sts",
  "built",
  "clap",
  "const_format",
