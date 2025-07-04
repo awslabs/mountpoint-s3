@@ -118,7 +118,7 @@ mod tests {
     use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig};
 
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::mock_client::MockClient;
     use mountpoint_s3_client::types::ETag;
     use tempfile::TempDir;
     use test_case::test_case;
@@ -138,13 +138,12 @@ mod tests {
 
     fn create_express_cache() -> (MockClient, ExpressDataCache<MockClient>) {
         let bucket = "test_bucket";
-        let config = MockClientConfig::builder()
+        let client = MockClient::config()
             .bucket(bucket.to_string())
             .part_size(PART_SIZE)
             .enable_backpressure(true)
             .initial_read_window_size(PART_SIZE)
             .build();
-        let client = MockClient::new(config);
         let cache = ExpressDataCache::new(
             client.clone(),
             ExpressDataCacheConfig::new(bucket, "unique source description"),
