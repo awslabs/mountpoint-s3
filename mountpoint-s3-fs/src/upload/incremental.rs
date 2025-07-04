@@ -457,7 +457,7 @@ mod tests {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
     use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use mountpoint_s3_client::mock_client::{MockClient, MockObject};
     use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectResponse};
     use test_case::test_case;
 
@@ -499,9 +499,7 @@ mod tests {
         let key = "hello";
         let mut expected_content = Vec::new();
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         // Create the "before append" object for the test
         let mut existing_object = existing_object;
@@ -572,9 +570,7 @@ mod tests {
         let key = "hello";
         let mut expected_content = Vec::new();
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Create the "before append" object for the test
         let mut existing_object = existing_object;
         if let Some(object) = &mut existing_object {
@@ -644,9 +640,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         let mut expected_checksum_algorithm = default_checksum_algorithm.as_slice();
         let mut expected_content = Vec::new();
@@ -711,9 +705,7 @@ mod tests {
         let key = "hello";
         let mut expected_content = Vec::new();
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Create the "before append" object for the test
         let mut existing_object = existing_object;
         if let Some(object) = &mut existing_object {
@@ -747,9 +739,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
         client.add_object(key, existing_object.clone());
@@ -781,9 +771,7 @@ mod tests {
         let key = "hello";
         let mut expected_content = Vec::new();
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         let mut put_single_failures = HashMap::new();
         put_single_failures.insert(2, ObjectClientError::ServiceError(PutObjectError::BadChecksum));
@@ -833,9 +821,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
         client.add_object(key, existing_object.clone());
@@ -887,9 +873,7 @@ mod tests {
         let key = "hello";
         let mut expected_content = Vec::new();
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         let mut put_single_failures = HashMap::new();
         put_single_failures.insert(2, ObjectClientError::ServiceError(PutObjectError::BadChecksum));
@@ -961,12 +945,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder()
-                .bucket(bucket.to_owned())
-                .part_size(32)
-                .build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket.to_owned()).part_size(32).build());
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
         client.add_object(key, existing_object.clone());
@@ -1026,9 +1005,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
@@ -1060,9 +1037,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
         client.add_object(key, existing_object.clone());
@@ -1101,9 +1076,7 @@ mod tests {
         let key = "hello";
         let mut expected_content = Vec::new();
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(32).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Create the "before append" object for the test
         let existing_object = MockObject::from([0xbb; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
         client.add_object(key, existing_object.clone());
@@ -1146,9 +1119,7 @@ mod tests {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::new(
-            MockClientConfig::builder().bucket(bucket).part_size(part_size).build(),
-        ));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         // Use a memory limiter with 0 limit
         let mem_limiter = MemoryLimiter::new(client.clone(), 0);

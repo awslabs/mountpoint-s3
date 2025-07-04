@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
-use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
+use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::{ETag, GetObjectParams};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
@@ -157,11 +157,10 @@ fn main() {
             const BUCKET: &str = "bucket";
             const KEY: &str = "key";
 
-            let config = MockClientConfig::builder()
+            let config = MockClient::config()
                 .bucket(BUCKET)
                 .part_size(args.part_size)
-                .unordered_list_seed(None)
-                .build();
+                .unordered_list_seed(None);
             let client = ThroughputMockClient::new(config, args.throughput_target_gbps);
             let client = Arc::new(client);
 
