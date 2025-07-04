@@ -732,7 +732,7 @@ impl Harness {
                     }
                 }
                 reply.clear();
-                let _reply = self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
+                self.fs.readdir(fs_dir, dir_handle, offset, &mut reply).await.unwrap();
             }
 
             assert!(

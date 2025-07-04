@@ -183,8 +183,11 @@ impl ToErrno for InodeError {
             InodeError::RenameNotPermittedWhileWriting(_) => libc::EPERM,
             InodeError::RenameNotSupported() => libc::ENOSYS,
             InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
+            InodeError::OutOfOrderReadDir { .. } => libc::EBADF,
+            InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
+            InodeError::OperationNotSupportedOnSyntheticInode { .. } => libc::EIO,
         }
     }
 }
