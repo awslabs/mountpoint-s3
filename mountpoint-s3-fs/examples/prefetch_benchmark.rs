@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use clap::{Parser, value_parser};
@@ -96,6 +96,13 @@ pub struct CliArgs {
 
     #[arg(
         long,
+        help = "Maximum runtime in seconds (overrides iterations if specified)",
+        value_name = "SECONDS"
+    )]
+    runtime: Option<u64>,
+
+    #[arg(
+        long,
         help = "Number of concurrent downloads per object",
         default_value_t = 1,
         value_name = "N"
@@ -143,7 +150,20 @@ fn main() -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    for iteration in 0..args.iterations {
+    let runtime_exceeded = Arc::new(AtomicBool::new(false));
+    let total_start = Instant::now();
+    if let Some(runtime) = args.runtime {
+        thread::spawn({
+            let runtime_exceeded = runtime_exceeded.clone();
+            move || {
+                thread::sleep(Duration::from_secs(runtime));
+                runtime_exceeded.store(true, Ordering::SeqCst);
+            }
+        });
+    }
+    let mut iteration = 0;
+    let mut total_bytes = 0;
+    while iteration < args.iterations && !runtime_exceeded.load(Ordering::SeqCst) {
         let received_bytes = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
         let manager = Prefetcher::default_builder(client.clone()).build(
@@ -161,9 +181,15 @@ fn main() -> anyhow::Result<()> {
                     let object_id = object_id.clone();
                     let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
                     let read_size = args.read_size;
+                    let runtime_exceeded_clone = runtime_exceeded.clone();
 
                     let task = scope.spawn(move || {
-                        let result = block_on(wait_for_download(request, *size, read_size as u64));
+                        let result = block_on(wait_for_download(
+                            request,
+                            *size,
+                            read_size as u64,
+                            runtime_exceeded_clone,
+                        ));
                         if let Ok(bytes_read) = result {
                             received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
                         } else {
@@ -186,14 +212,21 @@ fn main() -> anyhow::Result<()> {
         });
 
         let elapsed = start.elapsed();
-
         let received_size = received_bytes.load(Ordering::SeqCst);
+        total_bytes += received_size;
         println!(
             "{iteration}: received {received_size} bytes in {:.2}s: {:.2} Gib/s",
             elapsed.as_secs_f64(),
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
+        iteration += 1;
     }
+    let total_elapsed = total_start.elapsed();
+    println!(
+        "\nTotal: {iteration} iterations, {total_bytes} bytes in {:.2}s: {:.2} Gib/s",
+        total_elapsed.as_secs_f64(),
+        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+    );
 
     Ok(())
 }
@@ -202,10 +235,11 @@ async fn wait_for_download(
     mut request: PrefetchGetObject<S3CrtClient>,
     size: u64,
     read_size: u64,
+    runtime_exceeded: Arc<AtomicBool>,
 ) -> Result<u64, Box<dyn Error>> {
     let mut offset = 0;
     let mut total_bytes_read = 0;
-    while offset < size {
+    while offset < size && !runtime_exceeded.load(Ordering::SeqCst) {
         let bytes = request.read(offset, read_size as usize).await?;
         let bytes_read = bytes.len() as u64;
         offset += bytes_read;
