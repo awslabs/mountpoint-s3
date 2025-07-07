@@ -4,8 +4,8 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use tracing::Level;
 
 use crate::fs::error_metadata::ErrorMetadata;
+use crate::metablock::InodeError;
 use crate::prefetch::PrefetchReadError;
-use crate::superblock::InodeError;
 use crate::upload::UploadError;
 
 /// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.
@@ -152,43 +152,6 @@ pub trait ToErrno {
 impl ToErrno for Error {
     fn to_errno(&self) -> libc::c_int {
         self.errno
-    }
-}
-
-impl ToErrno for InodeError {
-    fn to_errno(&self) -> libc::c_int {
-        match self {
-            InodeError::ClientError { .. } => libc::EIO,
-            InodeError::FileDoesNotExist(_, _) => libc::ENOENT,
-            InodeError::InodeDoesNotExist(_) => libc::ENOENT,
-            InodeError::InvalidFileName(_) => libc::EINVAL,
-            InodeError::NotADirectory(_) => libc::ENOTDIR,
-            InodeError::IsDirectory(_) => libc::EISDIR,
-            InodeError::FileAlreadyExists(_) => libc::EEXIST,
-            // Not obvious what InodeNotWritable, InodeAlreadyWriting, InodeNotReadableWhileWriting should be.
-            // EINVAL or EROFS would also be reasonable -- but we'll treat them like sealed files.
-            InodeError::InodeNotWritable(_) => libc::EPERM,
-            InodeError::InodeInvalidWriteStatus(_) => libc::EPERM,
-            InodeError::InodeAlreadyWriting(_) => libc::EPERM,
-            InodeError::InodeNotReadableWhileWriting(_) => libc::EPERM,
-            InodeError::InodeNotWritableWhileReading(_) => libc::EPERM,
-            InodeError::CannotRemoveRemoteDirectory(_) => libc::EPERM,
-            InodeError::DirectoryNotEmpty(_) => libc::ENOTEMPTY,
-            InodeError::UnlinkNotPermittedWhileWriting(_) => libc::EPERM,
-            InodeError::CorruptedMetadata(_) => libc::EIO,
-            InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
-            InodeError::StaleInode { .. } => libc::ESTALE,
-            InodeError::CannotRenameDirectory(_) => libc::EPERM,
-            InodeError::RenameDestinationExists { .. } => libc::EEXIST,
-            InodeError::RenameNotPermittedWhileWriting(_) => libc::EPERM,
-            InodeError::RenameNotSupported() => libc::ENOSYS,
-            InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
-            InodeError::OutOfOrderReadDir { .. } => libc::EBADF,
-            InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
-            #[cfg(feature = "manifest")]
-            InodeError::ManifestError { .. } => libc::EIO,
-            InodeError::OperationNotSupportedOnSyntheticInode { .. } => libc::EIO,
-        }
     }
 }
 

@@ -23,17 +23,15 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::{FutureExt, select_biased};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, RenameObjectError};
-use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use mountpoint_s3_client::types::{
     ETag, HeadObjectParams, HeadObjectResult, RenameObjectParams, RenamePreconditionTypes,
 };
@@ -41,32 +39,27 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
-use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
 #[cfg(feature = "manifest")]
-use crate::manifest::{Manifest, ManifestEntry, ManifestError};
+use crate::manifest::{Manifest, ManifestEntry};
 use crate::metablock::Metablock;
+use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat, WriteMode};
 use crate::metablock::{InodeInformation, Lookup};
 use crate::metablock::{S3Location, TryAddDirEntry};
+use crate::metablock::{ValidKey, ValidName};
 use crate::prefix::Prefix;
 use crate::s3::S3Personality;
 use crate::s3::config::S3Path;
-use crate::superblock::inode::InodeLockedForWriting;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
 
-mod expiry;
-use expiry::Expiry;
+// Import the inode implementation from the superblock/inode module
 mod inode;
-pub use inode::{Inode, InodeErrorInfo, InodeKind, InodeNo, InodeStat, WriteMode};
-use inode::{InodeKindData, InodeState, WriteStatus};
+pub use inode::{Inode, InodeKindData, InodeLockedForWriting, InodeState, WriteStatus};
 
 mod negative_cache;
 use negative_cache::NegativeCache;
-
-pub mod path;
-use path::{ValidKey, ValidName};
 mod readdir;
 pub use readdir::ReaddirHandle;
 use readdir::{DirHandle, DirectoryEntryReaddir};
@@ -1851,110 +1844,6 @@ impl ReaderCountMap {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum InodeError {
-    /// Avoid constructing this directly, but use `InodeError::client_error` instead
-    #[error("error from ObjectClient")]
-    ClientError {
-        source: anyhow::Error,
-        metadata: Box<ErrorMetadata>,
-    },
-    #[error("file {0:?} does not exist in parent inode {1}")]
-    FileDoesNotExist(String, InodeErrorInfo),
-    #[error("inode {0} does not exist")]
-    InodeDoesNotExist(InodeNo),
-    #[error("invalid file name {0:?}")]
-    InvalidFileName(OsString),
-    #[error("inode {0} is not a directory")]
-    NotADirectory(InodeErrorInfo),
-    #[error("inode {0} is a directory")]
-    IsDirectory(InodeErrorInfo),
-    #[error("file already exists at inode {0}")]
-    FileAlreadyExists(InodeErrorInfo),
-    #[error("inode {0} is not writable")]
-    InodeNotWritable(InodeErrorInfo),
-    #[error("Invalid state of inode {0} to be written. Aborting the write.")]
-    InodeInvalidWriteStatus(InodeErrorInfo),
-    #[error("inode {0} is already being written")]
-    InodeAlreadyWriting(InodeErrorInfo),
-    #[error("inode {0} is not readable while being written")]
-    InodeNotReadableWhileWriting(InodeErrorInfo),
-    #[error("inode {0} is not writable while being read")]
-    InodeNotWritableWhileReading(InodeErrorInfo),
-    #[error("remote directory cannot be removed at inode {0}")]
-    CannotRemoveRemoteDirectory(InodeErrorInfo),
-    #[error("non-empty directory cannot be removed at inode {0}")]
-    DirectoryNotEmpty(InodeErrorInfo),
-    #[error("inode {0} cannot be unlinked while being written")]
-    UnlinkNotPermittedWhileWriting(InodeErrorInfo),
-    #[error("inode {0} is a directory and cannot be renamed")]
-    CannotRenameDirectory(InodeErrorInfo),
-    #[error("inode {0} cannot be renamed while being written")]
-    RenameNotPermittedWhileWriting(InodeErrorInfo),
-    #[error("rename destination {dest_key:?} already exists, cannot rename inode {src_inode}")]
-    RenameDestinationExists {
-        dest_key: String,
-        src_inode: InodeErrorInfo,
-    },
-    #[error("rename is not supported on this bucket")]
-    RenameNotSupported(),
-    #[error("S3 key {0:?} was too long")]
-    NameTooLong(String),
-    #[error("corrupted metadata for inode {0}")]
-    CorruptedMetadata(InodeErrorInfo),
-    #[error("inode {0} is a remote inode and its attributes cannot be modified")]
-    SetAttrNotPermittedOnRemoteInode(InodeErrorInfo),
-    #[error("inode {old_inode} for remote key {remote_key:?} is stale, replaced by inode {new_inode}")]
-    StaleInode {
-        remote_key: String,
-        old_inode: InodeErrorInfo,
-        new_inode: InodeErrorInfo,
-    },
-    #[cfg(feature = "manifest")]
-    #[error("manifest error")]
-    ManifestError(#[from] ManifestError),
-    #[error("operation not supported on virtual inode {ino}")]
-    OperationNotSupportedOnSyntheticInode { ino: InodeNo },
-    #[error("out-of-order readdir, expected offset {expected} but got {actual} on dir handle {fh}")]
-    OutOfOrderReadDir { expected: i64, actual: i64, fh: u64 },
-    #[error("invalid directory handle {fh}")]
-    NoSuchDirHandle { fh: u64 },
-}
-
-impl InodeError {
-    /// Constructs InodeError::ClientError enriching metadata with error_code, bucket and key.
-    ///
-    /// Detailed information about an error is gathered in different frames of the call stack.
-    /// To make it manageable the idea is to enrich metadata with error_code, bucket and key
-    /// on the construction of mountpoint crate's errors, i.e. InodeError, PrefetchReadError
-    /// and UploadPutError.
-    fn client_error<E>(err: E, context: &'static str, bucket: &str, key: &str) -> Self
-    where
-        E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
-    {
-        let metadata = ErrorMetadata {
-            client_error_meta: err.meta(),
-            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
-            s3_bucket_name: Some(bucket.to_string()),
-            s3_object_key: Some(key.to_string()),
-        };
-        let metadata = Box::new(metadata);
-        InodeError::ClientError {
-            source: anyhow!(err).context(context),
-            metadata,
-        }
-    }
-}
-
-impl InodeError {
-    pub fn meta(&self) -> ErrorMetadata {
-        match self {
-            Self::ClientError { source: _, metadata } => (**metadata).clone(),
-            _ => Default::default(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -1962,6 +1851,7 @@ mod tests {
         mock_client::{MockClient, MockObject},
         types::ETag,
     };
+    use std::ffi::OsString;
     use std::str::FromStr;
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};

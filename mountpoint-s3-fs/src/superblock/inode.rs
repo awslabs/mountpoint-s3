@@ -1,35 +1,28 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
+use crate::metablock::ValidKey;
+use crate::metablock::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat};
 use crate::prefix::Prefix;
-use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use fuser::FileType;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
-use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
 use tracing::debug;
-
-use super::path::ValidKey;
-use super::{Expiry, InodeError};
-
-pub type InodeNo = u64;
-
-#[derive(Debug, Clone)]
-pub struct Inode {
-    inner: Arc<InodeInner>,
-}
 
 const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
 // 200 years seems long enough
 const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
+#[derive(Debug, Clone)]
+pub struct Inode {
+    inner: Arc<InodeInner>,
+}
+
 /// Write-locked inode state with its inode number, ensuring other operations use the correct inode number.
 #[derive(Debug)]
-pub(super) struct InodeLockedForWriting<'a> {
+pub struct InodeLockedForWriting<'a> {
     pub ino: InodeNo,
     pub state: RwLockWriteGuard<'a, InodeState>,
 }
@@ -50,8 +43,7 @@ impl DerefMut for InodeLockedForWriting<'_> {
 
 /// Read-locked inode state with its inode number, ensuring other operations use the correct inode number.
 #[derive(Debug)]
-pub(super) struct InodeLockedForReading<'a> {
-    #[expect(unused)]
+pub struct InodeLockedForReading<'a> {
     pub ino: InodeNo,
     pub state: RwLockReadGuard<'a, InodeState>,
 }
@@ -119,7 +111,7 @@ impl Inode {
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
-    pub(super) fn get_inode_state(&self) -> Result<InodeLockedForReading, InodeError> {
+    pub fn get_inode_state(&self) -> Result<InodeLockedForReading, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
@@ -131,7 +123,7 @@ impl Inode {
     }
 
     /// return Inode State with write lock after checking whether the directory inode is deleted or not.
-    pub(super) fn get_mut_inode_state(&self) -> Result<InodeLockedForWriting, InodeError> {
+    pub fn get_mut_inode_state(&self) -> Result<InodeLockedForWriting, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
@@ -143,12 +135,12 @@ impl Inode {
     }
 
     /// return Inode State with write lock without checking whether the directory inode is deleted or not.
-    pub(super) fn get_mut_inode_state_no_check(&self) -> RwLockWriteGuard<InodeState> {
+    pub fn get_mut_inode_state_no_check(&self) -> RwLockWriteGuard<InodeState> {
         self.inner.sync.write().unwrap()
     }
 
     /// Create a new inode.
-    pub(super) fn new(ino: InodeNo, parent: InodeNo, key: ValidKey, prefix: &Prefix, state: InodeState) -> Self {
+    pub fn new(ino: InodeNo, parent: InodeNo, key: ValidKey, prefix: &Prefix, state: InodeState) -> Self {
         let checksum = Self::compute_checksum(ino, prefix, key.as_ref());
         let sync = RwLock::new(state);
         let inner = InodeInner {
@@ -162,7 +154,7 @@ impl Inode {
     }
 
     /// Create the root inode.
-    pub(super) fn new_root(prefix: &Prefix, mount_time: OffsetDateTime) -> Self {
+    pub fn new_root(prefix: &Prefix, mount_time: OffsetDateTime) -> Self {
         Self::new(
             ROOT_INODE_NO,
             ROOT_INODE_NO,
@@ -252,27 +244,8 @@ impl Inode {
     }
 }
 
-/// A wrapper that prints useful customer-facing error messages for inodes by including the object
-/// key and bucket rather than just the inode number.
-#[derive(Debug)]
-pub struct InodeErrorInfo {
-    pub ino: InodeNo,
-    pub key: Box<str>,
-    pub bucket: Option<Box<str>>,
-}
-
-impl Display for InodeErrorInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(bucket) = &self.bucket {
-            write!(f, "{} (bucket {:?}, full key {:?})", self.ino, bucket, self.key)
-        } else {
-            write!(f, "{} (partial key {:?})", self.ino, self.key)
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
-pub(super) struct InodeState {
+pub struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
@@ -288,32 +261,8 @@ impl InodeState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InodeKind {
-    File,
-    Directory,
-}
-
-impl InodeKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            InodeKind::File => "file",
-            InodeKind::Directory => "directory",
-        }
-    }
-}
-
-impl From<InodeKind> for FileType {
-    fn from(kind: InodeKind) -> Self {
-        match kind {
-            InodeKind::File => FileType::RegularFile,
-            InodeKind::Directory => FileType::Directory,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
-pub(super) enum InodeKindData {
+pub enum InodeKindData {
     File {},
     Directory {
         /// Mapping from child names to previously seen [Inode]s.
@@ -344,28 +293,6 @@ impl InodeKindData {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct InodeStat {
-    /// Time this stat becomes invalid and needs to be refreshed
-    pub expiry: Expiry,
-
-    /// Size in bytes
-    pub size: usize,
-
-    /// Time of last file content modification
-    pub mtime: OffsetDateTime,
-    /// Time of last file metadata (or content) change
-    pub ctime: OffsetDateTime,
-    /// Time of last access
-    pub atime: OffsetDateTime,
-    /// Etag for the file (object)
-    pub etag: Option<Box<str>>,
-    /// Inodes corresponding to S3 objects with GLACIER or DEEP_ARCHIVE storage classes
-    /// are only readable after restoration. For objects with other storage classes
-    /// this field should be always `true`.
-    pub is_readable: bool,
-}
-
 /// Inode write status (local vs remote)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteStatus {
@@ -379,103 +306,11 @@ pub enum WriteStatus {
     PendingRename,
 }
 
-impl InodeStat {
-    pub fn is_valid(&self) -> bool {
-        !self.expiry.is_expired()
-    }
-
-    /// Objects in flexible retrieval storage classes can't be accessed via GetObject unless they are
-    /// restored, and so we override their permissions to 000 and reject reads to them. We also warn
-    /// the first time we see an object like this, because FUSE enforces the 000 permissions on our
-    /// behalf so we might not see an attempted `open` call.
-    fn is_readable(storage_class: Option<&str>, restore_status: Option<RestoreStatus>) -> bool {
-        static HAS_SENT_WARNING: AtomicBool = AtomicBool::new(false);
-        match storage_class {
-            Some("GLACIER") | Some("DEEP_ARCHIVE") => {
-                let restored =
-                    matches!(restore_status, Some(RestoreStatus::Restored { expiry }) if expiry > SystemTime::now());
-                if !restored && !HAS_SENT_WARNING.swap(true, Ordering::SeqCst) {
-                    tracing::warn!(
-                        "objects in the GLACIER and DEEP_ARCHIVE storage classes are only accessible if restored"
-                    );
-                }
-                restored
-            }
-            _ => true,
-        }
-    }
-
-    /// Initialize an [InodeStat] for a file, given some metadata.
-    pub fn for_file(
-        size: usize,
-        datetime: OffsetDateTime,
-        etag: Option<Box<str>>,
-        storage_class: Option<&str>,
-        restore_status: Option<RestoreStatus>,
-        validity: Duration,
-    ) -> InodeStat {
-        let is_readable = Self::is_readable(storage_class, restore_status);
-        InodeStat {
-            expiry: Expiry::from_now(validity),
-            size,
-            atime: datetime,
-            ctime: datetime,
-            mtime: datetime,
-            etag,
-            is_readable,
-        }
-    }
-
-    /// Initialize an [InodeStat] for a directory, given some metadata.
-    pub fn for_directory(datetime: OffsetDateTime, validity: Duration) -> InodeStat {
-        InodeStat {
-            expiry: Expiry::from_now(validity),
-            size: 0,
-            atime: datetime,
-            ctime: datetime,
-            mtime: datetime,
-            etag: None,
-            is_readable: true,
-        }
-    }
-
-    pub fn update_validity(&mut self, validity: Duration) {
-        self.expiry = Expiry::from_now(validity);
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct WriteMode {
-    /// Allow overwrite
-    pub allow_overwrite: bool,
-    /// Enable incremental uploads
-    pub incremental_upload: bool,
-}
-
-impl WriteMode {
-    pub fn is_inode_writable(&self, is_truncate: bool) -> bool {
-        if self.incremental_upload || (self.allow_overwrite && is_truncate) {
-            true
-        } else {
-            if is_truncate {
-                tracing::warn!(
-                    "file overwrite is disabled by default, you need to remount with --allow-overwrite flag to enable it"
-                );
-            } else {
-                tracing::warn!(
-                    "modifying an existing file is disabled by default, you need to remount with the --allow-overwrite or the --incremental-upload flag to enable it"
-                );
-            }
-            false
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::superblock::Superblock;
     use crate::metablock::Metablock;
+    use crate::superblock::Superblock;
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockObject},
         types::ETag,

@@ -5,9 +5,9 @@ use nix::unistd::{getgid, getuid};
 #[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
-use crate::superblock::WriteMode;
 
 use super::{ServerSideEncryption, TimeToLive};
 
