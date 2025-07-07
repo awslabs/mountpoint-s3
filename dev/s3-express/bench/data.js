@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1751883014927,
+  "lastUpdate": 1751911133845,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "f138efcaa33169b005cdbf5a0d11c10d89db292e",
-          "message": "Update CRT submodules to latest releases (#1458)\n\n> [!NOTE]\n> This PR reapplies the changes in #1430, previously reverted in #1435,\nwith the addition of a fix to a race condition in `aws-c-s3`\n(awslabs/aws-c-s3#521).\n\nIn particular, we pick up - but do not adopt in this change - the new\nMemory pool interface\n([awslabs/aws-c-s3#517](https://github.com/awslabs/aws-c-s3/pull/517)),\nwhich requires minor adjustments to the bindings and the\n`poll_buffer_pool_usage_stats` function.\n\n<details>\n  <summary>Full CRT changelog:</summary>\n\n```\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-cal fa108de5..938d0fea:\n  > [FIX] heap use after free on aws_ecc_key_pair_new_from_asn1 (#219)\n  > Remove clang-3 from CI (#218)\n  > Fix casing on Windows header files (#217)\n  > dlopen(NULL) returns NULL on static linked executable (#215)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-common 8ae8f48e..aaa2f11e:\n  > Fix invalid XML Buffer Overflow Error (#1201)\n  > Add aws_cbor_decoder_reset_src api for aws_cbor_decoder (#1202)\n  > Fix casing on Windows header files (#1199)\n  > Error handling docs (#1197)\n  > make exports consistent (#1196)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-http ca7e0e29..3eedf1ef:\n  > fix mock server window update on 0 length body (#517)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-io 8286c781..689dee3c:\n  > Fix warnings in iOS Cross Compile CI (#733)\n  > Remove clang-3 from CI (#731)\n  > Acquire/Release Event Loop (#725)\n  > Fix casing on Windows header files (#730)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-s3 7d2d4b30..52c90d39:\n  > Fix race condition between mem acquire and cancel (#521)\n  > Memory pool interface (#517)\n  > Remove clang-3 from CI (#520)\n  > Revert \"[s3_meta_request]: Retry on ExpiredToken\" (#518)\nSubmodule mountpoint-s3-crt-sys/crt/aws-c-sdkutils ba6a28fa..f678bda9:\n  > Fix double free on malformed rulesets (#53)\n  > make exports consistent (#52)\n```\n</details>\n\n### Does this change impact existing behavior?\n\nNo change in behavior.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-06-09T15:51:08Z",
-          "tree_id": "f8167c75f033d0313ca68894468b3ce99bc9e499",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/f138efcaa33169b005cdbf5a0d11c10d89db292e"
-        },
-        "date": 1749492379310,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "sequential_read,sequential_write_four_threads",
-            "value": 5074.8564453125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_two_threads,sequential_write_two_threads",
-            "value": 4604.659960937501,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads,sequential_write",
-            "value": 5811.88056640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 94.75625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 139.1953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 89.62177734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 128.1447265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 22.945703125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 33.8611328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 21.92177734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 31.9865234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 6087.07158203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 513.093359375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 5107.28251953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 509.66201171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1821.40546875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 122.53974609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1562.2783203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1424.64755859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 125.03642578125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write_direct_io",
-            "value": 1498.95703125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_write",
-            "value": 1034.37939453125,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 1172.0630859375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "5381483+muddyfish@users.noreply.github.com",
+            "name": "Simon Beal",
+            "username": "muddyfish"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3af10553a54f638cc9b5a1fa49c644521bcaa70f",
+          "message": "Add Slack notifications for PRs and issues (#1456)\n\nAdds a Slack notifier URL workflow (copied from Pytorch connector)\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Simon Beal <simobeal@amazon.com>",
+          "timestamp": "2025-07-07T15:43:12Z",
+          "tree_id": "6e26c1e4f6414ce6a7905d957942efb1a958617a",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/3af10553a54f638cc9b5a1fa49c644521bcaa70f"
+        },
+        "date": 1751911132928,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 5199.32841796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 4654.0802734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 5901.70361328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 98.5337890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 143.7052734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 93.72314453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 132.632421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 23.5814453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 34.97216796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 22.33193359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 32.8603515625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 6146.8009765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 517.059375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 5161.544140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 513.1671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 2140.273046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 124.90947265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1735.40888671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1316.92177734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 124.54140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1796.863671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 1109.73916015625,
             "unit": "MiB/s"
           }
         ]
