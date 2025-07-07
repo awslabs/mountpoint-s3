@@ -340,8 +340,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 
 #[async_trait]
 impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
-    /// Lookup an inode in the parent directory with the given name and
-    /// increments its lookup count.
+    /// Lookups inode and increments its lookup count.
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
         trace!(parent=?parent_ino, ?name, "lookup");
         let lookup = self
@@ -352,15 +351,12 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(lookup.into())
     }
 
-    /// Retrieve the attributes for an inode
     async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<Lookup, InodeError> {
         self.getattr_with_inode(ino, force_revalidate)
             .await
             .map(|lookup| lookup.into())
     }
 
-    /// Rename inode described by source parent and name to instead be linked under the given destination and name.
-    ///
     /// Rename is only supported on Amazon S3 directory buckets supporting the RenameObject operation.
     /// File systems against other buckets will reject `rename` file system operations within the same file system.
     ///
@@ -696,7 +692,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(())
     }
 
-    /// Set the attributes for an inode
     async fn setattr(
         &self,
         ino: InodeNo,
@@ -736,7 +731,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         .into())
     }
 
-    /// Prepare an inode to start writing.
     async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
@@ -770,7 +764,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(())
     }
 
-    /// Increase the size of a file open for writing.
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
         let inode = self.inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
@@ -782,7 +775,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(state.stat.size)
     }
 
-    /// Update status of the inode and of containing "local" directories.
+    /// Updates status of the inode and of containing "local" directories.
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
         // Collect ancestor inodes that may need updating,
@@ -839,7 +832,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         }
     }
 
-    /// Prepare an inode to start reading.
     async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
         trace!(?ino, "read");
 
@@ -866,9 +858,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(())
     }
 
-    /// Start a readdir stream for the given directory inode
-    ///
-    /// Doesn't currently do any IO, so doesn't need to be async, but reserving it for future use.
     async fn new_readdir_handle(&self, dir_ino: InodeNo) -> Result<u64, InodeError> {
         self.new_readdir_handle_with_pagesize(dir_ino, 1000).await
     }
@@ -1042,7 +1031,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             .ok_or(InodeError::NoSuchDirHandle { fh })
     }
 
-    /// Create a new regular file or directory inode ready to be opened in write-only mode
     async fn create(&self, dir: InodeNo, name: &OsStr, kind: InodeKind) -> Result<Lookup, InodeError> {
         trace!(parent=?dir, ?name, "create");
 
@@ -1104,8 +1092,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(lookup.into())
     }
 
-    /// The kernel tells us when it removes a reference to an [InodeNo] from its internal caches via a forget call.
-    /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
+    /// Reacts to the kernel notifying us that the lookup count of an Inode has decreased.
     /// If the lookup count reaches zero, it is safe for the [Superblock] to delete the [Inode].
     async fn forget(&self, ino: InodeNo, n: u64) {
         let mut inodes = self.inner.inodes.write().unwrap();
