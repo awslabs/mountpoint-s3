@@ -11,7 +11,7 @@ use mountpoint_s3_client::config::S3ClientConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
 use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
-use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
+use mountpoint_s3_client::mock_client::{MockClient, MockClientError, MockObject, Operation};
 use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
@@ -708,15 +708,14 @@ async fn test_upload_aborted_on_write_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_write_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(1024 * 1024)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
     let mut put_failures = HashMap::new();
     put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
 
@@ -783,15 +782,14 @@ async fn test_upload_aborted_on_fsync_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(1024 * 1024)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
     let mut put_failures = HashMap::new();
     put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
 
@@ -843,15 +841,14 @@ async fn test_upload_aborted_on_release_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(1024 * 1024)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
     let mut put_failures = HashMap::new();
     put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
 
@@ -1638,16 +1635,15 @@ async fn test_rename_support_is_cached() {
     const BUCKET_NAME: &str = "test_rename_support_cached_general_purpose";
     const FILE_NAME: &str = "a.txt";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        enable_rename: false,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(1024 * 1024)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .enable_rename(false)
+            .build(),
+    );
 
     // Put one object into the bucket
     let params = PutObjectSingleParams::new();

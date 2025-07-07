@@ -554,14 +554,14 @@ mod tests {
     }
 
     fn run_sequential_read_test(prefetcher_type: PrefetcherType, size: u64, read_size: usize, test_config: TestConfig) {
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: test_config.client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size: test_config.initial_read_window_size,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(test_config.client_part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(test_config.initial_read_window_size)
+                .build(),
+        );
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
@@ -676,12 +676,10 @@ mod tests {
         };
 
         // backpressure is not enabled for the client
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: test_config.client_part_size,
-            enable_backpressure: false,
-            ..Default::default()
-        };
+        let config = MockClient::config()
+            .bucket("test-bucket")
+            .part_size(test_config.client_part_size)
+            .enable_backpressure(false);
 
         fail_with_backpressure_precondition_test(prefetcher_type, test_config, config);
     }
@@ -700,13 +698,11 @@ mod tests {
         };
 
         // backpressure is enabled but initial read window size is zero
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: test_config.client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size: 0,
-            ..Default::default()
-        };
+        let config = MockClient::config()
+            .bucket("test-bucket")
+            .part_size(test_config.client_part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(0);
 
         fail_with_backpressure_precondition_test(prefetcher_type, test_config, config);
     }
@@ -718,14 +714,12 @@ mod tests {
         test_config: TestConfig,
         get_failures: HashMap<usize, GetObjectFailureMode<MockClientError>>,
     ) {
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: test_config.client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size: test_config.initial_read_window_size,
-            ..Default::default()
-        };
-        let client = MockClient::new(config);
+        let client = MockClient::config()
+            .bucket("test-bucket")
+            .part_size(test_config.client_part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(test_config.initial_read_window_size)
+            .build();
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
 
@@ -854,14 +848,14 @@ mod tests {
         reads: Vec<(u64, usize)>,
         test_config: TestConfig,
     ) {
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: test_config.client_part_size,
-            enable_backpressure: true,
-            initial_read_window_size: test_config.initial_read_window_size,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(test_config.client_part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(test_config.initial_read_window_size)
+                .build(),
+        );
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
         let etag = object.etag();
 
@@ -1002,16 +996,12 @@ mod tests {
         const PART_SIZE: usize = 8192;
         const OBJECT_SIZE: usize = 2 * PART_SIZE;
 
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: PART_SIZE,
-            enable_backpressure: true,
-            // For simplicity, prefetch the whole object in one request.
-            initial_read_window_size: OBJECT_SIZE,
-            ..Default::default()
-        };
-
-        let client = MockClient::new(config);
+        let client = MockClient::config()
+            .bucket("test-bucket")
+            .part_size(PART_SIZE)
+            .enable_backpressure(true)
+            .initial_read_window_size(OBJECT_SIZE)
+            .build();
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
         client.add_object("hello", object);
@@ -1074,14 +1064,12 @@ mod tests {
         const PART_SIZE: usize = 8192;
         const OBJECT_SIZE: usize = 2 * PART_SIZE;
 
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size: PART_SIZE,
-            enable_backpressure: true,
-            initial_read_window_size: PART_SIZE,
-            ..Default::default()
-        };
-        let client = MockClient::new(config);
+        let client = MockClient::config()
+            .bucket("test-bucket")
+            .part_size(PART_SIZE)
+            .enable_backpressure(true)
+            .initial_read_window_size(PART_SIZE)
+            .build();
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
         client.add_object("hello", object);
@@ -1141,14 +1129,14 @@ mod tests {
         const OBJECT_SIZE: usize = 200;
         const FIRST_REQUEST_SIZE: usize = 100;
 
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size,
-            enable_backpressure: true,
-            initial_read_window_size: FIRST_REQUEST_SIZE,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(FIRST_REQUEST_SIZE)
+                .build(),
+        );
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
@@ -1176,14 +1164,14 @@ mod tests {
     fn test_backward_seek(first_read_size: usize, part_size: usize) {
         const OBJECT_SIZE: usize = 200;
 
-        let config = MockClientConfig {
-            bucket: "test-bucket".to_string(),
-            part_size,
-            enable_backpressure: true,
-            initial_read_window_size: part_size,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(part_size)
+                .build(),
+        );
         let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
         let etag = object.etag();
 
@@ -1231,14 +1219,14 @@ mod tests {
             let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
-            let config = MockClientConfig {
-                bucket: "test-bucket".to_string(),
-                part_size,
-                enable_backpressure: true,
-                initial_read_window_size,
-                ..Default::default()
-            };
-            let client = Arc::new(MockClient::new(config));
+            let client = Arc::new(
+                MockClient::config()
+                    .bucket("test-bucket")
+                    .part_size(part_size)
+                    .enable_backpressure(true)
+                    .initial_read_window_size(initial_read_window_size)
+                    .build(),
+            );
             let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
@@ -1291,14 +1279,14 @@ mod tests {
             let max_object_size = initial_read_window_size.min(max_read_window_size) * 20;
             let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
 
-            let config = MockClientConfig {
-                bucket: "test-bucket".to_string(),
-                part_size,
-                enable_backpressure: true,
-                initial_read_window_size,
-                ..Default::default()
-            };
-            let client = Arc::new(MockClient::new(config));
+            let client = Arc::new(
+                MockClient::config()
+                    .bucket("test-bucket")
+                    .part_size(part_size)
+                    .enable_backpressure(true)
+                    .initial_read_window_size(initial_read_window_size)
+                    .build(),
+            );
             let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();

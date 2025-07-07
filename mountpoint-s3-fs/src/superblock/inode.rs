@@ -476,19 +476,19 @@ mod tests {
     use super::*;
     use crate::superblock::Superblock;
     use mountpoint_s3_client::{
-        mock_client::{MockClient, MockClientConfig, MockObject},
+        mock_client::{MockClient, MockObject},
         types::ETag,
     };
     use time::Duration;
 
     #[tokio::test]
     async fn test_forget() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(client_config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test_bucket")
+                .part_size(1024 * 1024)
+                .build(),
+        );
 
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
         let ino = 42;
@@ -530,12 +530,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_can_remove_inodes() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(client_config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test_bucket")
+                .part_size(1024 * 1024)
+                .build(),
+        );
 
         let name = "foo";
         client.add_object(name, b"foo".into());
@@ -564,12 +564,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_shadowed_inode() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(client_config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test_bucket")
+                .part_size(1024 * 1024)
+                .build(),
+        );
 
         let name = "foo";
         client.add_object(name, b"foo".into());
@@ -597,12 +597,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_unlink_verify_checksum() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(client_config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test_bucket")
+                .part_size(1024 * 1024)
+                .build(),
+        );
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
@@ -656,12 +656,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_setattr_invalid_stat() {
-        let client_config = MockClientConfig {
-            bucket: "test_bucket".to_string(),
-            part_size: 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(client_config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test_bucket")
+                .part_size(1024 * 1024)
+                .build(),
+        );
         let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
 
         let ino: u64 = 42;
@@ -710,19 +710,19 @@ mod tests {
     mod shuttle_tests {
         use super::*;
         use crate::fs::FUSE_ROOT_INODE;
-        use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+        use mountpoint_s3_client::mock_client::MockClient;
         use shuttle::{check_dfs, check_pct, check_random, thread};
         use shuttle::{future::block_on, sync::Arc};
 
         #[test]
         fn test_create_and_forget_race_condition() {
             async fn test_helper() {
-                let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
-                    part_size: 1024 * 1024,
-                    ..Default::default()
-                };
-                let client = Arc::new(MockClient::new(client_config));
+                let client = Arc::new(
+                    MockClient::config()
+                        .bucket("test_bucket")
+                        .part_size(1024 * 1024)
+                        .build(),
+                );
 
                 let name = "foo";
                 client.add_object(name, b"foo".into());
@@ -763,13 +763,13 @@ mod tests {
         #[test]
         fn test_concurrent_rename_different_files() {
             async fn test_helper() {
-                let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
-                    part_size: 1024 * 1024,
-                    enable_rename: true,
-                    ..Default::default()
-                };
-                let client = Arc::new(MockClient::new(client_config));
+                let client = Arc::new(
+                    MockClient::config()
+                        .bucket("test_bucket")
+                        .part_size(1024 * 1024)
+                        .enable_rename(true)
+                        .build(),
+                );
 
                 // Create directories first
                 let superblock = Arc::new(Superblock::new(
@@ -862,13 +862,11 @@ mod tests {
         #[test]
         fn test_concurrent_rename_and_lookup() {
             async fn test_helper() {
-                let client_config = MockClientConfig {
-                    bucket: "test_bucket".to_string(),
-                    part_size: 1024 * 1024,
-                    enable_rename: true,
-                    ..Default::default()
-                };
-                let client = Arc::new(MockClient::new(client_config));
+                let client = MockClient::config()
+                    .bucket("test_bucket")
+                    .part_size(1024 * 1024)
+                    .enable_rename(true)
+                    .build();
 
                 let source_name = "source";
                 client.add_object(source_name, b"foo".into());

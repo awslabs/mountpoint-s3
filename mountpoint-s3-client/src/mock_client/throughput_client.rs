@@ -255,12 +255,7 @@ mod tests {
 
         for rate_gbps in [0.5, 1.0, 2.0] {
             for _ in 0..ITERATIONS {
-                let config = MockClientConfig {
-                    part_size: 8 * 1024 * 1024,
-                    bucket: "test_bucket".to_owned(),
-                    unordered_list_seed: None,
-                    ..Default::default()
-                };
+                let config = MockClient::config().part_size(8 * 1024 * 1024).bucket("test_bucket");
                 let client = ThroughputMockClient::new(config, rate_gbps);
 
                 client

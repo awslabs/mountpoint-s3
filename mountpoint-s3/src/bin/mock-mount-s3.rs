@@ -16,7 +16,7 @@ use futures::executor::ThreadPool;
 
 use mountpoint_s3::CliArgs;
 use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
-use mountpoint_s3_client::mock_client::{MockClientConfig, MockObject};
+use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::s3::S3Personality;
@@ -57,14 +57,13 @@ fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClien
         S3Personality::Standard
     };
 
-    let config = MockClientConfig {
-        bucket: bucket_name,
-        part_size: part_size as usize,
-        unordered_list_seed: None,
-        enable_backpressure: true,
-        initial_read_window_size: 1024 * 1024 + 128 * 1024, // matching real MP
-        enable_rename: s3_personality.supports_rename_object(),
-    };
+    let config = MockClient::config()
+        .bucket(&bucket_name)
+        .part_size(part_size as usize)
+        .unordered_list_seed(None)
+        .enable_backpressure(true)
+        .initial_read_window_size(1024 * 1024 + 128 * 1024) // matching real MP
+        .enable_rename(s3_personality.supports_rename_object());
 
     let client = if let Some(max_throughput_gbps) = args.maximum_throughput_gbps {
         tracing::info!("mock client limited to {max_throughput_gbps} Gb/s download throughput");
