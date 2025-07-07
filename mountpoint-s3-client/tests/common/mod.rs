@@ -24,6 +24,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
 
 pub mod creds;
+pub mod memory_pool;
 pub mod tracing_test;
 
 /// Enable tracing and CRT logging when running unit tests.
@@ -73,15 +74,20 @@ pub fn get_test_kms_key_id() -> String {
 }
 
 pub fn get_test_client() -> S3CrtClient {
-    S3CrtClient::new(S3ClientConfig::new().endpoint_config(get_test_endpoint_config()))
-        .expect("could not create test client")
+    S3CrtClient::new(
+        S3ClientConfig::new()
+            .endpoint_config(get_test_endpoint_config())
+            .memory_pool(memory_pool::new_for_tests()),
+    )
+    .expect("could not create test client")
 }
 
 pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Option<usize>) -> S3CrtClient {
     let mut config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true)
-        .initial_read_window(initial_read_window);
+        .initial_read_window(initial_read_window)
+        .memory_pool(memory_pool::new_for_tests());
     if let Some(part_size) = part_size {
         config = config.part_size(part_size);
     }

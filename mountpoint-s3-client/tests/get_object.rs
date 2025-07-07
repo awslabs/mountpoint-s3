@@ -630,7 +630,8 @@ async fn stress_test_get_object() {
     let client: S3CrtClient = S3CrtClient::new(
         S3ClientConfig::new()
             .endpoint_config(get_test_endpoint_config())
-            .event_loop_threads(100),
+            .event_loop_threads(100)
+            .memory_pool(memory_pool::new_for_tests()),
     )
     .expect("could not create test client");
     assert!(client.read_part_size().unwrap() > size);
