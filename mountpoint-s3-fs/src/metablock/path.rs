@@ -4,6 +4,8 @@ use std::{ffi::OsStr, fmt::Display};
 use thiserror::Error;
 
 use crate::prefix::Prefix;
+use crate::s3::config::S3Path;
+use crate::sync::Arc;
 
 use super::{InodeError, InodeKind};
 
@@ -113,6 +115,33 @@ impl Display for ValidKey {
 impl From<ValidKey> for String {
     fn from(value: ValidKey) -> Self {
         value.key.into_string()
+    }
+}
+
+/// Describes a location of a file or directory in S3
+#[derive(Debug, Clone)]
+pub struct S3Location {
+    pub path: Arc<S3Path>,
+    pub partial_key: ValidKey,
+}
+
+impl S3Location {
+    pub fn new(path: Arc<S3Path>, partial_key: ValidKey) -> Self {
+        Self { path, partial_key }
+    }
+
+    /// Get the bucket name
+    pub fn bucket_name(&self) -> &str {
+        &self.path.bucket_name
+    }
+
+    /// Get the full key
+    pub fn full_key(&self) -> ValidKey {
+        self.partial_key.full_key(&self.path.prefix)
+    }
+
+    pub fn name(&self) -> &str {
+        self.partial_key.name()
     }
 }
 
