@@ -24,6 +24,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
 
 pub mod creds;
+pub mod memory_pool;
 pub mod tracing_test;
 
 /// Enable tracing and CRT logging when running unit tests.

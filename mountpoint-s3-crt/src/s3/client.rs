@@ -9,7 +9,6 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
-use crate::s3::s3_library_init;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
@@ -26,6 +25,8 @@ use std::task::Waker;
 use std::time::Duration;
 
 use super::buffer::Buffer;
+use super::pool::CrtBufferPoolFactory;
+use super::s3_library_init;
 
 /// A client for high-throughput access to Amazon S3
 #[derive(Debug)]
@@ -36,7 +37,7 @@ pub struct Client {
     /// Hold on to an owned copy of the configuration so that it doesn't get dropped while the
     /// client still exists. This is because the client config holds ownership of some strings
     /// (like the region) that could still be used while the client exists.
-    _config: ClientConfig,
+    config: ClientConfig,
 }
 
 // SAFETY: We assume that the CRT allows making requests using the same client from multiple threads.
@@ -69,6 +70,9 @@ pub struct ClientConfig {
     /// The client will determine the logic for balancing requests over the network interfaces
     /// according to its own logic.
     network_interface_names: Option<NetworkInterfaceNames>,
+
+    /// Holds the custom pool implementation factory if set.
+    pool_factory: Option<CrtBufferPoolFactory>,
 }
 
 /// This struct bundles together the list of owned strings for the network interfaces, and the
@@ -118,7 +122,7 @@ impl NetworkInterfaceNames {
 impl ClientConfig {
     /// Create a new [ClientConfig] with default options.
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     /// Client bootstrap used for common staples such as event loop group, host resolver, etc.
@@ -207,6 +211,17 @@ impl ClientConfig {
     /// When not set, the client will determine this value based on throughput_target_gbps.
     pub fn memory_limit_in_bytes(&mut self, memory_limit_in_bytes: u64) -> &mut Self {
         self.inner.memory_limit_in_bytes = memory_limit_in_bytes;
+        self
+    }
+
+    /// Custom buffer pool factory.
+    ///
+    /// When not set, the client will use the default pool with the configured memory limit.
+    pub fn buffer_pool_factory(&mut self, pool_factory: CrtBufferPoolFactory) -> &mut Self {
+        let (factory_fn, user_data) = pool_factory.as_inner();
+        self.inner.buffer_pool_factory_fn = factory_fn;
+        self.inner.buffer_pool_user_data = user_data;
+        self.pool_factory = Some(pool_factory);
         self
     }
 
@@ -897,7 +912,7 @@ impl Client {
         // guaranteed to be a valid allocator because of the type-safe wrapper.
         let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &config.inner).ok_or_last_error()? };
 
-        Ok(Self { inner, _config: config })
+        Ok(Self { inner, config })
     }
 
     /// Make a meta request to S3 using this [Client]. A meta request is an HTTP request that
@@ -980,8 +995,15 @@ impl Client {
         }
     }
 
-    /// Poll [BufferPoolUsageStats] from underlying CRT client.
-    pub fn poll_buffer_pool_usage_stats(&self) -> BufferPoolUsageStats {
+    /// Poll [BufferPoolUsageStats] from underlying CRT client, if using the default memory pool.
+    pub fn poll_default_buffer_pool_usage_stats(&self) -> Option<BufferPoolUsageStats> {
+        if self.config.pool_factory.is_some() {
+            // We are using a custom pool implementation rather than the default pool.
+            return None;
+        }
+
+        // Retrieve usage stats from the default pool.
+
         // SAFETY: The `aws_s3_client` in `self.inner` is guaranteed to be initialized and
         // dereferencable as long as Client lives.
         let inner_stats = unsafe {
@@ -999,7 +1021,7 @@ impl Client {
         let secondary_used = inner_stats.secondary_used as u64;
         let forced_used = inner_stats.forced_used as u64;
 
-        BufferPoolUsageStats {
+        Some(BufferPoolUsageStats {
             mem_limit,
             primary_cutoff,
             primary_used,
@@ -1009,7 +1031,7 @@ impl Client {
             secondary_reserved,
             secondary_used,
             forced_used,
-        }
+        })
     }
 
     fn get_num_requests_network_io(client: &aws_s3_client, meta_request_type: aws_s3_meta_request_type) -> u32 {

@@ -40,6 +40,7 @@
 //!
 //! [awscrt]: https://docs.aws.amazon.com/sdkref/latest/guide/common-runtime.html
 
+#![deny(clippy::undocumented_unsafe_blocks)]
 // Make async trait docs not-ugly on docs.rs (https://github.com/dtolnay/async-trait/issues/213)
 #![cfg_attr(docsrs, feature(async_fn_in_trait))]
 
@@ -79,6 +80,8 @@ pub mod config {
     pub use mountpoint_s3_crt::io::io_library_init;
     #[doc(hidden)]
     pub use mountpoint_s3_crt::s3::s3_library_init;
+
+    pub use mountpoint_s3_crt::s3::pool::{MemoryPool, MemoryPoolFactory, MemoryPoolFactoryOptions};
 }
 
 /// Types used by all object clients
