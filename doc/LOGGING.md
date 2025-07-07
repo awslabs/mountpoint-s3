@@ -99,7 +99,7 @@ Follow [CloudWatch Agent installation guide](https://docs.aws.amazon.com/AmazonC
 
 #### CloudWatch Agent Configuration
 
-You can give the CloudWatch Agent configuration file any name and location. However, for simplicity in troubleshooting, AWS recommends using `/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json` on Linux and `$Env:ProgramData\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent.json` on Windows. After creating the file, you can copy it to other servers where you want to install the agent.
+You can give the CloudWatch Agent configuration file any name and location. However, for simplicity in troubleshooting, AWS recommends using `/opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-agent.json` on Linux. After creating the file, you can copy it to other servers where you want to install the agent.
 
 Basic configuration for forwarding metrics to CloudWatch:
 
