@@ -3,8 +3,6 @@ use std::fmt::{Debug, Display};
 use std::ops::{Deref, DerefMut};
 use std::time::{Duration, SystemTime};
 
-#[cfg(test)]
-use crate::metablock::Metablock;
 use crate::prefix::Prefix;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -477,6 +475,7 @@ impl WriteMode {
 mod tests {
     use super::*;
     use crate::superblock::Superblock;
+    use crate::metablock::Metablock;
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockObject},
         types::ETag,
