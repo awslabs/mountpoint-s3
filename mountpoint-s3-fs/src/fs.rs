@@ -56,7 +56,7 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     config: S3FilesystemConfig,
-    superblock: Arc<dyn Metablock>,
+    metablock: Arc<dyn Metablock>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
     bucket: String,
@@ -175,7 +175,7 @@ where
 
         Self {
             config,
-            superblock: Arc::new(superblock),
+            metablock: Arc::new(superblock),
             prefetcher,
             uploader,
             bucket: bucket.to_string(),
@@ -296,7 +296,7 @@ where
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
         let lookup = self
-            .superblock
+            .metablock
             .lookup(parent, name)
             .await
             .map_err(|err| match err {
@@ -318,7 +318,7 @@ where
     pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, Error> {
         trace!("fs:getattr with ino {:?}", ino);
 
-        let lookup = self.superblock.getattr(ino, false).await?;
+        let lookup = self.metablock.getattr(ino, false).await?;
         let ttl = lookup.validity();
         let attr = self.make_attr(&lookup.into());
 
@@ -341,7 +341,7 @@ where
             mtime,
             size
         );
-        let setattr_result = self.superblock.setattr(ino, atime, mtime).await;
+        let setattr_result = self.metablock.setattr(ino, atime, mtime).await;
         let lookup = match (setattr_result, size) {
             (Ok(lookup), _) => lookup,
             (Err(InodeError::SetAttrNotPermittedOnRemoteInode(_)), Some(0)) if !self.config.allow_overwrite => {
@@ -363,7 +363,7 @@ where
 
     pub async fn forget(&self, ino: InodeNo, n: u64) {
         trace!("fs:forget with ino {:?} n {:?}", ino, n);
-        self.superblock.forget(ino, n).await;
+        self.metablock.forget(ino, n).await;
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
@@ -381,7 +381,7 @@ where
         }
 
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
-        let lookup = self.superblock.getattr(ino, force_revalidate).await?;
+        let lookup = self.metablock.getattr(ino, force_revalidate).await?;
 
         match lookup.kind() {
             InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
@@ -482,7 +482,7 @@ where
             ));
         }
 
-        let lookup = self.superblock.create(parent, name, InodeKind::File).await?;
+        let lookup = self.metablock.create(parent, name, InodeKind::File).await?;
         debug!(ino = lookup.ino(), "new inode created");
         let ttl = lookup.validity();
         let attr = self.make_attr(&lookup.into());
@@ -494,7 +494,7 @@ where
     }
 
     pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
-        let lookup = self.superblock.create(parent, name, InodeKind::Directory).await?;
+        let lookup = self.metablock.create(parent, name, InodeKind::Directory).await?;
         let ttl = lookup.validity();
         let attr = self.make_attr(&lookup.into());
         Ok(Entry {
@@ -544,7 +544,7 @@ where
 
     /// Creates a new ReaddirHandle for the provided parent and default page size
     async fn readdir_handle(&self, parent: InodeNo) -> Result<u64, InodeError> {
-        self.superblock.new_readdir_handle(parent).await
+        self.metablock.new_readdir_handle(parent).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
@@ -599,7 +599,7 @@ where
             })
         });
 
-        self.superblock
+        self.metablock
             .readdir(parent, fh, offset, is_readdirplus, adder)
             .await?;
         Ok(())
@@ -691,7 +691,7 @@ where
         let write_state = match file_handle.state.into_inner() {
             FileHandleState::Read(_) => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                self.superblock.finish_reading(file_handle.ino).await?;
+                self.metablock.finish_reading(file_handle.ino).await?;
                 return Ok(());
             }
             FileHandleState::Write(write_state) => write_state,
@@ -718,12 +718,12 @@ where
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
-        self.superblock.rmdir(parent_ino, name).await?;
+        self.metablock.rmdir(parent_ino, name).await?;
         Ok(())
     }
 
     pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
-        self.superblock.releasedir(fh).await?;
+        self.metablock.releasedir(fh).await?;
         Ok(())
     }
 
@@ -734,7 +734,7 @@ where
                 "Deletes are disabled. Use '--allow-delete' mount option to enable it."
             ));
         }
-        Ok(self.superblock.unlink(parent_ino, name).await?)
+        Ok(self.metablock.unlink(parent_ino, name).await?)
     }
 
     pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
@@ -786,7 +786,7 @@ where
             overwrites_allowed = self.config.allow_overwrite;
         }
 
-        self.superblock
+        self.metablock
             .rename(old_parent_ino, old_name, new_parent_ino, new_name, overwrites_allowed)
             .await?;
         tracing::trace!("rename complete");

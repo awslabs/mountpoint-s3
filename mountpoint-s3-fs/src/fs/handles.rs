@@ -56,7 +56,7 @@ where
     ) -> Result<FileHandleState<Client>, Error> {
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
-        fs.superblock.start_writing(ino, &write_mode, is_truncate).await?;
+        fs.metablock.start_writing(ino, &write_mode, is_truncate).await?;
         let location = lookup.s3_location()?;
         let bucket = location.bucket_name();
         let key = location.full_key();
@@ -96,7 +96,7 @@ where
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        fs.superblock.start_reading(lookup.ino()).await?;
+        fs.metablock.start_reading(lookup.ino()).await?;
         let full_key = lookup.s3_location()?.full_key();
         let object_size = lookup.stat().size as u64;
         let etag = match &lookup.stat().etag {
@@ -169,14 +169,14 @@ where
 
         match result {
             Ok(len) => {
-                fs.superblock.inc_file_size(handle.ino, len).await?;
+                fs.metablock.inc_file_size(handle.ino, len).await?;
                 Ok(len as u32)
             }
             Err(e) => {
                 // Abort the request.
                 match std::mem::replace(self, UploadState::Failed(e.to_errno())) {
                     UploadState::MPUInProgress { .. } | UploadState::AppendInProgress { .. } => {
-                        if let Err(err) = fs.superblock.finish_writing(handle.ino, None).await {
+                        if let Err(err) = fs.metablock.finish_writing(handle.ino, None).await {
                             // Log the issue but still return the write error.
                             error!(?err, key=?handle.location.full_key(), "error updating the inode status");
                         }
@@ -333,7 +333,7 @@ where
             }
             Err(e) => (Err(err!(libc::EIO, source:e, "put failed")), None),
         };
-        if let Err(err) = fs.superblock.finish_writing(ino, etag).await {
+        if let Err(err) = fs.metablock.finish_writing(ino, etag).await {
             // Log the issue but still return put_result.
             error!(?err, ?key, "error updating the inode status");
         }
@@ -374,7 +374,7 @@ where
     }
 
     async fn finish(fs: &S3Filesystem<Client>, ino: InodeNo, etag: Option<ETag>) {
-        if let Err(err) = fs.superblock.finish_writing(ino, etag).await {
+        if let Err(err) = fs.metablock.finish_writing(ino, etag).await {
             // Log the issue but still return put_result.
             error!(?err, "error updating the inode status");
         }
