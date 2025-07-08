@@ -197,7 +197,7 @@ fn main() -> anyhow::Result<()> {
                             // misleading results, exit the benchmarks
                             // to avoid confusion.
                             eprintln!("Download failed: {:?}", result.err());
-                            eprintln!("Existing benchmarks due to download failure");
+                            eprintln!("Exiting benchmarks due to download failure");
                             std::process::exit(1);
                         }
                     });
