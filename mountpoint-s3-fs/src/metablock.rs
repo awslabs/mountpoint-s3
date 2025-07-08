@@ -16,7 +16,7 @@ mod stat;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::Expiry;
 pub use lookup::{InodeInformation, Lookup};
-pub use path::{S3Location, ValidKey, ValidName};
+pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
 pub use stat::{InodeKind, InodeNo, InodeStat};
 
 /// A trait for a generic implementation of a structure managing a filesystem backed by S3.

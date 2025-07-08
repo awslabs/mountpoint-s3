@@ -26,7 +26,7 @@ use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
@@ -59,7 +59,16 @@ where
 {
     let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
-    S3Filesystem::new(client, prefetcher_builder, runtime, bucket, prefix, config)
+    let superblock = Box::new(Superblock::new(
+        client.clone(),
+        bucket,
+        prefix,
+        SuperblockConfig {
+            cache_config: config.cache_config.clone(),
+            s3_personality: config.s3_personality,
+        },
+    ));
+    S3Filesystem::new(client, prefetcher_builder, runtime, superblock, config)
 }
 
 #[track_caller]
