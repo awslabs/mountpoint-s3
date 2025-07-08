@@ -181,7 +181,6 @@ impl InflightWrites {
     }
 }
 
-#[derive(Debug)]
 pub struct Harness {
     /// Max number of entries that a readdir operation will return.
     ///

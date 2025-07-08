@@ -2,7 +2,7 @@ use super::ManifestError;
 use crate::{
     manifest::CsvReader,
     manifest::db::{Db, DbEntry},
-    superblock::path::ValidName,
+    metablock::ValidName,
 };
 use std::fs::File;
 use std::io::BufReader;

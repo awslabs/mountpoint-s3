@@ -44,9 +44,10 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
 
-use super::{InodeError, InodeKind, InodeKindData, InodeNo, InodeStat, LookedUpInode, RemoteLookup, SuperblockInner};
+use super::{InodeKindData, LookedUpInode, RemoteLookup, SuperblockInner};
 #[cfg(feature = "manifest")]
 use crate::manifest::Manifest;
+use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::{AsyncMutex, Mutex};
 use mountpoint_s3_client::ObjectClient;
