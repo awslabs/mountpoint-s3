@@ -1,7 +1,7 @@
+use super::InodeNo;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 #[cfg(feature = "manifest")]
 use crate::manifest::ManifestError;
-use crate::metablock::InodeNo;
 use anyhow::anyhow;
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use std::ffi::OsString;

@@ -1,14 +1,13 @@
-use crate::metablock::path::S3Location;
-use crate::metablock::{InodeError, InodeErrorInfo};
-use crate::metablock::{InodeKind, InodeNo, InodeStat};
+use super::path::S3Location;
+use super::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat};
 
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
 /// Information about an inode that is returned to the
 /// filesystem as a result operations like lookup.
 /// Combines InodeInformation with an S3Location, that is `None` for
 /// "synthetic" inodes that do not have a mapped key in S3.
+#[derive(Debug, Clone)]
 pub struct Lookup {
     information: InodeInformation,
     location: Option<S3Location>,

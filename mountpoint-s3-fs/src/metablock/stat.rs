@@ -1,9 +1,9 @@
 //! Core types for the metablock module
-
-use crate::metablock::Expiry;
-
 use std::time::Duration;
+
 use time::OffsetDateTime;
+
+use super::Expiry;
 
 pub type InodeNo = u64;
 
