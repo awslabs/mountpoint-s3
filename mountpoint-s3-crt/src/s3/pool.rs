@@ -15,6 +15,7 @@ use mountpoint_s3_crt_sys::{
 
 use crate::ToAwsByteCursor as _;
 use crate::common::allocator::Allocator;
+use crate::s3::client::MetaRequestType;
 
 /// A custom memory pool.
 ///
@@ -25,7 +26,7 @@ pub trait MemoryPool: Clone + Send + Sync {
     type Buffer: AsMut<[u8]>;
 
     /// Get a buffer of at least the requested size.
-    fn get_buffer(&self, size: usize) -> Self::Buffer;
+    fn get_buffer(&self, size: usize, meta_request_type: MetaRequestType) -> Self::Buffer;
 
     /// Trim the pool.
     ///
@@ -248,12 +249,12 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         self.pool.trim();
     }
 
-    fn reserve(&self, size: usize) -> CrtTicketFuture {
+    fn reserve(&self, size: usize, meta_request_type: MetaRequestType) -> CrtTicketFuture {
         let future = CrtTicketFuture::new(&self.allocator);
 
         // Get a buffer from the pool, build its ticket, and immediately fullfil the future.
         // This will likely change later, when we make the method on the pool async.
-        let buffer = self.pool.get_buffer(size);
+        let buffer = self.pool.get_buffer(size, meta_request_type);
         let ticket = self.make_ticket(buffer);
         future.set(ticket);
 
@@ -293,7 +294,11 @@ unsafe extern "C" fn pool_reserve<Pool: MemoryPool>(
 ) -> *mut aws_future_s3_buffer_ticket {
     // SAFETY: `pool` was obtained through `CrtMemoryPool::leak`.
     let crt_pool = unsafe { CrtBufferPool::<Pool>::ref_from_raw(&pool) };
-    let future = crt_pool.reserve(meta.size);
+
+    // SAFETY: `meta.meta_request` is a pointer to a valid `aws_s3_meta_request`.
+    let request_type = unsafe { (*meta.meta_request).type_ };
+
+    let future = crt_pool.reserve(meta.size, request_type.into());
 
     // SAFETY: the CRT will take ownership of the future.
     unsafe { future.into_inner_ptr() }
