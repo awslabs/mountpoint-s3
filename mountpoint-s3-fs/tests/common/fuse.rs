@@ -11,9 +11,12 @@ use mountpoint_s3_client::config::S3ClientAuthConfig;
 use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksum};
 use mountpoint_s3_fs::data_cache::DataCache;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
+#[cfg(feature = "manifest")]
+use mountpoint_s3_fs::manifest::Manifest;
+use mountpoint_s3_fs::metablock::Metablock;
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use nix::fcntl::{self, FdFlag};
 use tempfile::TempDir;
 
@@ -66,6 +69,8 @@ pub struct TestSessionConfig {
     // FUSE device using `Session::from_fd`, otherwise `Session::new` will be used.
     pub pass_fuse_fd: bool,
     pub error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>,
+    #[cfg(feature = "manifest")]
+    pub manifest: Option<Manifest>,
 }
 
 impl Default for TestSessionConfig {
@@ -78,6 +83,8 @@ impl Default for TestSessionConfig {
             auth_config: Default::default(),
             pass_fuse_fd: false,
             error_logger: None,
+            #[cfg(feature = "manifest")]
+            manifest: None,
         }
     }
 }
@@ -152,6 +159,34 @@ pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
 // `FnOnce(...)` in place of `impl TestSessionCreator`.
 impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
 
+fn create_metablock<Client>(
+    client: &Client,
+    bucket: &str,
+    prefix: &Prefix,
+    filesystem_config: &S3FilesystemConfig,
+    #[cfg(feature = "manifest")] manifest: Option<Manifest>,
+) -> Box<dyn Metablock>
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+{
+    #[cfg(feature = "manifest")]
+    if let Some(manifest) = manifest {
+        return Box::new(
+            mountpoint_s3_fs::manifest::ManifestMetablock::new(manifest.clone()).expect("metablock must be created"),
+        );
+    }
+
+    Box::new(Superblock::new(
+        client.clone(),
+        bucket,
+        prefix,
+        SuperblockConfig {
+            cache_config: filesystem_config.cache_config.clone(),
+            s3_personality: filesystem_config.s3_personality,
+        },
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn create_fuse_session<Client>(
     client: Client,
@@ -160,9 +195,7 @@ pub fn create_fuse_session<Client>(
     bucket: &str,
     prefix: &str,
     mount_dir: &Path,
-    filesystem_config: S3FilesystemConfig,
-    pass_fuse_fd: bool,
-    error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>,
+    test_config: TestSessionConfig,
 ) -> (BackgroundSession, Option<Mount>)
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -177,11 +210,25 @@ where
     let session_acl = fuser::SessionACL::All;
 
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let fs = S3FuseFilesystem::new(
-        S3Filesystem::new(client, prefetcher_builder, runtime, bucket, &prefix, filesystem_config),
-        error_logger,
+    let metablock = create_metablock(
+        &client,
+        bucket,
+        &prefix,
+        &test_config.filesystem_config,
+        #[cfg(feature = "manifest")]
+        test_config.manifest,
     );
-    let (session, mount) = if pass_fuse_fd {
+    let fs = S3FuseFilesystem::new(
+        S3Filesystem::new(
+            client,
+            prefetcher_builder,
+            runtime,
+            metablock,
+            test_config.filesystem_config,
+        ),
+        test_config.error_logger,
+    );
+    let (session, mount) = if test_config.pass_fuse_fd {
         let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
         (Session::from_fd(fs, owned_fd, session_acl), Some(mount))
@@ -249,9 +296,7 @@ pub mod mock_session {
             BUCKET_NAME,
             &prefix,
             mount_dir.path(),
-            test_config.filesystem_config,
-            test_config.pass_fuse_fd,
-            test_config.error_logger,
+            test_config,
         );
         let test_client = create_test_client(client, &prefix);
 
@@ -289,9 +334,7 @@ pub mod mock_session {
                 BUCKET_NAME,
                 &prefix,
                 mount_dir.path(),
-                test_config.filesystem_config,
-                test_config.pass_fuse_fd,
-                test_config.error_logger,
+                test_config,
             );
             let test_client = create_test_client(client, &prefix);
 
@@ -429,7 +472,7 @@ pub mod s3_session {
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(get_test_endpoint_config())
-            .auth_config(test_config.auth_config)
+            .auth_config(test_config.auth_config.clone())
             .read_backpressure(true)
             .initial_read_window(test_config.initial_read_window_size);
         let client = S3CrtClient::new(client_config).unwrap();
@@ -442,9 +485,7 @@ pub mod s3_session {
             bucket,
             prefix,
             mount_dir.path(),
-            test_config.filesystem_config,
-            test_config.pass_fuse_fd,
-            test_config.error_logger,
+            test_config,
         );
 
         let test_client = SDKTestClient {
@@ -480,9 +521,7 @@ pub mod s3_session {
                 &bucket,
                 &prefix,
                 mount_dir.path(),
-                test_config.filesystem_config,
-                test_config.pass_fuse_fd,
-                test_config.error_logger,
+                test_config,
             );
             let test_client = create_test_client(&region, &bucket, &prefix);
 
