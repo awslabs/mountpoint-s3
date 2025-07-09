@@ -42,7 +42,7 @@ class BenchmarkConfigParser:
             'run_time': getattr(self.cfg, 'run_time', 30),
             's3_bucket': self.cfg.s3_bucket,
             'with_bwm': getattr(self.cfg.monitoring, 'with_bwm', False),
-            'write_part_size': getattr(self.cfg, 'write_part_size', 16777216), # 16 MiB
+            'write_part_size': getattr(self.cfg, 'write_part_size', 16777216),  # 16 MiB
             'with_perf_stat': getattr(self.cfg.monitoring, 'with_perf_stat', False),
         }
 
