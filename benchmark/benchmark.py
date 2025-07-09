@@ -14,6 +14,8 @@ import urllib.request
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from benchmarks.benchmark_config_parser import BenchmarkConfigParser
+
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 
 log = logging.getLogger(__name__)
@@ -64,10 +66,15 @@ def _mount_mp(
 
     Returns Mountpoint version string.
     """
-    bucket = cfg['s3_bucket']
-    stub_mode = str(cfg["stub_mode"]).lower()
+    config_parser = BenchmarkConfigParser(cfg)
+    common_config = config_parser.get_common_config()
+    mp_config = config_parser.get_mountpoint_config()
+    fio_config = config_parser.get_fio_config()
 
-    if cfg['mountpoint_binary'] is None:
+    bucket = common_config['s3_bucket']
+    stub_mode = str(mp_config["stub_mode"]).lower()
+
+    if mp_config['mountpoint_binary'] is None:
         mountpoint_args = [
             "cargo",
             "run",
@@ -79,14 +86,14 @@ def _mount_mp(
         if stub_mode == "s3_client":
             # `mock-mount-s3` requires bucket to be prefixed with `sthree-` to verify we're not actually reaching S3
             logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")
-            bucket = f"sthree-{cfg['s3_bucket']}"
+            bucket = f"sthree-{common_config['s3_bucket']}"
 
             mountpoint_args.append("--bin=mock-mount-s3")
 
         # End Cargo command, begin passing arguments to Mountpoint
         mountpoint_args.append("--")
     else:
-        mountpoint_args = [cfg['mountpoint_binary']]
+        mountpoint_args = [mp_config['mountpoint_binary']]
 
     os.makedirs(MP_LOGS_DIRECTORY, exist_ok=True)
 
@@ -104,46 +111,46 @@ def _mount_mp(
     ]
     subprocess_env = os.environ.copy()
 
-    if cfg['s3_prefix'] is not None:
-        subprocess_args.append(f"--prefix={cfg['s3_prefix']}")
+    if mp_config['prefix'] is not None:
+        subprocess_args.append(f"--prefix={mp_config['prefix']}")
 
-    if cfg['mountpoint_debug']:
+    if mp_config['mountpoint_debug']:
         subprocess_args.append("--debug")
-    if cfg['mountpoint_debug_crt']:
+    if mp_config['mountpoint_debug_crt']:
         subprocess_args.append("--debug-crt")
 
-    if cfg["read_part_size"]:
-        subprocess_args.append(f"--read-part-size={cfg['read_part_size']}")
-    if cfg["write_part_size"]:
-        subprocess_args.append(f"--write-part-size={cfg['write_part_size']}")
+    if common_config["read_part_size"]:
+        subprocess_args.append(f"--read-part-size={common_config['read_part_size']}")
+    if common_config["write_part_size"]:
+        subprocess_args.append(f"--write-part-size={common_config['write_part_size']}")
 
-    if cfg['metadata_ttl'] is not None:
-        subprocess_args.append(f"--metadata-ttl={cfg['metadata_ttl']}")
+    if mp_config['metadata_ttl'] is not None:
+        subprocess_args.append(f"--metadata-ttl={mp_config['metadata_ttl']}")
 
-    if cfg['upload_checksums'] is not None:
-        subprocess_args.append(f"--upload-checksums={cfg['upload_checksums']}")
+    if mp_config['upload_checksums'] is not None:
+        subprocess_args.append(f"--upload-checksums={mp_config['upload_checksums']}")
 
-    if cfg['fuse_threads'] is not None:
-        subprocess_args.append(f"--max-threads={cfg['fuse_threads']}")
+    if fio_config['fuse_threads'] is not None:
+        subprocess_args.append(f"--max-threads={fio_config['fuse_threads']}")
 
-    for network_interface in cfg['network']['interface_names']:
+    for network_interface in common_config['network_interfaces']:
         subprocess_args.append(f"--bind={network_interface}")
-    if (max_throughput := cfg['network']['maximum_throughput_gbps']) is not None:
+    if (max_throughput := common_config['max_throughput_gbps']) is not None:
         if stub_mode == "s3_client":
             raise ValueError(
                 "should not use `stub_mode=s3_client` with `maximum_throughput_gbps`, throughput will be limited"
             )
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
-    if cfg['mountpoint_max_background'] is not None:
-        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(cfg['mountpoint_max_background'])
+    if mp_config['mountpoint_max_background'] is not None:
+        subprocess_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(mp_config['mountpoint_max_background'])
 
-    if cfg['mountpoint_congestion_threshold'] is not None:
-        subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg["mountpoint_congestion_threshold"])
+    if mp_config['mountpoint_congestion_threshold'] is not None:
+        subprocess_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(mp_config["mountpoint_congestion_threshold"])
 
     subprocess_env["UNSTABLE_MOUNTPOINT_PID_FILE"] = f"{mount_dir}.pid"
 
-    if stub_mode != "off" and cfg["mountpoint_binary"] is not None:
+    if stub_mode != "off" and mp_config["mountpoint_binary"] is not None:
         raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
     match stub_mode:
         case "off":
@@ -179,8 +186,12 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
     """
     Run the FIO workload against the file system.
     """
+    config_parser = BenchmarkConfigParser(cfg)
+    common_config = config_parser.get_common_config()
+    fio_config = config_parser.get_fio_config()
+
     FIO_BINARY = "fio"
-    fio_job_name = cfg["fio_benchmark"]
+    fio_job_name = fio_config["fio_benchmark"]
     fio_output_filepath = f"fio.{fio_job_name}.json"
 
     # TODO: Avoid duplicating/diverging the FIO jobs between `benchmark/fio/` and `mountpoint-s3/scripts/fio/`
@@ -194,11 +205,11 @@ def _run_fio(cfg: DictConfig, mount_dir: str) -> None:
         fio_job_filepath,
     ]
     subprocess_env = os.environ.copy()
-    subprocess_env["APP_WORKERS"] = str(cfg['application_workers'])
-    subprocess_env["SIZE_GIB"] = "100"
-    subprocess_env["DIRECT"] = "1" if cfg['direct_io'] else "0"
+    subprocess_env["APP_WORKERS"] = str(common_config['application_workers'])
+    subprocess_env["SIZE_GIB"] = str(common_config['object_size_in_gib'])
+    subprocess_env["DIRECT"] = "1" if fio_config['direct_io'] else "0"
     subprocess_env["UNIQUE_DIR"] = datetime.now(tz=timezone.utc).isoformat()
-    subprocess_env["IO_ENGINE"] = cfg['fio_io_engine']
+    subprocess_env["IO_ENGINE"] = fio_config['fio_io_engine']
     log.info("Running FIO with args: %s; env: %s", subprocess_args, subprocess_env)
 
     # Use Popen instead of check_output, as we had some issues when trying to attach perf
@@ -393,12 +404,15 @@ def run_experiment(cfg: DictConfig) -> None:
         "success": False,
     }
 
+    config_parser = BenchmarkConfigParser(cfg)
+    common_config = config_parser.get_common_config()
+
     with _mounted_bucket(cfg) as mount_metadata:
         metadata.update(mount_metadata)
         mount_dir = mount_metadata["mount_dir"]
         mountpoint_pid = mount_metadata["mp_pid"]
         try:
-            with ResourceMonitoring.managed(mountpoint_pid, cfg['with_bwm'], cfg['with_perf_stat']):
+            with ResourceMonitoring.managed(mountpoint_pid, common_config['with_bwm'], common_config['with_perf_stat']):
                 _run_fio(cfg, mount_dir)
             metadata["success"] = True
         except Exception as e:
