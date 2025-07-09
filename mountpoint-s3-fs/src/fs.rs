@@ -59,7 +59,6 @@ where
     metablock: Arc<dyn Metablock>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
-    bucket: String,
     next_handle: AtomicU64,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
@@ -178,7 +177,6 @@ where
             metablock: Arc::new(superblock),
             prefetcher,
             uploader,
-            bucket: bucket.to_string(),
             next_handle: AtomicU64::new(1),
             file_handles: AsyncRwLock::new(HashMap::new()),
         }

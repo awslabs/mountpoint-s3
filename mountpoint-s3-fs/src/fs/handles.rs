@@ -97,14 +97,16 @@ where
             ));
         }
         fs.metablock.start_reading(lookup.ino()).await?;
-        let full_key = lookup.s3_location()?.full_key();
+        let location = lookup.s3_location()?;
+        let full_key = location.full_key();
+        let bucket = location.bucket_name();
         let object_size = lookup.stat().size as u64;
         let etag = match &lookup.stat().etag {
             None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", lookup.ino())),
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
         let object_id = ObjectId::new(full_key.into(), etag);
-        let request = fs.prefetcher.prefetch(fs.bucket.clone(), object_id, object_size);
+        let request = fs.prefetcher.prefetch(bucket.to_string(), object_id, object_size);
         let handle = FileHandleState::Read(request);
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
