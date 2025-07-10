@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -14,6 +15,7 @@ use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
+use serde_json::{json, to_writer};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
@@ -115,6 +117,9 @@ pub struct CliArgs {
         value_name = "NETWORK_INTERFACE"
     )]
     pub bind: Option<Vec<String>>,
+
+    #[clap(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
+    pub output_file: Option<PathBuf>,
 }
 
 fn create_memory_limiter(args: &CliArgs, client: &S3CrtClient) -> Arc<MemoryLimiter<S3CrtClient>> {
@@ -163,6 +168,7 @@ fn main() -> anyhow::Result<()> {
     }
     let mut iteration = 0;
     let mut total_bytes = 0;
+    let mut iter_results = Vec::new();
     while iteration < args.iterations && !runtime_exceeded.load(Ordering::SeqCst) {
         let received_bytes = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
@@ -219,6 +225,11 @@ fn main() -> anyhow::Result<()> {
             elapsed.as_secs_f64(),
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
+        iter_results.push(json!({
+            "iteration": iteration,
+            "bytes": received_size,
+            "duration_seconds": elapsed.as_secs_f64(),
+        }));
         iteration += 1;
     }
     let total_elapsed = total_start.elapsed();
@@ -227,6 +238,19 @@ fn main() -> anyhow::Result<()> {
         total_elapsed.as_secs_f64(),
         (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
     );
+
+    if let Some(output_path) = args.output_file {
+        let output_file = std::fs::File::create(output_path).expect("Failed to create output_file: {output_path}");
+        let results = json!({
+            "summary": {
+                "total_bytes": total_bytes,
+                "duration_seconds": total_elapsed.as_secs_f64(),
+                "iterations": iteration,
+            },
+            "iterations": iter_results
+        });
+        to_writer(output_file, &results).expect("Failed to write to output file: {output_path}");
+    }
 
     Ok(())
 }
