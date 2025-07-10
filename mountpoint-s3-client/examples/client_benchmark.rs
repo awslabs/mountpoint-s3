@@ -162,8 +162,12 @@ struct CliArgs {
     downloads: usize,
     #[arg(long, help = "Enable CRT backpressure mode")]
     enable_backpressure: bool,
-    #[arg(long, help = "Initial window size in bytes", default_value = "0")]
-    initial_window_size: usize,
+    #[arg(
+        long,
+        help = "Initial read window size in bytes, used to dictate how far ahead we request data from S3",
+        default_value = "0"
+    )]
+    initial_window_size: Option<usize>,
 }
 
 fn main() {
@@ -187,7 +191,10 @@ fn main() {
             config = config.part_size(args.part_size);
             if args.enable_backpressure {
                 config = config.read_backpressure(true);
-                config = config.initial_read_window(args.initial_window_size);
+                config = config.initial_read_window(
+                    args.initial_window_size
+                        .expect("read window size is required when backpressure is enabled"),
+                );
             }
             let client = S3CrtClient::new(config).expect("couldn't create client");
 
