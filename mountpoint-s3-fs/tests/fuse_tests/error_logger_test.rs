@@ -24,9 +24,7 @@ fn test_manifest_error_logged() {
         fuse_request_id: Some(0),
         error_code: MOUNTPOINT_ERROR_INTERNAL.to_string(),
         errno: Some(5),
-        internal_message: Some(
-            "inode error: manifest error: invalid database row: key".to_string(),
-        ),
+        internal_message: Some("inode error: manifest error: invalid database row: key".to_string()),
         s3_bucket_name: None,
         s3_object_key: None,
         s3_error_http_status: None,
