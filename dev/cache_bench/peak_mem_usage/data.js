@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752121233360,
+  "lastUpdate": 1752166205607,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5a6c5524ac5526cecd21bda0ea4109557f356924",
-          "message": "Move ctrl-c handler out of FuseSession (#1459)\n\nMinor change to decouple `FuseSession` from the ctrl-c signal handler.\n`FuseSession` will now expose a function to signal shutdown, which can\nbe used by the caller when installing the signal handler.\n\nPrerequisite to start using `FuseSession` in tests, where we do not want\nto install multiple signal handlers when testing multiple instances of\n`FuseSession`.\n\n### Does this change impact existing behavior?\n\nNo, it's only an internal refactor.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\n`fs` crate only\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-06-09T19:00:33Z",
-          "tree_id": "72c1412da4931af491d9cde6b872095f5c887f51",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/5a6c5524ac5526cecd21bda0ea4109557f356924"
-        },
-        "date": 1749502797461,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 3311.6171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 334.62890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 3107.1328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 367.35546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 3381.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 266.9375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 3171.90234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 224.43359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 6369.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 347.9765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 3240.265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 387.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 3599.58203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 237.34765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 3397.609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 8656.68359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 230.90234375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 228.171875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46b21b6a00c272d11e261a9a61393c0fd2f929b2",
+          "message": "Add `S3_SECOND_BUCKET_NAME` variable (#1508)\n\nAdd `S3_SECOND_BUCKET_NAME` to workflow script.\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2025-07-10T14:49:50Z",
+          "tree_id": "28c50370f761327ec766e5aade708fe19b85739a",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/46b21b6a00c272d11e261a9a61393c0fd2f929b2"
+        },
+        "date": 1752166205552,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 3057.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 335.7421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 3159.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 357.33984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 3462.29296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 277.546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 3593.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 210.796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 19014.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 341.58203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 3330.5234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 373.33984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 3645.4453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 230.61328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 3634.23046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 3589.8125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 228.27734375,
             "unit": "MiB"
           }
         ]
