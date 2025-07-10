@@ -178,10 +178,10 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
 
     // Generate manifest path and check if it exists
     let db_path = database_directory.join("metadata.db");
-    info!("Creating manifest for channels {:?}", config.channels);
+    info!("Ingesting CSV manifests to the DB, channels {:?}", config.channels);
     let start = Instant::now();
     ingest_manifest(&config.channels, &db_path)?;
-    info!("Created manifest in {:?} stored at {:?}", start.elapsed(), db_path);
+    info!("Created database in {:?} stored at {:?}", start.elapsed(), db_path);
 
     Ok(Manifest::new(&db_path)?)
 }
