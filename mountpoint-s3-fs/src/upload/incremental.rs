@@ -30,7 +30,7 @@ use super::{ChecksumHasherError, UploadError};
 #[derive(Debug)]
 pub struct AppendUploadRequest<Client: ObjectClient> {
     /// The current buffer, initialized lazily on write.
-    buffer: Option<UploadBuffer<Client>>,
+    buffer: Option<UploadBuffer>,
     /// The current offset.
     offset: u64,
     buffer_size: usize,
@@ -59,7 +59,7 @@ where
         runtime: &Runtime,
         client: Client,
         buffer_size: usize,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
         let offset = params.initial_offset;
@@ -140,10 +140,10 @@ where
 #[derive(Debug)]
 struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for sending buffers to be appended to the object.
-    request_sender: Sender<UploadBuffer<Client>>,
+    request_sender: Sender<UploadBuffer>,
     /// Channel handle for receiving the response of S3 requests.
     response_receiver: Receiver<Result<PutObjectResult, UploadError<Client::ClientError>>>,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
     checksum_algorithm: RemoteResult<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>,
@@ -160,7 +160,7 @@ where
     pub fn new(
         runtime: &Runtime,
         client: Client,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
@@ -196,7 +196,7 @@ where
     }
 
     // Push given bytes with its checksum to the upload queue
-    pub async fn push(&mut self, buffer: UploadBuffer<Client>) -> Result<(), UploadError<Client::ClientError>> {
+    pub async fn push(&mut self, buffer: UploadBuffer) -> Result<(), UploadError<Client::ClientError>> {
         if let Err(_send_error) = self.request_sender.send(buffer).await {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
@@ -227,10 +227,7 @@ where
         Ok(self.last_known_result.take())
     }
 
-    pub async fn get_buffer(
-        &mut self,
-        capacity: usize,
-    ) -> Result<UploadBuffer<Client>, UploadError<Client::ClientError>> {
+    pub async fn get_buffer(&mut self, capacity: usize) -> Result<UploadBuffer, UploadError<Client::ClientError>> {
         let checksum_algorithm = self.checksum_algorithm.get_mut().await?.unwrap().clone();
 
         while self.requests_in_queue > 0 {
@@ -302,7 +299,7 @@ where
 async fn run_append_loop<Client>(
     client: Client,
     params: AppendUploadQueueParams,
-    request_receiver: Receiver<UploadBuffer<Client>>,
+    request_receiver: Receiver<UploadBuffer>,
     response_sender: Sender<Result<PutObjectResult, UploadError<Client::ClientError>>>,
 ) where
     Client: ObjectClient + Send + Sync + 'static,
@@ -345,7 +342,7 @@ async fn append<Client: ObjectClient>(
     client: &Client,
     bucket: &str,
     key: &str,
-    buffer: UploadBuffer<Client>,
+    buffer: UploadBuffer,
     offset: u64,
     etag: Option<ETag>,
     server_side_encryption: ServerSideEncryption,
@@ -370,20 +367,20 @@ async fn append<Client: ObjectClient>(
 }
 
 #[derive(Debug)]
-struct UploadBuffer<Client: ObjectClient> {
+struct UploadBuffer {
     data: Vec<u8>,
     // Running checksum for the data.
     hasher: ChecksumHasher,
     capacity: usize,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
-impl<Client: ObjectClient> UploadBuffer<Client> {
+impl UploadBuffer {
     /// Force creating a new buffer regardless of available memory
     fn new(
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
     ) -> Result<Self, ChecksumHasherError> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
         mem_limiter.reserve(BufferArea::Upload, capacity as u64);
@@ -399,7 +396,7 @@ impl<Client: ObjectClient> UploadBuffer<Client> {
     fn try_new(
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
     ) -> Result<Option<Self>, ChecksumHasherError> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
         if mem_limiter.try_reserve(BufferArea::Upload, capacity as u64) {
@@ -439,7 +436,7 @@ impl<Client: ObjectClient> UploadBuffer<Client> {
     }
 }
 
-impl<Client: ObjectClient> Drop for UploadBuffer<Client> {
+impl Drop for UploadBuffer {
     fn drop(&mut self) {
         self.mem_limiter.release(BufferArea::Upload, self.capacity as u64);
     }

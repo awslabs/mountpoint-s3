@@ -38,7 +38,7 @@ where
     pub fn build(
         self,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
         self.inner.build(runtime, mem_limiter, prefetcher_config)
@@ -58,7 +58,7 @@ where
     fn build(
         self: Box<Self>,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client>;
 }
@@ -74,7 +74,7 @@ where
     fn build(
         self: Box<Self>,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
         let part_stream = ClientPartStream::new(runtime, self.client, mem_limiter);
@@ -95,7 +95,7 @@ where
     fn build(
         self: Box<Self>,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
         let part_stream = CachingPartStream::new(runtime, self.client, mem_limiter, self.cache);

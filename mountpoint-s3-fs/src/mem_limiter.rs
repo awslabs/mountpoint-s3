@@ -51,8 +51,7 @@ impl BufferArea {
 ///                                     mem reserved by the backpressure controller
 ///                                     (on `BackpressureFeedbackEvent`)
 ///
-#[derive(Debug)]
-pub struct MemoryLimiter<Client: ObjectClient> {
+pub struct MemoryLimiter {
     mem_limit: u64,
     /// Reserved memory for allocations we are tracking, such as buffers we allocate for prefetching.
     /// The memory may not be used yet but has been reserved.
@@ -63,11 +62,24 @@ pub struct MemoryLimiter<Client: ObjectClient> {
     // prefetch takes control over the entire read path but we don't record or control
     // memory usage on the write path today, so we will rely on the client's stats
     // for "other buffers" and adjust the prefetcher read window accordingly.
-    client: Client,
+    get_client_mem: Box<dyn Fn() -> u64 + Send + Sync + 'static>,
 }
 
-impl<Client: ObjectClient> MemoryLimiter<Client> {
-    pub fn new(client: Client, mem_limit: u64) -> Self {
+impl std::fmt::Debug for MemoryLimiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryLimiter")
+            .field("mem_limit", &self.mem_limit)
+            .field("mem_reserved", &self.mem_reserved)
+            .field("additional_mem_reserved", &self.additional_mem_reserved)
+            .finish_non_exhaustive()
+    }
+}
+
+impl MemoryLimiter {
+    pub fn new<Client>(client: Client, mem_limit: u64) -> Self
+    where
+        Client: ObjectClient + Send + Sync + 'static,
+    {
         let min_reserved = 128 * 1024 * 1024;
         let reserved_mem = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -77,10 +89,14 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
             formatter(reserved_mem)
         );
         Self {
-            client,
             mem_limit,
             mem_reserved: AtomicU64::new(0),
             additional_mem_reserved: reserved_mem,
+            get_client_mem: Box::new(move || {
+                client
+                    .mem_usage_stats()
+                    .map_or(0, |stats| stats.primary_allocated.saturating_add(stats.secondary_used))
+            }),
         }
     }
 
@@ -147,8 +163,6 @@ impl<Client: ObjectClient> MemoryLimiter<Client> {
     // where memory is allocated exactly equal to the used memory. So total allocated memory for the CRT client would
     // be `primary_allocated` + `secondary_used`.
     fn client_mem_allocated(&self) -> u64 {
-        self.client
-            .mem_usage_stats()
-            .map_or(0, |stats| stats.primary_allocated.saturating_add(stats.secondary_used))
+        (self.get_client_mem)()
     }
 }
