@@ -60,7 +60,6 @@ mountpoint-s3-client = { path = ".", features = ["mock"] }
 built = { version = "0.8.0", features = ["git2"] }
 
 [features]
-restore_buffer_copy = []
 mock = ["dep:async-io", "dep:async-lock", "dep:md-5", "dep:rand", "dep:rand_chacha"]
 # Features for choosing tests
 s3_tests = []
