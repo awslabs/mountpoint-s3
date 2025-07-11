@@ -451,7 +451,7 @@ mod tests {
 
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 
-    use super::super::Uploader;
+    use super::super::{Uploader, UploaderConfig};
     use super::*;
 
     use futures::executor::ThreadPool;
@@ -476,10 +476,9 @@ mod tests {
             client,
             runtime,
             mem_limiter.into(),
-            None,
-            server_side_encryption.unwrap_or_default(),
-            buffer_size,
-            default_checksum_algorithm,
+            UploaderConfig::new(buffer_size)
+                .server_side_encryption(server_side_encryption.unwrap_or_default())
+                .default_checksum_algorithm(default_checksum_algorithm),
         )
     }
 
@@ -1127,10 +1126,7 @@ mod tests {
             client.clone(),
             Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
             mem_limiter.into(),
-            None,
-            Default::default(),
-            part_size,
-            None,
+            UploaderConfig::new(part_size),
         );
 
         let mut offset = 0;
