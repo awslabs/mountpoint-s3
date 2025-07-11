@@ -7,7 +7,7 @@ use anyhow::{Context, anyhow};
 use clap::Parser;
 use futures::channel::oneshot;
 use futures::executor::block_on;
-use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
+use mountpoint_s3_crt::auth::credentials_providers::{CredentialsProvider, CredentialsProviderChainDefaultOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningAlgorithm;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
