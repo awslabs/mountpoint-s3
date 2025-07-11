@@ -23,7 +23,7 @@ pub struct PartQueue<Client: ObjectClient> {
     failed: bool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -36,7 +36,7 @@ pub struct PartQueueProducer<E: std::error::Error> {
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<Client: ObjectClient>(
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 ) -> (PartQueue<Client>, PartQueueProducer<Client::ClientError>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
