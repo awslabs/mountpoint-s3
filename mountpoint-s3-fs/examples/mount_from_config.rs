@@ -14,6 +14,7 @@ use mountpoint_s3_fs::{
     },
     logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
     manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
+    memory::PagedPool,
     metrics::{self, MetricsSinkHandle},
     s3::config::{ClientConfig, PartConfig, Region, TargetThroughputSetting},
 };
@@ -213,8 +214,9 @@ fn mount_filesystem(
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
+    let pool = PagedPool::new([client_config.part_config.read_size_bytes]);
     let client = client_config
-        .create_client(None)
+        .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 

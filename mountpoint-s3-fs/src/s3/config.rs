@@ -9,6 +9,8 @@ use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
+use crate::memory::PagedPool;
+
 use super::S3Path;
 
 /// Configuration for the S3 Client to use in Mountpoint.
@@ -145,7 +147,11 @@ pub const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 + 128 * 1024;
 
 impl ClientConfig {
     /// Create an [S3CrtClient]
-    pub fn create_client(self, validate_on_s3_path: Option<&S3Path>) -> anyhow::Result<S3CrtClient> {
+    pub fn create_client(
+        self,
+        memory_pool: PagedPool,
+        validate_on_s3_path: Option<&S3Path>,
+    ) -> anyhow::Result<S3CrtClient> {
         let mut client_config = S3ClientConfig::new()
             .auth_config(self.auth_config)
             .throughput_target_gbps(self.throughput_target.value())
@@ -153,7 +159,8 @@ impl ClientConfig {
             .write_part_size(self.part_config.write_size_bytes)
             .read_backpressure(true)
             .initial_read_window(INITIAL_READ_WINDOW_SIZE)
-            .user_agent(self.user_agent);
+            .user_agent(self.user_agent)
+            .memory_pool(memory_pool);
         if let Some(interfaces) = self.bind {
             client_config = client_config.network_interface_names(interfaces);
         }
