@@ -9,6 +9,7 @@ pub mod logging;
 #[cfg(feature = "manifest")]
 pub mod manifest;
 pub mod mem_limiter;
+pub mod memory;
 pub mod metablock;
 pub mod metrics;
 pub mod object;
