@@ -19,6 +19,7 @@ use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::Runtime;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path, TargetThroughputSetting};
 
@@ -29,6 +30,7 @@ fn main() -> anyhow::Result<()> {
 
 pub fn create_mock_client(
     client_config: ClientConfig,
+    _pool: PagedPool,
     s3_path: &S3Path,
     personality: Option<S3Personality>,
 ) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {

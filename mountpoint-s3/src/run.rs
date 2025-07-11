@@ -10,6 +10,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::S3Personality;
 use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path};
 use mountpoint_s3_fs::{MountpointConfig, Runtime, metrics};
@@ -174,8 +175,17 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
 
     let client_config = args.client_config(build_info::FULL_VERSION);
 
+    // Set up a paged memory pool
+    let pool = PagedPool::new([
+        1024 * 1024,
+        client_config.part_config.read_size_bytes,
+        client_config.part_config.write_size_bytes,
+    ]);
+    pool.schedule_trim(Duration::from_secs(60));
+
     let s3_path = args.s3_path()?;
-    let (client, runtime, s3_personality) = client_builder.build(client_config, &s3_path, args.personality())?;
+    let (client, runtime, s3_personality) =
+        client_builder.build(client_config, pool.clone(), &s3_path, args.personality())?;
 
     let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
@@ -189,7 +199,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     let mount_point_path = format!("{}", fuse_session_config.mount_point());
 
     let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)
-        .create_fuse_session(s3_path, client, runtime)?;
+        .create_fuse_session(s3_path, client, runtime, Some(pool))?;
     tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
 
     if let Some(managed_cache_dir) = managed_cache_dir {
@@ -208,6 +218,7 @@ pub trait ClientBuilder {
     fn build(
         self,
         client_config: ClientConfig,
+        pool: PagedPool,
         s3_path: &S3Path,
         personality: Option<S3Personality>,
     ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)>;
@@ -215,7 +226,7 @@ pub trait ClientBuilder {
 
 impl<F, C> ClientBuilder for F
 where
-    F: FnOnce(ClientConfig, &S3Path, Option<S3Personality>) -> anyhow::Result<(C, Runtime, S3Personality)>,
+    F: FnOnce(ClientConfig, PagedPool, &S3Path, Option<S3Personality>) -> anyhow::Result<(C, Runtime, S3Personality)>,
     C: ObjectClient + Clone + Send + Sync + 'static,
 {
     type Client = C;
@@ -223,21 +234,23 @@ where
     fn build(
         self,
         client_config: ClientConfig,
+        pool: PagedPool,
         s3_path: &S3Path,
         personality: Option<S3Personality>,
     ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)> {
-        self(client_config, s3_path, personality)
+        self(client_config, pool, s3_path, personality)
     }
 }
 
 // Create a real S3 client
 pub fn create_s3_client(
     client_config: ClientConfig,
+    pool: PagedPool,
     s3_path: &S3Path,
     personality: Option<S3Personality>,
 ) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
     let client = client_config
-        .create_client(Some(s3_path))
+        .create_client(pool, Some(s3_path))
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());
