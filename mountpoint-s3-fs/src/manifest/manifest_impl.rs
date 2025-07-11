@@ -1,14 +1,20 @@
+use crate::fs::{FUSE_ROOT_INODE, InodeKind};
+use crate::sync::Arc;
 use std::collections::VecDeque;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use thiserror::Error;
+use time::OffsetDateTime;
 use tracing::error;
 
 use super::db::{Db, DbEntry};
 
-use crate::metablock::ValidKeyError;
+use crate::metablock::{InodeInformation, InodeStat, Lookup, S3Location, ValidKey, ValidKeyError};
 use crate::prefix::PrefixError;
 use crate::s3::config::S3Path;
+
+const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
@@ -68,6 +74,95 @@ impl ManifestEntry {
             ManifestEntry::File { full_key, .. } => full_key,
             ManifestEntry::Directory { full_key, .. } => full_key,
         }
+    }
+
+    pub fn into_lookup(self, path: Arc<S3Path>, mount_time: OffsetDateTime) -> Result<Lookup, ManifestError> {
+        let lookup = match self {
+            ManifestEntry::File {
+                etag,
+                size,
+                id,
+                full_key,
+                ..
+            } => Lookup::new(
+                id,
+                Self::stat_for_file(&etag, size, mount_time),
+                InodeKind::File,
+                true,
+                Some(S3Location::new(
+                    path,
+                    ValidKey::try_from(ManifestEntry::s3_key(full_key))?,
+                )),
+            ),
+            ManifestEntry::Directory {
+                id,
+                full_key,
+                parent_id,
+                ..
+            } => {
+                let location = if parent_id == FUSE_ROOT_INODE {
+                    None // virtual channel directories have no corresponding S3 location
+                } else {
+                    Some(S3Location::new(
+                        path,
+                        // manifest entries never have a trailing '/'
+                        // valid keys must have a trailing '/' for directories => append it here
+                        ValidKey::try_from(format!("{}/", ManifestEntry::s3_key(full_key)))?,
+                    ))
+                };
+                Lookup::new(
+                    id,
+                    Self::stat_for_directory(mount_time),
+                    InodeKind::Directory,
+                    true,
+                    location,
+                )
+            }
+        };
+        Ok(lookup)
+    }
+
+    pub fn into_inode_information(self, mount_time: OffsetDateTime) -> (InodeInformation, String) {
+        let (ino, mut full_key, kind, stat) = match self {
+            ManifestEntry::File {
+                id,
+                full_key,
+                etag,
+                size,
+                ..
+            } => (
+                id,
+                full_key,
+                InodeKind::File,
+                Self::stat_for_file(&etag, size, mount_time),
+            ),
+            ManifestEntry::Directory { id, full_key, .. } => {
+                (id, full_key, InodeKind::Directory, Self::stat_for_directory(mount_time))
+            }
+        };
+        let name_len = full_key.rsplit("/").next().unwrap().len();
+        if full_key.len() != name_len {
+            full_key.drain(..full_key.len() - name_len);
+        }
+        let name = full_key;
+        (InodeInformation::new(ino, stat, kind, true), name)
+    }
+
+    fn stat_for_directory(mount_time: OffsetDateTime) -> InodeStat {
+        InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL)
+    }
+
+    fn stat_for_file(etag: &str, size: usize, mount_time: OffsetDateTime) -> InodeStat {
+        InodeStat::for_file(
+            size,
+            mount_time,
+            Some(etag.into()),
+            // Intentionally leaving `storage_class` and `restore_status` empty,
+            // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
+            None,
+            None,
+            NEVER_EXPIRE_TTL,
+        )
     }
 }
 
@@ -144,7 +239,7 @@ impl Manifest {
     }
 
     pub fn channels(&self) -> Result<Vec<S3Path>, ManifestError> {
-        Ok(self.db.load_channels()?)
+        self.db.load_channels()
     }
 }
 

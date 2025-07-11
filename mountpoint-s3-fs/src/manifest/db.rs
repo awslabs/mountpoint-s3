@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use crate::manifest::ManifestError;
 use crate::prefix::Prefix;
 use crate::s3::config::S3Path;
 
@@ -190,24 +191,35 @@ impl Db {
         tx.commit()
     }
 
-    pub fn load_channels(&self) -> Result<Vec<S3Path>> {
+    pub fn load_channels(&self) -> Result<Vec<S3Path>, ManifestError> {
         let conn = self.conn.lock().expect("lock must succeed");
 
-        // assume channel ids is a contiguous sequence of integers starting from 0
-        let query = "SELECT bucket_name, prefix FROM channels ORDER BY id";
+        let query = "SELECT id, bucket_name, prefix FROM channels ORDER BY id";
         tracing::debug!("executing {} with parameters", query);
         let mut stmt = conn.prepare(query)?;
-        let result: Result<Vec<S3Path>> = stmt
+        let result: Result<Vec<(usize, S3Path)>> = stmt
             .query_map((), |row: &Row| {
-                let prefix_string: String = row.get(1)?;
-                Ok(S3Path {
-                    bucket_name: row.get(0)?,
-                    prefix: Prefix::new(&prefix_string)
-                        .map_err(|err| Error::FromSqlConversionFailure(0, Type::Null, Box::new(err)))?,
-                })
+                let id: usize = row.get(0)?;
+                let prefix_string: String = row.get(2)?;
+                Ok((
+                    id,
+                    S3Path {
+                        bucket_name: row.get(1)?,
+                        prefix: Prefix::new(&prefix_string)
+                            .map_err(|err| Error::FromSqlConversionFailure(0, Type::Null, Box::new(err)))?,
+                    },
+                ))
             })?
             .collect();
 
-        result
+        // check that channel ids is a contiguous sequence of integers starting from 0, otherwise error-out
+        let result = result?;
+        for (i, (id, channel)) in result.iter().enumerate() {
+            if i != *id {
+                return Err(ManifestError::InvalidChannel(format!("{channel:?}")));
+            }
+        }
+
+        Ok(result.into_iter().map(|pair| pair.1).collect())
     }
 }
