@@ -44,7 +44,9 @@ fn run_benchmark(
     let total_start = Instant::now();
     let mut iter_results = Vec::new();
     let mut iteration = 0;
-    let timeout = total_start + max_duration.unwrap_or(Duration::MAX);
+    let timeout: Instant = total_start
+        .checked_add(max_duration.unwrap_or(Duration::from_secs(86400)))
+        .expect("Duration overflow error");
 
     while iteration < num_iterations && Instant::now() < timeout {
         let iter_start = Instant::now();
@@ -233,14 +235,8 @@ fn create_s3_client_config(region: &str, args: &CliArgs, bind: &Option<Vec<Strin
     config = config.throughput_target_gbps(args.throughput_target_gbps);
     config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
 
-    if let Some(interfaces) = bind {
-        let nics: Vec<String> = interfaces
-            .clone()
-            .iter()
-            .flat_map(|iface| iface.split(',').map(|s| s.trim().to_string()))
-            .filter(|s| !s.is_empty())
-            .collect();
-        config = config.network_interface_names(nics);
+    if let Some(nics) = bind {
+        config = config.network_interface_names(nics.to_vec());
     }
 
     config = config.part_size(args.part_size);
