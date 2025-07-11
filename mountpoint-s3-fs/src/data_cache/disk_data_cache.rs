@@ -20,6 +20,7 @@ use tracing::{trace, warn};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
+use crate::memory::PagedPool;
 use crate::object::ObjectId;
 use crate::sync::Mutex;
 
@@ -36,6 +37,7 @@ pub struct DiskDataCache {
     config: DiskDataCacheConfig,
     /// Tracks blocks usage. `None` when no cache limit was set.
     usage: Option<Mutex<UsageInfo<DiskBlockKey>>>,
+    pool: Option<PagedPool>,
 }
 
 /// Configuration for a [DiskDataCache].
@@ -246,20 +248,27 @@ impl DiskBlock {
     }
 
     /// Deserialize an instance from `reader`.
-    fn read(reader: &mut impl Read, block_size: u64) -> Result<Self, DiskBlockReadWriteError> {
+    fn read(
+        reader: &mut impl Read,
+        block_size: u64,
+        pool: Option<&PagedPool>,
+    ) -> Result<Self, DiskBlockReadWriteError> {
         let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
 
         if header.block_len > block_size {
             return Err(DiskBlockReadWriteError::InvalidBlockLength(header.block_len));
         }
 
-        let mut buffer = vec![0u8; header.block_len as usize];
-        reader.read_exact(&mut buffer)?;
+        let size = header.block_len as usize;
+        let data = if let Some(pool) = pool {
+            pool.read_exact(reader, size)?
+        } else {
+            let mut buffer = vec![0u8; size];
+            reader.read_exact(&mut buffer)?;
+            buffer.into()
+        };
 
-        Ok(Self {
-            header,
-            data: buffer.into(),
-        })
+        Ok(Self { header, data })
     }
 
     /// Serialize this instance to `writer` and return the number of bytes written on success.
@@ -303,14 +312,28 @@ impl From<DiskBlockReadWriteError> for DataCacheError {
     }
 }
 
+fn usage_info(limit: &CacheLimit) -> Option<Mutex<UsageInfo<DiskBlockKey>>> {
+    match limit {
+        CacheLimit::Unbounded => None,
+        CacheLimit::TotalSize { .. } | CacheLimit::AvailableSpace { .. } => Some(Mutex::new(UsageInfo::new())),
+    }
+}
+
 impl DiskDataCache {
     /// Create a new instance of an [DiskDataCache] with the specified configuration.
     pub fn new(config: DiskDataCacheConfig) -> Self {
-        let usage = match config.limit {
-            CacheLimit::Unbounded => None,
-            CacheLimit::TotalSize { .. } | CacheLimit::AvailableSpace { .. } => Some(Mutex::new(UsageInfo::new())),
-        };
-        DiskDataCache { config, usage }
+        let usage = usage_info(&config.limit);
+        DiskDataCache {
+            config,
+            usage,
+            pool: None,
+        }
+    }
+
+    /// Create a new instance of an [DiskDataCache] with the specified configuration.
+    pub fn new_with_pool(config: DiskDataCacheConfig, pool: Option<PagedPool>) -> Self {
+        let usage = usage_info(&config.limit);
+        DiskDataCache { config, usage, pool }
     }
 
     /// Get the relative path for the given block.
@@ -349,7 +372,7 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block = DiskBlock::read(&mut file, self.block_size())
+        let block = DiskBlock::read(&mut file, self.block_size(), self.pool.as_ref())
             .inspect_err(|e| warn!(path = ?path.as_ref(), "block could not be deserialized: {:?}", e))?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
@@ -1063,7 +1086,7 @@ mod tests {
         // "Corrupt" the serialized value with an invalid length.
         replace_u64_at(&mut buf, offset, u64::MAX);
 
-        let err = DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH).expect_err("deserialization should fail");
+        let err = DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, None).expect_err("deserialization should fail");
         match length_to_corrupt {
             "key" | "etag" => assert!(matches!(
                 err,
