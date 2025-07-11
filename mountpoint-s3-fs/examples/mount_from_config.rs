@@ -19,6 +19,7 @@ use mountpoint_s3_fs::{
     },
     logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
     manifest::{Manifest, ingest_manifest},
+    memory::PagedPool,
     metrics::{self, MetricsSinkHandle},
     prefix::Prefix,
     s3::config::{ClientConfig, PartConfig, Region, S3Path, TargetThroughputSetting},
@@ -234,14 +235,15 @@ fn mount_filesystem(
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
+    let pool = PagedPool::new([client_config.part_config.read_size_bytes]);
     let client = client_config
-        .create_client(None)
+        .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(s3_path, client, runtime)
+        .create_fuse_session(s3_path, client, runtime, Some(pool))
         .context("Failed to create FUSE session")?;
 
     Ok(fuse_session)
