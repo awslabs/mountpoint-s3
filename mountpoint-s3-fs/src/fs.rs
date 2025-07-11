@@ -21,8 +21,6 @@ use crate::metablock::Metablock;
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
-use crate::prefix::Prefix;
-use crate::superblock::{Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::Uploader;
@@ -147,19 +145,11 @@ where
         client: Client,
         prefetch_builder: PrefetcherBuilder<Client>,
         runtime: Runtime,
-        bucket: &str,
-        prefix: &Prefix,
+        metablock: Box<dyn Metablock>,
         config: S3FilesystemConfig,
     ) -> Self {
-        trace!(?bucket, ?prefix, ?config, "new filesystem");
+        trace!(?config, "new filesystem");
 
-        let superblock_config = SuperblockConfig {
-            cache_config: config.cache_config.clone(),
-            s3_personality: config.s3_personality,
-            #[cfg(feature = "manifest")]
-            manifest: config.manifest.clone(),
-        };
-        let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config);
         let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
@@ -174,7 +164,7 @@ where
 
         Self {
             config,
-            metablock: Arc::new(superblock),
+            metablock: metablock.into(),
             prefetcher,
             uploader,
             next_handle: AtomicU64::new(1),
@@ -797,6 +787,7 @@ mod tests {
     use super::*;
 
     use crate::prefetch::Prefetcher;
+    use crate::{Superblock, SuperblockConfig};
 
     use fuser::FileType;
     use futures::executor::ThreadPool;
@@ -824,14 +815,16 @@ mod tests {
             server_side_encryption,
             ..Default::default()
         };
-        let mut fs = S3Filesystem::new(
-            client,
-            prefetcher_builder,
-            runtime,
+        let superblock = Box::new(Superblock::new(
+            client.clone(),
             bucket,
             &Default::default(),
-            fs_config,
-        );
+            SuperblockConfig {
+                cache_config: fs_config.cache_config.clone(),
+                s3_personality: fs_config.s3_personality,
+            },
+        ));
+        let mut fs = S3Filesystem::new(client, prefetcher_builder, runtime, superblock, fs_config);
 
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();

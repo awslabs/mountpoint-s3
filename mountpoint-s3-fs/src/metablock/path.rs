@@ -12,16 +12,18 @@ use super::{InodeError, InodeKind};
 /// Key associated with an Inode that can be lookedup.
 ///
 /// May not include the [Prefix](super::Prefix). Guaranteed to end in '/' for directories.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ValidKey {
     key: Box<str>,
     name_offset: usize,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Eq, PartialEq)]
 pub enum ValidKeyError {
     #[error("not a directory key")]
     NotADirectory,
+    #[error("invalid key {0:?}")]
+    InvalidKey(String),
 }
 
 impl ValidKey {
@@ -90,6 +92,16 @@ impl ValidKey {
             _ => InodeKind::File,
         }
     }
+
+    /// Checks if the provided &str is a valid key.
+    pub fn validate(value: &str) -> Result<(), ValidKeyError> {
+        for component in value.split_terminator('/') {
+            if ValidName::parse_str(component).is_err() {
+                return Err(ValidKeyError::InvalidKey(value.to_string()));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Deref for ValidKey {
@@ -115,6 +127,33 @@ impl Display for ValidKey {
 impl From<ValidKey> for String {
     fn from(value: ValidKey) -> Self {
         value.key.into_string()
+    }
+}
+
+impl TryFrom<String> for ValidKey {
+    type Error = ValidKeyError;
+
+    /// Constructs a valid key performing checks.
+    fn try_from(full_key: String) -> Result<Self, Self::Error> {
+        // validate
+        let components: Vec<_> = full_key.split_terminator('/').collect();
+        for component in components.iter() {
+            if ValidName::parse_str(component).is_err() {
+                return Err(ValidKeyError::InvalidKey(full_key.to_string()));
+            }
+        }
+
+        // extract name
+        let is_dir = full_key.ends_with('/');
+        let name_len = components
+            .last()
+            .map_or(0, |name| if is_dir { name.len() + 1 } else { name.len() });
+        let name_offset = full_key.len() - name_len;
+
+        Ok(Self {
+            key: full_key.into(),
+            name_offset,
+        })
     }
 }
 
@@ -213,6 +252,7 @@ mod tests {
 
     use proptest::prelude::*;
     use proptest_derive::Arbitrary;
+    use test_case::test_case;
 
     fn test_key(components: Vec<Components>) {
         let mut key_str = OsString::new();
@@ -285,5 +325,20 @@ mod tests {
         fn proptest_valid_key(components: Vec<Components>) {
             test_key(components);
         }
+    }
+
+    #[test_case("dir1/a.txt", Ok(ValidKey{key: "dir1/a.txt".to_string().into(), name_offset: 5}); "file")]
+    #[test_case("dir1/dir2/", Ok(ValidKey{key: "dir1/dir2/".to_string().into(), name_offset: 5}); "dir")]
+    #[test_case("dir1/dir2", Ok(ValidKey{key: "dir1/dir2".to_string().into(), name_offset: 5}); "another file")]
+    #[test_case("", Ok(ValidKey{key: "".to_string().into(), name_offset: 0}); "empty")]
+    #[test_case("a", Ok(ValidKey{key: "a".to_string().into(), name_offset: 0}); "one char")]
+    #[test_case("dir1/dir2/dir3/a.txt", Ok(ValidKey{key: "dir1/dir2/dir3/a.txt".to_string().into(), name_offset: 15}); "many components")]
+    #[test_case("/", Err(ValidKeyError::InvalidKey("/".to_string())); "just /")]
+    #[test_case("dir1//a.txt", Err(ValidKeyError::InvalidKey("dir1//a.txt".to_string())); "empty component")]
+    #[test_case("dir1/../a.txt", Err(ValidKeyError::InvalidKey("dir1/../a.txt".to_string())); "invalid component")]
+    fn test_valid_key_try_from(source: &str, result: Result<ValidKey, ValidKeyError>) {
+        assert_eq!(ValidKey::try_from(source.to_string()), result);
+        let validate_result = result.map(|_| ());
+        assert_eq!(ValidKey::validate(source), validate_result);
     }
 }
