@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,6 +13,7 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use serde_json::{json, to_writer};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -36,7 +38,12 @@ fn run_benchmark(
     bucket: &str,
     key: &str,
     enable_backpressure: bool,
+    output_path: Option<&Path>,
 ) {
+    let mut total_bytes = 0;
+    let total_start = Instant::now();
+    let mut iter_results = Vec::new();
+
     for i in 0..num_iterations {
         let start = Instant::now();
         let received_size = Arc::new(AtomicU64::new(0));
@@ -102,6 +109,7 @@ fn run_benchmark(
 
         let elapsed = start.elapsed();
         let received_size = received_size.load(Ordering::SeqCst);
+        total_bytes += received_size;
         println!(
             "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
             i,
@@ -109,6 +117,26 @@ fn run_benchmark(
             elapsed.as_secs_f64(),
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
+
+        iter_results.push(json!({
+            "iteration": i,
+            "bytes": received_size,
+            "duration_seconds": elapsed.as_secs_f64(),
+        }));
+    }
+
+    let total_elapsed = total_start.elapsed();
+    if let Some(output_path) = output_path {
+        let ouput_file = std::fs::File::create(output_path).expect("Failed to create output_file: {output_path}");
+        let results = json!({
+            "summary": {
+                "total_bytes": total_bytes,
+                "duration_seconds": total_elapsed.as_secs_f64(),
+                "iterations": num_iterations,
+            },
+            "iterations": iter_results
+        });
+        to_writer(ouput_file, &results).expect("Failed to write to output file: {output_path}");
     }
 }
 
@@ -168,6 +196,8 @@ struct CliArgs {
         default_value = "0"
     )]
     initial_window_size: Option<usize>,
+    #[clap(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
+    pub output_file: Option<PathBuf>,
 }
 
 fn main() {
@@ -205,6 +235,7 @@ fn main() {
                 &bucket,
                 &key,
                 args.enable_backpressure,
+                args.output_file.as_deref(),
             );
         }
         Client::Mock { object_size } => {
@@ -227,6 +258,7 @@ fn main() {
                 BUCKET,
                 KEY,
                 args.enable_backpressure,
+                args.output_file.as_deref(),
             );
         }
     }
