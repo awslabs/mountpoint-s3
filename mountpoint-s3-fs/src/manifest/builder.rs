@@ -253,6 +253,12 @@ mod tests {
         "dir2/b.txt",
         "dir1", // must be shadowed
     ]; "shadowing first")]
+    #[test_case(&[
+        "dir1/a.txt",
+        "dir1/b.txt",
+        "dir1/a.txt", // duplicate
+        "dir1/c.txt",
+    ]; "duplicate file")]
     fn test_shadowed(manifest_keys: &[&str]) {
         let db_dir = tempfile::tempdir().unwrap();
         let db_path = db_dir.path().join("s3_keys.db3");

@@ -9,15 +9,12 @@ use time::OffsetDateTime;
 use crate::fs::FUSE_ROOT_INODE;
 use crate::manifest::manifest_impl::{Manifest, ManifestEntry, ManifestError, ManifestIter};
 use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, S3Location,
-    TryAddDirEntry, ValidKey, WriteMode,
+    InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, TryAddDirEntry,
+    WriteMode,
 };
 use crate::s3::config::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
-
-// 200 years seems long enough
-const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 #[derive(Debug)]
 pub struct ManifestMetablock {
@@ -49,41 +46,7 @@ impl ManifestMetablock {
             return Err(ManifestError::InvalidRow(manifest_entry.get_full_key().to_string()));
         }
         let channel = self.channels[channel_id].clone();
-        let lookup = match manifest_entry {
-            ManifestEntry::File {
-                etag,
-                size,
-                id,
-                full_key,
-                ..
-            } => Lookup::new(
-                id,
-                self.stat_for_file(&etag, size),
-                InodeKind::File,
-                true,
-                Some(S3Location {
-                    path: channel,
-                    partial_key: ValidKey::try_from(ManifestEntry::s3_key(full_key))?,
-                }),
-            ),
-            ManifestEntry::Directory {
-                id,
-                full_key,
-                parent_id,
-                ..
-            } => {
-                let location = if parent_id == FUSE_ROOT_INODE {
-                    None // virtual channel directories have no corresponding S3 location
-                } else {
-                    Some(S3Location {
-                        path: channel,
-                        partial_key: ValidKey::try_from(format!("{}/", ManifestEntry::s3_key(full_key)))?, // TODO: append slash in ManifestEntry::s3_key
-                    })
-                };
-                Lookup::new(id, self.stat_for_directory(), InodeKind::Directory, true, location)
-            }
-        };
-        Ok(lookup)
+        manifest_entry.into_lookup(channel, self.mount_time)
     }
 
     fn get_parent_id(&self, ino: InodeNo) -> Result<InodeNo, InodeError> {
@@ -102,20 +65,8 @@ impl ManifestMetablock {
     }
 
     fn stat_for_directory(&self) -> InodeStat {
+        const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
         InodeStat::for_directory(self.mount_time, NEVER_EXPIRE_TTL)
-    }
-
-    fn stat_for_file(&self, etag: &str, size: usize) -> InodeStat {
-        InodeStat::for_file(
-            size,
-            self.mount_time,
-            Some(etag.into()),
-            // Intentionally leaving `storage_class` and `restore_status` empty,
-            // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
-            None,
-            None,
-            NEVER_EXPIRE_TTL,
-        )
     }
 }
 
@@ -174,6 +125,10 @@ impl Metablock for ManifestMetablock {
         parent: InodeNo,
         fh: u64,
         mut offset: i64,
+        // In lookup-count-aware implementation of [Metablock] is_readdirplus argument enables "reference" counting of inodes:
+        // https://github.com/libfuse/libfuse/blob/4166f2eb97da4e25a516abee3d6fe13b9ed77bc6/include/fuse_lowlevel.h#L1231
+        //
+        // [ManifestMetablock] never forgets inodes, so this argument is unused.
         _is_readdirplus: bool,
         mut replier: TryAddDirEntry<'a>,
     ) -> Result<(), InodeError> {
@@ -219,24 +174,8 @@ impl Metablock for ManifestMetablock {
             let Some(manifest_entry) = readdir_handle.next_entry()? else {
                 break;
             };
-            let (ino, full_key, kind, stat) = match manifest_entry.clone() {
-                ManifestEntry::File {
-                    id,
-                    full_key,
-                    etag,
-                    size,
-                    ..
-                } => (id, full_key, InodeKind::File, self.stat_for_file(&etag, size)),
-                ManifestEntry::Directory { id, full_key, .. } => {
-                    (id, full_key, InodeKind::Directory, self.stat_for_directory())
-                }
-            };
-            if replier(
-                InodeInformation::new(ino, stat, kind, true),
-                OsString::from(full_key.rsplit("/").next().unwrap()),
-                offset + 1,
-                0,
-            ) {
+            let (inode_info, name) = manifest_entry.clone().into_inode_information(self.mount_time);
+            if replier(inode_info, OsString::from(name), offset + 1, 0) {
                 readdir_handle.readd(manifest_entry);
                 break;
             }
