@@ -11,21 +11,17 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::http::request_response::{Header, Headers};
-use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestResult};
 use pin_project::pin_project;
 use tracing::trace;
 
 use crate::error_metadata::ClientErrorMetadata;
 use crate::object_client::{
-    Checksum, ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
-    ObjectClientResult, ObjectMetadata,
+    Checksum, ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, GetObjectResponse,
+    ObjectChecksumError, ObjectClientError, ObjectClientResult, ObjectMetadata,
 };
 
-use super::{
-    CancellingMetaRequest, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient, S3Operation,
-    S3RequestError, parse_checksum,
-};
+use super::{CancellingMetaRequest, ResponseHeadersError, S3CrtClient, S3Operation, S3RequestError, parse_checksum};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [S3GetObjectResponse] is a [Stream] of
@@ -85,6 +81,7 @@ impl S3CrtClient {
 
             let mut headers_sender = Some(event_sender.clone());
             let part_sender = event_sender.clone();
+
             self.inner.meta_request_with_callbacks(
                 options,
                 span,
@@ -101,10 +98,11 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
-                    let body_part = GetBodyPart {
-                        offset,
-                        data: make_owned_bytes(data),
-                    };
+                    let owned_buffer = data
+                        .to_owned_buffer()
+                        .expect("buffers returned from GetObject can always be acquired");
+                    let bytes = Bytes::from_owner(owned_buffer);
+                    let body_part = GetBodyPart { offset, data: bytes };
                     _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(body_part));
                 },
                 parse_get_object_error,
@@ -148,19 +146,6 @@ impl S3CrtClient {
             next_offset,
         })
     }
-}
-
-#[cfg(not(feature = "restore_buffer_copy"))]
-fn make_owned_bytes(data: &Buffer) -> Bytes {
-    let owned_buffer = data
-        .to_owned_buffer()
-        .expect("buffers returned from GetObject can always be acquired");
-    Bytes::from_owner(owned_buffer)
-}
-
-#[cfg(feature = "restore_buffer_copy")]
-fn make_owned_bytes(data: &Buffer) -> Bytes {
-    Bytes::copy_from_slice(data)
 }
 
 #[derive(Debug)]
