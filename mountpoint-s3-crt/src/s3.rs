@@ -11,6 +11,7 @@ use crate::common::allocator::Allocator;
 pub mod buffer;
 pub mod client;
 pub mod endpoint_resolver;
+pub mod pool;
 
 static S3_LIBRARY_INIT: Once = Once::new();
 

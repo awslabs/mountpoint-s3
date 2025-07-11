@@ -10,7 +10,9 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::S3Personality;
+use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path};
 use mountpoint_s3_fs::{MountpointConfig, Runtime, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
@@ -21,7 +23,12 @@ use crate::{build_info, parse_cli_args};
 /// Run Mountpoint with the given [CliArgs].
 pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
 where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    ClientBuilder: FnOnce(
+        ClientConfig,
+        PagedPool,
+        S3Path,
+        Option<S3Personality>,
+    ) -> anyhow::Result<(Client, Runtime, S3Personality)>,
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     let successful_mount_msg = format!(
@@ -170,7 +177,12 @@ where
 
 fn mount<ClientBuilder, Client>(args: CliArgs, client_builder: ClientBuilder) -> anyhow::Result<FuseSession>
 where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
+    ClientBuilder: FnOnce(
+        ClientConfig,
+        PagedPool,
+        S3Path,
+        Option<S3Personality>,
+    ) -> anyhow::Result<(Client, Runtime, S3Personality)>,
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
@@ -179,7 +191,18 @@ where
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
-    let (client, runtime, s3_personality) = client_builder(&args)?;
+    let client_config = args.client_config(build_info::FULL_VERSION);
+
+    // Set up a paged memory pool
+    let pool = PagedPool::new([
+        1024 * 1024,
+        client_config.part_config.read_size_bytes,
+        client_config.part_config.write_size_bytes,
+    ]);
+    pool.schedule_trim(Duration::from_secs(60));
+
+    let (client, runtime, s3_personality) =
+        client_builder(client_config, pool.clone(), args.s3_path()?, args.personality())?;
 
     let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
@@ -194,7 +217,7 @@ where
     let mount_point_path = format!("{}", fuse_session_config.mount_point());
 
     let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)
-        .create_fuse_session(s3_path, client, runtime)?;
+        .create_fuse_session(s3_path, client, runtime, Some(pool))?;
     tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
 
     if let Some(managed_cache_dir) = managed_cache_dir {
@@ -205,18 +228,19 @@ where
     Ok(fuse_session)
 }
 
-/// Create a real S3 client
-pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
-    let client_config = args.client_config(build_info::FULL_VERSION);
-
-    let s3_path = args.s3_path()?;
+// Create a real S3 client
+pub fn create_s3_client(
+    client_config: ClientConfig,
+    pool: PagedPool,
+    s3_path: S3Path,
+    personality: Option<S3Personality>,
+) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
     let client = client_config
-        .create_client(Some(&s3_path))
+        .create_client(pool, Some(&s3_path))
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());
-    let s3_personality = args
-        .personality()
+    let s3_personality = personality
         .unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket_name, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
