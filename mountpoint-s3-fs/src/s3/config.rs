@@ -41,7 +41,7 @@ pub struct ClientConfig {
     pub expected_bucket_owner: Option<String>,
 
     /// Target throughput in Gbps
-    pub throughput_target_gbps: f64,
+    pub throughput_target: TargetThroughputSetting,
 
     /// One or more network interfaces to use when accessing S3
     pub bind: Option<Vec<String>>,
@@ -182,10 +182,10 @@ fn matches_bucket_regex(bucket_name: &str) -> bool {
 #[derive(Debug)]
 pub struct PartConfig {
     /// Part size for GET in bytes
-    read_size_bytes: usize,
+    pub read_size_bytes: usize,
 
     /// Part size for multi-part PUT in bytes
-    write_size_bytes: usize,
+    pub write_size_bytes: usize,
 }
 
 impl PartConfig {
@@ -238,6 +238,26 @@ impl Display for Region {
     }
 }
 
+/// Target throughput setting.
+#[derive(Debug, Clone, Copy)]
+pub enum TargetThroughputSetting {
+    Default,
+    User { gbps: f64 },
+    Instance { gbps: f64 },
+}
+
+impl TargetThroughputSetting {
+    pub const DEFAULT_TARGET_THROUGHPUT_GBPS: f64 = 10.0;
+
+    pub fn value(&self) -> f64 {
+        match self {
+            TargetThroughputSetting::Default => Self::DEFAULT_TARGET_THROUGHPUT_GBPS,
+            TargetThroughputSetting::User { gbps } => *gbps,
+            TargetThroughputSetting::Instance { gbps } => *gbps,
+        }
+    }
+}
+
 // This is a weird looking number! We really want our first request size to be 1MiB,
 // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
 // top of a 1MiB read, which we'd have to wait for a second request to service. Because
@@ -256,7 +276,7 @@ impl ClientConfig {
     pub fn create_client(self, validate_on_s3_path: Option<&S3Path>) -> anyhow::Result<S3CrtClient> {
         let mut client_config = S3ClientConfig::new()
             .auth_config(self.auth_config)
-            .throughput_target_gbps(self.throughput_target_gbps)
+            .throughput_target_gbps(self.throughput_target.value())
             .read_part_size(self.part_config.read_size_bytes)
             .write_part_size(self.part_config.write_size_bytes)
             .read_backpressure(true)

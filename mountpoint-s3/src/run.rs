@@ -11,6 +11,7 @@ use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
 use mountpoint_s3_fs::s3::S3Personality;
+use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path};
 use mountpoint_s3_fs::{MountpointConfig, Runtime, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
@@ -19,11 +20,7 @@ use crate::cli::CliArgs;
 use crate::{build_info, parse_cli_args};
 
 /// Run Mountpoint with the given [CliArgs].
-pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
-where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
+pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<()> {
     let successful_mount_msg = format!(
         "{} is mounted at {}",
         args.bucket_description()?,
@@ -168,23 +165,21 @@ where
     Ok(())
 }
 
-fn mount<ClientBuilder, Client>(args: CliArgs, client_builder: ClientBuilder) -> anyhow::Result<FuseSession>
-where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
+fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<FuseSession> {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
 
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
-    let (client, runtime, s3_personality) = client_builder(&args)?;
+    let client_config = args.client_config(build_info::FULL_VERSION);
+
+    let s3_path = args.s3_path()?;
+    let (client, runtime, s3_personality) = client_builder.build(client_config, &s3_path, args.personality())?;
 
     let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
-    let s3_path = args.s3_path()?;
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
     let mut data_cache_config = args.data_cache_config(sse)?;
 
@@ -205,18 +200,48 @@ where
     Ok(fuse_session)
 }
 
-/// Create a real S3 client
-pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
-    let client_config = args.client_config(build_info::FULL_VERSION);
+/// Builder for [ObjectClient] implementations.
+pub trait ClientBuilder {
+    type Client: ObjectClient + Clone + Send + Sync + 'static;
 
-    let s3_path = args.s3_path()?;
+    /// Build a new client instance.
+    fn build(
+        self,
+        client_config: ClientConfig,
+        s3_path: &S3Path,
+        personality: Option<S3Personality>,
+    ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)>;
+}
+
+impl<F, C> ClientBuilder for F
+where
+    F: FnOnce(ClientConfig, &S3Path, Option<S3Personality>) -> anyhow::Result<(C, Runtime, S3Personality)>,
+    C: ObjectClient + Clone + Send + Sync + 'static,
+{
+    type Client = C;
+
+    fn build(
+        self,
+        client_config: ClientConfig,
+        s3_path: &S3Path,
+        personality: Option<S3Personality>,
+    ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)> {
+        self(client_config, s3_path, personality)
+    }
+}
+
+// Create a real S3 client
+pub fn create_s3_client(
+    client_config: ClientConfig,
+    s3_path: &S3Path,
+    personality: Option<S3Personality>,
+) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
     let client = client_config
-        .create_client(Some(&s3_path))
+        .create_client(Some(s3_path))
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());
-    let s3_personality = args
-        .personality()
+    let s3_personality = personality
         .unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket_name, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))

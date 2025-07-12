@@ -21,7 +21,7 @@ use mountpoint_s3_fs::{
     manifest::{Manifest, ingest_manifest},
     metrics::{self, MetricsSinkHandle},
     prefix::Prefix,
-    s3::config::{ClientConfig, PartConfig, Region, S3Path},
+    s3::config::{ClientConfig, PartConfig, Region, S3Path, TargetThroughputSetting},
 };
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
@@ -121,17 +121,17 @@ impl ConfigOptions {
             Some(prefix) => format!("{prefix}/mp-exmpl"),
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
         };
-        let target_throughput = self.determine_throughput()?;
+        let throughput_target = self.determine_throughput()?;
         Ok(ClientConfig {
             region: Region::new_user_specified(self.region.clone()),
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: AddressingStyle::Automatic,
             dual_stack: false,
             transfer_acceleration: false,
-            auth_config: mountpoint_s3_client::config::S3ClientAuthConfig::Default,
+            auth_config: Default::default(),
             requester_pays: false,
             expected_bucket_owner: self.expected_bucket_owner.clone(),
-            throughput_target_gbps: target_throughput,
+            throughput_target,
             bind: None,
             part_config: PartConfig::with_part_size(self.part_size.unwrap_or(8388608)),
             user_agent: UserAgent::new(Some(user_agent_string)),
@@ -157,23 +157,28 @@ impl ConfigOptions {
         DataCacheConfig::default()
     }
 
-    fn determine_throughput(&self) -> Result<f64> {
+    fn determine_throughput(&self) -> Result<TargetThroughputSetting> {
         match &self.throughput_config {
             // TODO(chagem): Remove some code duplication, by moving this logic into fs crate.
-            ThroughputConfig::Explicit { throughput } => Ok(*throughput),
+            ThroughputConfig::Explicit { throughput } => Ok(TargetThroughputSetting::User { gbps: *throughput }),
             ThroughputConfig::IMDSAutoConfigure => {
-                const DEFAULT_THROUGHPUT: f64 = 10.0;
                 let instance_info = InstanceInfo::new();
                 match autoconfigure::network_throughput(&instance_info) {
-                    Ok(throughput) => Ok(throughput),
+                    Ok(throughput) => Ok(TargetThroughputSetting::Instance { gbps: throughput }),
                     Err(e) => {
-                        tracing::warn!("Failed to detect network throughput. Using {DEFAULT_THROUGHPUT} gbps: {e:?}");
-                        Ok(DEFAULT_THROUGHPUT)
+                        tracing::warn!(
+                            "Failed to detect network throughput. Using {} gbps: {:?}",
+                            TargetThroughputSetting::DEFAULT_TARGET_THROUGHPUT_GBPS,
+                            e
+                        );
+                        Ok(TargetThroughputSetting::Default)
                     }
                 }
             }
             ThroughputConfig::IMDSLookUp { ec2_instance_type } => {
-                autoconfigure::get_maximum_network_throughput(ec2_instance_type).context("Unrecognized instance ID")
+                let target = autoconfigure::get_maximum_network_throughput(ec2_instance_type)
+                    .context("Unrecognized instance ID")?;
+                Ok(TargetThroughputSetting::Instance { gbps: target })
             }
         }
     }
@@ -228,8 +233,8 @@ fn mount_filesystem(
     let s3_path = config.build_s3_path()?;
 
     // Create the client and runtime
-    let client = config
-        .build_client_config()?
+    let client_config = config.build_client_config()?;
+    let client = client_config
         .create_client(None)
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());

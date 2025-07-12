@@ -14,7 +14,7 @@ use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
+use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path, TargetThroughputSetting};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 use sysinfo::{RefreshKind, System};
 
@@ -720,22 +720,22 @@ impl CliArgs {
         user_agent
     }
 
-    fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> f64 {
-        const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
-
-        let throughput_target_gbps = self.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
+    fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> TargetThroughputSetting {
+        let throughput_target_gbps = self.maximum_throughput_gbps.map(|t| TargetThroughputSetting::User { gbps: t as f64 }).unwrap_or_else(|| {
             match autoconfigure::network_throughput(instance_info) {
-                Ok(throughput) => throughput,
+                Ok(throughput) => TargetThroughputSetting::Instance { gbps: throughput },
                 Err(e) => {
                     tracing::warn!(
-                        "failed to detect network throughput. Using {DEFAULT_TARGET_THROUGHPUT} gbps as throughput. \
-                        Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {e:?}",
+                        "failed to detect network throughput. Using {} gbps as throughput. \
+                        Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {:?}",
+                        TargetThroughputSetting::DEFAULT_TARGET_THROUGHPUT_GBPS,
+                        e,
                         );
-                    DEFAULT_TARGET_THROUGHPUT
+                    TargetThroughputSetting::Default
                 }
             }
         });
-        tracing::info!("target network throughput {throughput_target_gbps} Gbps");
+        tracing::info!("target network throughput {} Gbps", throughput_target_gbps.value());
         throughput_target_gbps
     }
 
@@ -763,7 +763,7 @@ impl CliArgs {
     pub fn client_config(&self, version: &str) -> ClientConfig {
         let instance_info = InstanceInfo::new();
         let user_agent = self.user_agent(&instance_info, version);
-        let throughput_target_gbps = self.throughput_target_gbps(&instance_info);
+        let throughput_target = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
         ClientConfig {
@@ -775,7 +775,7 @@ impl CliArgs {
             auth_config: self.auth_config(),
             requester_pays: self.requester_pays,
             expected_bucket_owner: self.expected_bucket_owner.clone(),
-            throughput_target_gbps,
+            throughput_target,
             bind: self.bind.clone(),
             part_config: self.part_config(),
             user_agent,
