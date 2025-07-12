@@ -7,12 +7,15 @@ defaults:
 # ===== Common parameters for all benchmarks =====
 s3_bucket: ???
 application_workers: 1
+iteration: 0
 iterations: 1
 run_time: 30  # Default run time in seconds
 read_part_size: !!null
+region: "us-east-1"
 write_part_size: 16777216  # 16 MiB, to allow for uploads of large files
 object_size_in_gib: 100  # Size of the object to benchmark
-benchmark_type: "fio"
+benchmark_type: "fio" # fio, prefetch, client, client-bp, crt
+s3_keys: !!null 
 
 # Network configuration
 network:
@@ -38,8 +41,8 @@ mountpoint:
   mountpoint_debug_crt: false
 
 # ===== Benchmark-specific configurations =====
-# FIO benchmark configuration
 benchmarks:
+  # FIO benchmark configuration
   fio:
     direct_io: false
     fio_benchmarks:
@@ -47,7 +50,9 @@ benchmarks:
     fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
     fio_io_engine: "psync"
 
-iteration: 0
+  # Prefetch benchmark configuration
+  prefetch:
+    max_memory_target: !!null
 
 hydra:
   help:
@@ -56,12 +61,10 @@ hydra:
   job:
     chdir: true
   sweeper:
+    # Global sweeper params - use this for common parameters across all benchmarks
+    # For specific parameter use sweep params under the specific benchmark type config
     params:
-      # Number of processes that will be interacting with the file.
-      'application_workers': 1, 4, 8, 16, 32, 64, 128, 256
+      'application_workers': 1, 16, 64
       'iteration': "range(${iterations})"
-      # MP/FIOspecific parameters
       'mountpoint.fuse_threads': 16, 32, 64, 128
-      # Configure if application should use Direct IO, skipping the Linux page cache
       'benchmarks.fio.direct_io': false, true
-      'benchmarks.fio.fio_benchmark': "${join:',', ${benchmarks.fio.fio_benchmarks}}"

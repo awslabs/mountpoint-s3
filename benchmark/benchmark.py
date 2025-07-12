@@ -13,6 +13,7 @@ import urllib.request
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 from benchmarks.fio_benchmark import FioBenchmark
+from benchmarks.prefetch_benchmark import PrefetchBenchmark
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 
@@ -177,6 +178,8 @@ def run_experiment(cfg: DictConfig) -> None:
 
     if benchmark_type == "fio":
         benchmark = FioBenchmark(cfg, metadata)
+    elif benchmark_type == "prefetch":
+        benchmark = PrefetchBenchmark(cfg, metadata)
     else:
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
 
