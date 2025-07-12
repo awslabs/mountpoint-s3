@@ -20,7 +20,7 @@ use tracing::{trace, warn};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
-use crate::memory::PagedPool;
+use crate::memory::{BufferKind, PagedPool};
 use crate::object::ObjectId;
 use crate::sync::Mutex;
 
@@ -261,7 +261,9 @@ impl DiskBlock {
 
         let size = header.block_len as usize;
         let data = if let Some(pool) = pool {
-            pool.read_exact(reader, size)?
+            let mut buffer = pool.get_buffer(size, BufferKind::DiskCache);
+            reader.read_exact(buffer.as_mut())?;
+            buffer.into_bytes()
         } else {
             let mut buffer = vec![0u8; size];
             reader.read_exact(&mut buffer)?;
