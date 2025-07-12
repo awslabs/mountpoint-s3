@@ -47,16 +47,18 @@ impl MountpointConfig {
         s3_path: S3Path,
         client: Client,
         runtime: Runtime,
-        memory_pool: Option<PagedPool>,
+        memory_pool: PagedPool,
     ) -> anyhow::Result<FuseSession>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let prefetcher_builder = create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool)?;
+        let prefetcher_builder =
+            create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool.clone())?;
         tracing::trace!(filesystem_config=?self.filesystem_config, "creating file system");
         let fs = S3Filesystem::new(
             client,
             prefetcher_builder,
+            memory_pool,
             runtime,
             &s3_path.bucket_name,
             &s3_path.prefix,
@@ -74,7 +76,7 @@ fn create_prefetcher_builder<Client>(
     data_cache_config: DataCacheConfig,
     client: &Client,
     runtime: &Runtime,
-    memory_pool: Option<PagedPool>,
+    memory_pool: PagedPool,
 ) -> anyhow::Result<PrefetcherBuilder<Client>>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
