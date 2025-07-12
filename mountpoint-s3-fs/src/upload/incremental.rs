@@ -1,9 +1,9 @@
 //! This module implements an upload pipeline that allows appending to existing objects.
 
 use std::fmt::Debug;
-use std::mem;
 
 use async_channel::{Receiver, Sender, bounded, unbounded};
+use bytes::Bytes;
 use futures::future::RemoteHandle;
 use futures::task::SpawnExt as _;
 use mountpoint_s3_client::ObjectClient;
@@ -16,6 +16,7 @@ use tracing::{Instrument, debug_span, trace};
 use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime, result_channel};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
+use crate::memory::{BufferKind, BufferMut, PagedPool};
 use crate::sync::Arc;
 
 use super::hasher::ChecksumHasher;
@@ -30,7 +31,7 @@ use super::{ChecksumHasherError, UploadError};
 #[derive(Debug)]
 pub struct AppendUploadRequest<Client: ObjectClient> {
     /// The current buffer, initialized lazily on write.
-    buffer: Option<UploadBuffer<Client>>,
+    buffer: Option<UploadBuffer>,
     /// The current offset.
     offset: u64,
     buffer_size: usize,
@@ -59,11 +60,12 @@ where
         runtime: &Runtime,
         client: Client,
         buffer_size: usize,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        pool: PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
         let offset = params.initial_offset;
-        let upload_queue = AppendUploadQueue::new(runtime, client, mem_limiter, params);
+        let upload_queue = AppendUploadQueue::new(runtime, client, pool, mem_limiter, params);
         Self {
             buffer: None,
             upload_queue,
@@ -140,10 +142,11 @@ where
 #[derive(Debug)]
 struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for sending buffers to be appended to the object.
-    request_sender: Sender<UploadBuffer<Client>>,
+    request_sender: Sender<UploadBuffer>,
     /// Channel handle for receiving the response of S3 requests.
     response_receiver: Receiver<Result<PutObjectResult, UploadError<Client::ClientError>>>,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    pool: PagedPool,
+    mem_limiter: Arc<MemoryLimiter>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
     checksum_algorithm: RemoteResult<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>,
@@ -160,7 +163,8 @@ where
     pub fn new(
         runtime: &Runtime,
         client: Client,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        pool: PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
@@ -189,6 +193,7 @@ where
             response_receiver,
             last_known_result: None,
             requests_in_queue: 0,
+            pool,
             mem_limiter,
             checksum_algorithm,
             _task_handle: task_handle,
@@ -196,7 +201,7 @@ where
     }
 
     // Push given bytes with its checksum to the upload queue
-    pub async fn push(&mut self, buffer: UploadBuffer<Client>) -> Result<(), UploadError<Client::ClientError>> {
+    pub async fn push(&mut self, buffer: UploadBuffer) -> Result<(), UploadError<Client::ClientError>> {
         if let Err(_send_error) = self.request_sender.send(buffer).await {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
@@ -227,14 +232,11 @@ where
         Ok(self.last_known_result.take())
     }
 
-    pub async fn get_buffer(
-        &mut self,
-        capacity: usize,
-    ) -> Result<UploadBuffer<Client>, UploadError<Client::ClientError>> {
+    pub async fn get_buffer(&mut self, capacity: usize) -> Result<UploadBuffer, UploadError<Client::ClientError>> {
         let checksum_algorithm = self.checksum_algorithm.get_mut().await?.unwrap().clone();
 
         while self.requests_in_queue > 0 {
-            match UploadBuffer::try_new(capacity, &checksum_algorithm, self.mem_limiter.clone())? {
+            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, self.mem_limiter.clone())? {
                 Some(buffer) => return Ok(buffer),
                 None => {
                     // wait for requests in the queue to complete before trying to reserve memory again
@@ -249,6 +251,7 @@ where
         Ok(UploadBuffer::new(
             capacity,
             &checksum_algorithm,
+            &self.pool,
             self.mem_limiter.clone(),
         )?)
     }
@@ -302,7 +305,7 @@ where
 async fn run_append_loop<Client>(
     client: Client,
     params: AppendUploadQueueParams,
-    request_receiver: Receiver<UploadBuffer<Client>>,
+    request_receiver: Receiver<UploadBuffer>,
     response_sender: Sender<Result<PutObjectResult, UploadError<Client::ClientError>>>,
 ) where
     Client: ObjectClient + Send + Sync + 'static,
@@ -345,7 +348,7 @@ async fn append<Client: ObjectClient>(
     client: &Client,
     bucket: &str,
     key: &str,
-    buffer: UploadBuffer<Client>,
+    buffer: UploadBuffer,
     offset: u64,
     etag: Option<ETag>,
     server_side_encryption: ServerSideEncryption,
@@ -370,45 +373,43 @@ async fn append<Client: ObjectClient>(
 }
 
 #[derive(Debug)]
-struct UploadBuffer<Client: ObjectClient> {
-    data: Vec<u8>,
+struct UploadBuffer {
+    data: ReservedBuffer,
     // Running checksum for the data.
     hasher: ChecksumHasher,
-    capacity: usize,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
 }
 
-impl<Client: ObjectClient> UploadBuffer<Client> {
+impl UploadBuffer {
     /// Force creating a new buffer regardless of available memory
     fn new(
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        pool: &PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
     ) -> Result<Self, ChecksumHasherError> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
         mem_limiter.reserve(BufferArea::Upload, capacity as u64);
-        Ok(Self {
-            data: Vec::with_capacity(capacity),
-            hasher,
-            capacity,
+        let data = ReservedBuffer {
+            buffer: pool.get_buffer_mut(capacity, BufferKind::Upload),
             mem_limiter,
-        })
+        };
+        Ok(Self { data, hasher })
     }
 
     /// Try creating a new buffer, return `None` if unable to reserve memory for a buffer with the given capacity
     fn try_new(
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        pool: &PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
     ) -> Result<Option<Self>, ChecksumHasherError> {
-        let hasher = ChecksumHasher::new(checksum_algorithm)?;
         if mem_limiter.try_reserve(BufferArea::Upload, capacity as u64) {
-            Ok(Some(Self {
-                data: Vec::with_capacity(capacity),
-                hasher,
-                capacity,
+            let hasher = ChecksumHasher::new(checksum_algorithm)?;
+            let data = ReservedBuffer {
+                buffer: pool.get_buffer_mut(capacity, BufferKind::Upload),
                 mem_limiter,
-            }))
+            };
+            Ok(Some(Self { data, hasher }))
         } else {
             Ok(None)
         }
@@ -416,32 +417,43 @@ impl<Client: ObjectClient> UploadBuffer<Client> {
 
     /// Write a slice to the buffer. The slice will be trimmed to fit into the buffer,
     /// remaining slice is returned back to the caller.
-    fn write<'a>(&mut self, slice: &'a [u8]) -> Result<&'a [u8], ChecksumHasherError> {
-        let available_cap = self.capacity - self.data.len();
-        let (left, right) = slice.split_at(available_cap.min(slice.len()));
-        self.data.extend_from_slice(left);
-        self.hasher.update(left)?;
-        Ok(right)
+    fn write<'a>(&mut self, mut slice: &'a [u8]) -> Result<&'a [u8], ChecksumHasherError> {
+        let remaining = self.data.buffer.append_from_slice(&mut slice);
+        self.hasher.update(slice)?;
+        Ok(remaining)
     }
 
     fn is_full(&self) -> bool {
-        self.data.len() == self.capacity
+        self.data.buffer.is_full()
     }
 
     fn len(&self) -> usize {
-        self.data.len()
+        self.data.buffer.len()
     }
 
-    fn freeze(mut self) -> Result<(Box<[u8]>, Option<UploadChecksum>), ChecksumHasherError> {
-        let bytes = mem::take(&mut self.data).into_boxed_slice();
-        let checksum = mem::take(&mut self.hasher);
-        Ok((bytes, checksum.finalize()?))
+    fn freeze(self) -> Result<(Bytes, Option<UploadChecksum>), ChecksumHasherError> {
+        let checksum = self.hasher.finalize()?;
+        let bytes = Bytes::from_owner(self.data);
+        Ok((bytes, checksum))
     }
 }
 
-impl<Client: ObjectClient> Drop for UploadBuffer<Client> {
+#[derive(Debug)]
+struct ReservedBuffer {
+    buffer: BufferMut,
+    mem_limiter: Arc<MemoryLimiter>,
+}
+
+impl Drop for ReservedBuffer {
     fn drop(&mut self) {
-        self.mem_limiter.release(BufferArea::Upload, self.capacity as u64);
+        self.mem_limiter
+            .release(BufferArea::Upload, self.buffer.capacity() as u64);
+    }
+}
+
+impl AsRef<[u8]> for ReservedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        self.buffer.as_ref()
     }
 }
 
@@ -450,8 +462,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+    use crate::memory::PagedPool;
 
-    use super::super::Uploader;
+    use super::super::{Uploader, UploaderConfig};
     use super::*;
 
     use futures::executor::ThreadPool;
@@ -470,16 +483,17 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
+        let pool = PagedPool::new([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,
             runtime,
+            pool,
             mem_limiter.into(),
-            None,
-            server_side_encryption.unwrap_or_default(),
-            buffer_size,
-            default_checksum_algorithm,
+            UploaderConfig::new(buffer_size)
+                .server_side_encryption(server_side_encryption.unwrap_or_default())
+                .default_checksum_algorithm(default_checksum_algorithm),
         )
     }
 
@@ -525,8 +539,8 @@ mod tests {
 
         // The buffer should be updated
         let buffer = upload_request.buffer.as_ref().unwrap();
-        assert_eq!(buffer_size, buffer.data.capacity());
-        assert_eq!(&append_data, &buffer.data[..]);
+        assert_eq!(buffer_size, buffer.data.buffer.capacity());
+        assert_eq!(&append_data, &buffer.data.as_ref()[..buffer.len()]);
 
         // Write more data to make the buffer full
         let append_data = [0xab; 128];
@@ -593,7 +607,7 @@ mod tests {
             .await
             .expect("write should succeed") as u64;
         let buffer = upload_request.buffer.as_ref().unwrap();
-        assert!(buffer.data.len() < buffer_size);
+        assert!(buffer.len() < buffer_size);
 
         // Write more data and verify buffer length
         let append_data = [0xab; 256];
@@ -603,7 +617,7 @@ mod tests {
             .await
             .expect("write should succeed");
         let buffer = upload_request.buffer.as_ref().unwrap();
-        assert!(buffer.data.len() < buffer_size);
+        assert!(buffer.len() < buffer_size);
 
         // Wait for the upload to complete
         upload_request
@@ -1120,17 +1134,16 @@ mod tests {
         let key = "hello";
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
+        let pool = PagedPool::new([32]);
 
         // Use a memory limiter with 0 limit
-        let mem_limiter = MemoryLimiter::new(client.clone(), 0);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), 0);
         let uploader = Uploader::new(
             client.clone(),
             Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
+            pool,
             mem_limiter.into(),
-            None,
-            Default::default(),
-            part_size,
-            None,
+            UploaderConfig::new(part_size),
         );
 
         let mut offset = 0;

@@ -334,9 +334,13 @@ impl DiskDataCache {
     }
 
     /// Create a new instance of an [DiskDataCache] with the specified configuration.
-    pub fn new_with_pool(config: DiskDataCacheConfig, pool: Option<PagedPool>) -> Self {
+    pub fn new_with_pool(config: DiskDataCacheConfig, pool: PagedPool) -> Self {
         let usage = usage_info(&config.limit);
-        DiskDataCache { config, usage, pool }
+        DiskDataCache {
+            config,
+            usage,
+            pool: Some(pool),
+        }
     }
 
     /// Get the relative path for the given block.

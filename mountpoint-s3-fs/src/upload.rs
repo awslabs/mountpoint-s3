@@ -10,6 +10,7 @@ use tracing::error;
 use crate::async_util::Runtime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::sync::Arc;
 
 mod atomic;
@@ -28,7 +29,8 @@ pub use incremental::AppendUploadRequest;
 pub struct Uploader<Client: ObjectClient> {
     client: Client,
     runtime: Runtime,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    pool: PagedPool,
+    mem_limiter: Arc<MemoryLimiter>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
     buffer_size: usize,
@@ -65,6 +67,40 @@ pub enum UploadError<E> {
     ObjectTooBig { maximum_size: usize },
 }
 
+#[derive(Debug)]
+pub struct UploaderConfig {
+    storage_class: Option<String>,
+    server_side_encryption: ServerSideEncryption,
+    buffer_size: usize,
+    default_checksum_algorithm: Option<ChecksumAlgorithm>,
+}
+
+impl UploaderConfig {
+    pub fn new(buffer_size: usize) -> Self {
+        Self {
+            storage_class: None,
+            server_side_encryption: Default::default(),
+            buffer_size,
+            default_checksum_algorithm: None,
+        }
+    }
+
+    pub fn storage_class(mut self, storage_class: Option<String>) -> Self {
+        self.storage_class = storage_class;
+        self
+    }
+
+    pub fn server_side_encryption(mut self, server_side_encryption: ServerSideEncryption) -> Self {
+        self.server_side_encryption = server_side_encryption;
+        self
+    }
+
+    pub fn default_checksum_algorithm(mut self, default_checksum_algorithm: Option<ChecksumAlgorithm>) -> Self {
+        self.default_checksum_algorithm = default_checksum_algorithm;
+        self
+    }
+}
+
 impl<Client> Uploader<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -73,20 +109,19 @@ where
     pub fn new(
         client: Client,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
-        storage_class: Option<String>,
-        server_side_encryption: ServerSideEncryption,
-        buffer_size: usize,
-        default_checksum_algorithm: Option<ChecksumAlgorithm>,
+        pool: PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
+        config: UploaderConfig,
     ) -> Self {
         Self {
             client,
             runtime,
+            pool,
             mem_limiter,
-            storage_class,
-            server_side_encryption,
-            buffer_size,
-            default_checksum_algorithm,
+            storage_class: config.storage_class,
+            server_side_encryption: config.server_side_encryption,
+            buffer_size: config.buffer_size,
+            default_checksum_algorithm: config.default_checksum_algorithm,
         }
     }
 
@@ -127,6 +162,7 @@ where
             &self.runtime,
             self.client.clone(),
             self.buffer_size,
+            self.pool.clone(),
             self.mem_limiter.clone(),
             params,
         )
