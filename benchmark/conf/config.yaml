@@ -42,19 +42,24 @@ mountpoint:
 
 # ===== Benchmark-specific configurations =====
 benchmarks:
-  # FIO benchmark configuration
   fio:
     direct_io: false
     fio_benchmarks:
       - sequential_read
     fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
     fio_io_engine: "psync"
-
-  # Prefetch benchmark configuration
+  
   prefetch:
     max_memory_target: !!null
+  
   crt:
     crt_benchmarks_path: !!null
+
+  client:  
+    # None 
+
+  client_backpressure:
+    read_window_size: !!null 
 
 hydra:
   help:
@@ -71,3 +76,4 @@ hydra:
       'mountpoint.fuse_threads': 16, 32, 64, 128
       'benchmarks.fio.direct_io': false, true
       # 'benchmarks.prefetch.max_memory_target': !!null, 1073741824, 2147483648  # null, 1GB, 2GB
+      #'benchmarks.client_backpressure.read_window_size': 8388608, 2147483648

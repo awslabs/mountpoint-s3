@@ -21,9 +21,9 @@ class CrtBenchmark(BaseBenchmark):
         self.common_config = self.config_parser.get_common_config()
         self.crt_config = self.config_parser.get_crt_config()
 
-        self.crt_benchmarks_path = self.crt_config.get('crt_benchmarks_path')
+        self.crt_benchmarks_path = self.crt_config['crt_benchmarks_path']
         if self.crt_benchmarks_path is None:
-            raise ValueError("crt_benchmarks_path is required")
+            raise ValueError("crt_benchmarks_path is required. Please populate benchmarks.crt.crt_benchmarks_path")
 
         self.crt_benchmark_runner = f"{self.crt_benchmarks_path}/build/c/install/bin/s3-benchrunner-c"
 
@@ -77,13 +77,12 @@ class CrtBenchmark(BaseBenchmark):
             f"{self.crt_benchmarks_path}/build",
         ]
 
-        if not os.path.exists(self.crt_benchmark_runner):
-            try:
-                subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
-                assert os.path.exists(self.crt_benchmark_runner)
-                log.info("CRT build completed successfully.")
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError("CRT build failed") from e
+        log.info(f"Running CRT build with args: {subprocess_args}")
+        try:
+            subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
+            log.info("CRT build completed successfully.")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError("CRT build failed") from e
 
     def run_benchmark(self) -> Dict[str, Any]:
         region = self.common_config.get('region')
@@ -102,6 +101,7 @@ class CrtBenchmark(BaseBenchmark):
         if network_interfaces := self.common_config['network_interfaces']:
             subprocess_args.extend(["--nic", ",".join(network_interfaces)])
 
+        log.info(f"Running CRT benchmark: {subprocess_args}")
         try:
             result = subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
             log.info("CRT benchmark completed successfully")
@@ -109,15 +109,15 @@ class CrtBenchmark(BaseBenchmark):
             log.error(f"Error running CRT benchmark: {e}")
             raise RuntimeError("CRT benchmark failed") from e
 
-        metrics = self.parse_benchmark_output(result.stdout)
-        return {"success": True, "metrics": metrics}
+        self.parse_benchmark_output(result.stdout)
 
     def parse_benchmark_output(self, output):
         try:
             # Parse the output and extract the results
             # Parse single run result
             # Run:1 Secs:56.572429 Gb/s:60.735838
-            # FIXME: patch CRT benchmarks to emit a json file with results
+            # FIXME: Ideally, we should patch CRT benchmarks to emit bytes downloads
+            # and a json file with results
             run_pattern = r"Run:(\d+)\s+Secs:(\d+\.\d+)\s+Gb/s:(\d+\.\d+)"
             match = re.search(run_pattern, output)
             if match:
@@ -135,8 +135,9 @@ class CrtBenchmark(BaseBenchmark):
             log.error(f"Error parsing CRT benchmark output: {e}")
             raise RuntimeError("CRT benchmark failed") from e
 
-    def post_process(self) -> Dict[str, Any]:
+    def post_process(self) -> None:
         try:
+            log.info(f"Remove CRT benchmark configuration: {self.crt_cfg_file}")
             os.remove(self.crt_cfg_file)
         except Exception:
             pass
