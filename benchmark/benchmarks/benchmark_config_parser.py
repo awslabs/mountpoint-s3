@@ -71,3 +71,9 @@ class BenchmarkConfigParser:
         return {
             'max_memory_target': getattr(prefetch_cfg, 'max_memory_target', None),
         }
+
+    def get_crt_config(self) -> Dict[str, Any]:
+        crt_cfg = self.cfg.benchmarks.crt
+        return {
+            'crt_benchmarks_path': getattr(crt_cfg, 'crt_benchmarks_path'),
+        }

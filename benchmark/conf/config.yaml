@@ -15,7 +15,7 @@ region: "us-east-1"
 write_part_size: 16777216  # 16 MiB, to allow for uploads of large files
 object_size_in_gib: 100  # Size of the object to benchmark
 benchmark_type: "fio" # fio, prefetch, client, client-bp, crt
-s3_keys: !!null 
+s3_keys: !!null
 
 # Network configuration
 network:
@@ -53,6 +53,8 @@ benchmarks:
   # Prefetch benchmark configuration
   prefetch:
     max_memory_target: !!null
+  crt:
+    crt_benchmarks_path: !!null
 
 hydra:
   help:
@@ -68,3 +70,4 @@ hydra:
       'iteration': "range(${iterations})"
       'mountpoint.fuse_threads': 16, 32, 64, 128
       'benchmarks.fio.direct_io': false, true
+      # 'benchmarks.prefetch.max_memory_target': !!null, 1073741824, 2147483648  # null, 1GB, 2GB

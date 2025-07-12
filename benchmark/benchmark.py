@@ -12,6 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 import urllib.request
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
+from benchmarks.crt_benchmark import CrtBenchmark
 from benchmarks.fio_benchmark import FioBenchmark
 from benchmarks.prefetch_benchmark import PrefetchBenchmark
 
@@ -180,6 +181,8 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark = FioBenchmark(cfg, metadata)
     elif benchmark_type == "prefetch":
         benchmark = PrefetchBenchmark(cfg, metadata)
+    elif benchmark_type == "crt":
+        benchmark = CrtBenchmark(cfg, metadata)
     else:
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
 
