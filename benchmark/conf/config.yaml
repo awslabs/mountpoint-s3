@@ -59,7 +59,7 @@ benchmarks:
     # None 
 
   client_backpressure:
-    read_window_size: !!null 
+    read_window_size: !!null #2147483648 
 
 hydra:
   help:
@@ -71,9 +71,9 @@ hydra:
     # Global sweeper params - use this for common parameters across all benchmarks
     # For specific parameter use sweep params under the specific benchmark type config
     params:
-      'application_workers': 1, 16, 64
+      'application_workers': 1, 4, 16, 64, 128
       'iteration': "range(${iterations})"
-      'mountpoint.fuse_threads': 16, 32, 64, 128
+      'mountpoint.fuse_threads': 1, 16, 64
       'benchmarks.fio.direct_io': false, true
       # 'benchmarks.prefetch.max_memory_target': !!null, 1073741824, 2147483648  # null, 1GB, 2GB
       #'benchmarks.client_backpressure.read_window_size': 8388608, 2147483648
