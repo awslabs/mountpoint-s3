@@ -1,8 +1,10 @@
 ## Unreleased
 
+## v0.17.1 (July 17, 2025)
+
 * Fix a race condition in the internal memory pool that in some cases could result in a deadlock.
-  ([#1515](https://github.com/awslabs/mountpoint-s3/issues/1515))
-  ([#1520](https://github.com/awslabs/mountpoint-s3/issues/1520))
+  ([#1515](https://github.com/awslabs/mountpoint-s3/pull/1515))
+  ([#1520](https://github.com/awslabs/mountpoint-s3/pull/1520))
   ([awslabs/aws-c-s3#533](https://github.com/awslabs/aws-c-s3/pull/533))
   ([awslabs/aws-c-s3#536](https://github.com/awslabs/aws-c-s3/pull/536))
 
