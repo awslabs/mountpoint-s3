@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Update to latest aws-c-s3 dependency.
+
 ## v0.14.0 (Jun 27, 2025)
 
 * Include bindings for the new `s3_buffer_pool` API in `aws-c-s3`. ([#1472](https://github.com/awslabs/mountpoint-s3/pull/1472))
