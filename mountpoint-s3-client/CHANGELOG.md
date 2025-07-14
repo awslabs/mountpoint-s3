@@ -1,6 +1,9 @@
 ## Unreleased (v0.18.0)
 
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+* Fix a race condition in the internal memory pool that in some cases could result in a deadlock.
+  ([#1515](https://github.com/awslabs/mountpoint-s3/issues/1515))
+  ([awslabs/aws-c-s3#533](https://github.com/awslabs/aws-c-s3/pull/533))
 
 ## v0.17.0 (Jun 27, 2025)
 
