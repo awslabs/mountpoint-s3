@@ -20,55 +20,52 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::s3::config::BucketNameOrS3Uri;
+use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path, TargetThroughputSetting};
 
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
     mountpoint_s3::run(create_mock_client, cli_args)
 }
 
-fn create_mock_client(args: &CliArgs) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
-    let bucket_name: String = match &args.bucket_name {
-        BucketNameOrS3Uri::BucketName(bucket_name) => bucket_name.clone().into(),
-        BucketNameOrS3Uri::S3Uri(_) => panic!("mock-mount-s3 bucket names do not support S3 URIs"),
-    };
-
+pub fn create_mock_client(
+    client_config: ClientConfig,
+    s3_path: &S3Path,
+    personality: Option<S3Personality>,
+) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
     // An extra little safety thing to make sure we can distinguish the real mount-s3 binary and
     // this one. Buckets starting with "sthree-" are always invalid against real S3:
     // https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
     anyhow::ensure!(
-        &bucket_name.starts_with("sthree-"),
+        &s3_path.bucket_name.starts_with("sthree-"),
         "mock-mount-s3 bucket names must start with `sthree-`"
     );
 
-    tracing::warn!("using mock client");
-
     // TODO: Actually update the mock client to support different part sizes
     let part_size = {
-        if args.read_part_size.is_some() || args.write_part_size.is_some() {
+        if client_config.part_config.read_size_bytes != client_config.part_config.write_size_bytes {
             tracing::warn!("mock client does not support separate part sizes for reading and writing, ignoring");
         }
-        args.part_size
+        client_config.part_config.read_size_bytes
     };
 
-    let s3_personality = if let Some(bucket_type) = &args.bucket_type {
-        bucket_type.to_personality()
-    } else {
-        S3Personality::Standard
-    };
+    let s3_personality = personality.unwrap_or(S3Personality::Standard);
 
     let config = MockClient::config()
-        .bucket(&bucket_name)
+        .bucket(&s3_path.bucket_name)
         .part_size(part_size as usize)
         .unordered_list_seed(None)
         .enable_backpressure(true)
         .initial_read_window_size(1024 * 1024 + 128 * 1024) // matching real MP
         .enable_rename(s3_personality.supports_rename_object());
 
-    let client = if let Some(max_throughput_gbps) = args.maximum_throughput_gbps {
+    let client = if let TargetThroughputSetting::User {
+        gbps: max_throughput_gbps,
+    } = client_config.throughput_target
+    {
         tracing::info!("mock client limited to {max_throughput_gbps} Gb/s download throughput");
-        ThroughputMockClient::new(config, max_throughput_gbps as f64)
+        ThroughputMockClient::new(config, max_throughput_gbps)
     } else {
+        tracing::info!("mock client with no throughput limit");
         ThroughputMockClient::new_unlimited_throughput(config)
     };
 
