@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Send issue notification to Slack
         if: github.event_name == 'issues'
-        uses: slackapi/slack-github-action@v2.1.0
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_ISSUE }}
           webhook-type: incoming-webhook
@@ -24,7 +24,7 @@ jobs:
 
       - name: Send pull request notification to Slack
         if: github.event_name == 'pull_request_target'
-        uses: slackapi/slack-github-action@v2.1.0
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_PR }}
           webhook-type: incoming-webhook
