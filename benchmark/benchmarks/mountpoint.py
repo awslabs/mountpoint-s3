@@ -15,14 +15,12 @@ MP_LOGS_DIRECTORY = "mp_logs/"
 
 
 def cleanup_mp(mount_dir):
-    try:
-        if mount_dir is not None:
-            log.info(f"Cleaning up {mount_dir}")
-            subprocess.check_output(["umount", mount_dir])
-            os.rmdir(mount_dir)
-            os.remove(f"{mount_dir}.pid")
-    except Exception:
-        log.error(f"Error cleaning up Mountpoint at {mount_dir}:", exc_info=True)
+    if mount_dir is not None:
+        log.info(f"Cleaning up {mount_dir}")
+        subprocess.check_output(["umount", mount_dir])
+        os.rmdir(mount_dir)
+        os.remove(f"{mount_dir}.pid")
+    log.error(f"Error cleaning up Mountpoint at {mount_dir}:", exc_info=True)
 
 
 def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
@@ -72,8 +70,6 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
         f"--log-directory={MP_LOGS_DIRECTORY}",
     ]
 
-    mp_env = {}
-
     if mp_config['prefix'] is not None:
         subprocess_args.append(f"--prefix={mp_config['prefix']}")
 
@@ -108,6 +104,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
             )
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
+    mp_env = {}
     if mp_config['mountpoint_max_background'] is not None:
         mp_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(mp_config['mountpoint_max_background'])
 
@@ -135,11 +132,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
     subprocess_env.update(mp_env)
     log.debug("Subprocess env: %s", subprocess_env)
 
-    try:
-        output = subprocess.check_output(subprocess_args, env=subprocess_env)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError("Error during mounting") from e
-
+    output = subprocess.check_output(subprocess_args, env=subprocess_env)
     mountpoint_pid = get_mount_s3_pid(subprocess_env["UNSTABLE_MOUNTPOINT_PID_FILE"])
     log.info("Mountpoint pid: %d, output: %s", mountpoint_pid, output.decode("utf-8").strip())
 
@@ -153,18 +146,8 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
 
 
 def get_mount_s3_pid(pid_file: str) -> int:
-    """
-    Get the process ID of the mount-s3 process from the PID file.
-    """
-    try:
-        with open(pid_file, 'r') as f:
-            pid = int(f.read().strip())
+    with open(pid_file, 'r') as f:
+        pid = int(f.read().strip())
 
-        log.debug(f"Read mount-s3 pid: {pid} from file: {pid_file}")
-
-        return pid
-
-    except FileNotFoundError:
-        raise RuntimeError(f"Mountpoint pid file not found: {pid_file}")
-    except Exception as e:
-        raise RuntimeError("Could not determine mountpoint pid") from e
+    log.debug(f"Read mount-s3 pid: {pid} from file: {pid_file}")
+    return pid

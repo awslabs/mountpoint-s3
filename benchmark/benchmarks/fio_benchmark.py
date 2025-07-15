@@ -60,19 +60,14 @@ class FioBenchmark(BaseBenchmark):
         subprocess_env.update(fio_env)
         log.debug("Subproces env: %s; env: %s", subprocess_env)
 
-        try:
-            with Popen(subprocess_args, env=subprocess_env) as process:
-                exit_code = process.wait()
-                if exit_code != 0:
-                    log.error(f"FIO process failed with exit code {exit_code}")
-                    raise CalledProcessError(exit_code, subprocess_args)
+        with Popen(subprocess_args, env=subprocess_env) as process:
+            exit_code = process.wait()
+            if exit_code != 0:
+                log.error(f"FIO process failed with exit code {exit_code}")
+                raise CalledProcessError(exit_code, subprocess_args)
 
-            # Store benchmark results in metadata
-            self.metadata["fio_output_file"] = self.fio_output_filepath
-
-        except Exception as e:
-            log.error(f"Benchmark failed: {e}")
-            raise
+        # Store benchmark results in metadata
+        self.metadata["fio_output_file"] = self.fio_output_filepath
 
     def post_process(self) -> Dict[str, Any]:
         cleanup_mp(self.mount_dir)
