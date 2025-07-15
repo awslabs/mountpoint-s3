@@ -78,6 +78,11 @@ pub fn set_up_client_config(config: S3ClientConfig) -> S3ClientConfig {
     #[cfg(feature = "pool_tests")]
     let config = config.memory_pool(memory_pool::new_for_tests());
 
+    #[cfg(feature = "fs_pool_tests")]
+    let config = config.memory_pool_factory(|options: mountpoint_s3_client::config::MemoryPoolFactoryOptions| {
+        mountpoint_s3_fs::memory::PagedPool::new([options.part_size()])
+    });
+
     config
 }
 
