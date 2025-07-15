@@ -148,6 +148,64 @@ jobs:
       if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
+
+  client-test:
+    name: Client Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, ${{ matrix.pool.name }})
+    runs-on: ${{ matrix.runner.tags }}
+
+    environment: ${{ inputs.environment }}
+    env:
+      features: s3_tests,fips_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
+      packages: --package mountpoint-s3-client --package mountpoint-s3-crt --package mountpoint-s3-crt-sys
+
+    strategy:
+      fail-fast: false
+      matrix:
+        bucket-type:
+        - name: S3
+          feature: 
+        - name: S3 Express One Zone
+          feature: s3express_tests
+        runner:
+        - name: Ubuntu x86
+          tags: [ubuntu-22.04] # GitHub-hosted
+        - name: Amazon Linux arm
+          tags: [self-hosted, linux, arm64]
+        pool:
+        - name: Test Pool
+          feature: pool_tests
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        rustflags: ""
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        # not required for client tests. TODO: make it optional.
+        fuseVersion: 2
+    - name: Build tests
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
+    - name: Run tests
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
+    - name: Save dump files
+      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      run: ./.github/actions/scripts/save-coredump.sh
+
   fstab:
     name: fstab tests (${{ matrix.runner.name }}
     runs-on: ${{ matrix.runner.tags }}
