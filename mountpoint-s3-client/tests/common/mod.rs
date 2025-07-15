@@ -11,7 +11,7 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectResponse};
-use mountpoint_s3_client::{OnTelemetry, S3CrtClient};
+use mountpoint_s3_client::{NewClientError, OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use mountpoint_s3_crt::common::uri::Uri;
@@ -24,6 +24,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
 
 pub mod creds;
+#[cfg(feature = "pool_tests")]
 pub mod memory_pool;
 pub mod tracing_test;
 
@@ -73,9 +74,23 @@ pub fn get_test_kms_key_id() -> String {
     std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
 }
 
+pub fn set_up_client_config(config: S3ClientConfig) -> S3ClientConfig {
+    #[cfg(feature = "pool_tests")]
+    let config = config.memory_pool(memory_pool::new_for_tests());
+
+    config
+}
+
+pub fn create_client_with_config(config: S3ClientConfig) -> Result<S3CrtClient, NewClientError> {
+    S3CrtClient::new(set_up_client_config(config))
+}
+
+pub fn get_test_client_with_config(config: S3ClientConfig) -> S3CrtClient {
+    create_client_with_config(config).expect("could not create test client")
+}
+
 pub fn get_test_client() -> S3CrtClient {
-    S3CrtClient::new(S3ClientConfig::new().endpoint_config(get_test_endpoint_config()))
-        .expect("could not create test client")
+    get_test_client_with_config(S3ClientConfig::new().endpoint_config(get_test_endpoint_config()))
 }
 
 pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Option<usize>) -> S3CrtClient {
@@ -86,14 +101,14 @@ pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Optio
     if let Some(part_size) = part_size {
         config = config.part_size(part_size);
     }
-    S3CrtClient::new(config).expect("could not create test client")
+    get_test_client_with_config(config)
 }
 
 pub fn get_test_client_with_custom_telemetry(telemetry_callback: Arc<dyn OnTelemetry>) -> S3CrtClient {
     let config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .telemetry_callback(telemetry_callback);
-    S3CrtClient::new(config).expect("could not create test client")
+    get_test_client_with_config(config)
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {

@@ -63,7 +63,8 @@ pub mod error_metadata;
 pub use object_client::{ObjectClient, PutObjectRequest};
 
 pub use s3_crt_client::{
-    OnTelemetry, S3CrtClient, S3RequestError, get_object::S3GetObjectResponse, put_object::S3PutObjectRequest,
+    NewClientError, OnTelemetry, S3CrtClient, S3RequestError, get_object::S3GetObjectResponse,
+    put_object::S3PutObjectRequest,
 };
 
 /// Configuration for the S3 client

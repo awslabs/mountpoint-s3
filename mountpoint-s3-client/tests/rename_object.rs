@@ -1,26 +1,24 @@
 #![cfg(feature = "s3express_tests")]
 
-use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{ObjectClientError, RenameObjectError};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_client::types::{
     HeadObjectParams, PutObjectParams, PutObjectSingleParams, RenameObjectParams, RenamePreconditionTypes,
     UploadChecksum,
 };
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient};
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use mountpoint_s3_crt::checksums::crc64nvme;
 use tracing::debug;
 use uuid::Uuid;
 
 pub mod common;
-use common::{get_test_bucket_and_prefix, get_test_endpoint_config};
+use common::{get_test_bucket_and_prefix, get_test_client};
 
 // Test that rename with source matching works as expected
 #[tokio::test]
 async fn simple_rename() {
     let (bucket, prefix) = get_test_bucket_and_prefix("put_append_rename_append_test");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
@@ -53,8 +51,7 @@ async fn simple_rename() {
 #[tokio::test]
 async fn put_append_rename_append_test() {
     let (bucket, prefix) = get_test_bucket_and_prefix("put_append_rename_append_test");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
@@ -110,8 +107,7 @@ async fn put_append_rename_append_test() {
 #[tokio::test]
 async fn rename_destination_does_not_match() {
     let (bucket, prefix) = get_test_bucket_and_prefix("rename_destination_does_not_match");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
@@ -160,8 +156,7 @@ async fn rename_destination_does_not_match() {
 #[tokio::test]
 async fn rename_overwrite_error() {
     let (bucket, prefix) = get_test_bucket_and_prefix("rename_overwrite_error");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
@@ -203,8 +198,7 @@ async fn rename_overwrite_error() {
 #[tokio::test]
 async fn rename_double_error() {
     let (bucket, prefix) = get_test_bucket_and_prefix("rename_double_error");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
@@ -255,8 +249,7 @@ async fn rename_double_error() {
 #[tokio::test]
 async fn rename_source_does_not_match() {
     let (bucket, prefix) = get_test_bucket_and_prefix("rename_source_does_not_match");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
@@ -303,8 +296,7 @@ async fn rename_source_does_not_match() {
 #[tokio::test]
 async fn rename_idempotency_test() {
     let (bucket, prefix) = get_test_bucket_and_prefix("rename_idempotency_test");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let source_key = format!("{prefix}a.txt");
     let dest_key = format!("{prefix}b.txt");
 
