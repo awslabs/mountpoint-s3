@@ -126,7 +126,7 @@ fn run_benchmark(
         iter_results.push(json!({
             "iteration": iteration,
             "bytes": received_size,
-            "duration_seconds": elapsed.as_secs_f64(),
+            "elapsed_seconds": elapsed.as_secs_f64(),
         }));
 
         iteration += 1;
@@ -146,7 +146,8 @@ fn run_benchmark(
         let results = json!({
             "summary": {
                 "total_bytes": total_bytes,
-                "duration_seconds": total_elapsed.as_secs_f64(),
+                "total_elapsed_seconds": total_elapsed.as_secs_f64(),
+                "max_duration_seconds": max_duration,
                 "iterations": iter_results.len(),
             },
             "iterations": iter_results
@@ -182,6 +183,12 @@ enum Client {
         #[arg(help = "Mock object size")]
         object_size: u64,
     },
+}
+
+fn parse_duration(arg: &str) -> Result<Duration, String> {
+    arg.parse::<u64>()
+        .map(Duration::from_secs)
+        .map_err(|e| format!("Invalid duration: {e}"))
 }
 
 #[derive(Parser)]
@@ -220,24 +227,17 @@ struct CliArgs {
         long,
         help = "Maximum duration (in seconds) to run the benchmark",
         value_name = "SECONDS",
-        value_parser = |arg: &str| -> Result<Duration, String> {
-            arg.parse::<u64>()
-            .map(Duration::from_secs)
-            .map_err(|e| format!("Invalid duration: {e}"))
-        }
+        value_parser = parse_duration,
     )]
     max_duration: Option<Duration>,
 }
 
-fn create_s3_client_config(region: &str, args: &CliArgs, bind: &Option<Vec<String>>) -> S3ClientConfig {
+fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S3ClientConfig {
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
 
     config = config.throughput_target_gbps(args.throughput_target_gbps);
     config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
-
-    if let Some(nics) = bind {
-        config = config.network_interface_names(nics.to_vec());
-    }
+    config = config.network_interface_names(nics);
 
     config = config.part_size(args.part_size);
 
@@ -264,7 +264,8 @@ fn main() {
             ref region,
             ref bind,
         } => {
-            let config = create_s3_client_config(region, &args, bind);
+            let network_interfaces = bind.clone().unwrap_or_default();
+            let config = create_s3_client_config(region, &args, network_interfaces);
             let client = S3CrtClient::new(config).expect("couldn't create client");
 
             run_benchmark(
