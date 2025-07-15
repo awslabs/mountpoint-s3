@@ -56,6 +56,9 @@ tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
 mountpoint-s3-client = { path = ".", features = ["mock"] }
 
+# Required to run the tests using the custom memory pool from the fs crate.
+mountpoint-s3-fs = { path = "../mountpoint-s3-fs" }
+
 [build-dependencies]
 built = { version = "0.8.0", features = ["git2"] }
 
@@ -66,6 +69,7 @@ s3_tests = []
 fips_tests = []
 s3express_tests = []
 pool_tests = []
+fs_pool_tests = []
 
 [lib]
 doctest = false
