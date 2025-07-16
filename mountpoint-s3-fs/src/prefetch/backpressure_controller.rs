@@ -38,6 +38,8 @@ pub struct BackpressureConfig {
 pub struct BackpressureController<Client: ObjectClient> {
     /// Sender for the [BackpressureLimiter] to receive size increments from the controller.
     read_window_updater: Sender<usize>,
+    /// Number of this file handle
+    file_handle_no: u64,
     /// Amount by which the producer should be producing data ahead of [Self::next_read_offset].
     preferred_read_window_size: usize,
     min_read_window_size: usize,
@@ -84,6 +86,7 @@ pub struct BackpressureLimiter {
 pub fn new_backpressure_controller<Client: ObjectClient>(
     config: BackpressureConfig,
     mem_limiter: Arc<MemoryLimiter<Client>>,
+    file_handle_no: u64,
 ) -> (BackpressureController<Client>, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
@@ -103,6 +106,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
         mem_limiter,
+        file_handle_no,
     };
 
     let limiter = BackpressureLimiter {
@@ -175,7 +179,11 @@ impl<Client: ObjectClient> BackpressureController<Client> {
         let next_window_end_offset = prev_window_end_offset + len as u64;
         trace!(
             next_read_offset = self.next_read_offset,
-            prev_window_end_offset, next_window_end_offset, len, "incrementing read window",
+            prev_window_end_offset,
+            next_window_end_offset,
+            len,
+            fh = self.file_handle_no,
+            "incrementing read window"
         );
 
         // This should not block since the channel is unbounded
@@ -446,6 +454,6 @@ mod tests {
             client,
             backpressure_config.max_read_window_size as u64,
         ));
-        new_backpressure_controller(backpressure_config, mem_limiter.clone())
+        new_backpressure_controller(backpressure_config, mem_limiter.clone(), 1)
     }
 }

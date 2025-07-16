@@ -385,6 +385,7 @@ where
             InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
             InodeKind::File => (),
         }
+        let fh = self.next_handle();
 
         let state = if flags.contains(OpenFlags::O_RDWR) {
             if !lookup.is_remote()
@@ -398,12 +399,12 @@ where
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
-                FileHandleState::new_read_handle(&lookup, self).await?
+                FileHandleState::new_read_handle(&lookup, self, fh).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
             FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
         } else {
-            FileHandleState::new_read_handle(&lookup, self).await?
+            FileHandleState::new_read_handle(&lookup, self, fh).await?
         };
 
         let handle = FileHandle {
@@ -412,7 +413,6 @@ where
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
-        let fh = self.next_handle();
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
