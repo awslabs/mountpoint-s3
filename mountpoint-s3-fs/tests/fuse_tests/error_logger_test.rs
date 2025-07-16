@@ -24,7 +24,7 @@ fn test_manifest_error_logged() {
         fuse_request_id: Some(0),
         error_code: MOUNTPOINT_ERROR_INTERNAL.to_string(),
         errno: Some(5),
-        internal_message: Some("inode error: manifest error: invalid database row: key".to_string()),
+        internal_message: Some("inode error: manifest error: invalid database row with id 3".to_string()),
         s3_bucket_name: None,
         s3_object_key: None,
         s3_error_http_status: None,
@@ -33,19 +33,19 @@ fn test_manifest_error_logged() {
         version: VERSION.to_string(),
     }];
 
-    // create a fuse session with a manifest containing a corrupted entry
+    // create a fuse session with a manifest containing a corrupted entry (no etag)
     let (tmp_dir, manifest_db_path) =
         create_dummy_manifest::<&str>(&[], 0, "", "test_bucket").expect("manifest must be created");
     insert_entries(
         &manifest_db_path,
         &[DbEntry {
-            id: 2,
-            full_key: "key".to_string(),
-            name_offset: Some(0),
-            parent_id: Some(1),
+            id: 3,
+            parent_id: 1,
+            channel_id: 0,
+            parent_partial_key: Some("".to_string()),
+            name: "key".to_string(),
             etag: None,
             size: Some(1),
-            channel_id: Some(0),
         }],
     )
     .expect("insert invalid row must succeed");

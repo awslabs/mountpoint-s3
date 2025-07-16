@@ -12,7 +12,7 @@ pub mod fuse;
 #[cfg(feature = "s3_tests")]
 pub mod s3;
 
-#[cfg(feature = "manifest")]
+#[cfg(all(test, feature = "manifest"))]
 pub mod manifest;
 
 use aws_credential_types::Credentials;

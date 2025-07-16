@@ -4,7 +4,7 @@ use crate::common::manifest::{DUMMY_ETAG, create_dummy_manifest, create_manifest
 use crate::common::s3::{
     get_second_standard_test_bucket, get_test_bucket_and_prefix, get_test_prefix, get_test_region, get_test_sdk_client,
 };
-use mountpoint_s3_fs::manifest::{ChannelManifest, DbEntry, Manifest};
+use mountpoint_s3_fs::manifest::{ChannelManifest, DbEntry, InputManifestEntry, Manifest};
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::config::S3Path;
 use std::fs::{self, metadata};
@@ -71,14 +71,7 @@ fn test_readdir_manifest_multiple_buckets() {
     let bucket2_files = vec!["dir5/f.txt", "dir6/dir7/g.txt", "dir6/dir7/h.txt", "i.txt"];
     let bucket3_files = vec!["j.txt", "dir8/k.txt"];
 
-    let create_entry = |key: &&str| {
-        Ok(DbEntry {
-            full_key: key.to_string(),
-            etag: Some(DUMMY_ETAG.to_string()),
-            size: Some(1024),
-            ..Default::default()
-        })
-    };
+    let create_entry = |key: &&str| Ok(InputManifestEntry::new(key, DUMMY_ETAG, 1024).unwrap());
     // Create manifest with 3 channels pointing to different buckets
     let bucket_files = [&bucket1_files, &bucket2_files, &bucket3_files];
     let channel_manifests: Vec<_> = bucket_files
@@ -161,13 +154,13 @@ fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize
     insert_entries(
         &db_path,
         &[DbEntry {
-            id: 2,
-            full_key: key.to_string(),
-            name_offset: Some(0),
-            parent_id: Some(1),
+            id: 3,
+            parent_id: 1,
+            channel_id: 0,
+            parent_partial_key: Some("".to_string()),
+            name: key.to_string(),
             etag: etag.map(String::from),
             size,
-            channel_id: Some(0),
         }],
     )
     .expect("insert invalid row must succeed");
@@ -215,13 +208,13 @@ fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>
     insert_entries(
         &db_path,
         &[DbEntry {
-            id: 2,
-            full_key: key.to_string(),
-            name_offset: Some(0),
-            parent_id: Some(1),
+            id: 3,
+            parent_id: 1,
+            channel_id: 0,
+            parent_partial_key: Some("".to_string()),
+            name: key.to_string(),
             etag: etag.map(String::from),
             size,
-            channel_id: Some(0),
         }],
     )
     .expect("insert invalid row must succeed");
@@ -252,12 +245,12 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     .await;
     put_object(&sdk_client, &bucket, &prefix, invisible_object.0, invisible_object.1).await;
 
-    let entries = [Ok(DbEntry {
-        full_key: visible_object.0.to_string(), // key does not contain the prefix
-        etag: Some(visible_object_etag),
-        size: Some(visible_object.1.len()),
-        ..Default::default()
-    })]
+    let entries = [Ok(InputManifestEntry::new(
+        visible_object.0, // key does not contain the prefix
+        &visible_object_etag,
+        visible_object.1.len(),
+    )
+    .unwrap())]
     .into_iter();
     let channel_manifests = vec![ChannelManifest {
         directory_name: "channel_0".to_string(),
@@ -326,16 +319,12 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
     let object_etag = put_object(&sdk_client, &bucket, &prefix, object.0, object.1.clone()).await;
 
-    let entries = [Ok(DbEntry {
-        full_key: object.0.to_string(), // key does not contain the prefix
-        etag: if wrong_etag {
-            Some("wrong_etag".to_string())
-        } else {
-            Some(object_etag)
-        },
-        size: if wrong_size { Some(2048) } else { Some(object.1.len()) }, // size smaller than actual will result in incomplete response
-        ..Default::default()
-    })]
+    let entries = [Ok(InputManifestEntry::new(
+        object.0, // key does not contain the prefix
+        if wrong_etag { "wrong_etag" } else { &object_etag },
+        if wrong_size { 2048 } else { object.1.len() }, // size smaller than actual will result in incomplete response
+    )
+    .unwrap())]
     .into_iter();
     let channel_manifests = vec![ChannelManifest {
         directory_name: "channel_0".to_string(),
@@ -379,13 +368,7 @@ async fn test_basic_read_manifest_multiple_buckets() {
                 bucket_name: bucket_name.to_string(),
                 prefix: Prefix::new(prefix).unwrap(),
             },
-            entries: [Ok(DbEntry {
-                full_key: object.0.to_string(),
-                etag: Some(etag.to_string()),
-                size: Some(object.1.len()),
-                ..Default::default()
-            })]
-            .into_iter(),
+            entries: [Ok(InputManifestEntry::new(object.0, etag, object.1.len()).unwrap())].into_iter(),
         };
     let channel_manifests = vec![
         create_channel_manifest("channel_1", &bucket1, &prefix1, &object1, &object1_etag),
@@ -420,15 +403,11 @@ async fn test_basic_read_manifest_multiple_buckets() {
     assert_eq!(read_buffer, object2.1);
 }
 
-#[test_case(false, false, false; "readdir, unsorted")]
-#[test_case(false, true, false; "readdir, sorted")]
-#[test_case(true, false, false; "lookup, unsorted")]
-#[test_case(true, true, false; "lookup, sorted")]
-#[test_case(false, true, true; "readdir, sorted, with folder marker")]
-#[test_case(true, true, true; "lookup, sorted, with folder marker")]
-#[test_case(false, false, true; "readdir, unsorted, with folder marker")]
-#[test_case(true, false, true; "lookup, unsorted, with folder marker")]
-fn test_unsorted_manifest(lookup: bool, sorted: bool, with_folder_marker: bool) {
+#[test_case(false, false; "readdir, unsorted")]
+#[test_case(false, true; "readdir, sorted")]
+#[test_case(true, false; "lookup, unsorted")]
+#[test_case(true, true; "lookup, sorted")]
+fn test_unsorted_manifest(lookup: bool, sorted: bool) {
     let all_files_sorted = vec![
         "dir1/a.txt",
         "dir1/dir2/b.txt",
@@ -436,12 +415,7 @@ fn test_unsorted_manifest(lookup: bool, sorted: bool, with_folder_marker: bool) 
         "dir1/dir3/dir4/d.txt",
         "e.txt",
     ];
-    let mut manifest_keys = if with_folder_marker {
-        vec!["dir1/"] // folder marker
-    } else {
-        Default::default()
-    };
-    manifest_keys.extend_from_slice(&all_files_sorted);
+    let mut manifest_keys = all_files_sorted.clone();
     if !sorted {
         let mut rng = thread_rng();
         manifest_keys.shuffle(&mut rng);

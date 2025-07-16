@@ -1,6 +1,5 @@
 use rusqlite::types::Type;
 use rusqlite::{Connection, Error, OptionalExtension, Result, Row};
-use serde::Deserialize;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -9,24 +8,15 @@ use crate::manifest::ManifestError;
 use crate::prefix::Prefix;
 use crate::s3::config::S3Path;
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbEntry {
-    #[serde(skip)]
     pub id: u64,
-    /// S3 key of the object with virtual channel directory prepended.
-    ///
-    /// When a bucket prefix is mounted, this field does not contain prefix when stored or loaded from the DB.
-    /// Both files and directories don't have '/' in the end.
-    /// TODO: better name
-    pub full_key: String,
-    #[serde(skip)]
-    pub name_offset: Option<u64>,
-    #[serde(skip)]
-    pub parent_id: Option<u64>,
-    pub etag: Option<String>,
-    pub size: Option<usize>,
-    #[serde(skip)]
-    pub channel_id: Option<u64>,
+    pub parent_id: u64,
+    pub channel_id: usize,
+    pub parent_partial_key: Option<String>, // not set for synthetic channel dirs
+    pub name: String,
+    pub etag: Option<String>, // not set for all dirs
+    pub size: Option<usize>,  // not set for all dirs
 }
 
 impl TryFrom<&Row<'_>> for DbEntry {
@@ -35,12 +25,12 @@ impl TryFrom<&Row<'_>> for DbEntry {
     fn try_from(row: &Row) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             id: row.get(0)?,
-            full_key: row.get(1)?,
-            name_offset: None,
-            parent_id: row.get(2)?,
-            etag: row.get(3)?,
-            size: row.get(4)?,
-            channel_id: row.get(5)?,
+            parent_id: row.get(1)?,
+            channel_id: row.get(2)?,
+            parent_partial_key: row.get(3)?,
+            name: row.get(4)?,
+            etag: row.get(5)?,
+            size: row.get(6)?,
         })
     }
 }
@@ -67,7 +57,8 @@ impl Db {
         metrics::histogram!("manifest.lookup.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
-        let query = "SELECT id, key, parent_id, etag, size, channel_id FROM s3_objects WHERE id = ?1";
+        let query =
+            "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE id = ?1";
         tracing::debug!("executing {} with parameters {:?}", query, (id,));
         let mut stmt = conn.prepare(query)?;
         let result = stmt.query_row((id,), |row: &Row| row.try_into()).optional();
@@ -83,8 +74,7 @@ impl Db {
         metrics::histogram!("manifest.lookup_by_id.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
-        let query =
-            "SELECT id, key, parent_id, etag, size, channel_id FROM s3_objects WHERE parent_id = ?1 AND name = ?2";
+        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE parent_id = ?1 AND name = ?2";
         tracing::debug!("executing {} with parameters {:?}", query, (parent_id, name,));
         let mut stmt = conn.prepare(query)?;
         let result = stmt.query_row((parent_id, name), |row: &Row| row.try_into()).optional();
@@ -107,7 +97,7 @@ impl Db {
         metrics::histogram!("manifest.readdir.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
-        let query = "SELECT id, key, parent_id, etag, size, channel_id FROM s3_objects WHERE parent_id = ?1 ORDER BY name LIMIT ?2 OFFSET ?3";
+        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE parent_id = ?1 ORDER BY name LIMIT ?2 OFFSET ?3";
         tracing::debug!(
             "executing {} with parameters {:?}",
             query,
@@ -127,14 +117,13 @@ impl Db {
         // NOTE: SUBSTR in SQLite starts indexing from 1 (name_offset column assumes left-most character has index 0)
         conn.execute(
             "CREATE TABLE s3_objects (
-                id          INTEGER   PRIMARY KEY,
-                key         TEXT      NOT NULL,
-                name_offset INTEGER   NOT NULL,
-                name        TEXT      GENERATED ALWAYS AS (SUBSTR(key,name_offset + 1)) VIRTUAL,
-                parent_id   INTEGER   NOT NULL,
-                etag        TEXT      NULL,
-                size        INTEGER   NULL,
-                channel_id  INTEGER   NOT NULL
+                id                  INTEGER   PRIMARY KEY,
+                parent_id           INTEGER   NOT NULL,
+                channel_id          INTEGER   NOT NULL,
+                parent_partial_key  TEXT      NULL,
+                name                TEXT      NOT NULL,
+                etag                TEXT      NULL,
+                size                INTEGER   NULL
             )",
             (),
         )?;
@@ -161,23 +150,27 @@ impl Db {
 
     pub fn insert_batch(&self, entries: &[DbEntry]) -> Result<()> {
         let mut conn = self.conn.lock().expect("lock must succeed");
+
+        let start = Instant::now();
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare(
-            "INSERT INTO s3_objects (id, key, name_offset, parent_id, etag, size, channel_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO s3_objects (id, parent_id, channel_id, parent_partial_key, name, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
         for entry in entries {
             stmt.execute((
                 entry.id,
-                &entry.full_key,
-                &entry.name_offset,
                 entry.parent_id,
-                entry.etag.as_deref(),
-                entry.size,
                 entry.channel_id,
+                &entry.parent_partial_key,
+                &entry.name,
+                &entry.etag,
+                entry.size,
             ))?;
         }
         drop(stmt);
-        tx.commit()
+        tx.commit()?;
+        metrics::histogram!("manifest.build.query.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        Ok(())
     }
 
     pub fn insert_channels(&self, channels: Vec<S3Path>) -> Result<()> {

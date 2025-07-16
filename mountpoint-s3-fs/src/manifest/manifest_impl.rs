@@ -10,7 +10,7 @@ use tracing::error;
 
 use super::db::{Db, DbEntry};
 
-use crate::metablock::{InodeInformation, InodeStat, Lookup, S3Location, ValidKey, ValidKeyError};
+use crate::metablock::{InodeInformation, InodeStat, Lookup, S3Location, ValidKey, ValidKeyError, ValidName};
 use crate::prefix::PrefixError;
 use crate::s3::config::S3Path;
 
@@ -24,14 +24,12 @@ pub enum ManifestError {
     CsvOpenError(PathBuf, #[source] io::Error),
     #[error("database error")]
     DbError(#[from] rusqlite::Error),
-    #[error("key has no etag or size and will be unavailable: {0}")]
-    NoEtagOrSize(String),
     #[error("key is invalid")]
     InvalidKey(#[from] ValidKeyError),
     #[error("folder marker {0}")]
     FolderMarker(String),
-    #[error("invalid database row: {0}")]
-    InvalidRow(String),
+    #[error("invalid database row with id {0}")]
+    InvalidRow(u64),
     #[error("csv error")]
     CsvError(#[from] csv::Error),
     #[error("db unique constraint violation, possibly due to a shadowed key")]
@@ -47,42 +45,38 @@ pub enum ManifestError {
 pub enum ManifestEntry {
     File {
         id: u64,
-        full_key: String,
         parent_id: u64,
+        channel_id: usize,
+        parent_partial_key: ValidKey,
+        name: String,
         etag: String,
         size: usize,
-        channel_id: u64,
     },
     Directory {
         id: u64,
-        full_key: String, // doesn't contain '/'
         parent_id: u64,
-        channel_id: u64,
+        channel_id: usize,
+        parent_partial_key: Option<ValidKey>, // not set for synthetic channel dirs
+        name: String,
     },
 }
 
 impl ManifestEntry {
-    /// Removes first path component, corresponding to the virtual channel directory name, from the [full_path]
-    pub fn s3_key(mut full_path: String) -> String {
-        let channel_dir_name_len = full_path.split('/').next().expect("path must contain /").len();
-        full_path.drain(..channel_dir_name_len + 1);
-        full_path
-    }
-
-    pub fn get_full_key(&self) -> &str {
+    pub fn id(&self) -> u64 {
         match self {
-            ManifestEntry::File { full_key, .. } => full_key,
-            ManifestEntry::Directory { full_key, .. } => full_key,
+            ManifestEntry::File { id, .. } => *id,
+            ManifestEntry::Directory { id, .. } => *id,
         }
     }
 
     pub fn into_lookup(self, path: Arc<S3Path>, mount_time: OffsetDateTime) -> Result<Lookup, ManifestError> {
         let lookup = match self {
             ManifestEntry::File {
+                id,
+                parent_partial_key,
+                name,
                 etag,
                 size,
-                id,
-                full_key,
                 ..
             } => Lookup::new(
                 id,
@@ -91,24 +85,34 @@ impl ManifestEntry {
                 true,
                 Some(S3Location::new(
                     path,
-                    ValidKey::try_from(ManifestEntry::s3_key(full_key))?,
+                    parent_partial_key.new_child(
+                        ValidName::parse_str(&name).map_err(|_| ManifestError::InvalidRow(id))?,
+                        InodeKind::File,
+                    )?,
                 )),
             ),
             ManifestEntry::Directory {
                 id,
-                full_key,
                 parent_id,
+                parent_partial_key,
+                name,
                 ..
             } => {
-                let location = if parent_id == FUSE_ROOT_INODE {
-                    None // virtual channel directories have no corresponding S3 location
-                } else {
+                let location = if let Some(parent_partial_key) = parent_partial_key {
                     Some(S3Location::new(
                         path,
-                        // manifest entries never have a trailing '/'
-                        // valid keys must have a trailing '/' for directories => append it here
-                        ValidKey::try_from(format!("{}/", ManifestEntry::s3_key(full_key)))?,
+                        parent_partial_key.new_child(
+                            ValidName::parse_str(&name).map_err(|_| ManifestError::InvalidRow(id))?,
+                            InodeKind::Directory,
+                        )?,
                     ))
+                } else {
+                    // this invariant is guaranteed when constructed via [ManifestEntry::try_from], which is the only way we use
+                    debug_assert_eq!(
+                        parent_id, FUSE_ROOT_INODE,
+                        "only synthetic channel dirs are allowed not to have parent_partial_key"
+                    );
+                    None
                 };
                 Lookup::new(
                     id,
@@ -122,30 +126,20 @@ impl ManifestEntry {
         Ok(lookup)
     }
 
-    pub fn into_inode_information(self, mount_time: OffsetDateTime) -> (InodeInformation, String) {
-        let (ino, mut full_key, kind, stat) = match self {
+    pub fn into_inode_information(
+        self,
+        mount_time: OffsetDateTime,
+    ) -> Result<(InodeInformation, String), ManifestError> {
+        let (ino, name, kind, stat) = match self {
             ManifestEntry::File {
-                id,
-                full_key,
-                etag,
-                size,
-                ..
-            } => (
-                id,
-                full_key,
-                InodeKind::File,
-                Self::stat_for_file(&etag, size, mount_time),
-            ),
-            ManifestEntry::Directory { id, full_key, .. } => {
-                (id, full_key, InodeKind::Directory, Self::stat_for_directory(mount_time))
+                id, name, etag, size, ..
+            } => (id, name, InodeKind::File, Self::stat_for_file(&etag, size, mount_time)),
+            ManifestEntry::Directory { id, name, .. } => {
+                (id, name, InodeKind::Directory, Self::stat_for_directory(mount_time))
             }
         };
-        let name_len = full_key.rsplit("/").next().unwrap().len();
-        if full_key.len() != name_len {
-            full_key.drain(..full_key.len() - name_len);
-        }
-        let name = full_key;
-        (InodeInformation::new(ino, stat, kind, true), name)
+        ValidName::parse_str(&name).map_err(|_| ManifestError::InvalidRow(ino))?;
+        Ok((InodeInformation::new(ino, stat, kind, true), name))
     }
 
     fn stat_for_directory(mount_time: OffsetDateTime) -> InodeStat {
@@ -170,34 +164,37 @@ impl TryFrom<DbEntry> for ManifestEntry {
     type Error = ManifestError;
 
     fn try_from(db_entry: DbEntry) -> Result<Self, Self::Error> {
-        if db_entry.full_key.ends_with('/') {
-            return Err(ManifestError::InvalidRow(db_entry.full_key.clone()));
-        }
-
-        let Some(parent_id) = db_entry.parent_id else {
-            return Err(ManifestError::InvalidRow(db_entry.full_key.clone()));
-        };
-
-        let Some(channel_id) = db_entry.channel_id else {
-            return Err(ManifestError::InvalidRow(db_entry.full_key.clone()));
-        };
-
         match (db_entry.etag, db_entry.size) {
-            (None, None) => Ok(ManifestEntry::Directory {
-                id: db_entry.id,
-                full_key: db_entry.full_key,
-                parent_id,
-                channel_id,
-            }),
+            (None, None) => {
+                // no etag and no size means a directory entry
+                let parent_partial_key = db_entry.parent_partial_key.map(ValidKey::try_from).transpose()?;
+                if parent_partial_key.is_none() && db_entry.parent_id != FUSE_ROOT_INODE {
+                    Err(ManifestError::InvalidRow(db_entry.id))
+                } else {
+                    Ok(ManifestEntry::Directory {
+                        id: db_entry.id,
+                        parent_id: db_entry.parent_id,
+                        channel_id: db_entry.channel_id,
+                        parent_partial_key,
+                        name: db_entry.name,
+                    })
+                }
+            }
             (Some(etag), Some(size)) => Ok(ManifestEntry::File {
+                // existing etag and size means a file entry
                 id: db_entry.id,
-                full_key: db_entry.full_key,
-                parent_id,
+                parent_id: db_entry.parent_id,
+                channel_id: db_entry.channel_id,
+                parent_partial_key: db_entry
+                    .parent_partial_key
+                    .map(ValidKey::try_from)
+                    .transpose()?
+                    .ok_or(ManifestError::InvalidRow(db_entry.id))?,
+                name: db_entry.name,
                 etag,
                 size,
-                channel_id,
             }),
-            _ => Err(ManifestError::InvalidRow(db_entry.full_key.clone())),
+            _ => Err(ManifestError::InvalidRow(db_entry.id)),
         }
     }
 }
@@ -234,11 +231,11 @@ impl Manifest {
     }
 
     /// Create an iterator over directory's direct children
-    pub fn iter(&self, parent_id: u64) -> ManifestIter {
+    pub fn dir_iter(&self, parent_id: u64) -> ManifestIter {
         ManifestIter::new(self.db.clone(), parent_id)
     }
 
-    pub fn channels(&self) -> Result<Vec<S3Path>, ManifestError> {
+    pub fn load_channels(&self) -> Result<Vec<S3Path>, ManifestError> {
         self.db.load_channels()
     }
 }
@@ -317,17 +314,5 @@ impl ManifestIter {
         self.entries.extend(manifest_entries?);
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::ManifestEntry;
-    use test_case::test_case;
-
-    #[test_case("channel_0/dir/a.txt", "dir/a.txt"; "ascii virtual dir name")]
-    #[test_case("通道_0/目录/a.txt", "目录/a.txt"; "unicode virtual dir name")]
-    fn test_entry_s3_key(full_path: &str, s3_key: &str) {
-        assert_eq!(&ManifestEntry::s3_key(full_path.to_string()), s3_key);
     }
 }

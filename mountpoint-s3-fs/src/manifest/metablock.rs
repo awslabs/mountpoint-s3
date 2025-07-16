@@ -10,7 +10,7 @@ use crate::fs::FUSE_ROOT_INODE;
 use crate::manifest::manifest_impl::{Manifest, ManifestEntry, ManifestError, ManifestIter};
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, TryAddDirEntry,
-    WriteMode,
+    ValidName, WriteMode,
 };
 use crate::s3::config::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -27,7 +27,7 @@ pub struct ManifestMetablock {
 
 impl ManifestMetablock {
     pub fn new(manifest: Manifest) -> Result<Self, ManifestError> {
-        let channels = manifest.channels()?.into_iter().map(Arc::new).collect();
+        let channels = manifest.load_channels()?.into_iter().map(Arc::new).collect();
         Ok(Self {
             channels,
             mount_time: OffsetDateTime::now_utc(),
@@ -41,9 +41,9 @@ impl ManifestMetablock {
         let channel_id = match &manifest_entry {
             ManifestEntry::File { channel_id, .. } => *channel_id,
             ManifestEntry::Directory { channel_id, .. } => *channel_id,
-        } as usize;
+        };
         if channel_id >= self.channels.len() {
-            return Err(ManifestError::InvalidRow(manifest_entry.get_full_key().to_string()));
+            return Err(ManifestError::InvalidRow(manifest_entry.id()));
         }
         let channel = self.channels[channel_id].clone();
         manifest_entry.into_lookup(channel, self.mount_time)
@@ -73,15 +73,13 @@ impl ManifestMetablock {
 #[async_trait]
 impl Metablock for ManifestMetablock {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError> {
-        let Some(name) = name.to_str().map(String::from) else {
-            return Err(InodeError::InvalidFileName(name.to_os_string()));
-        };
+        let name: ValidName = name.try_into()?;
         let Some(manifest_entry) = self.manifest.manifest_lookup(parent_ino, &name)? else {
             return Err(InodeError::FileDoesNotExist(
                 name.to_string(),
                 InodeErrorInfo {
                     ino: parent_ino,
-                    key: name.into(),
+                    key: "".into(), // todo: review InodeErrorInfo
                     bucket: None,
                 },
             ));
@@ -112,7 +110,7 @@ impl Metablock for ManifestMetablock {
 
     async fn new_readdir_handle(&self, dir_ino: InodeNo) -> Result<u64, InodeError> {
         let readdir_handle_id = self.next_dir_handle_id.fetch_add(1, Ordering::SeqCst);
-        let readdir_handle = self.manifest.iter(dir_ino);
+        let readdir_handle = self.manifest.dir_iter(dir_ino);
         self.readdir_handles
             .write()
             .expect("lock must succeed")
@@ -132,6 +130,16 @@ impl Metablock for ManifestMetablock {
         _is_readdirplus: bool,
         mut replier: TryAddDirEntry<'a>,
     ) -> Result<(), InodeError> {
+        let Some(readdir_handle) = self
+            .readdir_handles
+            .read()
+            .expect("lock must succeed")
+            .get(&fh)
+            .cloned()
+        else {
+            return Err(InodeError::NoSuchDirHandle { fh });
+        };
+
         // serve '.' and '..' entries
         if offset < 1 {
             if replier(
@@ -159,22 +167,14 @@ impl Metablock for ManifestMetablock {
         }
 
         // load entries from the manifest
-        let Some(readdir_handle) = self
-            .readdir_handles
-            .read()
-            .expect("lock must succeed")
-            .get(&fh)
-            .cloned()
-        else {
-            return Err(InodeError::NoSuchDirHandle { fh });
-        };
         let mut readdir_handle = readdir_handle.lock().expect("lock must succeed");
-        readdir_handle.seek((offset - 2) as usize)?; // shift offset accounting for '.' and '..'
+        let shifted_offset = (offset - 2) as usize; // shift offset accounting for '.' and '..'
+        readdir_handle.seek(shifted_offset)?; // typically no-op, but required for out-of-order requests
         loop {
             let Some(manifest_entry) = readdir_handle.next_entry()? else {
                 break;
             };
-            let (inode_info, name) = manifest_entry.clone().into_inode_information(self.mount_time);
+            let (inode_info, name) = manifest_entry.clone().into_inode_information(self.mount_time)?;
             if replier(inode_info, OsString::from(name), offset + 1, 0) {
                 readdir_handle.readd(manifest_entry);
                 break;
@@ -219,7 +219,7 @@ impl Metablock for ManifestMetablock {
             ino,
             key: "".into(),
             bucket: None,
-        })) // TODO: lookup the key?
+        }))
     }
 
     async fn inc_file_size(&self, ino: InodeNo, _len: usize) -> Result<usize, InodeError> {

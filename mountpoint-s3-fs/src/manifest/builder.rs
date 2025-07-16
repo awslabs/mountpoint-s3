@@ -6,7 +6,8 @@ use std::{collections::HashMap, fs::File};
 use fuser::FUSE_ROOT_ID;
 use serde::Deserialize;
 
-use crate::metablock::{ValidKey, ValidKeyError};
+use crate::fs::InodeKind;
+use crate::metablock::{ValidKey, ValidKeyError, ValidName};
 use crate::prefix::Prefix;
 use crate::s3::config::S3Path;
 use crate::{
@@ -29,83 +30,62 @@ pub struct ChannelManifest<I> {
     pub entries: I,
 }
 
-pub fn create_db<I: Iterator<Item = Result<DbEntry, ManifestError>>>(
-    db_path: &Path,
-    channel_manifests: Vec<ChannelManifest<I>>,
-    batch_size: usize,
-) -> Result<(), ManifestError> {
-    let db = Db::new(db_path)?;
-    db.create_table()?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputManifestEntry {
+    partial_key: ValidKey, // guaranteed to be InodeKind::File (=> not empty)
+    etag: String,
+    size: usize,
+}
 
-    let channels = channel_manifests
-        .iter()
-        .map(|channel_manifest| channel_manifest.s3_path.clone())
-        .collect();
-    db.insert_channels(channels)?;
-
-    let mut next_id = FUSE_ROOT_ID + 1;
-    for (channel_id, channel_manifest) in channel_manifests.into_iter().enumerate() {
-        let mut dir_ids: HashMap<String, u64> = Default::default(); // TODO: limit size of this hash map
-        let mut buffer = Vec::with_capacity(batch_size);
-
-        for entry in channel_manifest.entries {
-            // parse next entry and validate it
-            let mut entry = entry?;
-            match validate_db_entry(&entry) {
-                Err(ManifestError::FolderMarker(key)) => {
-                    tracing::warn!("folder marker will be ignored: {}", key);
-                    continue;
-                }
-                Err(err) => return Err(err),
-                Ok(_) => (),
-            }
-            entry.channel_id = Some(channel_id as u64);
-            // prepend channel dir name to the key
-            entry.full_key = format!("{}/{}", channel_manifest.directory_name, entry.full_key);
-            // insert the parent directory and link current entry to it
-            let parent_dir = entry
-                .full_key
-                .rsplit_once('/')
-                .map(|(dir, _name)| dir)
-                .expect("path depth is at least 1");
-            entry.parent_id = Some(ensure_dirs_inserted(
-                &db,
-                &mut dir_ids,
-                &mut next_id,
-                parent_dir,
-                channel_id as u64,
-            )?);
-            // set entry's name_offset and id and push it to the insert buffer
-            // NOTE: name_offset is the number of complete UTF-8 chars (not bytes)
-            entry.name_offset = Some(parent_dir.chars().count() as u64 + 1);
-            entry.id = next_id;
-            next_id += 1;
-            buffer.push(entry);
-            // if buffer is full, write to db
-            if buffer.len() >= batch_size {
-                db.insert_batch(&buffer)?;
-                buffer.clear();
-            }
-        }
-
-        if !buffer.is_empty() {
-            db.insert_batch(&buffer)?;
-        }
+impl InputManifestEntry {
+    pub fn new(partial_key: &str, etag: &str, size: usize) -> Result<Self, ManifestError> {
+        Self::from_owned(partial_key.to_string(), etag.to_string(), size)
     }
 
-    match db.create_index() {
-        Ok(_) => (),
-        // Handle the following error which may be a sign of a shadowed key present in the manifest:
-        // SqliteFailure(Error { code: ConstraintViolation, extended_code: 2067 }, Some("UNIQUE constraint failed: s3_objects.parent_id, s3_objects.name"))
-        Err(rusqlite::Error::SqliteFailure(err, msg)) if err.code == rusqlite::ErrorCode::ConstraintViolation => {
-            return Err(ManifestError::ConstraintViolation(rusqlite::Error::SqliteFailure(
-                err, msg,
+    pub fn from_owned(partial_key: String, etag: String, size: usize) -> Result<Self, ManifestError> {
+        let partial_key = ValidKey::try_from(partial_key)?;
+        if partial_key.is_empty() {
+            return Err(ManifestError::InvalidKey(ValidKeyError::InvalidKey(
+                partial_key.to_string(),
             )));
         }
-        Err(e) => Err(e)?,
-    };
+        if partial_key.kind() != InodeKind::File {
+            return Err(ManifestError::FolderMarker(partial_key.to_string()));
+        }
+        Ok(Self {
+            partial_key,
+            etag,
+            size,
+        })
+    }
 
-    Ok(())
+    fn into_db_entry(
+        self,
+        id: u64,
+        parent_id: u64,
+        channel_id: usize,
+        parent_partial_key: ValidKey,
+    ) -> Result<DbEntry, ManifestError> {
+        debug_assert_eq!(self.partial_key.kind(), InodeKind::File);
+
+        // parse and validate the name
+        let name = match self.partial_key.rsplit_once('/') {
+            Some((_, name)) => name.to_string(),
+            None => self.partial_key.to_string(),
+        };
+        let _ = ValidName::parse_str(&name)
+            .map_err(|_| ManifestError::InvalidKey(ValidKeyError::InvalidKey(name.clone())))?;
+
+        Ok(DbEntry {
+            id,
+            parent_id,
+            channel_id,
+            parent_partial_key: Some(parent_partial_key.to_string()),
+            name,
+            etag: Some(self.etag),
+            size: Some(self.size),
+        })
+    }
 }
 
 /// Ingests a manifest into the database.
@@ -147,63 +127,173 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
     Ok(())
 }
 
-fn validate_db_entry(db_entry: &DbEntry) -> Result<(), ManifestError> {
-    if db_entry.etag.is_none() || db_entry.size.is_none() {
-        return Err(ManifestError::NoEtagOrSize(db_entry.full_key.clone()));
-    }
-    if db_entry.full_key.ends_with('/') {
-        return Err(ManifestError::FolderMarker(db_entry.full_key.clone()));
-    }
-    if db_entry.full_key.is_empty() {
-        Err(ValidKeyError::InvalidKey(db_entry.full_key.clone()))?
-    }
-    ValidKey::validate(&db_entry.full_key)?;
-    Ok(())
+/// Ingests a manifest into the database.
+///
+/// Compared to [ingest_manifest] this method accepts an iterator of parsed [InputManifestEntry].
+/// Method [ingest_manifest] actually delegates db creation to this method, but this one is also used in tests.
+pub fn create_db<I: Iterator<Item = Result<InputManifestEntry, ManifestError>>>(
+    db_path: &Path,
+    channel_manifests: Vec<ChannelManifest<I>>,
+    batch_size: usize,
+) -> Result<(), ManifestError> {
+    let mut builder = ManifestBuilder::new(db_path, batch_size)?;
+    builder.insert_channels(&channel_manifests)?;
+    builder.insert_entries(channel_manifests)?;
+    builder.create_index()
 }
 
-/// Ingests directory `dir_key` and its parents to db (if not done yet), returns the ID of the `dir_key`
-fn ensure_dirs_inserted(
-    db: &Db,
-    dir_ids: &mut HashMap<String, u64>,
-    next_id: &mut u64,
-    dir_key: &str,
-    channel_id: u64,
-) -> Result<u64, ManifestError> {
-    let mut insert_buffer = Vec::new();
-    let mut dir_key_len = 0;
-    let mut parent_id = FUSE_ROOT_ID;
+/// A private helper struct implementing methods for database creation
+struct ManifestBuilder {
+    db: Db,
+    dir_ids: HashMap<String, u64>, // TODO: limit size of this hash map
+    next_id: u64,
+    insert_buffer: Vec<DbEntry>,
+    batch_size: usize,
+}
 
-    for component in dir_key.split('/') {
-        dir_key_len += component.len() + 1; // includes the trailing '/'
-        let directory_key = &dir_key[..dir_key_len - 1];
-        debug_assert!(!directory_key.ends_with("/")); // directories don't have '/' in the end
+impl ManifestBuilder {
+    fn new(db_path: &Path, batch_size: usize) -> Result<Self, ManifestError> {
+        let db = Db::new(db_path)?;
+        db.create_table()?;
 
-        parent_id = if let Some(dir_id) = dir_ids.get(directory_key) {
-            *dir_id
-        } else {
-            let id = *next_id;
-            insert_buffer.push(DbEntry {
-                id,
-                full_key: directory_key.to_string(),
-                name_offset: Some((directory_key.len() - component.len()) as u64),
-                parent_id: Some(parent_id),
-                etag: None,
-                size: None,
-                channel_id: Some(channel_id),
-            });
-            dir_ids.insert(directory_key.to_string(), id);
-            *next_id += 1;
-            id
+        Ok(Self {
+            db,
+            dir_ids: Default::default(),
+            next_id: FUSE_ROOT_ID + 1,
+            insert_buffer: Vec::with_capacity(batch_size),
+            batch_size,
+        })
+    }
+
+    fn insert_channels<I: Iterator<Item = Result<InputManifestEntry, ManifestError>>>(
+        &self,
+        channel_manifests: &[ChannelManifest<I>],
+    ) -> Result<(), ManifestError> {
+        let channels = channel_manifests
+            .iter()
+            .map(|channel_manifest| channel_manifest.s3_path.clone())
+            .collect();
+        self.db.insert_channels(channels)?;
+        Ok(())
+    }
+
+    fn create_index(&self) -> Result<(), ManifestError> {
+        match self.db.create_index() {
+            Ok(_) => Ok(()),
+            // Handle the following error which may be a sign of a shadowed key present in the manifest:
+            // SqliteFailure(Error { code: ConstraintViolation, extended_code: 2067 }, Some("UNIQUE constraint failed: s3_objects.parent_id, s3_objects.name"))
+            Err(rusqlite::Error::SqliteFailure(err, msg)) if err.code == rusqlite::ErrorCode::ConstraintViolation => {
+                Err(ManifestError::ConstraintViolation(rusqlite::Error::SqliteFailure(
+                    err, msg,
+                )))
+            }
+            Err(e) => Err(e)?,
         }
     }
 
-    if !insert_buffer.is_empty() {
-        db.insert_batch(&insert_buffer)?;
+    fn insert_entries<I: Iterator<Item = Result<InputManifestEntry, ManifestError>>>(
+        &mut self,
+        channel_manifests: Vec<ChannelManifest<I>>,
+    ) -> Result<(), ManifestError> {
+        for (channel_id, channel_manifest) in channel_manifests.into_iter().enumerate() {
+            // insert synthetic channel dir
+            let channel_root_id = self.next_id;
+            self.insert_buffer.push(DbEntry {
+                id: channel_root_id,
+                parent_id: FUSE_ROOT_ID,
+                channel_id,
+                parent_partial_key: None,
+                name: channel_manifest.directory_name.clone(),
+                etag: None,
+                size: None,
+            });
+            self.next_id += 1;
+
+            // insert keys from the manifest (and corresponding dirs)
+            for entry in channel_manifest.entries {
+                if let Err(ManifestError::FolderMarker(key)) = entry {
+                    tracing::warn!(
+                        "folder marker will be ignored: {}, channel directory may be empty: {}",
+                        key,
+                        channel_manifest.directory_name
+                    );
+                    continue;
+                }
+                let entry = entry?;
+
+                // insert the parent directories
+                let (parent_id, parent_partial_key) =
+                    self.ensure_dirs_inserted(&entry.partial_key, channel_id, channel_root_id)?;
+
+                // push new file entry to the insert_buffer
+                let db_entry = entry.into_db_entry(self.next_id, parent_id, channel_id, parent_partial_key);
+                self.insert_buffer.push(db_entry?);
+                self.next_id += 1;
+
+                // if insert_buffer is full, write to db
+                if self.insert_buffer.len() >= self.batch_size {
+                    self.flush_insert_buffer()?;
+                }
+            }
+
+            self.dir_ids.clear(); // dirs across channels do not overlap, forget them
+        }
+
+        self.flush_insert_buffer()?; // flush remaining entries to db
+
+        Ok(())
     }
 
-    Ok(parent_id)
-}
+    /// Ingests parent directory of `object_key` and its parents to db (if not done yet), returns ID and key of the immediate parent
+    ///
+    /// Note that insertion of directories is postponed till we have a full batch.
+    fn ensure_dirs_inserted(
+        &mut self,
+        object_key: &ValidKey,
+        channel_id: usize,
+        channel_root_id: u64,
+    ) -> Result<(u64, ValidKey), ManifestError> {
+        debug_assert_eq!(object_key.kind(), InodeKind::File);
 
+        let components: Vec<_> = object_key.split('/').collect();
+        let mut parent_id = channel_root_id;
+        let mut parent_partial_key = ValidKey::root();
+
+        for component in components[..components.len() - 1].iter() {
+            let valid_name = ValidName::parse_str(component)
+                .map_err(|_| ManifestError::InvalidKey(ValidKeyError::InvalidKey(object_key.to_string())))?;
+            let partial_key = parent_partial_key.new_child(valid_name, InodeKind::Directory)?;
+            parent_id = if let Some(dir_id) = self.dir_ids.get(&partial_key as &str) {
+                *dir_id
+            } else {
+                let id = self.next_id;
+                self.insert_buffer.push(DbEntry {
+                    id,
+                    parent_id,
+                    channel_id,
+                    parent_partial_key: Some(parent_partial_key.to_string()),
+                    name: valid_name.to_string(),
+                    etag: None,
+                    size: None,
+                });
+                self.dir_ids.insert(partial_key.to_string(), id);
+                self.next_id += 1;
+                id
+            };
+            parent_partial_key = partial_key;
+        }
+
+        Ok((parent_id, parent_partial_key))
+    }
+
+    fn flush_insert_buffer(&mut self) -> Result<(), ManifestError> {
+        if !self.insert_buffer.is_empty() {
+            self.db.insert_batch(&self.insert_buffer)?;
+            self.insert_buffer.clear();
+        }
+        Ok(())
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,37 +301,6 @@ mod tests {
 
     const DUMMY_ETAG: &str = "\"3bebe4037c8f040e0e573e191d34b2c6\"";
     const DUMMY_SIZE: usize = 1024;
-
-    #[test_case("dir1/./a.txt"; "with dot")]
-    #[test_case("dir1/../a.txt"; "with 2 dots")]
-    #[test_case("dir1//a.txt"; "with 2 slashes")]
-    #[test_case(""; "empty")]
-    #[test_case("dir1/a\0.txt"; "with 0")]
-    fn test_ingest_invalid_key(key: &str) {
-        let db_dir = tempfile::tempdir().unwrap();
-        let db_path = db_dir.path().join("s3_keys.db3");
-        let entries = [Ok(DbEntry {
-            full_key: key.to_string(),
-            etag: Some(DUMMY_ETAG.to_string()),
-            size: Some(DUMMY_SIZE),
-            ..Default::default()
-        })]
-        .into_iter();
-        let err = create_db(
-            &db_path,
-            vec![ChannelManifest {
-                directory_name: "channel_0".to_string(),
-                s3_path: S3Path {
-                    bucket_name: "bucket".to_string(),
-                    prefix: Prefix::new("").unwrap(),
-                },
-                entries,
-            }],
-            1000,
-        )
-        .expect_err("must be an error");
-        assert!(matches!(err, ManifestError::InvalidKey(_)));
-    }
 
     #[test_case(&[
         "dir1", // must be shadowed
@@ -262,14 +321,9 @@ mod tests {
     fn test_shadowed(manifest_keys: &[&str]) {
         let db_dir = tempfile::tempdir().unwrap();
         let db_path = db_dir.path().join("s3_keys.db3");
-        let entries = manifest_keys.iter().map(|key| {
-            Ok(DbEntry {
-                full_key: key.to_string(),
-                etag: Some(DUMMY_ETAG.to_string()),
-                size: Some(DUMMY_SIZE),
-                ..Default::default()
-            })
-        });
+        let entries = manifest_keys
+            .iter()
+            .map(|key| Ok(InputManifestEntry::new(key, DUMMY_ETAG, DUMMY_SIZE).unwrap()));
         let err = create_db(
             &db_path,
             vec![ChannelManifest {
@@ -314,5 +368,25 @@ mod tests {
         } else {
             panic!("expected ManifestError::InvalidChannel, got: {err:?}")
         }
+    }
+
+    #[test]
+    fn test_folder_marker_ignored() {
+        let db_dir = tempfile::tempdir().unwrap();
+        let db_path = db_dir.path().join("s3_keys.db3");
+        let entries = [Err(ManifestError::FolderMarker("dir1/dir2/".to_string()))].into_iter();
+        create_db(
+            &db_path,
+            vec![ChannelManifest {
+                directory_name: "channel_0".to_string(),
+                s3_path: S3Path {
+                    bucket_name: "bucket".to_string(),
+                    prefix: Prefix::new("").unwrap(),
+                },
+                entries,
+            }],
+            1000,
+        )
+        .expect("db creation must succeed");
     }
 }

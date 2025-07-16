@@ -1,5 +1,5 @@
 use mountpoint_s3_fs::{
-    manifest::{ChannelManifest, DbEntry, ManifestError, create_db},
+    manifest::{ChannelManifest, DbEntry, InputManifestEntry, ManifestError, create_db},
     prefix::Prefix,
     s3::config::S3Path,
 };
@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-pub fn create_manifest<I: Iterator<Item = Result<DbEntry, ManifestError>>>(
+pub fn create_manifest<I: Iterator<Item = Result<InputManifestEntry, ManifestError>>>(
     channel_manifests: Vec<ChannelManifest<I>>,
     batch_size: usize,
 ) -> Result<(TempDir, PathBuf), ManifestError> {
@@ -23,17 +23,17 @@ pub fn insert_entries(manifest_db_path: &Path, entries: &[DbEntry]) -> rusqlite:
     let mut conn = Connection::open(manifest_db_path).expect("must connect to a db");
     let tx = conn.transaction()?;
     let mut stmt = tx.prepare(
-        "INSERT INTO s3_objects (id, key, name_offset, parent_id, etag, size, channel_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO s3_objects (id, parent_id, channel_id, parent_partial_key, name, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
     for entry in entries {
         stmt.execute((
             entry.id,
-            &entry.full_key,
-            &entry.name_offset,
             entry.parent_id,
-            entry.etag.as_deref(),
-            entry.size,
             entry.channel_id,
+            &entry.parent_partial_key,
+            &entry.name,
+            &entry.etag,
+            entry.size,
         ))?;
     }
     drop(stmt);
@@ -48,15 +48,9 @@ pub fn create_dummy_manifest<T: AsRef<str>>(
     channel_dir_name: &str,
     bucket_name: &str,
 ) -> Result<(TempDir, PathBuf), ManifestError> {
-    let entries = s3_keys.iter().map(|key| {
-        Ok(DbEntry {
-            full_key: key.as_ref().to_string(),
-            etag: Some(DUMMY_ETAG.to_string()),
-            size: Some(file_size),
-            // Other fields will be auto populated by [create_db]
-            ..Default::default()
-        })
-    });
+    let entries = s3_keys
+        .iter()
+        .map(|key| Ok(InputManifestEntry::new(key.as_ref(), DUMMY_ETAG, file_size).unwrap()));
 
     let channel_manifests = vec![ChannelManifest {
         directory_name: channel_dir_name.to_string(),

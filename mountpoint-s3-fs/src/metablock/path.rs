@@ -92,16 +92,6 @@ impl ValidKey {
             _ => InodeKind::File,
         }
     }
-
-    /// Checks if the provided &str is a valid key.
-    pub fn validate(value: &str) -> Result<(), ValidKeyError> {
-        for component in value.split_terminator('/') {
-            if ValidName::parse_str(component).is_err() {
-                return Err(ValidKeyError::InvalidKey(value.to_string()));
-            }
-        }
-        Ok(())
-    }
 }
 
 impl Deref for ValidKey {
@@ -338,7 +328,5 @@ mod tests {
     #[test_case("dir1/../a.txt", Err(ValidKeyError::InvalidKey("dir1/../a.txt".to_string())); "invalid component")]
     fn test_valid_key_try_from(source: &str, result: Result<ValidKey, ValidKeyError>) {
         assert_eq!(ValidKey::try_from(source.to_string()), result);
-        let validate_result = result.map(|_| ());
-        assert_eq!(ValidKey::validate(source), validate_result);
     }
 }
