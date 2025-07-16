@@ -123,7 +123,7 @@ unsafe extern "C" fn buffer_pool_factory<PoolFactory: MemoryPoolFactory>(
     config: aws_s3_buffer_pool_config,
     user_data: *mut libc::c_void,
 ) -> *mut aws_s3_buffer_pool {
-    // SAFETY: `user_data` references a `Box` owned by the `CrtBufferPoolFactory` instance.
+    // SAFETY: `user_data` references a pinned box owned by the `CrtBufferPoolFactory` instance.
     let pool_factory = unsafe { &*(user_data as *mut PoolFactory) };
 
     // SAFETY: `allocator` is a non-null pointer to a `aws_allocator` instance.
@@ -357,6 +357,7 @@ impl<Buffer: AsMut<[u8]>> CrtTicket<Buffer> {
     }
 }
 
+/// Return the buffer associated with a ticket.
 unsafe extern "C" fn ticket_claim<Buffer: AsMut<[u8]>>(mut ticket: *mut aws_s3_buffer_ticket) -> aws_byte_buf {
     // SAFETY: `ticket` was obtained through `Ticket::leak`.
     let ticket = unsafe { CrtTicket::<Buffer>::ref_mut_from_raw(&mut ticket) };
@@ -364,7 +365,8 @@ unsafe extern "C" fn ticket_claim<Buffer: AsMut<[u8]>>(mut ticket: *mut aws_s3_b
     // SAFETY: the CRT guarantees to only use the returned buffer while holding the ticket.
     let aws_byte_cursor { len, ptr } = unsafe { ticket.buffer.as_mut().as_aws_byte_cursor() };
 
-    // SAFETY: `ptr` is a valid buffer with capacity >= `size`.
+    // Build the `aws_byte_buf` required by the CRT from the pointer and length of the buffer.
+    // SAFETY: `ptr` is a valid buffer with capacity >= `len`.
     unsafe { aws_byte_buf_from_empty_array(ptr as *mut libc::c_void, len) }
 }
 
@@ -407,6 +409,7 @@ impl CrtTicketFuture {
     /// # Safety
     /// The returned pointer follows ref-counting rules and must be eventually released.
     unsafe fn into_inner_ptr(mut self) -> *mut aws_future_s3_buffer_ticket {
+        // Swap the pointer to return with null, so drop will be a no-op.
         std::mem::replace(&mut self.inner, std::ptr::null_mut())
     }
 }
@@ -422,8 +425,8 @@ impl Clone for CrtTicketFuture {
 
 impl Drop for CrtTicketFuture {
     fn drop(&mut self) {
-        // SAFETY: `self.inner` is a valid `aws_future_s3_buffer_ticket`, and on Drop it's safe to decrement
-        // the reference count since this is balancing the `acquire` in `new`.
+        // SAFETY: `self.inner` is a valid `aws_future_s3_buffer_ticket` (or null), and on Drop
+        // it's safe to decrement the reference count since this is balancing the `acquire` in `new`.
         unsafe { aws_future_s3_buffer_ticket_release(self.inner) };
     }
 }
