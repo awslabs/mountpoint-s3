@@ -59,7 +59,7 @@ where
             request_range: range.into(),
         };
         let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, self.mem_limiter.clone(), config.file_handle_no);
         let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
         trace!(?range, "spawning request");
 
@@ -474,6 +474,7 @@ mod tests {
                 initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
+                file_handle_no: 1, // for testing does not matter
             };
             let request_task = stream.spawn_get_object_request(config);
             compare_read(&id, &object, request_task);
@@ -500,6 +501,7 @@ mod tests {
                 initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
+                file_handle_no: 2, // for testing does not matter
             };
             let request_task = stream.spawn_get_object_request(config);
             compare_read(&id, &object, request_task);
@@ -552,6 +554,7 @@ mod tests {
                     initial_read_window_size,
                     max_read_window_size,
                     read_window_size_multiplier,
+                    file_handle_no: 1, // for testing does not matter
                 };
                 let request_task = stream.spawn_get_object_request(config);
                 compare_read(&id, &object, request_task);

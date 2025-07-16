@@ -41,6 +41,7 @@ pub struct RequestTaskConfig {
     pub initial_read_window_size: usize,
     pub max_read_window_size: usize,
     pub read_window_size_multiplier: usize,
+    pub file_handle_no: u64,
 }
 
 /// The range of an [ObjectPartStream].
@@ -226,7 +227,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             request_range: range.into(),
         };
         let (backpressure_controller, mut backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, self.mem_limiter.clone(), config.file_handle_no);
         let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
         trace!(?range, "spawning request");
 

@@ -89,7 +89,11 @@ where
         Ok(handle)
     }
 
-    pub async fn new_read_handle(lookup: &Lookup, fs: &S3Filesystem<Client>) -> Result<FileHandleState<Client>, Error> {
+    pub async fn new_read_handle(
+        lookup: &Lookup,
+        fs: &S3Filesystem<Client>,
+        file_handle_no: u64,
+    ) -> Result<FileHandleState<Client>, Error> {
         if !lookup.stat().is_readable {
             return Err(err!(
                 libc::EACCES,
@@ -106,7 +110,9 @@ where
             Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
         };
         let object_id = ObjectId::new(full_key.into(), etag);
-        let request = fs.prefetcher.prefetch(bucket.to_string(), object_id, object_size);
+        let request = fs
+            .prefetcher
+            .prefetch(bucket.to_string(), object_id, object_size, file_handle_no);
         let handle = FileHandleState::Read(request);
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)

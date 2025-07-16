@@ -180,12 +180,13 @@ fn main() -> anyhow::Result<()> {
 
         thread::scope(|scope| {
             let mut download_tasks = Vec::new();
-
+            let mut fh = 0;
             for (object_id, size) in &object_metadata {
                 for _ in 0..args.downloads_per_object {
                     let received_bytes = received_bytes.clone();
                     let object_id = object_id.clone();
-                    let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+                    let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size, fh);
+                    fh += 1;
                     let read_size = args.read_size;
                     let runtime_exceeded_clone = runtime_exceeded.clone();
 
