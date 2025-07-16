@@ -106,14 +106,6 @@ pub struct CliArgs {
 
     #[arg(
         long,
-        help = "Number of concurrent downloads per object",
-        default_value_t = 1,
-        value_name = "N"
-    )]
-    downloads_per_object: usize,
-
-    #[arg(
-        long,
         help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
         value_name = "NETWORK_INTERFACE",
         value_delimiter = ','
@@ -182,28 +174,26 @@ fn main() -> anyhow::Result<()> {
             let mut download_tasks = Vec::new();
 
             for (object_id, size) in &object_metadata {
-                for _ in 0..args.downloads_per_object {
-                    let received_bytes = received_bytes.clone();
-                    let object_id = object_id.clone();
-                    let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
-                    let read_size = args.read_size;
+                let received_bytes = received_bytes.clone();
+                let object_id = object_id.clone();
+                let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+                let read_size = args.read_size;
 
-                    let task = scope.spawn(move || {
-                        let result = block_on(wait_for_download(request, *size, read_size as u64, timeout));
-                        if let Ok(bytes_read) = result {
-                            received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
-                        } else {
-                            // As object download failures can produce
-                            // misleading results, exit the benchmarks
-                            // to avoid confusion.
-                            eprintln!("Download failed: {:?}", result.err());
-                            eprintln!("Exiting benchmarks due to download failure");
-                            std::process::exit(1);
-                        }
-                    });
+                let task = scope.spawn(move || {
+                    let result = block_on(wait_for_download(request, *size, read_size as u64, timeout));
+                    if let Ok(bytes_read) = result {
+                        received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
+                    } else {
+                        // As object download failures can produce
+                        // misleading results, exit the benchmarks
+                        // to avoid confusion.
+                        eprintln!("Download failed: {:?}", result.err());
+                        eprintln!("Exiting benchmarks due to download failure");
+                        std::process::exit(1);
+                    }
+                });
 
-                    download_tasks.push(task);
-                }
+                download_tasks.push(task);
             }
 
             for task in download_tasks {
