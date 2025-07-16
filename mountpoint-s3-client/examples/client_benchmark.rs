@@ -35,7 +35,7 @@ fn run_benchmark(
     client: impl ObjectClient + Clone + Send,
     num_iterations: usize,
     bucket: &str,
-    keys: &Vec<String>,
+    keys: &[&str],
     enable_backpressure: bool,
     output_path: Option<&Path>,
     max_duration: Option<Duration>,
@@ -56,12 +56,11 @@ fn run_benchmark(
             for key in keys {
                 let client = client.clone();
                 let received_size_clone = Arc::clone(&received_size);
-                let key_clone = key.clone();
-                scope.spawn(|| {
+                scope.spawn(move || {
                     futures::executor::block_on(async move {
                         let mut received_obj_len = 0u64;
                         let mut request = client
-                            .get_object(bucket, &key_clone, &GetObjectParams::new())
+                            .get_object(bucket, key, &GetObjectParams::new())
                             .await
                             .expect("couldn't create get request");
                         let mut backpressure_handle = request.backpressure_handle().cloned();
@@ -267,12 +266,13 @@ fn main() {
             let network_interfaces = bind.clone().unwrap_or_default();
             let config = create_s3_client_config(region, &args, network_interfaces);
             let client = S3CrtClient::new(config).expect("couldn't create client");
+            let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
 
             run_benchmark(
                 client,
                 args.iterations,
                 bucket,
-                keys,
+                &key_refs,
                 args.enable_backpressure,
                 args.output_file.as_deref(),
                 args.max_duration,
@@ -281,6 +281,7 @@ fn main() {
         Client::Mock { object_size } => {
             const BUCKET: &str = "bucket";
             const KEY: &str = "key";
+            let keys = &[KEY];
 
             let config = MockClient::config()
                 .bucket(BUCKET)
@@ -291,14 +292,11 @@ fn main() {
 
             client.add_object(KEY, MockObject::ramp(0xaa, object_size as usize, ETag::for_tests()));
 
-            // For mock client, we'll use a single key
-            let key_list = vec![KEY.to_string()];
-
             run_benchmark(
                 client,
                 args.iterations,
                 BUCKET,
-                &key_list,
+                keys,
                 args.enable_backpressure,
                 args.output_file.as_deref(),
                 args.max_duration,
