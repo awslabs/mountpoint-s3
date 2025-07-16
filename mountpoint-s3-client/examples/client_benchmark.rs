@@ -44,9 +44,8 @@ fn run_benchmark(
     let total_start = Instant::now();
     let mut iter_results = Vec::new();
     let mut iteration = 0;
-    let timeout: Instant = total_start
-        .checked_add(max_duration.unwrap_or(Duration::from_secs(86400)))
-        .expect("Duration overflow error");
+    let duration = max_duration.unwrap_or(Duration::from_secs(86400));
+    let timeout: Instant = total_start.checked_add(duration).expect("Duration overflow error");
 
     while iteration < num_iterations && Instant::now() < timeout {
         let iter_start = Instant::now();
@@ -146,7 +145,7 @@ fn run_benchmark(
             "summary": {
                 "total_bytes": total_bytes,
                 "total_elapsed_seconds": total_elapsed.as_secs_f64(),
-                "max_duration_seconds": max_duration,
+                "max_duration_seconds": duration,
                 "iterations": iter_results.len(),
             },
             "iterations": iter_results
