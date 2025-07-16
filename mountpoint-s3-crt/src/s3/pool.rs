@@ -31,7 +31,7 @@ pub trait MemoryPool: Clone + Send + Sync {
 }
 
 /// Factory for a custom memory pool.
-pub trait MemoryPoolFactory {
+pub trait MemoryPoolFactory: Send + Sync {
     /// The [MemoryPool] implementation created by this factory.
     type Pool: MemoryPool;
 
@@ -41,7 +41,7 @@ pub trait MemoryPoolFactory {
 
 impl<F, P> MemoryPoolFactory for F
 where
-    F: Fn(MemoryPoolFactoryOptions) -> P,
+    F: Fn(MemoryPoolFactoryOptions) -> P + Send + Sync,
     P: MemoryPool,
 {
     type Pool = P;
