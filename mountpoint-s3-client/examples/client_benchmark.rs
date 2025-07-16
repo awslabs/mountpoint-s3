@@ -3,7 +3,7 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
@@ -34,25 +34,29 @@ fn init_tracing_subscriber() {
 fn run_benchmark(
     client: impl ObjectClient + Clone + Send,
     num_iterations: usize,
-    num_downloads: usize,
     bucket: &str,
-    key: &str,
+    keys: &[&str],
     enable_backpressure: bool,
     output_path: Option<&Path>,
+    max_duration: Option<Duration>,
 ) {
     let mut total_bytes = 0;
     let total_start = Instant::now();
     let mut iter_results = Vec::new();
+    let mut iteration = 0;
+    let timeout: Instant = total_start
+        .checked_add(max_duration.unwrap_or(Duration::from_secs(86400)))
+        .expect("Duration overflow error");
 
-    for i in 0..num_iterations {
-        let start = Instant::now();
+    while iteration < num_iterations && Instant::now() < timeout {
+        let iter_start = Instant::now();
         let received_size = Arc::new(AtomicU64::new(0));
 
         thread::scope(|scope| {
-            for _ in 0..num_downloads {
+            for key in keys {
                 let client = client.clone();
                 let received_size_clone = Arc::clone(&received_size);
-                scope.spawn(|| {
+                scope.spawn(move || {
                     futures::executor::block_on(async move {
                         let mut received_obj_len = 0u64;
                         let mut request = client
@@ -68,7 +72,7 @@ fn run_benchmark(
                         }
 
                         let mut request = pin!(request);
-                        loop {
+                        while Instant::now() < timeout {
                             match request.next().await {
                                 Some(Ok(part)) => {
                                     let part_len = part.data.len();
@@ -107,32 +111,43 @@ fn run_benchmark(
             }
         });
 
-        let elapsed = start.elapsed();
+        let elapsed = iter_start.elapsed();
         let received_size = received_size.load(Ordering::SeqCst);
         total_bytes += received_size;
         println!(
             "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
-            i,
+            iteration,
             received_size,
             elapsed.as_secs_f64(),
             (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
         );
 
         iter_results.push(json!({
-            "iteration": i,
+            "iteration": iteration,
             "bytes": received_size,
-            "duration_seconds": elapsed.as_secs_f64(),
+            "elapsed_seconds": elapsed.as_secs_f64(),
         }));
+
+        iteration += 1;
     }
 
     let total_elapsed = total_start.elapsed();
+    println!(
+        "Total: received {} bytes in {:.2}s across {} iterations: {:.2} Gib/s",
+        total_bytes,
+        total_elapsed.as_secs_f64(),
+        iter_results.len(),
+        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+    );
+
     if let Some(output_path) = output_path {
         let ouput_file = std::fs::File::create(output_path).expect("Failed to create output_file: {output_path}");
         let results = json!({
             "summary": {
                 "total_bytes": total_bytes,
-                "duration_seconds": total_elapsed.as_secs_f64(),
-                "iterations": num_iterations,
+                "total_elapsed_seconds": total_elapsed.as_secs_f64(),
+                "max_duration_seconds": max_duration,
+                "iterations": iter_results.len(),
             },
             "iterations": iter_results
         });
@@ -142,17 +157,22 @@ fn run_benchmark(
 
 #[derive(Subcommand)]
 enum Client {
-    #[command(about = "Download a key from S3")]
+    #[command(about = "Download keys from S3")]
     Real {
         #[arg(help = "Bucket name")]
         bucket: String,
-        #[arg(help = "Key name")]
-        key: String,
+        #[arg(
+            help = "Comma-separated list of key names",
+            value_delimiter = ',',
+            value_name = "KEYS"
+        )]
+        keys: Vec<String>,
         #[arg(long, help = "AWS region", default_value = "us-east-1")]
         region: String,
-        #[clap(
+        #[arg(
             long,
             help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
+            value_delimiter = ',',
             value_name = "NETWORK_INTERFACE"
         )]
         bind: Option<Vec<String>>,
@@ -162,6 +182,12 @@ enum Client {
         #[arg(help = "Mock object size")]
         object_size: u64,
     },
+}
+
+fn parse_duration(arg: &str) -> Result<Duration, String> {
+    arg.parse::<u64>()
+        .map(Duration::from_secs)
+        .map_err(|e| format!("Invalid duration: {e}"))
 }
 
 #[derive(Parser)]
@@ -186,8 +212,6 @@ struct CliArgs {
     part_size: usize,
     #[arg(long, help = "Number of benchmark iterations", default_value = "1")]
     iterations: usize,
-    #[arg(long, help = "Number of concurrent downloads", default_value = "1")]
-    downloads: usize,
     #[arg(long, help = "Enable CRT backpressure mode")]
     enable_backpressure: bool,
     #[arg(
@@ -196,8 +220,35 @@ struct CliArgs {
         default_value = "0"
     )]
     initial_window_size: Option<usize>,
-    #[clap(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
-    pub output_file: Option<PathBuf>,
+    #[arg(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
+    output_file: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Maximum duration (in seconds) to run the benchmark",
+        value_name = "SECONDS",
+        value_parser = parse_duration,
+    )]
+    max_duration: Option<Duration>,
+}
+
+fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S3ClientConfig {
+    let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
+
+    config = config.throughput_target_gbps(args.throughput_target_gbps);
+    config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
+    config = config.network_interface_names(nics);
+
+    config = config.part_size(args.part_size);
+
+    if args.enable_backpressure {
+        config = config.read_backpressure(true);
+        config = config.initial_read_window(
+            args.initial_window_size
+                .expect("read window size is required when backpressure is enabled"),
+        );
+    }
+
+    config
 }
 
 fn main() {
@@ -207,40 +258,30 @@ fn main() {
 
     match args.client {
         Client::Real {
-            bucket,
-            key,
-            region,
-            bind,
+            ref bucket,
+            ref keys,
+            ref region,
+            ref bind,
         } => {
-            let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(&region));
-            config = config.throughput_target_gbps(args.throughput_target_gbps);
-            config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
-            if let Some(interfaces) = &bind {
-                config = config.network_interface_names(interfaces.clone());
-            }
-            config = config.part_size(args.part_size);
-            if args.enable_backpressure {
-                config = config.read_backpressure(true);
-                config = config.initial_read_window(
-                    args.initial_window_size
-                        .expect("read window size is required when backpressure is enabled"),
-                );
-            }
+            let network_interfaces = bind.clone().unwrap_or_default();
+            let config = create_s3_client_config(region, &args, network_interfaces);
             let client = S3CrtClient::new(config).expect("couldn't create client");
+            let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
 
             run_benchmark(
                 client,
                 args.iterations,
-                args.downloads,
-                &bucket,
-                &key,
+                bucket,
+                &key_refs,
                 args.enable_backpressure,
                 args.output_file.as_deref(),
+                args.max_duration,
             );
         }
         Client::Mock { object_size } => {
             const BUCKET: &str = "bucket";
             const KEY: &str = "key";
+            let keys = &[KEY];
 
             let config = MockClient::config()
                 .bucket(BUCKET)
@@ -254,11 +295,11 @@ fn main() {
             run_benchmark(
                 client,
                 args.iterations,
-                args.downloads,
                 BUCKET,
-                KEY,
+                keys,
                 args.enable_backpressure,
                 args.output_file.as_deref(),
+                args.max_duration,
             );
         }
     }
