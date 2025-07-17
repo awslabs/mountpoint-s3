@@ -21,6 +21,8 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 
+const SECONDS_PER_DAY: u64 = 86400;
+
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("should succeed as first and only adapter init call");
@@ -159,7 +161,7 @@ fn main() -> anyhow::Result<()> {
     let mut iteration = 0;
     let mut total_bytes = 0;
     let mut iter_results = Vec::new();
-    let max_duration = args.max_duration.unwrap_or(Duration::from_secs(86400));
+    let max_duration = args.max_duration.unwrap_or(Duration::from_secs(SECONDS_PER_DAY));
     let timeout: Instant = total_start.checked_add(max_duration).expect("Duration overflow error");
     while iteration < args.iterations && Instant::now() < timeout {
         let received_bytes = Arc::new(AtomicU64::new(0));
