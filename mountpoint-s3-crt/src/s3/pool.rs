@@ -17,6 +17,9 @@ use crate::ToAwsByteCursor as _;
 use crate::common::allocator::Allocator;
 
 /// A custom memory pool.
+///
+/// **WARNING:** The API for this trait is still experimental and will likely change
+/// in future releases.
 pub trait MemoryPool: Clone + Send + Sync {
     /// Associated buffer type.
     type Buffer: AsMut<[u8]>;
@@ -258,23 +261,20 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
     }
 
     fn make_ticket(&self, buffer: Pool::Buffer) -> Pin<Box<CrtTicket<Pool::Buffer>>> {
-        // Set up the vtable by pointing into the pool pinned address, but leave `impl_`
-        // and `ref_count` to be initialized after pinning the ticket.
+        // `inner` will be initialized after pinning because its fields require pinned addresses.
         let mut ticket = Box::pin(CrtTicket {
-            inner: aws_s3_buffer_ticket {
-                vtable: (&raw const self.ticket_vtable).cast_mut(),
-                ref_count: Default::default(),
-                impl_: std::ptr::null_mut(),
-            },
+            inner: Default::default(),
+            ticket_vtable: self.ticket_vtable,
             buffer,
             _pinned: Default::default(),
         });
 
-        // Set `impl_` to the pinned address (self-referential) and initialize ref-counting.
+        // Set up the vtable and `impl_` to the pinned addresses (self-referential) and initialize ref-counting.
         // SAFETY: We're setting up the struct to be self-referential, and we're not moving out
         // of the struct, so the unchecked deref of the pinned pointer is okay.
         unsafe {
             let ticket_ref = Pin::get_unchecked_mut(Pin::as_mut(&mut ticket));
+            ticket_ref.inner.vtable = &raw mut ticket_ref.ticket_vtable;
             ticket_ref.inner.impl_ = ticket_ref as *mut CrtTicket<Pool::Buffer> as *mut libc::c_void;
             aws_ref_count_init(
                 &mut ticket_ref.inner.ref_count,
@@ -316,6 +316,8 @@ unsafe extern "C" fn pool_destroy<Pool: MemoryPool>(data: *mut libc::c_void) {
 struct CrtTicket<Buffer: AsMut<[u8]>> {
     /// Inner struct to pass to CRT functions.
     inner: aws_s3_buffer_ticket,
+    /// Holds the vtable to point to in `inner`.
+    ticket_vtable: aws_s3_buffer_ticket_vtable,
     /// Buffer implementing [AsMut<\[u8\]>].
     buffer: Buffer,
     /// Pin this struct because inner.impl_ will be a pointer to this object.
@@ -327,7 +329,7 @@ impl<Buffer: AsMut<[u8]>> CrtTicket<Buffer> {
     ///
     /// # Safety
     /// The returned pointer must eventually be passed to [from_raw] and can
-    /// additionally only used in [ref_mut_from_raw].
+    /// additionally only be used in [ref_mut_from_raw].
     unsafe fn leak(self: Pin<Box<Self>>) -> *mut aws_s3_buffer_ticket {
         // SAFETY: the resulting pointer will be only used in `ticket_claim` and `ticket_destroy`.
         let boxed = unsafe { Pin::into_inner_unchecked(self) };
@@ -382,10 +384,10 @@ struct CrtTicketFuture {
     inner: *mut aws_future_s3_buffer_ticket,
 }
 
-// SAFETY: `aws_future_s3_buffer_ticket` is reference counted and its methods are thread-safe
+// SAFETY: `aws_future_s3_buffer_ticket` is reference counted and its methods are thread-safe.
 unsafe impl Send for CrtTicketFuture {}
 
-// SAFETY: `aws_future_s3_buffer_ticket` is reference counted and its methods are thread-safe
+// SAFETY: `aws_future_s3_buffer_ticket` is reference counted and its methods are thread-safe.
 unsafe impl Sync for CrtTicketFuture {}
 
 impl CrtTicketFuture {
