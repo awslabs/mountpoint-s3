@@ -1,6 +1,9 @@
 ## Unreleased (v0.13.0)
 
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+
+## v0.12.5 (July 17, 2025)
+
 * Update to latest CRT dependencies.
 
 ## v0.12.4 (Jun 27, 2025)
