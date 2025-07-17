@@ -63,10 +63,10 @@ Output is written to `multirun/` within directories for the date, time, and expe
 The output directory includes a few different files from an individual experiment run,
 including the individual benchmark output `benchmark.log` and benchmark specific log files. For fio benchmarks, this will include FIO output, and Mountpoint logs.
 
-To run crt benchmarks, you need to provide the path of aws-crt-s3-benchmarks dir
+To run crt benchmarks, download [aws-crt-s3-benchmarks](https://github.com/awslabs/aws-crt-s3-benchmarks) and provide the path as input 
 
 ```
-uv run benchmark.py benchmark_type=crt benchmarks.crt.crt_benchmarks_path=aws-crt-s3-benchmarks-path -- s3_bucket=$amzn-s3-demo-bucket
+uv run benchmark.py benchmark_type=crt benchmarks.crt.crt_benchmarks_path=aws-crt-s3-benchmarks-path -- s3_bucket=amzn-s3-demo-bucket
 ```
 
 ## Advanced configuration
