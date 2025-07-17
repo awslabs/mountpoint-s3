@@ -1,6 +1,6 @@
 ## Unreleased
 
-* Update to latest aws-c-s3 dependency.
+* Update to latest CRT dependencies.
 
 ## v0.14.0 (Jun 27, 2025)
 

@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Update to latest CRT dependencies.
+
 ## v0.12.4 (Jun 27, 2025)
 
 * Adopt the new `body_callback_ex` provided in the latest CRT update and expose the returned data slices as `Buffer`
