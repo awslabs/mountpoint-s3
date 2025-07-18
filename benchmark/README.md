@@ -50,10 +50,24 @@ To run the experiment, you can execute a command like this:
 uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket
 ```
 
-This will run the default experiment, including many different configuration combinations.
+This will run the default experiment, including many different configuration combinations. The default
+benchmark type is fio. You can modify the benchmark type to run prefetch, client or crt benchmarks.
+
+To run prefetch benchmarks, you can execute a command like this:
+
+```
+uv run benchmark.py benchmark_type=fio  --  s3_bucket=amzn-s3-demo-bucket
+```
+
 Output is written to `multirun/` within directories for the date, time, and experiment number run.
 The output directory includes a few different files from an individual experiment run,
-including the individual benchmark output `benchmark.log`, FIO output, and Mountpoint logs.
+including the individual benchmark output `benchmark.log` and benchmark specific log files. For fio benchmarks, this will include FIO output, and Mountpoint logs.
+
+To run crt benchmarks, download [aws-crt-s3-benchmarks](https://github.com/awslabs/aws-crt-s3-benchmarks) and provide the path as input 
+
+```
+uv run benchmark.py benchmark_type=crt benchmarks.crt.crt_benchmarks_path=aws-crt-s3-benchmarks-path -- s3_bucket=amzn-s3-demo-bucket
+```
 
 ## Advanced configuration
 

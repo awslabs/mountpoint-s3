@@ -69,6 +69,6 @@ class FioBenchmark(BaseBenchmark):
         # Store benchmark results in metadata
         self.metadata["fio_output_file"] = self.fio_output_filepath
 
-    def post_process(self) -> Dict[str, Any]:
+    def post_process(self) -> None:
         cleanup_mp(self.mount_dir)
         return self.metadata

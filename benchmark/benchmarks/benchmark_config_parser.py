@@ -10,6 +10,21 @@ class BenchmarkConfigParser:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
 
+    def _parse_comma_separated_string_to_array(self, comma_separated_string: str) -> list:
+        if not comma_separated_string:
+            return []
+        keys = [key.strip() for key in comma_separated_string.split(',')]
+
+        # Filter out any empty keys
+        keys = [key for key in keys if key]
+        return keys
+
+    def default_object_keys(self, app_workers, object_size_in_gib) -> list:
+        keys = []
+        for i in range(app_workers):
+            keys.append(f"j{i}_{object_size_in_gib}GiB.bin")
+        return keys
+
     def get_common_config(self) -> Dict[str, Any]:
         return {
             'application_workers': getattr(self.cfg, 'application_workers', 1),
@@ -21,7 +36,8 @@ class BenchmarkConfigParser:
             'read_size': getattr(self.cfg, 'read_size', 262144),  # 256 KiB
             'region': getattr(self.cfg, 'region', "us-east-1"),
             'run_time': getattr(self.cfg, 'run_time', 30),
-            's3_bucket': self.cfg.s3_bucket,
+            's3_bucket': getattr(self.cfg, 's3_bucket', None),
+            's3_keys': self._parse_comma_separated_string_to_array(getattr(self.cfg, 's3_keys', None)),
             'with_bwm': getattr(self.cfg.monitoring, 'with_bwm', False),
             'write_part_size': getattr(self.cfg, 'write_part_size', 16777216),  # 16 MiB
             'with_perf_stat': getattr(self.cfg.monitoring, 'with_perf_stat', False),
@@ -48,4 +64,22 @@ class BenchmarkConfigParser:
             'direct_io': getattr(fio_cfg, 'direct_io', False),
             'fio_benchmark': getattr(fio_cfg, 'fio_benchmark', 'sequential_read'),
             'fio_io_engine': getattr(fio_cfg, 'fio_io_engine', 'psync'),
+        }
+
+    def get_prefetch_config(self) -> Dict[str, Any]:
+        prefetch_cfg = self.cfg.benchmarks.prefetch
+        return {
+            'max_memory_target': getattr(prefetch_cfg, 'max_memory_target', None),
+        }
+
+    def get_crt_config(self) -> Dict[str, Any]:
+        crt_cfg = self.cfg.benchmarks.crt
+        return {
+            'crt_benchmarks_path': getattr(crt_cfg, 'crt_benchmarks_path', None),
+        }
+
+    def get_client_config(self) -> Dict[str, Any]:
+        client_cfg = self.cfg.benchmarks.client
+        return {
+            'read_window_size': getattr(client_cfg, 'read_window_size', 2147483648),  # Reaslitic default value 8M/2G?
         }
