@@ -58,18 +58,18 @@ jobs:
         bucket-type:
         - name: S3
           feature: 
-        - name: S3 Express One Zone
+        - name: S3XOZ
           feature: s3express_tests
         fuseVersion: [2, 3]
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: Amazon Linux arm
+        - name: AL2 arm
           tags: [self-hosted, linux, arm64]
         exclude:
           # fuse3 is not available on Amazon Linux 2
           - runner:
-              name: Amazon Linux arm
+              name: AL2 arm
               tags: [self-hosted, linux, arm64]
             fuseVersion: 3
 
@@ -100,7 +100,7 @@ jobs:
     - name: Run tests
       run: cargo test ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   client-test:
@@ -118,12 +118,12 @@ jobs:
         bucket-type:
         - name: S3
           feature: 
-        - name: S3 Express One Zone
+        - name: S3XOZ
           feature: s3express_tests
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: Amazon Linux arm
+        - name: AL2 arm
           tags: [self-hosted, linux, arm64]
         pool:
         - name: Default Pool
@@ -159,7 +159,7 @@ jobs:
     - name: Run tests
       run: cargo test ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   fstab:
@@ -175,7 +175,7 @@ jobs:
         runner:
           - name: Ubuntu x86
             tags: [ubuntu-22.04] # GitHub-hosted
-          - name: Amazon Linux arm
+          - name: AL2 arm
             tags: [self-hosted, linux, arm64]
 
     steps:
