@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,8 @@ use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
+
+const SECONDS_PER_DAY: u64 = 86400;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
@@ -98,28 +100,28 @@ pub struct CliArgs {
 
     #[arg(
         long,
-        help = "Maximum runtime in seconds (overrides iterations if specified)",
-        value_name = "SECONDS"
+        help = "Maximum duration in seconds (overrides iterations if specified)",
+        value_name = "SECONDS",
+        value_parser = parse_duration,
     )]
-    runtime: Option<u64>,
+    max_duration: Option<Duration>,
 
     #[arg(
         long,
-        help = "Number of concurrent downloads per object",
-        default_value_t = 1,
-        value_name = "N"
-    )]
-    downloads_per_object: usize,
-
-    #[clap(
-        long,
         help = "One or more network interfaces to use when accessing S3. Requires Linux 5.7+ or running as root.",
-        value_name = "NETWORK_INTERFACE"
+        value_name = "NETWORK_INTERFACE",
+        value_delimiter = ','
     )]
-    pub bind: Option<Vec<String>>,
+    bind: Option<Vec<String>>,
 
     #[clap(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
-    pub output_file: Option<PathBuf>,
+    output_file: Option<PathBuf>,
+}
+
+fn parse_duration(arg: &str) -> Result<Duration, String> {
+    arg.parse::<u64>()
+        .map(Duration::from_secs)
+        .map_err(|e| format!("Invalid duration: {e}"))
 }
 
 fn create_memory_limiter(args: &CliArgs, client: &S3CrtClient) -> Arc<MemoryLimiter<S3CrtClient>> {
@@ -155,21 +157,13 @@ fn main() -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let runtime_exceeded = Arc::new(AtomicBool::new(false));
     let total_start = Instant::now();
-    if let Some(runtime) = args.runtime {
-        thread::spawn({
-            let runtime_exceeded = runtime_exceeded.clone();
-            move || {
-                thread::sleep(Duration::from_secs(runtime));
-                runtime_exceeded.store(true, Ordering::SeqCst);
-            }
-        });
-    }
     let mut iteration = 0;
     let mut total_bytes = 0;
     let mut iter_results = Vec::new();
-    while iteration < args.iterations && !runtime_exceeded.load(Ordering::SeqCst) {
+    let max_duration = args.max_duration.unwrap_or(Duration::from_secs(SECONDS_PER_DAY));
+    let timeout: Instant = total_start.checked_add(max_duration).expect("Duration overflow error");
+    while iteration < args.iterations && Instant::now() < timeout {
         let received_bytes = Arc::new(AtomicU64::new(0));
         let start = Instant::now();
         let manager = Prefetcher::default_builder(client.clone()).build(
@@ -182,34 +176,26 @@ fn main() -> anyhow::Result<()> {
             let mut download_tasks = Vec::new();
 
             for (object_id, size) in &object_metadata {
-                for _ in 0..args.downloads_per_object {
-                    let received_bytes = received_bytes.clone();
-                    let object_id = object_id.clone();
-                    let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
-                    let read_size = args.read_size;
-                    let runtime_exceeded_clone = runtime_exceeded.clone();
+                let received_bytes = received_bytes.clone();
+                let object_id = object_id.clone();
+                let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+                let read_size = args.read_size;
 
-                    let task = scope.spawn(move || {
-                        let result = block_on(wait_for_download(
-                            request,
-                            *size,
-                            read_size as u64,
-                            runtime_exceeded_clone,
-                        ));
-                        if let Ok(bytes_read) = result {
-                            received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
-                        } else {
-                            // As object download failures can produce
-                            // misleading results, exit the benchmarks
-                            // to avoid confusion.
-                            eprintln!("Download failed: {:?}", result.err());
-                            eprintln!("Exiting benchmarks due to download failure");
-                            std::process::exit(1);
-                        }
-                    });
+                let task = scope.spawn(move || {
+                    let result = block_on(wait_for_download(request, *size, read_size as u64, timeout));
+                    if let Ok(bytes_read) = result {
+                        received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
+                    } else {
+                        // As object download failures can produce
+                        // misleading results, exit the benchmarks
+                        // to avoid confusion.
+                        eprintln!("Download failed: {:?}", result.err());
+                        eprintln!("Exiting benchmarks due to download failure");
+                        std::process::exit(1);
+                    }
+                });
 
-                    download_tasks.push(task);
-                }
+                download_tasks.push(task);
             }
 
             for task in download_tasks {
@@ -228,7 +214,7 @@ fn main() -> anyhow::Result<()> {
         iter_results.push(json!({
             "iteration": iteration,
             "bytes": received_size,
-            "duration_seconds": elapsed.as_secs_f64(),
+            "elapsed_seconds": elapsed.as_secs_f64(),
         }));
         iteration += 1;
     }
@@ -244,7 +230,8 @@ fn main() -> anyhow::Result<()> {
         let results = json!({
             "summary": {
                 "total_bytes": total_bytes,
-                "duration_seconds": total_elapsed.as_secs_f64(),
+                "total_elapsed_seconds": total_elapsed.as_secs_f64(),
+                "max_duration_seconds": max_duration,
                 "iterations": iteration,
             },
             "iterations": iter_results
@@ -259,11 +246,11 @@ async fn wait_for_download(
     mut request: PrefetchGetObject<S3CrtClient>,
     size: u64,
     read_size: u64,
-    runtime_exceeded: Arc<AtomicBool>,
+    timeout: Instant,
 ) -> Result<u64, Box<dyn Error>> {
     let mut offset = 0;
     let mut total_bytes_read = 0;
-    while offset < size && !runtime_exceeded.load(Ordering::SeqCst) {
+    while offset < size && Instant::now() < timeout {
         let bytes = request.read(offset, read_size as usize).await?;
         let bytes_read = bytes.len() as u64;
         offset += bytes_read;
@@ -287,13 +274,8 @@ fn make_s3_client_from_args(args: &CliArgs) -> anyhow::Result<S3CrtClient> {
     if let Some(part_size) = args.part_size {
         client_config = client_config.part_size(part_size as usize);
     }
-    if let Some(interfaces) = &args.bind {
-        let nics: Vec<String> = interfaces
-            .iter()
-            .flat_map(|iface| iface.split(',').map(|s| s.trim().to_string()))
-            .filter(|s| !s.is_empty())
-            .collect();
-        client_config = client_config.network_interface_names(nics);
+    if let Some(nics) = &args.bind {
+        client_config = client_config.network_interface_names(nics.to_vec());
     }
     Ok(S3CrtClient::new(client_config)?)
 }

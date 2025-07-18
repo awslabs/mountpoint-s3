@@ -18,6 +18,8 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 
+const SECONDS_PER_DAY: u64 = 86400;
+
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");
@@ -44,9 +46,8 @@ fn run_benchmark(
     let total_start = Instant::now();
     let mut iter_results = Vec::new();
     let mut iteration = 0;
-    let timeout: Instant = total_start
-        .checked_add(max_duration.unwrap_or(Duration::from_secs(86400)))
-        .expect("Duration overflow error");
+    let duration = max_duration.unwrap_or(Duration::from_secs(SECONDS_PER_DAY));
+    let timeout: Instant = total_start.checked_add(duration).expect("Duration overflow error");
 
     while iteration < num_iterations && Instant::now() < timeout {
         let iter_start = Instant::now();
@@ -146,7 +147,7 @@ fn run_benchmark(
             "summary": {
                 "total_bytes": total_bytes,
                 "total_elapsed_seconds": total_elapsed.as_secs_f64(),
-                "max_duration_seconds": max_duration,
+                "max_duration_seconds": duration,
                 "iterations": iter_results.len(),
             },
             "iterations": iter_results
