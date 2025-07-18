@@ -13,7 +13,7 @@ use mountpoint_s3_fs::{
         session::FuseSession,
     },
     logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
-    manifest::{ChannelConfig, Manifest, ingest_manifest},
+    manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
     metrics::{self, MetricsSinkHandle},
     s3::config::{ClientConfig, PartConfig, Region, TargetThroughputSetting},
 };
@@ -172,16 +172,19 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
     // TODO: fail fast if buckets are in different regions?
     if config.channels.is_empty() || config.channels.len() > 20 {
         return Err(anyhow!(
-            "At lest one channel must be specified and the number of channels must not exceed 20"
+            "At least one channel must be specified and the number of channels must not exceed 20"
         ));
     }
 
     // Generate manifest path and check if it exists
     let db_path = database_directory.join("metadata.db");
-    info!("Ingesting CSV manifests to the DB, channels {:?}", config.channels);
+    info!(
+        "Ingesting CSV manifests into the database, channels {:?}",
+        config.channels
+    );
     let start = Instant::now();
     ingest_manifest(&config.channels, &db_path)?;
-    info!("Created database in {:?} stored at {:?}", start.elapsed(), db_path);
+    info!("Created the database in {:?} stored at {:?}", start.elapsed(), db_path);
 
     Ok(Manifest::new(&db_path)?)
 }
@@ -213,7 +216,7 @@ fn mount_filesystem(
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
-    let metablock = Box::new(mountpoint_s3_fs::manifest::ManifestMetablock::new(manifest)?);
+    let metablock = ManifestMetablock::new(manifest)?;
 
     // Create and run the FUSE session
     let fuse_session = mp_config

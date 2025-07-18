@@ -1,28 +1,38 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use crate::fs::FUSE_ROOT_INODE;
-use crate::manifest::manifest_impl::{Manifest, ManifestEntry, ManifestError, ManifestIter};
+use super::manifest_impl::{Manifest, ManifestDirIter, ManifestEntry, ManifestError};
+
 use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, TryAddDirEntry,
-    ValidName, WriteMode,
+    InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
+    ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
 };
 use crate::s3::config::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 
+/// Implementation of the `Metablock` trait that provides a read-only view of the manifest database.
+///
+/// This struct serves as the bridge between the filesystem operations and the manifest database,
+/// handling lookups, directory listings, and attribute retrieval. It maintains the state needed
+/// for these operations, including directory handles for readdir operations.
 #[derive(Debug)]
 pub struct ManifestMetablock {
+    /// List of S3 channels (bucket+prefix combinations) available in the manifest.
     channels: Vec<Arc<S3Path>>,
+    /// Time when the filesystem was mounted, used for setting timestamps in stat information.
     mount_time: OffsetDateTime,
+    /// The underlying manifest database that stores information about files and directories.
     manifest: Manifest,
+    /// Counter for generating unique directory handle IDs for readdir operations.
     next_dir_handle_id: AtomicU64,
-    readdir_handles: RwLock<HashMap<u64, Arc<Mutex<ManifestIter>>>>,
+    /// Map of active directory handles used for readdir operations.
+    /// Maps from handle ID to the directory iterator.
+    readdir_handles: RwLock<HashMap<u64, Arc<Mutex<ManifestDirIter>>>>,
 }
 
 impl ManifestMetablock {
@@ -38,10 +48,7 @@ impl ManifestMetablock {
     }
 
     fn manifest_entry_to_lookup(&self, manifest_entry: ManifestEntry) -> Result<Lookup, ManifestError> {
-        let channel_id = match &manifest_entry {
-            ManifestEntry::File { channel_id, .. } => *channel_id,
-            ManifestEntry::Directory { channel_id, .. } => *channel_id,
-        };
+        let channel_id = manifest_entry.channel_id();
         if channel_id >= self.channels.len() {
             return Err(ManifestError::InvalidRow(manifest_entry.id()));
         }
@@ -50,22 +57,18 @@ impl ManifestMetablock {
     }
 
     fn get_parent_id(&self, ino: InodeNo) -> Result<InodeNo, InodeError> {
-        if ino == FUSE_ROOT_INODE {
-            return Ok(FUSE_ROOT_INODE);
+        if ino == ROOT_INODE_NO {
+            return Ok(ROOT_INODE_NO);
         };
 
         let Some(manifest_entry) = self.manifest.manifest_lookup_by_id(ino)? else {
             return Err(InodeError::InodeDoesNotExist(ino));
         };
 
-        match manifest_entry {
-            ManifestEntry::File { parent_id, .. } => Ok(parent_id),
-            ManifestEntry::Directory { parent_id, .. } => Ok(parent_id),
-        }
+        Ok(manifest_entry.parent_id())
     }
 
     fn stat_for_directory(&self) -> InodeStat {
-        const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
         InodeStat::for_directory(self.mount_time, NEVER_EXPIRE_TTL)
     }
 }
@@ -90,7 +93,7 @@ impl Metablock for ManifestMetablock {
     }
 
     async fn getattr(&self, ino: InodeNo, _force_revalidate: bool) -> Result<Lookup, InodeError> {
-        if ino == FUSE_ROOT_INODE {
+        if ino == ROOT_INODE_NO {
             return Ok(Lookup::new(
                 ino,
                 self.stat_for_directory(),
@@ -170,10 +173,7 @@ impl Metablock for ManifestMetablock {
         let mut readdir_handle = readdir_handle.lock().expect("lock must succeed");
         let shifted_offset = (offset - 2) as usize; // shift offset accounting for '.' and '..'
         readdir_handle.seek(shifted_offset)?; // typically no-op, but required for out-of-order requests
-        loop {
-            let Some(manifest_entry) = readdir_handle.next_entry()? else {
-                break;
-            };
+        while let Some(manifest_entry) = readdir_handle.next_entry()? {
             let (inode_info, name) = manifest_entry.clone().into_inode_information(self.mount_time)?;
             if replier(inode_info, OsString::from(name), offset + 1, 0) {
                 readdir_handle.readd(manifest_entry);

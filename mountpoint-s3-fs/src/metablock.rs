@@ -14,10 +14,12 @@ mod stat;
 
 // Re-export all the core types
 pub use error::{InodeError, InodeErrorInfo};
-pub use expiry::Expiry;
+pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
 pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
 pub use stat::{InodeKind, InodeNo, InodeStat};
+
+pub const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
 /// A trait for a generic implementation of a structure managing a filesystem backed by S3.
 ///

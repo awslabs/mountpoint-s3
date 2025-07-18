@@ -2,18 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use crate::metablock::ValidKey;
 use crate::metablock::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat};
+use crate::metablock::{NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey};
 use crate::prefix::Prefix;
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::debug;
-
-const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
-
-// 200 years seems long enough
-const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
 
 #[derive(Debug, Clone)]
 pub struct Inode {

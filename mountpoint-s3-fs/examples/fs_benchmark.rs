@@ -161,7 +161,7 @@ fn mount_file_system(
         mountpoint.to_str().unwrap()
     );
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
-    let superblock = Box::new(Superblock::new(
+    let superblock = Superblock::new(
         client.clone(),
         bucket_name,
         &Default::default(),
@@ -169,7 +169,7 @@ fn mount_file_system(
             cache_config: filesystem_config.cache_config.clone(),
             s3_personality: filesystem_config.s3_personality,
         },
-    ));
+    );
     let fs = S3Filesystem::new(client, prefetcher_builder, runtime, superblock, filesystem_config);
     let session = Session::new(S3FuseFilesystem::new(fs, None), mountpoint, &options)
         .expect("Should have created FUSE session successfully");

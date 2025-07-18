@@ -145,7 +145,7 @@ where
         client: Client,
         prefetch_builder: PrefetcherBuilder<Client>,
         runtime: Runtime,
-        metablock: Box<dyn Metablock>,
+        metablock: impl Metablock + 'static,
         config: S3FilesystemConfig,
     ) -> Self {
         trace!(?config, "new filesystem");
@@ -164,7 +164,7 @@ where
 
         Self {
             config,
-            metablock: metablock.into(),
+            metablock: Arc::new(metablock),
             prefetcher,
             uploader,
             next_handle: AtomicU64::new(1),
@@ -815,7 +815,7 @@ mod tests {
             server_side_encryption,
             ..Default::default()
         };
-        let superblock = Box::new(Superblock::new(
+        let superblock = Superblock::new(
             client.clone(),
             bucket,
             &Default::default(),
@@ -823,7 +823,7 @@ mod tests {
                 cache_config: fs_config.cache_config.clone(),
                 s3_personality: fs_config.s3_personality,
             },
-        ));
+        );
         let mut fs = S3Filesystem::new(client, prefetcher_builder, runtime, superblock, fs_config);
 
         // Lookup inode of the dir1 directory

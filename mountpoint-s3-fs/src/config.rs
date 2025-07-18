@@ -43,7 +43,7 @@ impl MountpointConfig {
     /// Create a new FUSE session
     pub fn create_fuse_session<Client>(
         self,
-        metablock: Box<dyn Metablock>,
+        metablock: impl Metablock + 'static,
         client: Client,
         runtime: Runtime,
     ) -> anyhow::Result<FuseSession>

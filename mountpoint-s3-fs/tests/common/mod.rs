@@ -59,7 +59,7 @@ where
 {
     let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
-    let superblock = Box::new(Superblock::new(
+    let superblock = Superblock::new(
         client.clone(),
         bucket,
         prefix,
@@ -67,7 +67,7 @@ where
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,
         },
-    ));
+    );
     S3Filesystem::new(client, prefetcher_builder, runtime, superblock, config)
 }
 

@@ -1,5 +1,5 @@
 use mountpoint_s3_fs::{
-    manifest::{ChannelManifest, DbEntry, InputManifestEntry, ManifestError, create_db},
+    manifest::{ChannelManifest, DbEntry, InputManifestEntry, InputManifestError, create_db},
     prefix::Prefix,
     s3::config::S3Path,
 };
@@ -7,10 +7,10 @@ use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-pub fn create_manifest<I: Iterator<Item = Result<InputManifestEntry, ManifestError>>>(
+pub fn create_manifest<I: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
     channel_manifests: Vec<ChannelManifest<I>>,
     batch_size: usize,
-) -> Result<(TempDir, PathBuf), ManifestError> {
+) -> Result<(TempDir, PathBuf), InputManifestError> {
     let db_dir = tempfile::tempdir().unwrap();
     let db_path = db_dir.path().join("s3_keys.db3");
 
@@ -47,7 +47,7 @@ pub fn create_dummy_manifest<T: AsRef<str>>(
     file_size: usize,
     channel_dir_name: &str,
     bucket_name: &str,
-) -> Result<(TempDir, PathBuf), ManifestError> {
+) -> Result<(TempDir, PathBuf), InputManifestError> {
     let entries = s3_keys
         .iter()
         .map(|key| Ok(InputManifestEntry::new(key.as_ref(), DUMMY_ETAG, file_size).unwrap()));

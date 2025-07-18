@@ -71,7 +71,7 @@ fn test_readdir_manifest_multiple_buckets() {
     let bucket2_files = vec!["dir5/f.txt", "dir6/dir7/g.txt", "dir6/dir7/h.txt", "i.txt"];
     let bucket3_files = vec!["j.txt", "dir8/k.txt"];
 
-    let create_entry = |key: &&str| Ok(InputManifestEntry::new(key, DUMMY_ETAG, 1024).unwrap());
+    let create_entry = |key: &&str| Ok(InputManifestEntry::new(*key, DUMMY_ETAG, 1024).unwrap());
     // Create manifest with 3 channels pointing to different buckets
     let bucket_files = [&bucket1_files, &bucket2_files, &bucket3_files];
     let channel_manifests: Vec<_> = bucket_files

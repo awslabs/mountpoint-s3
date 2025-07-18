@@ -12,7 +12,7 @@ use mountpoint_s3_client::types::{Checksum, PutObjectSingleParams, UploadChecksu
 use mountpoint_s3_fs::data_cache::DataCache;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
-use mountpoint_s3_fs::manifest::Manifest;
+use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
 use mountpoint_s3_fs::metablock::Metablock;
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::prefix::Prefix;
@@ -171,9 +171,7 @@ where
 {
     #[cfg(feature = "manifest")]
     if let Some(manifest) = manifest {
-        return Box::new(
-            mountpoint_s3_fs::manifest::ManifestMetablock::new(manifest.clone()).expect("metablock must be created"),
-        );
+        return Box::new(ManifestMetablock::new(manifest.clone()).expect("metablock must be created"));
     }
 
     Box::new(Superblock::new(
@@ -185,6 +183,45 @@ where
             s3_personality: filesystem_config.s3_personality,
         },
     ))
+}
+
+fn create_filesystem<Client>(
+    client: Client,
+    prefetcher_builder: PrefetcherBuilder<Client>,
+    runtime: Runtime,
+    bucket: &str,
+    prefix: &Prefix,
+    test_config: &TestSessionConfig,
+) -> S3Filesystem<Client>
+where
+    Client: ObjectClient + Clone + Send + Sync + 'static,
+{
+    #[cfg(feature = "manifest")]
+    if let Some(manifest) = test_config.manifest.clone() {
+        return S3Filesystem::new(
+            client,
+            prefetcher_builder,
+            runtime,
+            ManifestMetablock::new(manifest.clone()).expect("metablock must be created"),
+            test_config.filesystem_config.clone(),
+        );
+    };
+
+    S3Filesystem::new(
+        client.clone(),
+        prefetcher_builder,
+        runtime,
+        Superblock::new(
+            client,
+            bucket,
+            prefix,
+            SuperblockConfig {
+                cache_config: test_config.filesystem_config.cache_config.clone(),
+                s3_personality: test_config.filesystem_config.s3_personality,
+            },
+        ),
+        test_config.filesystem_config.clone(),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -210,24 +247,16 @@ where
     let session_acl = fuser::SessionACL::All;
 
     let prefix = Prefix::new(prefix).expect("valid prefix");
-    let metablock = create_metablock(
-        &client,
+
+    let fs = create_filesystem(
+        client.clone(),
+        prefetcher_builder,
+        runtime,
         bucket,
         &prefix,
-        &test_config.filesystem_config,
-        #[cfg(feature = "manifest")]
-        test_config.manifest,
+        &test_config,
     );
-    let fs = S3FuseFilesystem::new(
-        S3Filesystem::new(
-            client,
-            prefetcher_builder,
-            runtime,
-            metablock,
-            test_config.filesystem_config,
-        ),
-        test_config.error_logger,
-    );
+    let fs = S3FuseFilesystem::new(fs, test_config.error_logger);
     let (session, mount) = if test_config.pass_fuse_fd {
         let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();

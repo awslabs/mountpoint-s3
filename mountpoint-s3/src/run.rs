@@ -188,7 +188,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     tracing::debug!(?fuse_session_config, "creating fuse session");
     let mount_point_path = format!("{}", fuse_session_config.mount_point());
 
-    let superblock = Box::new(Superblock::new(
+    let superblock = Superblock::new(
         client.clone(),
         &s3_path.bucket_name,
         &s3_path.prefix,
@@ -196,7 +196,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
             cache_config: filesystem_config.cache_config.clone(),
             s3_personality: filesystem_config.s3_personality,
         },
-    ));
+    );
 
     let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)
         .create_fuse_session(superblock, client, runtime)?;

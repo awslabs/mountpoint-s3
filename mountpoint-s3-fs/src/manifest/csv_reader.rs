@@ -1,9 +1,9 @@
-use crate::manifest::builder::InputManifestEntry;
-
-use super::ManifestError;
 use csv::{DeserializeRecordsIntoIter, ReaderBuilder};
 use serde::Deserialize;
 use std::io::Read;
+
+use super::InputManifestError;
+use super::builder::InputManifestEntry;
 
 pub struct CsvReader<R: Read> {
     reader: DeserializeRecordsIntoIter<R, CsvEntry>,
@@ -20,32 +20,36 @@ impl<R: Read> CsvReader<R> {
 }
 
 impl<R: Read> Iterator for CsvReader<R> {
-    type Item = Result<InputManifestEntry, ManifestError>;
+    type Item = Result<InputManifestEntry, InputManifestError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let csv_entry = self
-            .reader
-            .next()
-            .map(|csv_entry| csv_entry.map_err(ManifestError::from))?;
-        match csv_entry {
-            Ok(csv_entry) => Some(csv_entry.try_into()),
-            Err(err) => Some(Err(err)),
+        match self.reader.next() {
+            Some(Ok(csv_entry)) => Some(csv_entry.try_into()),
+            Some(Err(err)) => Some(Err(InputManifestError::from(err))),
+            None => None,
         }
     }
 }
 
 #[derive(Deserialize)]
 struct CsvEntry {
-    partial_key: String, // may hold a folder marker (e.g. "dir1/dir2/")
+    /// Partial key of the S3 object.
+    ///
+    /// Must not contain S3 prefix, when the prefix is mounted.
+    /// May hold a directory marker (e.g. "dir1/dir2/"), which will be skipped
+    /// and won't affect the file system structure.
+    partial_key: String,
+    /// Etag of the S3 object.
     etag: String,
+    /// Size of the S3 object.
     size: usize,
 }
 
 impl TryInto<InputManifestEntry> for CsvEntry {
-    type Error = ManifestError;
+    type Error = InputManifestError;
 
     fn try_into(self) -> Result<InputManifestEntry, Self::Error> {
-        InputManifestEntry::from_owned(self.partial_key, self.etag, self.size)
+        InputManifestEntry::new(self.partial_key, self.etag, self.size)
     }
 }
 
@@ -88,7 +92,7 @@ y1","""etag1""",1024"#;
     fn test_csv_parsing_err(csv_str: &str) {
         let mut reader = CsvReader::new(csv_str.as_bytes());
         let err = reader.next().expect("must be some").expect_err("must be an error");
-        assert!(matches!(err, ManifestError::CsvError(_)));
+        assert!(matches!(err, InputManifestError::CsvError(_)));
     }
 
     #[test_case("dir1/./a.txt"; "with dot")]
@@ -100,7 +104,7 @@ y1","""etag1""",1024"#;
         let csv_string = CSV_ENTRY.replace("{}", key);
         let mut reader = CsvReader::new(csv_string.as_bytes());
         let err = reader.next().expect("must be some").expect_err("must be an error");
-        assert!(matches!(err, ManifestError::InvalidKey(_)));
+        assert!(matches!(err, InputManifestError::InvalidKey(_)));
     }
 
     #[test]
@@ -108,6 +112,6 @@ y1","""etag1""",1024"#;
         let csv_string = CSV_ENTRY.replace("{}", "dir1/dir2/dir3/");
         let mut reader = CsvReader::new(csv_string.as_bytes());
         let err = reader.next().expect("must be some").expect_err("must be an error");
-        assert!(matches!(err, ManifestError::FolderMarker(_)));
+        assert!(matches!(err, InputManifestError::DirectoryMarker(_)));
     }
 }

@@ -92,6 +92,17 @@ impl ValidKey {
             _ => InodeKind::File,
         }
     }
+
+    /// Path components for this key.
+    ///
+    /// For directories, this does not include empty component after the terminal '/'.
+    pub fn components(&self) -> Vec<ValidName> {
+        if self.key.is_empty() {
+            Default::default()
+        } else {
+            self.key.split_terminator('/').map(ValidName).collect()
+        }
+    }
 }
 
 impl Deref for ValidKey {
@@ -126,18 +137,17 @@ impl TryFrom<String> for ValidKey {
     /// Constructs a valid key performing checks.
     fn try_from(full_key: String) -> Result<Self, Self::Error> {
         // validate
-        let components: Vec<_> = full_key.split_terminator('/').collect();
-        for component in components.iter() {
+        let mut last_component = None;
+        for component in full_key.split_terminator('/') {
             if ValidName::parse_str(component).is_err() {
                 return Err(ValidKeyError::InvalidKey(full_key.to_string()));
             }
+            last_component = Some(component);
         }
 
         // extract name
         let is_dir = full_key.ends_with('/');
-        let name_len = components
-            .last()
-            .map_or(0, |name| if is_dir { name.len() + 1 } else { name.len() });
+        let name_len = last_component.map_or(0, |name| if is_dir { name.len() + 1 } else { name.len() });
         let name_offset = full_key.len() - name_len;
 
         Ok(Self {
@@ -328,5 +338,20 @@ mod tests {
     #[test_case("dir1/../a.txt", Err(ValidKeyError::InvalidKey("dir1/../a.txt".to_string())); "invalid component")]
     fn test_valid_key_try_from(source: &str, result: Result<ValidKey, ValidKeyError>) {
         assert_eq!(ValidKey::try_from(source.to_string()), result);
+    }
+
+    #[test_case("", &[]; "empty key")]
+    #[test_case("file.txt", &["file.txt"]; "file key with single component")]
+    #[test_case("dir/", &["dir"]; "directory key with single component")]
+    #[test_case("dir1/dir2/file.txt", &["dir1", "dir2", "file.txt"]; "file key with multiple components")]
+    #[test_case("dir1/dir2/dir3/", &["dir1", "dir2", "dir3"]; "directory key with multiple components")]
+    fn test_valid_key_components(source: &str, expected_components: &[&str]) {
+        let key = ValidKey::try_from(source.to_string()).unwrap();
+        let components = key.components();
+
+        assert_eq!(components.len(), expected_components.len());
+        for (i, expected) in expected_components.iter().enumerate() {
+            assert_eq!(components[i].as_ref(), *expected);
+        }
     }
 }

@@ -16,19 +16,17 @@ pub struct Lookup {
 impl Lookup {
     /// Creates a new Lookup instance
     pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind, is_remote: bool, location: Option<S3Location>) -> Self {
-        debug_assert!(
-            location
-                .as_ref()
-                .is_none_or(|location| location.partial_key.kind() == kind),
-            "wrong kind for ino {ino}",
-        );
-        Self {
-            information: InodeInformation::new(ino, stat, kind, is_remote),
-            location,
-        }
+        Self::new_from_info_and_loc(InodeInformation::new(ino, stat, kind, is_remote), location)
     }
 
     pub fn new_from_info_and_loc(information: InodeInformation, location: Option<S3Location>) -> Self {
+        debug_assert!(
+            location
+                .as_ref()
+                .is_none_or(|location| location.partial_key.kind() == information.kind()),
+            "wrong kind for ino {}",
+            information.ino(),
+        );
         Self { information, location }
     }
 
