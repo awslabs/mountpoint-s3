@@ -17,6 +17,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::metablock::Metablock;
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::metablock::{InodeInformation, TryAddDirEntry};
@@ -25,7 +26,7 @@ use crate::prefix::Prefix;
 use crate::superblock::{Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::Uploader;
+use crate::upload::{Uploader, UploaderConfig};
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
@@ -146,6 +147,7 @@ where
     pub fn new(
         client: Client,
         prefetch_builder: PrefetcherBuilder<Client>,
+        pool: PagedPool,
         runtime: Runtime,
         bucket: &str,
         prefix: &Prefix,
@@ -160,16 +162,17 @@ where
             manifest: config.manifest.clone(),
         };
         let superblock = Superblock::new(client.clone(), bucket, prefix, superblock_config);
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
             runtime,
+            pool,
             mem_limiter,
-            config.storage_class.to_owned(),
-            config.server_side_encryption.clone(),
-            client.write_part_size().unwrap(),
-            config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c),
+            UploaderConfig::new(client.write_part_size().unwrap())
+                .storage_class(config.storage_class.to_owned())
+                .server_side_encryption(config.server_side_encryption.clone())
+                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c)),
         );
 
         Self {
@@ -817,6 +820,7 @@ mod tests {
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+        let pool = PagedPool::new([32]);
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
@@ -827,6 +831,7 @@ mod tests {
         let mut fs = S3Filesystem::new(
             client,
             prefetcher_builder,
+            pool,
             runtime,
             bucket,
             &Default::default(),

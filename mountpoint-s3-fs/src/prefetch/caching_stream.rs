@@ -29,11 +29,11 @@ pub struct CachingPartStream<Cache, Client: ObjectClient + Clone + Send + Sync +
     cache: Arc<Cache>,
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Cache, Client: ObjectClient + Clone + Send + Sync + 'static> CachingPartStream<Cache, Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter<Client>>, cache: Cache) -> Self {
+    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>, cache: Cache) -> Self {
         Self {
             cache: Arc::new(cache),
             runtime,
@@ -410,6 +410,7 @@ mod tests {
     use crate::{
         data_cache::InMemoryDataCache,
         mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
+        memory::PagedPool,
         object::ObjectId,
     };
 
@@ -453,7 +454,8 @@ mod tests {
                 .initial_read_window_size(initial_read_window_size)
                 .build(),
         );
-        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new([block_size, client_part_size]);
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -535,7 +537,8 @@ mod tests {
                 .initial_read_window_size(initial_read_window_size)
                 .build(),
         );
-        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new([block_size, client_part_size]);
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
