@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752830513607,
+  "lastUpdate": 1752851543681,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e45834ac4e73aa648d8f62583c1b3becb12d2b8",
-          "message": "Add private option to disable disk cache cleanup for testing/benchmarking (#1483)\n\nThis updates the `ManagedCacheDir` struct to optionally perform cleanup\nat creation and drop. It also provides an environment variable for\nswitching this on at `mount-s3` invocation time. This will allow us to\nturn this cleanup off when trying to perform benchmarking comparing\n\"warming\" phases, as well as \"hot\" phases - i.e. to understand how\nMountpoint performs when loading the cache versus a full cache, where\nall requests are served from it.\n\n### Does this change impact existing behavior?\n\nNo existing behavior change. One log is downgraded from `warn` to\n`debug`. The warning was not providing much valuable information - if\nneeded, we can turn on debug logs if any strange behavior is observed.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, no public changes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2025-06-27T09:30:14Z",
-          "tree_id": "cf1054344fd2f3a909e34fb60f31b42590dd3d0c",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7e45834ac4e73aa648d8f62583c1b3becb12d2b8"
-        },
-        "date": 1751024624253,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 13787.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 26198.8828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 40160.2734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 151.0703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 306.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 156.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 324.609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 74.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 238.32421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 79.625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 238.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 34953.734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 387.703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 40504.5859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 373.359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 13741.41796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 262.66796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 10200.78515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 12003.0234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 260.94921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 409.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 221.3125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 231.265625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "c02f9f4e7d3c8a6e2aab4bb6961adc2fecf76e8e",
+          "message": "Add support for custom memory pools (#1516)\n\nIntroduces a `MemoryPool` trait in the client crate which allows users\nto provide their own memory pool implementation. This is part of the\nbroader effort to use a unified memory pool in Mountpoint (see draft PR\n#1511).\n\nThis change introduces:\n* The required code to bridge implementations of the new Rust trait to\nthe CRT pool interface.\n* A simple `MemoryPool` implementation to be used in tests.\n* The `pool_tests` feature flags to use the above pool in the client\ntests, replacing the CRT default pool.\n* A new CI workflow to run the client tests with the custom pool.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nEntry in the client changelog.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-07-18T12:57:54Z",
+          "tree_id": "141b6452e1be9f7e92c8829dd1e74de58c0a05a3",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/c02f9f4e7d3c8a6e2aab4bb6961adc2fecf76e8e"
+        },
+        "date": 1752851543628,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 16631.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 28017.703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 35490.28515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 137.2265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 306.58984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 165.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 320.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 74.33203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 231.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 75.1796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 233.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 37049.1015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 384.3671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 33229.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 378.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13550.609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 256.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 13873.8671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 12057.48828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 259.4453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 301.01171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 253.73828125,
             "unit": "MiB"
           }
         ]
