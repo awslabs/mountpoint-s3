@@ -82,6 +82,7 @@ pub mod config {
     #[doc(hidden)]
     pub use mountpoint_s3_crt::s3::s3_library_init;
 
+    pub use mountpoint_s3_crt::s3::client::MetaRequestType;
     pub use mountpoint_s3_crt::s3::pool::{MemoryPool, MemoryPoolFactory, MemoryPoolFactoryOptions};
 }
 
