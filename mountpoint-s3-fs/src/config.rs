@@ -6,8 +6,8 @@ use crate::data_cache::{DataCacheConfig, DiskDataCache, ExpressDataCache, Multil
 use crate::fuse::config::FuseSessionConfig;
 use crate::fuse::session::FuseSession;
 use crate::fuse::{ErrorLogger, S3FuseFilesystem};
+use crate::metablock::Metablock;
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
-use crate::s3::config::S3Path;
 use crate::sync::Arc;
 use crate::{Runtime, S3Filesystem, S3FilesystemConfig};
 
@@ -43,7 +43,7 @@ impl MountpointConfig {
     /// Create a new FUSE session
     pub fn create_fuse_session<Client>(
         self,
-        s3_path: S3Path,
+        metablock: impl Metablock + 'static,
         client: Client,
         runtime: Runtime,
     ) -> anyhow::Result<FuseSession>
@@ -52,14 +52,7 @@ impl MountpointConfig {
     {
         let prefetcher_builder = create_prefetcher_builder(self.data_cache_config, &client, &runtime)?;
         tracing::trace!(filesystem_config=?self.filesystem_config, "creating file system");
-        let fs = S3Filesystem::new(
-            client,
-            prefetcher_builder,
-            runtime,
-            &s3_path.bucket_name,
-            &s3_path.prefix,
-            self.filesystem_config,
-        );
+        let fs = S3Filesystem::new(client, prefetcher_builder, runtime, metablock, self.filesystem_config);
 
         let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);
         let session = FuseSession::new(fuse_fs, self.fuse_session_config)?;

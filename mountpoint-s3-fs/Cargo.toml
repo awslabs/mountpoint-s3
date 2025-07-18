@@ -95,10 +95,6 @@ shuttle = []
 second_account_tests = []
 
 [[example]]
-name = "manifest_to_sqlite"
-required-features = ["manifest"]
-
-[[example]]
 name = "mount_from_config"
 required-features = ["manifest", "event_log"]
 
