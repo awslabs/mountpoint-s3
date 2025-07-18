@@ -13,8 +13,10 @@ use std::time::{Duration, Instant};
 
 use futures::FutureExt;
 use futures::future::{Fuse, FusedFuture};
-pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
-use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
+pub use mountpoint_s3_crt::auth::credentials_providers::{CredentialsProvider, CredentialsProviderStaticOptions};
+use mountpoint_s3_crt::auth::credentials_providers::{
+    CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions,
+};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
 use mountpoint_s3_crt::common::allocator::Allocator;
 pub use mountpoint_s3_crt::common::error::Error as CrtError;
