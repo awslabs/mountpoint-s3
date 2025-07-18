@@ -367,7 +367,7 @@ unsafe extern "C" fn ticket_claim<Buffer: AsMut<[u8]>>(mut ticket: *mut aws_s3_b
     // SAFETY: the CRT guarantees to only use the returned buffer while holding the ticket.
     let aws_byte_cursor { len, ptr } = unsafe { ticket.buffer.as_mut().as_aws_byte_cursor() };
 
-    // Build the `aws_byte_buf` required by the CRT from the pointer and length of the buffer.
+    // Use `aws_byte_buf_from_empty_array` to build an `aws_byte_buf` with 0 length and `len` capacity.
     // SAFETY: `ptr` is a valid buffer with capacity >= `len`.
     unsafe { aws_byte_buf_from_empty_array(ptr as *mut libc::c_void, len) }
 }
