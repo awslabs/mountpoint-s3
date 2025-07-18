@@ -3,11 +3,7 @@
 pub mod common;
 
 use common::*;
-#[cfg(not(feature = "s3express_tests"))]
-use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::S3RequestError;
-#[cfg(not(feature = "s3express_tests"))]
-use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadBucketError, ObjectClientError};
 
 #[tokio::test]
@@ -21,10 +17,11 @@ async fn test_head_bucket_correct_region() {
 #[tokio::test]
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_head_bucket_wrong_region() {
+    use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
+
     let (bucket, _) = get_test_bucket_and_prefix("test_head_bucket_wrong_region");
     let endpoint_config = EndpointConfig::new(&get_secondary_test_region());
-    let client =
-        S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("could not create test client");
+    let client = get_test_client_with_config(S3ClientConfig::new().endpoint_config(endpoint_config));
     let expected_region = get_test_region();
 
     let result = client.head_bucket(&bucket).await;

@@ -359,8 +359,7 @@ async fn test_get_object_wrong_region() {
     let key = format!("{prefix}/nonexistent_key");
 
     let endpoint_config = EndpointConfig::new(&get_secondary_test_region());
-    let client =
-        S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("must create a client");
+    let client = get_test_client_with_config(S3ClientConfig::new().endpoint_config(endpoint_config));
 
     let err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -627,12 +626,11 @@ async fn stress_test_get_object() {
         .await
         .unwrap();
 
-    let client: S3CrtClient = S3CrtClient::new(
+    let client = get_test_client_with_config(
         S3ClientConfig::new()
             .endpoint_config(get_test_endpoint_config())
             .event_loop_threads(100),
-    )
-    .expect("could not create test client");
+    );
     assert!(client.read_part_size().unwrap() > size);
 
     let mut tasks = tokio::task::JoinSet::new();

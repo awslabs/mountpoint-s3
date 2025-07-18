@@ -66,6 +66,7 @@ mock = ["dep:async-io", "dep:async-lock", "dep:md-5", "dep:rand", "dep:rand_chac
 s3_tests = []
 fips_tests = []
 s3express_tests = []
+pool_tests = []
 
 [lib]
 doctest = false

@@ -34,6 +34,7 @@ use mountpoint_s3_crt::s3::client::{
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use mountpoint_s3_crt::s3::pool::{CrtBufferPoolFactory, MemoryPool, MemoryPoolFactory};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
 use pin_project::pin_project;
 use thiserror::Error;
@@ -108,6 +109,7 @@ pub struct S3ClientConfig {
     network_interface_names: Vec<String>,
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
     event_loop_threads: Option<u16>,
+    buffer_pool_factory: Option<CrtBufferPoolFactory>,
 }
 
 impl Default for S3ClientConfig {
@@ -129,6 +131,7 @@ impl Default for S3ClientConfig {
             network_interface_names: vec![],
             telemetry_callback: None,
             event_loop_threads: None,
+            buffer_pool_factory: None,
         }
     }
 }
@@ -249,6 +252,20 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn event_loop_threads(mut self, event_loop_threads: u16) -> Self {
         self.event_loop_threads = Some(event_loop_threads);
+        self
+    }
+
+    /// Set a custom memory pool
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn memory_pool(mut self, pool: impl MemoryPool) -> Self {
+        self.buffer_pool_factory = Some(CrtBufferPoolFactory::new(move |_| pool.clone()));
+        self
+    }
+
+    /// Set a custom memory pool factory
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn memory_pool_factory(mut self, pool_factory: impl MemoryPoolFactory) -> Self {
+        self.buffer_pool_factory = Some(CrtBufferPoolFactory::new(pool_factory));
         self
     }
 }
@@ -417,6 +434,10 @@ impl S3CrtClientInner {
 
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);
+
+        if let Some(pool_factory) = &config.buffer_pool_factory {
+            client_config.buffer_pool_factory(pool_factory.clone());
+        }
 
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
         let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
@@ -832,17 +853,21 @@ impl S3CrtClientInner {
 
         // Buffer pool metrics
         let start = Instant::now();
-        let buffer_pool_stats = s3_client.poll_buffer_pool_usage_stats();
-        metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us").record(start.elapsed().as_micros() as f64);
-        metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_allocated").set(buffer_pool_stats.primary_allocated as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_reserved").set(buffer_pool_stats.primary_reserved as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_num_blocks").set(buffer_pool_stats.primary_num_blocks as f64);
-        metrics::gauge!("s3.client.buffer_pool.secondary_reserved").set(buffer_pool_stats.secondary_reserved as f64);
-        metrics::gauge!("s3.client.buffer_pool.secondary_used").set(buffer_pool_stats.secondary_used as f64);
-        metrics::gauge!("s3.client.buffer_pool.forced_used").set(buffer_pool_stats.forced_used as f64);
+        if let Some(buffer_pool_stats) = s3_client.poll_default_buffer_pool_usage_stats() {
+            metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us")
+                .record(start.elapsed().as_micros() as f64);
+            metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_allocated").set(buffer_pool_stats.primary_allocated as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_reserved").set(buffer_pool_stats.primary_reserved as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_num_blocks")
+                .set(buffer_pool_stats.primary_num_blocks as f64);
+            metrics::gauge!("s3.client.buffer_pool.secondary_reserved")
+                .set(buffer_pool_stats.secondary_reserved as f64);
+            metrics::gauge!("s3.client.buffer_pool.secondary_used").set(buffer_pool_stats.secondary_used as f64);
+            metrics::gauge!("s3.client.buffer_pool.forced_used").set(buffer_pool_stats.forced_used as f64);
+        }
     }
 
     fn next_request_counter(&self) -> u64 {
@@ -1411,9 +1436,13 @@ impl ObjectClient for S3CrtClient {
 
     fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
         let start = Instant::now();
-        let crt_buffer_pool_stats = self.inner.s3_client.poll_buffer_pool_usage_stats();
-        metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us").record(start.elapsed().as_micros() as f64);
-        Some(crt_buffer_pool_stats)
+        self.inner
+            .s3_client
+            .poll_default_buffer_pool_usage_stats()
+            .inspect(|_| {
+                metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us")
+                    .record(start.elapsed().as_micros() as f64);
+            })
     }
 
     async fn delete_object(

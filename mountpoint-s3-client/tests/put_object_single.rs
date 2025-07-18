@@ -6,13 +6,13 @@ use std::collections::HashMap;
 
 use aws_sdk_s3::primitives::ByteStream;
 use common::*;
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::{crc32, crc32c, crc64nvme, sha1, sha256};
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     Checksum, ChecksumAlgorithm, GetObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
 };
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use rand::Rng;
 use test_case::test_case;
 
@@ -90,7 +90,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
     let client_config = S3ClientConfig::new()
         .part_size(PART_SIZE)
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client_with_config(client_config);
     let key = format!("{prefix}hello");
 
     let mut rng = rand::thread_rng();
@@ -149,8 +149,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
 #[tokio::test]
 async fn test_put_bad_checksums() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_bad_checksums");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let key = format!("{prefix}hello");
 
     let contents = vec![0u8; 128];
@@ -174,8 +173,7 @@ async fn test_put_bad_checksums() {
 #[tokio::test]
 async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, String>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_happy");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let key = format!("{prefix}hello");
 
     let params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
@@ -201,8 +199,7 @@ async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, St
 #[tokio::test]
 async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<String, String>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_bad_header");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let key = format!("{prefix}hello");
 
     let params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
@@ -315,8 +312,7 @@ async fn check_sse(
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>) {
     let bucket = get_test_bucket();
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let request_params = PutObjectSingleParams::new()
         .server_side_encryption(sse_type.map(|value| value.to_owned()))
         .ssekms_key_id(kms_key_id.to_owned());
@@ -843,7 +839,7 @@ async fn test_append_to_service_side_crc64nvme() {
     let client_config = S3ClientConfig::new()
         .part_size(PART_SIZE)
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client_with_config(client_config);
     let key = format!("{prefix}hello");
 
     let initial_contents = vec![0u8; 1024];

@@ -5,10 +5,10 @@ pub mod common;
 use test_case::test_case;
 
 use common::*;
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError::ServiceError};
 use mountpoint_s3_client::types::HeadObjectParams;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
 #[tokio::test]
 async fn test_empty_list() {
@@ -19,7 +19,7 @@ async fn test_empty_list() {
     let config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .network_interface_names(interface_names);
-    let client = S3CrtClient::new(config).expect("client should create OK");
+    let client = create_client_with_config(config).expect("client should create OK");
 
     let err = client
         .head_object(&bucket, &key, &HeadObjectParams::new())
@@ -41,7 +41,7 @@ async fn test_one_interface_ok() {
     let config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .network_interface_names(interface_names);
-    let client = S3CrtClient::new(config).expect("client should create OK");
+    let client = create_client_with_config(config).expect("client should create OK");
 
     let err = client
         .head_object(&bucket, &key, &HeadObjectParams::new())
@@ -68,7 +68,7 @@ async fn test_nonexistent(with_valid_interface: bool) {
     let config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .network_interface_names(interface_names);
-    S3CrtClient::new(config).expect_err(
+    create_client_with_config(config).expect_err(
         "CRT should return an error during client creation if provided with non-existent network interface",
     );
 }
