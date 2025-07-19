@@ -28,7 +28,7 @@ pub use incremental::AppendUploadRequest;
 pub struct Uploader<Client: ObjectClient> {
     client: Client,
     runtime: Runtime,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
     buffer_size: usize,
@@ -73,7 +73,7 @@ where
     pub fn new(
         client: Client,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
+        mem_limiter: Arc<MemoryLimiter>,
         storage_class: Option<String>,
         server_side_encryption: ServerSideEncryption,
         buffer_size: usize,

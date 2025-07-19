@@ -29,11 +29,11 @@ pub struct CachingPartStream<Cache, Client: ObjectClient + Clone + Send + Sync +
     cache: Arc<Cache>,
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Cache, Client: ObjectClient + Clone + Send + Sync + 'static> CachingPartStream<Cache, Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter<Client>>, cache: Cache) -> Self {
+    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>, cache: Cache) -> Self {
         Self {
             cache: Arc::new(cache),
             runtime,

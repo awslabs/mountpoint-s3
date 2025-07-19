@@ -17,7 +17,7 @@ pub struct RequestTask<Client: ObjectClient> {
     remaining: usize,
     range: RequestRange,
     part_queue: PartQueue<Client>,
-    backpressure_controller: BackpressureController<Client>,
+    backpressure_controller: BackpressureController,
 }
 
 impl<Client: ObjectClient> RequestTask<Client> {
@@ -25,7 +25,7 @@ impl<Client: ObjectClient> RequestTask<Client> {
         task_handle: RemoteHandle<()>,
         range: RequestRange,
         part_queue: PartQueue<Client>,
-        backpressure_controller: BackpressureController<Client>,
+        backpressure_controller: BackpressureController,
     ) -> Self {
         Self {
             _task_handle: task_handle,
