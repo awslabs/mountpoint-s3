@@ -6,7 +6,7 @@ use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
-use mountpoint_s3_fs::upload::Uploader;
+use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
@@ -135,10 +135,9 @@ fn main() {
             client.clone(),
             runtime.clone(),
             mem_limiter,
-            None,
-            server_side_encryption,
-            buffer_size,
-            checksum_algorithm,
+            UploaderConfig::new(buffer_size)
+                .server_side_encryption(server_side_encryption)
+                .default_checksum_algorithm(checksum_algorithm),
         );
 
         let start = Instant::now();

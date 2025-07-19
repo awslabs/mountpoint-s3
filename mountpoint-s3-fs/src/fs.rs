@@ -25,7 +25,7 @@ use crate::prefix::Prefix;
 use crate::superblock::{Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::Uploader;
+use crate::upload::{Uploader, UploaderConfig};
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
@@ -166,10 +166,10 @@ where
             client.clone(),
             runtime,
             mem_limiter,
-            config.storage_class.to_owned(),
-            config.server_side_encryption.clone(),
-            client.write_part_size().unwrap(),
-            config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c),
+            UploaderConfig::new(client.write_part_size().unwrap())
+                .storage_class(config.storage_class.to_owned())
+                .server_side_encryption(config.server_side_encryption.clone())
+                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c)),
         );
 
         Self {
