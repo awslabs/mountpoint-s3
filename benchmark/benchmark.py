@@ -5,9 +5,11 @@ import os
 import signal
 import subprocess
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
 
 import hydra
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 import urllib.request
 
@@ -59,6 +61,64 @@ def write_metadata(metadata: Dict[str, Any]) -> None:
     except Exception:
         log.error("Failed to write metadata", exc_info=True)
 
+
+def detect_result_folder() -> Tuple[str, str]:
+    """
+    Detect the result folder path and source path for benchmark results using Hydra's internal API.
+    """
+    local_path = HydraConfig.get().runtime.output_dir
+    path = Path(local_path)
+
+    if "multirun" in str(path):
+        parts = str(path).split("multirun")
+        date_time_path = parts[1].lstrip("/\\")
+        
+        path_parts = date_time_path.split("/")
+        if path_parts and path_parts[-1].isdigit():
+            # use parent to include multirun.yaml
+            local_path = str(Path(local_path).parent)
+            date_time_path = "/".join(path_parts[:-1])
+        
+        s3_path = os.path.join("multirun", date_time_path)
+    elif "outputs" in str(path):
+        parts = str(path).split("outputs")
+        date_time_path = parts[1].lstrip("/\\")
+        s3_path = os.path.join("outputs", date_time_path)
+    else:
+        s3_path = os.path.basename(local_path)
+    
+    return s3_path, local_path
+
+
+def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
+    """
+    Upload benchmark results to S3 bucket using the AWS CLI.
+    """
+    try:
+        s3_path, source_path = detect_result_folder()
+        
+        s3_target_path = os.path.join("results", s3_path)
+        
+        aws_cmd = [
+            "aws", "s3", "sync", 
+            source_path,
+            f"s3://{bucket_name}/{s3_target_path}", 
+            "--region", region
+        ]
+        
+        result = subprocess.run(aws_cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            log.info(f"Successfully uploaded benchmark results to S3")
+        else:
+            log.error(f"Failed to upload benchmark results to S3. Return code: {result.returncode}")
+            if result.stderr:
+                log.error(f"AWS CLI error: {result.stderr}")
+            if result.stdout:
+                log.error(f"AWS CLI output: {result.stdout}")
+                
+    except Exception as e:
+        log.error(f"Error uploading results to S3: {str(e)}", exc_info=True)
 
 class ResourceMonitoring:
     def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool):
@@ -200,17 +260,26 @@ def run_experiment(cfg: DictConfig) -> None:
 
         # Mark success if we get here without exceptions
         metadata["success"] = True
-    except Exception:
-        log.error("Benchmark execution failed:", exc_info=True)
+    except Exception as e:
+        log.error(f"Benchmark execution failed: {str(e)}")
         raise
     finally:
         try:
             benchmark.post_process()
-        except Exception:
-            log.error("Post-processing failed:", exc_info=True)
+        except Exception as e:
+            log.error(f"Post-processing failed: {str(e)}")
         finally:
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
+            
+            bucket_name = common_config.get('s3_bucket')
+            region = common_config.get('region', 'us-east-1')
+            
+            if bucket_name:
+                log.info(f"Uploading benchmark results to S3 bucket '{bucket_name}'")
+                upload_results_to_s3(bucket_name, region)
+            else:
+                log.warning("No S3 bucket specified in config, skipping upload of benchmark results")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,6 @@ def cleanup_mp(mount_dir):
         subprocess.check_output(["umount", mount_dir])
         os.rmdir(mount_dir)
         os.remove(f"{mount_dir}.pid")
-    log.error(f"Error cleaning up Mountpoint at {mount_dir}:", exc_info=True)
 
 
 def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
