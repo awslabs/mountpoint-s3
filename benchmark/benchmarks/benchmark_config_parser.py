@@ -37,6 +37,7 @@ class BenchmarkConfigParser:
             'region': getattr(self.cfg, 'region', "us-east-1"),
             'run_time': getattr(self.cfg, 'run_time', 30),
             's3_bucket': getattr(self.cfg, 's3_bucket', None),
+            's3_result_bucket': getattr(self.cfg, 's3_result_bucket', None),
             's3_keys': self._parse_comma_separated_string_to_array(getattr(self.cfg, 's3_keys', None)),
             'with_bwm': getattr(self.cfg.monitoring, 'with_bwm', False),
             'write_part_size': getattr(self.cfg, 'write_part_size', 16777216),  # 16 MiB
