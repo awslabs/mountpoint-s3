@@ -224,7 +224,7 @@ fn mount_filesystem(
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(metablock, client, runtime)
+        .create_fuse_session(metablock, client, runtime, pool)
         .context("Failed to create FUSE session")?;
 
     Ok(fuse_session)

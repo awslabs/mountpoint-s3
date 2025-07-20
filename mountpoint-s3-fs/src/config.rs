@@ -6,6 +6,7 @@ use crate::data_cache::{DataCacheConfig, DiskDataCache, ExpressDataCache, Multil
 use crate::fuse::config::FuseSessionConfig;
 use crate::fuse::session::FuseSession;
 use crate::fuse::{ErrorLogger, S3FuseFilesystem};
+use crate::memory::PagedPool;
 use crate::metablock::Metablock;
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::Arc;
@@ -46,13 +47,22 @@ impl MountpointConfig {
         metablock: impl Metablock + 'static,
         client: Client,
         runtime: Runtime,
+        memory_pool: PagedPool,
     ) -> anyhow::Result<FuseSession>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let prefetcher_builder = create_prefetcher_builder(self.data_cache_config, &client, &runtime)?;
+        let prefetcher_builder =
+            create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool.clone())?;
         tracing::trace!(filesystem_config=?self.filesystem_config, "creating file system");
-        let fs = S3Filesystem::new(client, prefetcher_builder, runtime, metablock, self.filesystem_config);
+        let fs = S3Filesystem::new(
+            client,
+            prefetcher_builder,
+            memory_pool,
+            runtime,
+            metablock,
+            self.filesystem_config,
+        );
 
         let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);
         let session = FuseSession::new(fuse_fs, self.fuse_session_config)?;
@@ -65,11 +75,14 @@ fn create_prefetcher_builder<Client>(
     data_cache_config: DataCacheConfig,
     client: &Client,
     runtime: &Runtime,
+    memory_pool: PagedPool,
 ) -> anyhow::Result<PrefetcherBuilder<Client>>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    let disk_cache = data_cache_config.disk_cache_config.map(DiskDataCache::new);
+    let disk_cache = data_cache_config
+        .disk_cache_config
+        .map(|config| DiskDataCache::new(config, memory_pool));
     let express_cache = match data_cache_config.express_cache_config {
         None => None,
         Some(config) => {

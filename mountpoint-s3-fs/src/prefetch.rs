@@ -493,6 +493,7 @@ mod tests {
     use crate::Runtime;
     use crate::data_cache::InMemoryDataCache;
     use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::memory::PagedPool;
     use crate::sync::Arc;
 
     use super::*;
@@ -541,7 +542,8 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {
             PrefetcherType::Default => Prefetcher::default_builder(client),
@@ -1227,7 +1229,8 @@ mod tests {
                     .initial_read_window_size(initial_read_window_size)
                     .build(),
             );
-            let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+            let pool = PagedPool::new([part_size]);
+            let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1287,7 +1290,8 @@ mod tests {
                     .initial_read_window_size(initial_read_window_size)
                     .build(),
             );
-            let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+            let pool = PagedPool::new([part_size]);
+            let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 

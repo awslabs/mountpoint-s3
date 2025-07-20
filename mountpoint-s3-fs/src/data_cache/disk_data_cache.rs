@@ -20,6 +20,7 @@ use tracing::{trace, warn};
 
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
+use crate::memory::{BufferKind, PagedPool};
 use crate::object::ObjectId;
 use crate::sync::Mutex;
 
@@ -34,6 +35,7 @@ const HASHED_DIR_SPLIT_INDEX: usize = 2;
 /// On-disk implementation of [DataCache].
 pub struct DiskDataCache {
     config: DiskDataCacheConfig,
+    pool: PagedPool,
     /// Tracks blocks usage. `None` when no cache limit was set.
     usage: Option<Mutex<UsageInfo<DiskBlockKey>>>,
 }
@@ -246,20 +248,19 @@ impl DiskBlock {
     }
 
     /// Deserialize an instance from `reader`.
-    fn read(reader: &mut impl Read, block_size: u64) -> Result<Self, DiskBlockReadWriteError> {
+    fn read(reader: &mut impl Read, block_size: u64, pool: &PagedPool) -> Result<Self, DiskBlockReadWriteError> {
         let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
 
         if header.block_len > block_size {
             return Err(DiskBlockReadWriteError::InvalidBlockLength(header.block_len));
         }
 
-        let mut buffer = vec![0u8; header.block_len as usize];
-        reader.read_exact(&mut buffer)?;
+        let size = header.block_len as usize;
+        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache);
+        buffer.fill_from_reader(reader)?;
+        let data = buffer.into_bytes();
 
-        Ok(Self {
-            header,
-            data: buffer.into(),
-        })
+        Ok(Self { header, data })
     }
 
     /// Serialize this instance to `writer` and return the number of bytes written on success.
@@ -305,12 +306,12 @@ impl From<DiskBlockReadWriteError> for DataCacheError {
 
 impl DiskDataCache {
     /// Create a new instance of an [DiskDataCache] with the specified configuration.
-    pub fn new(config: DiskDataCacheConfig) -> Self {
-        let usage = match config.limit {
+    pub fn new(config: DiskDataCacheConfig, pool: PagedPool) -> Self {
+        let usage = match &config.limit {
             CacheLimit::Unbounded => None,
             CacheLimit::TotalSize { .. } | CacheLimit::AvailableSpace { .. } => Some(Mutex::new(UsageInfo::new())),
         };
-        DiskDataCache { config, usage }
+        DiskDataCache { config, pool, usage }
     }
 
     /// Get the relative path for the given block.
@@ -349,7 +350,7 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block = DiskBlock::read(&mut file, self.block_size())
+        let block = DiskBlock::read(&mut file, self.block_size(), &self.pool)
             .inspect_err(|e| warn!(path = ?path.as_ref(), "block could not be deserialized: {:?}", e))?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
@@ -659,11 +660,15 @@ mod tests {
     #[test]
     fn get_path_for_block_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let data_cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_dir,
-            block_size: 1024,
-            limit: CacheLimit::Unbounded,
-        });
+        let pool = PagedPool::new([1024]);
+        let data_cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_dir,
+                block_size: 1024,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
 
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
@@ -687,11 +692,15 @@ mod tests {
     #[test]
     fn get_path_for_block_key_huge_block_index() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let data_cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_dir,
-            block_size: 1024,
-            limit: CacheLimit::Unbounded,
-        });
+        let pool = PagedPool::new([1024]);
+        let data_cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_dir,
+                block_size: 1024,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
 
         let s3_key = "a".repeat(266);
         let etag = ETag::for_tests();
@@ -723,11 +732,15 @@ mod tests {
 
         let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_directory.path().to_path_buf(),
-            block_size,
-            limit: CacheLimit::Unbounded,
-        });
+        let pool = PagedPool::new([block_size as usize]);
+        let cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
         let cache_key_1 = ObjectId::new("a".into(), ETag::for_tests());
         let cache_key_2 = ObjectId::new(
             "long-key_".repeat(100), // at least 900 chars, exceeding easily 255 chars (UNIX filename limit)
@@ -806,11 +819,15 @@ mod tests {
         let slice = data.slice(1..5);
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_directory.path().to_path_buf(),
-            block_size: 8 * 1024 * 1024,
-            limit: CacheLimit::Unbounded,
-        });
+        let pool = PagedPool::new([8 * 1024 * 1024]);
+        let cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size: 8 * 1024 * 1024,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
         let cache_key = ObjectId::new("a".into(), ETag::for_tests());
 
         cache
@@ -884,11 +901,15 @@ mod tests {
         let small_object_key = ObjectId::new("small".into(), ETag::for_tests());
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_directory.path().to_path_buf(),
-            block_size: BLOCK_SIZE as u64,
-            limit: CacheLimit::TotalSize { max_size: CACHE_LIMIT },
-        });
+        let pool = PagedPool::new([BLOCK_SIZE]);
+        let cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size: BLOCK_SIZE as u64,
+                limit: CacheLimit::TotalSize { max_size: CACHE_LIMIT },
+            },
+            pool,
+        );
 
         // Put all of large_object
         for (block_idx, bytes) in large_object_blocks.iter().enumerate() {
@@ -1063,7 +1084,8 @@ mod tests {
         // "Corrupt" the serialized value with an invalid length.
         replace_u64_at(&mut buf, offset, u64::MAX);
 
-        let err = DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH).expect_err("deserialization should fail");
+        let pool = PagedPool::new([MAX_LENGTH as usize]);
+        let err = DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool).expect_err("deserialization should fail");
         match length_to_corrupt {
             "key" | "etag" => assert!(matches!(
                 err,
@@ -1078,11 +1100,15 @@ mod tests {
     fn test_concurrent_access() {
         let block_size = 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let data_cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_directory.path().to_path_buf(),
-            block_size: block_size as u64,
-            limit: CacheLimit::Unbounded,
-        });
+        let pool = PagedPool::new([block_size]);
+        let data_cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size: block_size as u64,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
         let data_cache = Arc::new(data_cache);
 
         let cache_key = ObjectId::new("foo".to_owned(), ETag::for_tests());

@@ -18,6 +18,7 @@ use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags, RenameFlags, TimeToLive, ToErrno};
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::{Prefix, S3Personality};
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use nix::unistd::{getgid, getuid};
@@ -707,10 +708,11 @@ async fn test_upload_aborted_on_write_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_write_failure";
     const FILE_NAME: &str = "foo.bin";
 
+    let part_size = 1024 * 1024;
     let client = Arc::new(
         MockClient::config()
             .bucket(BUCKET_NAME)
-            .part_size(1024 * 1024)
+            .part_size(part_size)
             .enable_backpressure(true)
             .initial_read_window_size(256 * 1024)
             .build(),
@@ -727,6 +729,7 @@ async fn test_upload_aborted_on_write_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
+        PagedPool::new([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -781,10 +784,11 @@ async fn test_upload_aborted_on_fsync_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
+    let part_size = 1024 * 1024;
     let client = Arc::new(
         MockClient::config()
             .bucket(BUCKET_NAME)
-            .part_size(1024 * 1024)
+            .part_size(part_size)
             .enable_backpressure(true)
             .initial_read_window_size(256 * 1024)
             .build(),
@@ -801,6 +805,7 @@ async fn test_upload_aborted_on_fsync_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
+        PagedPool::new([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -840,10 +845,11 @@ async fn test_upload_aborted_on_release_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
+    let part_size = 1024 * 1024;
     let client = Arc::new(
         MockClient::config()
             .bucket(BUCKET_NAME)
-            .part_size(1024 * 1024)
+            .part_size(part_size)
             .enable_backpressure(true)
             .initial_read_window_size(256 * 1024)
             .build(),
@@ -860,6 +866,7 @@ async fn test_upload_aborted_on_release_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
+        PagedPool::new([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -1522,12 +1529,16 @@ async fn test_readdir_repeat_response_after_rewind() {
 async fn test_lookup_404_not_an_error() {
     let name = "test_lookup_404_not_an_error";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new([part_size]);
     let client_config = S3ClientConfig::default()
         .endpoint_config(get_test_endpoint_config())
-        .read_backpressure(true);
+        .read_backpressure(true)
+        .memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
     let fs = make_test_filesystem_with_client(
         client,
+        pool,
         &bucket,
         &prefix.parse().expect("prefix must be valid"),
         Default::default(),
@@ -1555,11 +1566,14 @@ async fn test_lookup_forbidden() {
     let key = format!("{}{}", prefix, name);
     let policy = deny_single_object_access_policy(&bucket, &key);
 
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new([part_size]);
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
         .auth_config(auth_config)
         .endpoint_config(get_test_endpoint_config())
-        .read_backpressure(true);
+        .read_backpressure(true)
+        .memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
 
     // create an empty file
@@ -1574,6 +1588,7 @@ async fn test_lookup_forbidden() {
     // try to lookup file with a S3 policy that dissallows that
     let fs = make_test_filesystem_with_client(
         client,
+        pool,
         &bucket,
         &prefix.parse().expect("prefix must be valid"),
         Default::default(),
@@ -1634,10 +1649,12 @@ async fn test_rename_support_is_cached() {
     const BUCKET_NAME: &str = "test_rename_support_cached_general_purpose";
     const FILE_NAME: &str = "a.txt";
 
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new([part_size]);
     let client = Arc::new(
         MockClient::config()
             .bucket(BUCKET_NAME)
-            .part_size(1024 * 1024)
+            .part_size(part_size)
             .enable_backpressure(true)
             .initial_read_window_size(256 * 1024)
             .enable_rename(false)
@@ -1653,7 +1670,13 @@ async fn test_rename_support_is_cached() {
 
     let counter = client.new_counter(Operation::RenameObject);
     // Try to rename twice
-    let fs = make_test_filesystem_with_client(client.clone(), BUCKET_NAME, &Default::default(), Default::default());
+    let fs = make_test_filesystem_with_client(
+        client.clone(),
+        pool,
+        BUCKET_NAME,
+        &Default::default(),
+        Default::default(),
+    );
     let err = fs
         .rename(
             FUSE_ROOT_INODE,

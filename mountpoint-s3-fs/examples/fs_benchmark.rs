@@ -8,6 +8,7 @@ use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -140,11 +141,13 @@ fn mount_file_system(
     region: &str,
     throughput_target_gbps: Option<f64>,
 ) -> BackgroundSession {
+    let pool = PagedPool::new([8 * 1024 * 1024]);
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
     let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     config = config
         .read_backpressure(true)
-        .initial_read_window(initial_read_window_size);
+        .initial_read_window(initial_read_window_size)
+        .memory_pool(pool.clone());
     if let Some(throughput_target_gbps) = throughput_target_gbps {
         config = config.throughput_target_gbps(throughput_target_gbps);
     }
@@ -174,7 +177,7 @@ fn mount_file_system(
             s3_personality: filesystem_config.s3_personality,
         },
     );
-    let fs = S3Filesystem::new(client, prefetcher_builder, runtime, superblock, filesystem_config);
+    let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, filesystem_config);
     let session = Session::new(S3FuseFilesystem::new(fs, None), mountpoint, &options)
         .expect("Should have created FUSE session successfully");
 
