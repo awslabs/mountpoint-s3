@@ -1,6 +1,7 @@
 import logging
 import os
 from subprocess import Popen, CalledProcessError
+import subprocess
 import tempfile
 from typing import Dict, Any
 from datetime import datetime, timezone
@@ -24,6 +25,24 @@ class FioBenchmark(BaseBenchmark):
         self.fio_config = self.config_parser.get_fio_config()
         self.mount_dir = None
         self.target_pid = None
+
+    def _get_dev_id(self):
+        with open('/proc/self/mountinfo', 'r') as f:
+            for line in f:
+                fields = line.split()
+                # Use mounted dir to extract the dev id
+                if fields[4] == self.mount_dir:
+                    dev_id = fields[2]
+                    return dev_id
+        raise RuntimeError(f"Could not find device ID for mount point {self.mount_dir}")
+
+    def _set_read_ahead(self, bytes):
+        dev_id = self._get_dev_id()
+        read_ahead_path = f"/sys/class/bdi/{dev_id}/read_ahead_kb"
+        bytes_in_kb = bytes // 1024
+        cmd = f'echo {bytes_in_kb} > {read_ahead_path}'
+        subprocess.run(['sudo', 'sh', '-c', cmd], check=True, capture_output=True)
+        log.info(f"Set read_ahead_kb to {bytes} for device {dev_id}")
 
     def setup(self) -> Dict[str, Any]:
         self.mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
@@ -54,6 +73,12 @@ class FioBenchmark(BaseBenchmark):
         fio_env["UNIQUE_DIR"] = datetime.now(tz=timezone.utc).isoformat()
         fio_env["IO_ENGINE"] = self.fio_config['fio_io_engine']
         fio_env["RUN_TIME"] = str(self.common_config['run_time'])
+        fio_env["BLOCK_SIZE"] = str(self.common_config['read_size'])
+
+        # Increase the read_ahead_kb limit to allow reads higher than 256K.
+        # The script needs sudo permissions to overwrite this limit
+        if not self.fio_config['direct_io'] and self.common_config['read_size'] > 256 * 1024:
+            self._set_read_ahead(self.common_config['read_size'])
 
         log.info("Running FIO with args: %s; env: %s", subprocess_args, fio_env)
         subprocess_env = os.environ.copy()

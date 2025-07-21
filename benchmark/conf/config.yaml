@@ -10,6 +10,7 @@ application_workers: 1
 iteration: 0
 iterations: 1
 run_time: 30  # Default run time in seconds
+read_size: 262144 # Defaults to 256KiB, can go up to 1MiB.
 read_part_size: !!null
 region: "us-east-1"
 write_part_size: 16777216  # 16 MiB, to allow for uploads of large files

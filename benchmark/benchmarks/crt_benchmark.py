@@ -102,38 +102,30 @@ class CrtBenchmark(BaseBenchmark):
             subprocess_args.extend(["--nic", ",".join(network_interfaces)])
 
         log.info(f"Running CRT benchmark: {subprocess_args}")
-        try:
-            result = subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
-            log.info("CRT benchmark completed successfully")
-        except Exception as e:
-            log.error(f"Error running CRT benchmark: {e}")
-            raise RuntimeError("CRT benchmark failed") from e
+        result = subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
+        log.info("CRT benchmark completed successfully")
 
         self.parse_benchmark_output(result.stdout)
 
     def parse_benchmark_output(self, output):
-        try:
-            # Parse the output and extract the results
-            # Parse single run result
-            # Run:1 Secs:56.572429 Gb/s:60.735838
-            # FIXME: Ideally, we should patch CRT benchmarks to emit bytes downloads
-            # and a json file with results
-            run_pattern = r"Run:(\d+)\s+Secs:(\d+\.\d+)\s+Gb/s:(\d+\.\d+)"
-            match = re.search(run_pattern, output)
-            if match:
-                duration_secs = float(match.group(2))
-                throughput_gbps = float(match.group(3))
-                metrics = {"duration_secs": duration_secs, "throughput_gbps": throughput_gbps}
+        # Parse the output and extract the results
+        # Parse single run result
+        # Run:1 Secs:56.572429 Gb/s:60.735838
+        # FIXME: Ideally, we should patch CRT benchmarks to emit bytes downloads
+        # and a json file with results
+        run_pattern = r"Run:(\d+)\s+Secs:(\d+\.\d+)\s+Gb/s:(\d+\.\d+)"
+        match = re.search(run_pattern, output)
+        if match:
+            duration_secs = float(match.group(2))
+            throughput_gbps = float(match.group(3))
+            metrics = {"duration_secs": duration_secs, "throughput_gbps": throughput_gbps}
 
-                # Write metrics to file
-                with open(f"{os.getcwd()}/crt_output.json", 'w') as f:
-                    json.dump(metrics, f, indent=4)
+            # Write metrics to file
+            with open(f"{os.getcwd()}/crt_output.json", 'w') as f:
+                json.dump(metrics, f, indent=4)
 
-                return metrics
-            return {}
-        except Exception as e:
-            log.error(f"Error parsing CRT benchmark output: {e}")
-            raise RuntimeError("CRT benchmark failed") from e
+            return metrics
+        return {}
 
     def post_process(self) -> None:
         try:

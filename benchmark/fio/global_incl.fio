@@ -1,5 +1,5 @@
-bs=256k ; no. of bytes
-runtime=30s
+bs=${BLOCK_SIZE}; no. of bytes
+runtime=${RUN_TIME}; run time in seconds
 time_based
 group_reporting
 ; Use multiple threads instead of processes to parallelize IO
