@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use super::manifest_impl::{Manifest, ManifestDirIter, ManifestEntry, ManifestError};
+use super::manifest_core::{Manifest, ManifestDirIter, ManifestEntry, ManifestError};
 
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,

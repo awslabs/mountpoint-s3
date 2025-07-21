@@ -16,6 +16,7 @@ use super::{
     db::{Db, DbEntry},
 };
 
+/// [InputManifestError] represents errors occurring during the creation of metadata database.
 #[derive(Debug, Error)]
 pub enum InputManifestError {
     #[error("database already exists at the provided path")]
@@ -32,12 +33,15 @@ pub enum InputManifestError {
     InvalidChannel(String),
     #[error("s3 prefix provided in the config is invalid")]
     InvalidPrefix(#[from] PrefixError),
-    #[error("failed to read or write from the database")]
+    #[error("failed to write to the database")]
     DbError(#[from] rusqlite::Error),
     #[error("s3 key provided in the csv manifest is invalid")]
     InvalidKey(#[from] ValidKeyError),
 }
 
+/// [ChannelConfig] represents per-channel configuration, when multiple buckets are mounted.
+///
+/// This struct is a part of the CLI interface and contains a path to the csv manifest: [manifest_path].
 #[derive(Debug, Deserialize)]
 pub struct ChannelConfig {
     pub directory_name: String,
@@ -47,15 +51,24 @@ pub struct ChannelConfig {
     pub manifest_path: PathBuf,
 }
 
-pub struct ChannelManifest<I: Iterator<Item = Result<InputManifestEntry, InputManifestError>>> {
+/// [ChannelManifest] is a helper struct, primarily exposed for usage in tests.
+///
+/// This struct represents the same information as [ChannelConfig], but holds iterator over manifest entries.
+pub struct ChannelManifest<EntriesIterator: Iterator<Item = Result<InputManifestEntry, InputManifestError>>> {
     pub directory_name: String,
     pub s3_path: S3Path,
-    pub entries: I,
+    pub entries: EntriesIterator,
 }
 
+/// [InputManifestEntry] represents a validated manifest entry from an input file.
+///
+/// Notably it holds a validated [partial_key] which is guaranteed to be a [ValidKey] of an object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputManifestEntry {
-    partial_key: ValidKey, // guaranteed to be InodeKind::File (=> not empty)
+    /// Partial key of an S3 object. Does not contain prefix when prefix is mounted.
+    ///
+    /// Guaranteed to be [InodeKind::File] (and thus not empty).
+    partial_key: ValidKey,
     etag: String,
     size: usize,
 }
@@ -115,25 +128,22 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
         }
     }
     // open the csv files and create readers
-    let channel_readers: Result<Vec<_>, InputManifestError> = channel_configs
-        .iter()
-        .map(|config| {
-            let csv_path = &config.manifest_path;
-            let file =
-                File::open(csv_path).map_err(|err| InputManifestError::CsvOpenError(csv_path.to_path_buf(), err))?;
-            let csv_reader = CsvReader::new(BufReader::new(file));
-            Ok(ChannelManifest {
-                directory_name: config.directory_name.clone(),
-                s3_path: S3Path {
-                    bucket_name: config.bucket_name.clone(),
-                    prefix: Prefix::new(&config.prefix)?,
-                },
-                entries: csv_reader,
-            })
-        })
-        .collect();
+    let mut channel_manifest_readers = Vec::with_capacity(channel_configs.len());
+    for config in channel_configs {
+        let csv_path = &config.manifest_path;
+        let file = File::open(csv_path).map_err(|err| InputManifestError::CsvOpenError(csv_path.to_path_buf(), err))?;
+        let csv_reader = CsvReader::new(BufReader::new(file));
+        channel_manifest_readers.push(ChannelManifest {
+            directory_name: config.directory_name.clone(),
+            s3_path: S3Path {
+                bucket_name: config.bucket_name.clone(),
+                prefix: Prefix::new(&config.prefix)?,
+            },
+            entries: csv_reader,
+        });
+    }
     // create the db from readers
-    create_db(db_path, channel_readers?, 100000)?;
+    create_db(db_path, channel_manifest_readers, 100000)?;
     Ok(())
 }
 
@@ -141,9 +151,9 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
 ///
 /// Compared to [ingest_manifest] this method accepts an iterator of parsed [InputManifestEntry].
 /// Method [ingest_manifest] actually delegates db creation to this method, but this one is also used in tests.
-pub fn create_db<I: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
+pub fn create_db<EntriesIterator: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
     db_path: &Path,
-    channel_manifests: Vec<ChannelManifest<I>>,
+    channel_manifests: Vec<ChannelManifest<EntriesIterator>>,
     batch_size: usize,
 ) -> Result<(), InputManifestError> {
     let mut builder = ManifestBuilder::new(db_path, batch_size)?;
@@ -175,9 +185,9 @@ impl ManifestBuilder {
         })
     }
 
-    fn insert_channels<I: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
+    fn insert_channels<EntriesIterator: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
         &self,
-        channel_manifests: &[ChannelManifest<I>],
+        channel_manifests: &[ChannelManifest<EntriesIterator>],
     ) -> Result<(), InputManifestError> {
         let channels = channel_manifests
             .iter()
@@ -201,9 +211,9 @@ impl ManifestBuilder {
         }
     }
 
-    fn insert_entries<I: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
+    fn insert_entries<EntriesIterator: Iterator<Item = Result<InputManifestEntry, InputManifestError>>>(
         &mut self,
-        channel_manifests: Vec<ChannelManifest<I>>,
+        channel_manifests: Vec<ChannelManifest<EntriesIterator>>,
     ) -> Result<(), InputManifestError> {
         for (channel_id, channel_manifest) in channel_manifests.into_iter().enumerate() {
             // insert synthetic channel dir

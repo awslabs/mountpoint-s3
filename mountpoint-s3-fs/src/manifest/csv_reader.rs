@@ -31,6 +31,10 @@ impl<R: Read> Iterator for CsvReader<R> {
     }
 }
 
+/// [CsvEntry] represents a single row in an input CSV channel manifest file.
+///
+/// Note that data in this struct is not yet validated.
+/// Specifically [partial_key] may contain forbidden symbols and be rejected later.
 #[derive(Deserialize)]
 struct CsvEntry {
     /// Partial key of the S3 object.
