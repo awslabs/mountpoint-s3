@@ -243,7 +243,7 @@ where
             config,
             backpressure_task: None,
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
-            preferred_part_size: 128 * 1024,
+            preferred_part_size: 256 * 1024,
             sequential_read_start_offset: 0,
             next_sequential_read_offset: 0,
             next_request_offset: 0,
@@ -283,7 +283,7 @@ where
         // Our assumption is that the read size will be the same for most sequential
         // read and it can be aligned to the size of prefetched chunks.
         //
-        // We initialize this value to 128k as it is the Linux's readahead size
+        // We initialize this value to 256k as it is the Linux's readahead size
         // and it can also be used as a lower bound in case the read size is too small.
         // The upper bound is 1MiB since it should be a common IO size.
         let max_preferred_part_size = 1024 * 1024;
@@ -1214,8 +1214,8 @@ mod tests {
             let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
             let max_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
-            let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
-            let initial_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
+            let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 256 * 1024);
+            let initial_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024 + 256 * 1024);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
@@ -1270,8 +1270,8 @@ mod tests {
             let mut rng = shuttle::rand::thread_rng();
             let max_read_window_size = rng.gen_range(16usize..32 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
-            let part_size = rng.gen_range(16usize..128 * 1024);
-            let initial_read_window_size = rng.gen_range(16usize..128 * 1024);
+            let part_size = rng.gen_range(16usize..256 * 1024);
+            let initial_read_window_size = rng.gen_range(16usize..256 * 1024);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..192 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..192 * 1024);
             // Try to prevent testing very small reads of very large objects, which are easy to OOM

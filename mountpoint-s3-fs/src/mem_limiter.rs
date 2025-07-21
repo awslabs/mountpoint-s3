@@ -30,7 +30,7 @@ impl BufferArea {
 ///
 /// Single instance of this struct is shared among all of the prefetchers (file handles).
 ///
-/// Each file handle upon creation makes an initial reservation request with a minimal read window size of `1MiB + 128KiB`. This
+/// Each file handle upon creation makes an initial reservation request with a minimal read window size of `1MiB + 256KiB`. This
 /// is accepted unconditionally since we want to allow any file handle to make progress even if that means going over the memory
 /// limit. Additional reservations for a file handle arise when the backpressure read window is incremented to fetch more data
 /// from underlying part streams. Those reservations may be rejected if there is no available memory.
