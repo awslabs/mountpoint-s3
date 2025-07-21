@@ -77,7 +77,7 @@ class FioBenchmark(BaseBenchmark):
 
         # Increase the read_ahead_kb limit to allow reads higher than 256K.
         # The script needs sudo permissions to overwrite this limit
-        if (not self.fio_config['direct_io'] and self.common_config['read_size'] > 256 * 1024):
+        if not self.fio_config['direct_io'] and self.common_config['read_size'] > 256 * 1024:
             self._set_read_ahead(self.common_config['read_size'])
 
         log.info("Running FIO with args: %s; env: %s", subprocess_args, fio_env)
