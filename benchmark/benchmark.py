@@ -104,7 +104,7 @@ def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
         result = subprocess.run(aws_cmd, capture_output=True, text=True)
 
         if result.returncode == 0:
-            log.info(f"Successfully uploaded benchmark results to S3")
+            log.info("Successfully uploaded benchmark results to S3")
         else:
             log.error(f"Failed to upload benchmark results to S3. Return code: {result.returncode}")
             if result.stderr:
