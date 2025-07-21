@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753105069898,
+  "lastUpdate": 1753109684159,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dc4fc38f76a9533053fe4aa364a0fc3f08b724ba",
-          "message": "Avoid copy of data returned by GetObject (#1481)\n\nReduce memory fragmentation and peak usage by avoiding copying data\nreturned by GetObject into newly allocated buffers. This change relies\non the new CRT API integrated in #1430, which allows `S3CrtClient` to\nextend the lifetime of the buffers from the CRT memory pool when they\nare returned by GetObject. Callers of the `get_object` method are now\nresponsible for dropping the returned `Bytes` instances in order for the\nbuffers to be released back to the CRT memory pool.\n\nAt the moment, the memory-limiting strategy used in the prefetcher\ncomponent in Mountpoint does not cope well with the change and may end\nup starving the CRT of available buffers. For this specific use case, we\nintroduced a temporary feature flag in the `mountpoint-s3-client` crate,\n`restore_buffer_copy` which restores the previous behavior, i.e.\nGetObject allocates and returns new buffers with a copy of the object\ncontent. As we rework this aspect of the prefetcher, we will likely\nremove the feature flag.\n\n### Does this change impact existing behavior?\n\nYes. The buffers returned by GetObject will be borrowed from the\ninternal memory pool.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes. Entry and new version number for the client crate.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-06-27T12:59:16Z",
-          "tree_id": "49d96598858412ab5c0e3a038809679ae81b3eb3",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/dc4fc38f76a9533053fe4aa364a0fc3f08b724ba"
-        },
-        "date": 1751037386757,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 12548.15625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 20932.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 38097.53515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 83.1328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 278.421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 97.921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 277.42578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 71.82421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 223.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 78.29296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 218.59765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 34330.21875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 374.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 34654.09375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 404.43359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 9625.98828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 259.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 9361.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 12937.6640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 258.125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 732.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 431.09375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 476.53515625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "f06dc065a904da06b76a4bc667aa5966ab89e081",
+          "message": "Extract meta request type when reserving buffers (#1524)\n\nModify the new `MemoryPool` trait (and the CRT bridge) to propagate the\ntype of the meta request which is reserving the buffer. Requires\nextending bindings to an additional private header from `aws-c-s3` in\norder to access the type of a `aws_s3_meta_request` pointer.\n\n### Does this change impact existing behavior?\n\nNo, the new type information is not used yet.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-07-21T12:43:22Z",
+          "tree_id": "85098a437513db4098f974f17564649b52e61faf",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f06dc065a904da06b76a4bc667aa5966ab89e081"
+        },
+        "date": 1753109684105,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 14935.65234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 26256.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 37515.33203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 84.97265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 273.19140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 85.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 268.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 71.94140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 214.91796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 71.421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 210.63671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 32707.87890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 399.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 35530.8984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 398.66015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 10624.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 259.484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 8929.3515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 11542.13671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 259.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 779.16796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 432.99609375,
             "unit": "MiB"
           }
         ]
