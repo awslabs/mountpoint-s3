@@ -202,7 +202,7 @@ mod tests {
     use crate::fs::SseCorruptedError;
     use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
     use crate::sync::Arc;
-    use crate::upload::Uploader;
+    use crate::upload::{Uploader, UploaderConfig};
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
@@ -228,10 +228,10 @@ mod tests {
             client,
             runtime,
             mem_limiter.into(),
-            storage_class,
-            server_side_encryption,
-            buffer_size,
-            use_additional_checksums.then_some(ChecksumAlgorithm::Crc32c),
+            UploaderConfig::new(buffer_size)
+                .storage_class(storage_class)
+                .server_side_encryption(server_side_encryption)
+                .default_checksum_algorithm(use_additional_checksums.then_some(ChecksumAlgorithm::Crc32c)),
         )
     }
 
