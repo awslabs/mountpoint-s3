@@ -537,6 +537,18 @@ impl From<MetaRequestType> for aws_s3_meta_request_type {
     }
 }
 
+impl From<aws_s3_meta_request_type> for MetaRequestType {
+    fn from(value: aws_s3_meta_request_type) -> Self {
+        match value {
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT => MetaRequestType::Default,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_COPY_OBJECT => MetaRequestType::CopyObject,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT => MetaRequestType::GetObject,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT => MetaRequestType::PutObject,
+            _ => panic!("unknown meta request type {value:?}"),
+        }
+    }
+}
+
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn meta_request_telemetry_callback(
     _request: *mut aws_s3_meta_request,
