@@ -72,13 +72,13 @@ def detect_result_folder() -> Tuple[str, str]:
     if "multirun" in str(path):
         parts = str(path).split("multirun")
         date_time_path = parts[1].lstrip("/\\")
-        
+
         path_parts = date_time_path.split("/")
         if path_parts and path_parts[-1].isdigit():
             # use parent to include multirun.yaml
             local_path = str(Path(local_path).parent)
             date_time_path = "/".join(path_parts[:-1])
-        
+
         s3_path = os.path.join("multirun", date_time_path)
     elif "outputs" in str(path):
         parts = str(path).split("outputs")
@@ -86,7 +86,7 @@ def detect_result_folder() -> Tuple[str, str]:
         s3_path = os.path.join("outputs", date_time_path)
     else:
         s3_path = os.path.basename(local_path)
-    
+
     return s3_path, local_path
 
 
@@ -96,18 +96,13 @@ def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
     """
     try:
         s3_path, source_path = detect_result_folder()
-        
+
         s3_target_path = os.path.join("results", s3_path)
-        
-        aws_cmd = [
-            "aws", "s3", "sync", 
-            source_path,
-            f"s3://{bucket_name}/{s3_target_path}", 
-            "--region", region
-        ]
-        
+
+        aws_cmd = ["aws", "s3", "sync", source_path, f"s3://{bucket_name}/{s3_target_path}", "--region", region]
+
         result = subprocess.run(aws_cmd, capture_output=True, text=True)
-        
+
         if result.returncode == 0:
             log.info(f"Successfully uploaded benchmark results to S3")
         else:
@@ -116,9 +111,10 @@ def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
                 log.error(f"AWS CLI error: {result.stderr}")
             if result.stdout:
                 log.error(f"AWS CLI output: {result.stdout}")
-                
+
     except Exception as e:
         log.error(f"Error uploading results to S3: {str(e)}", exc_info=True)
+
 
 class ResourceMonitoring:
     def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool):
@@ -271,10 +267,10 @@ def run_experiment(cfg: DictConfig) -> None:
         finally:
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
-            
+
             bucket_name = common_config.get('s3_bucket')
             region = common_config.get('region', 'us-east-1')
-            
+
             if bucket_name:
                 log.info(f"Uploading benchmark results to S3 bucket '{bucket_name}'")
                 upload_results_to_s3(bucket_name, region)
