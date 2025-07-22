@@ -254,14 +254,14 @@ def run_experiment(cfg: DictConfig) -> None:
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
 
-            bucket_name = common_config.get('s3_bucket')
+            result_bucket_name = common_config.get('s3_result_bucket') or common_config.get('s3_bucket')
             region = common_config.get('region', 'us-east-1')
 
-            if bucket_name:
-                log.info(f"Uploading benchmark results to S3 bucket '{bucket_name}'")
-                upload_results_to_s3(bucket_name, region)
+            if result_bucket_name:
+                log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
+                upload_results_to_s3(result_bucket_name, region)
             else:
-                log.warning("No S3 bucket specified in config, skipping upload of benchmark results")
+                log.warning("No S3 bucket specified, skipping upload of benchmark results")
 
 
 if __name__ == "__main__":
