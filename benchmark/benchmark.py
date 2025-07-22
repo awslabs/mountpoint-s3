@@ -6,7 +6,7 @@ import signal
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
@@ -62,47 +62,33 @@ def write_metadata(metadata: Dict[str, Any]) -> None:
         log.error("Failed to write metadata", exc_info=True)
 
 
-def detect_result_folder() -> Tuple[str, str]:
-    """
-    Detect the result folder path and source path for benchmark results using Hydra's internal API.
-    """
-    local_path = HydraConfig.get().runtime.output_dir
-    path = Path(local_path)
-
-    if "multirun" in str(path):
-        parts = str(path).split("multirun")
-        date_time_path = parts[1].lstrip("/\\")
-
-        path_parts = date_time_path.split("/")
-        if path_parts and path_parts[-1].isdigit():
-            # use parent to include multirun.yaml
-            local_path = str(Path(local_path).parent)
-            date_time_path = "/".join(path_parts[:-1])
-
-        s3_path = os.path.join("multirun", date_time_path)
-    elif "outputs" in str(path):
-        parts = str(path).split("outputs")
-        date_time_path = parts[1].lstrip("/\\")
-        s3_path = os.path.join("outputs", date_time_path)
-    else:
-        s3_path = os.path.basename(local_path)
-
-    return s3_path, local_path
-
-
 def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
     """
     Upload benchmark results to S3 bucket using the AWS CLI.
     """
     try:
-        s3_path, source_path = detect_result_folder()
-
-        s3_target_path = os.path.join("results", s3_path)
+        source_path = HydraConfig.get().runtime.output_dir
+        path = Path(source_path)
+        path_str = str(path) 
+        
+        instance_id = get_ec2_instance_id() or "local"
+        
+        if "multirun" in path_str:
+            parts = path_str.split("multirun")[1].lstrip("/\\").split("/")
+            date_part, time_part = parts[0], parts[1]
+            source_path = os.path.dirname(source_path) 
+            s3_target_path = os.path.join("results", instance_id, "multirun", date_part, time_part)
+            
+        elif "outputs" in path_str:
+            parts = path_str.split("outputs")[1].lstrip("/\\").split("/")
+            date_part, time_part = parts[0], parts[1]
+            s3_target_path = os.path.join("results", instance_id, "outputs", date_part, time_part)
+        else:
+            raise ValueError(f"Unexpected Hydra output directory structure: {path_str}")
 
         aws_cmd = ["aws", "s3", "sync", source_path, f"s3://{bucket_name}/{s3_target_path}", "--region", region]
 
         result = subprocess.run(aws_cmd, capture_output=True, text=True)
-
         if result.returncode == 0:
             log.info("Successfully uploaded benchmark results to S3")
         else:
