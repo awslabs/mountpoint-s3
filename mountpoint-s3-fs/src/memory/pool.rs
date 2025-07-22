@@ -103,13 +103,15 @@ impl PagedPool {
         match self.inner.get_pool_for_size(size) {
             Some(pool) => {
                 let buffer_ptr = pool.reserve(kind);
-                metrics::histogram!("pool.reserve", "type" => "primary", "kind" => kind.as_str()).record(size as f64);
+                metrics::histogram!("pool.reserved_bytes", "type" => "primary", "kind" => kind.as_str())
+                    .record(size as f64);
                 let slack = pool.buffer_size() - size;
-                metrics::histogram!("pool.slack", "kind" => kind.as_str()).record(slack as f64);
+                metrics::histogram!("pool.slack_bytes", "kind" => kind.as_str()).record(slack as f64);
                 PoolBuffer::new_primary(buffer_ptr, size)
             }
             None => {
-                metrics::histogram!("pool.reserve", "type" => "secondary", "kind" => kind.as_str()).record(size as f64);
+                metrics::histogram!("pool.reserved_bytes", "type" => "secondary", "kind" => kind.as_str())
+                    .record(size as f64);
                 PoolBuffer::new_secondary(size, kind, self.inner.stats.clone())
             }
         }
@@ -125,11 +127,11 @@ impl PagedPool {
     }
 
     #[cfg(test)]
-    fn used_buffer_count(&self, kind: BufferKind) -> usize {
+    fn reserved_buffer_count(&self, kind: BufferKind) -> usize {
         self.inner
             .ordered_size_pools
             .iter()
-            .map(|pool| pool.stats.used_buffers(kind))
+            .map(|pool| pool.stats.reserved_buffers(kind))
             .sum()
     }
 }
@@ -184,8 +186,10 @@ impl PagedPoolInner {
                     "free empty memory pool pages"
                 );
                 removed = true;
+                metrics::gauge!("pool.allocated_pages", "size" => format!("{}", pool.stats.buffer_size))
+                    .decrement(pages_freed as f64);
             }
-            metrics::histogram!("pool.trim", "size" => format!("{}", pool.stats.buffer_size))
+            metrics::histogram!("pool.trim_pages", "size" => format!("{}", pool.stats.buffer_size))
                 .record(pages_freed as f64);
         }
 
@@ -268,29 +272,29 @@ mod tests {
             let original = vec![1u8; size];
 
             assert_eq!(pool.page_count(), 0);
-            assert_eq!(pool.used_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
 
             let mut buffers = Vec::new();
             for _ in 0..16 {
                 buffers.push(copy_from_slice(&pool, &original));
             }
             assert_eq!(pool.page_count(), 1);
-            assert_eq!(pool.used_buffer_count(BufferKind::Other), 16);
+            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 16);
 
             buffers.push(copy_from_slice(&pool, &original));
             assert_eq!(pool.page_count(), 2);
-            assert_eq!(pool.used_buffer_count(BufferKind::Other), 17);
+            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 17);
 
             assert!(!pool.trim());
 
             drop(buffers);
 
             assert_eq!(pool.page_count(), 2);
-            assert_eq!(pool.used_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
 
             assert!(pool.trim());
             assert_eq!(pool.page_count(), 0);
-            assert_eq!(pool.used_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
         }
     }
 

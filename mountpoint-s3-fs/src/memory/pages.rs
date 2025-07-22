@@ -60,6 +60,7 @@ impl Page {
             alloc::handle_alloc_error(layout);
         }
 
+        metrics::gauge!("pool.allocated_pages", "size" => format!("{}", stats.buffer_size)).increment(1.0);
         stats.add_empty_page();
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
@@ -84,7 +85,7 @@ impl Page {
             self.inner.stats.remove_empty_page();
         };
 
-        self.inner.stats.add_used_buffer(kind);
+        self.inner.stats.add_reserved_buffer(kind);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
         let ptr = unsafe { self.inner.bytes.add(offset) };
@@ -109,7 +110,7 @@ impl Page {
         let mut bitmask = self.inner.reserved_bitmask.lock().unwrap();
         *bitmask &= mask;
 
-        self.inner.stats.remove_used_buffer(kind);
+        self.inner.stats.remove_reserved_buffer(kind);
         if *bitmask == 0 {
             self.inner.stats.add_empty_page();
         }
@@ -125,6 +126,7 @@ impl Page {
         if *bitmask != 0 {
             return false;
         }
+        self.inner.stats.remove_empty_page();
         // Mark the page as full, even if no buffer is currently reserved. If a new request
         // arrives before the page is removed from the pool, it will be denied.
         *bitmask = FULL_MASK;
