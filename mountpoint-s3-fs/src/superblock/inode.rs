@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use crate::metablock::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat};
-use crate::metablock::{NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey};
+use crate::metablock::{
+    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
+};
 use crate::prefix::Prefix;
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};

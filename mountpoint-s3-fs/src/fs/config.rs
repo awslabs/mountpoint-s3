@@ -9,7 +9,7 @@ use crate::s3::S3Personality;
 
 use super::{ServerSideEncryption, TimeToLive};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct S3FilesystemConfig {
     /// Kernel cache config
     pub cache_config: CacheConfig,

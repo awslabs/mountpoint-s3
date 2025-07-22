@@ -1,11 +1,11 @@
 mod builder;
+mod core;
 mod csv_reader;
 mod db;
-mod manifest_core;
 mod metablock;
 
 pub use builder::{ChannelConfig, ChannelManifest, InputManifestEntry, InputManifestError, create_db, ingest_manifest};
+pub use core::{Manifest, ManifestError};
 pub use csv_reader::CsvReader;
 pub use db::DbEntry;
-pub use manifest_core::{Manifest, ManifestError};
 pub use metablock::ManifestMetablock;

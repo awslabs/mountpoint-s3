@@ -16,11 +16,11 @@ use crate::sync::Arc;
 
 #[derive(Debug, Error)]
 pub enum ManifestError {
-    #[error("failed to read from the database")]
+    #[error("failed to read from the metadata store")]
     DbError(#[from] rusqlite::Error),
-    #[error("s3 key stored in the database is invalid")]
+    #[error("s3 key from the metadata store is invalid")]
     InvalidKey(#[from] ValidKeyError),
-    #[error("read invalid database row with id {0}")]
+    #[error("read invalid row with id {0}")]
     InvalidRow(u64),
     #[error("read invalid channel row with id {0}")]
     InvalidChannel(u64),
@@ -235,7 +235,7 @@ impl TryFrom<DbEntry> for ManifestEntry {
 
 /// Manifest of all objects in the mounted directory.
 ///
-/// This struct provides access to the manifest database, which contains
+/// This struct provides access to the metadata store, which contains
 /// information about files and directories in the S3 bucket (or buckets if multiple mounted).
 /// It allows looking up entries by name or ID, iterating over directory
 /// contents, and retrieving channel information.

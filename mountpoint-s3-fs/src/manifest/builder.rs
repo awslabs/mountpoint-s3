@@ -16,10 +16,10 @@ use super::{
     db::{Db, DbEntry},
 };
 
-/// [InputManifestError] represents errors occurring during the creation of metadata database.
+/// InputManifestError represents errors occurring during the creation of the metadata store.
 #[derive(Debug, Error)]
 pub enum InputManifestError {
-    #[error("database already exists at the provided path")]
+    #[error("the metadata store already exists at the provided path")]
     DbExists,
     #[error("error opening csv manifest file at {0}")]
     CsvOpenError(PathBuf, #[source] io::Error),
@@ -33,15 +33,13 @@ pub enum InputManifestError {
     InvalidChannel(String),
     #[error("s3 prefix provided in the config is invalid")]
     InvalidPrefix(#[from] PrefixError),
-    #[error("failed to write to the database")]
+    #[error("failed to write to the metadata store")]
     DbError(#[from] rusqlite::Error),
     #[error("s3 key provided in the csv manifest is invalid")]
     InvalidKey(#[from] ValidKeyError),
 }
 
-/// [ChannelConfig] represents per-channel configuration, when multiple buckets are mounted.
-///
-/// This struct is a part of the CLI interface and contains a path to the csv manifest: [manifest_path].
+/// ChannelConfig represents per-channel configuration, when multiple buckets are mounted.
 #[derive(Debug, Deserialize)]
 pub struct ChannelConfig {
     pub directory_name: String,
@@ -51,7 +49,7 @@ pub struct ChannelConfig {
     pub manifest_path: PathBuf,
 }
 
-/// [ChannelManifest] is a helper struct, primarily exposed for usage in tests.
+/// ChannelManifest is a helper struct, primarily exposed for usage in tests.
 ///
 /// This struct represents the same information as [ChannelConfig], but holds iterator over manifest entries.
 pub struct ChannelManifest<EntriesIterator: Iterator<Item = Result<InputManifestEntry, InputManifestError>>> {
@@ -60,7 +58,7 @@ pub struct ChannelManifest<EntriesIterator: Iterator<Item = Result<InputManifest
     pub entries: EntriesIterator,
 }
 
-/// [InputManifestEntry] represents a validated manifest entry from an input file.
+/// InputManifestEntry represents a validated manifest entry from an input file.
 ///
 /// Notably it holds a validated [partial_key] which is guaranteed to be a [ValidKey] of an object.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,9 +108,11 @@ impl InputManifestEntry {
     }
 }
 
-/// Ingests a manifest into the database.
+/// Ingests CSV manifests into the the metadata store.
 ///
-/// The expected file format is CSV with no header and 3 columns -- partial_key, etag, size.
+/// Accepts a slice of [ChannelConfig], with each channel having a dedicated CSV manifest.
+///
+/// For each manifest, the expected file format is CSV with no header and 3 columns: partial_key, etag, size.
 /// The field `partial_key` must not contain S3 prefix, when the prefix is mounted.
 /// The field `etag` may contain enclosing quotes, just as it is returned by S3 ListObjectsV2 API.
 /// All fields must be properly escaped.
@@ -147,7 +147,7 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
     Ok(())
 }
 
-/// Ingests a manifest into the database.
+/// Ingests CSV manifests into the the metadata store.
 ///
 /// Compared to [ingest_manifest] this method accepts an iterator of parsed [InputManifestEntry].
 /// Method [ingest_manifest] actually delegates db creation to this method, but this one is also used in tests.
@@ -162,10 +162,10 @@ pub fn create_db<EntriesIterator: Iterator<Item = Result<InputManifestEntry, Inp
     builder.create_index()
 }
 
-/// A private helper struct implementing methods for database creation
+/// A private helper struct implementing methods for the metadata store creation
 struct ManifestBuilder {
     db: Db,
-    dir_ids: HashMap<String, u64>, // TODO: limit size of this hash map
+    dir_ids: HashMap<String, u64>,
     next_id: u64,
     insert_buffer: Vec<DbEntry>,
     batch_size: usize,

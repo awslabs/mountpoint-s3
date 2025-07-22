@@ -13,7 +13,6 @@ use mountpoint_s3_fs::data_cache::DataCache;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-use mountpoint_s3_fs::metablock::Metablock;
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -159,51 +158,26 @@ pub trait TestSessionCreator: FnOnce(&str, TestSessionConfig) -> TestSession {}
 // `FnOnce(...)` in place of `impl TestSessionCreator`.
 impl<T> TestSessionCreator for T where T: FnOnce(&str, TestSessionConfig) -> TestSession {}
 
-fn create_metablock<Client>(
-    client: &Client,
-    bucket: &str,
-    prefix: &Prefix,
-    filesystem_config: &S3FilesystemConfig,
-    #[cfg(feature = "manifest")] manifest: Option<Manifest>,
-) -> Box<dyn Metablock>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    #[cfg(feature = "manifest")]
-    if let Some(manifest) = manifest {
-        return Box::new(ManifestMetablock::new(manifest.clone()).expect("metablock must be created"));
-    }
-
-    Box::new(Superblock::new(
-        client.clone(),
-        bucket,
-        prefix,
-        SuperblockConfig {
-            cache_config: filesystem_config.cache_config.clone(),
-            s3_personality: filesystem_config.s3_personality,
-        },
-    ))
-}
-
 fn create_filesystem<Client>(
     client: Client,
     prefetcher_builder: PrefetcherBuilder<Client>,
     runtime: Runtime,
     bucket: &str,
     prefix: &Prefix,
-    test_config: &TestSessionConfig,
+    filesystem_config: S3FilesystemConfig,
+    #[cfg(feature = "manifest")] manifest: Option<Manifest>,
 ) -> S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     #[cfg(feature = "manifest")]
-    if let Some(manifest) = test_config.manifest.clone() {
+    if let Some(manifest) = manifest {
         return S3Filesystem::new(
             client,
             prefetcher_builder,
             runtime,
             ManifestMetablock::new(manifest.clone()).expect("metablock must be created"),
-            test_config.filesystem_config.clone(),
+            filesystem_config,
         );
     };
 
@@ -216,11 +190,11 @@ where
             bucket,
             prefix,
             SuperblockConfig {
-                cache_config: test_config.filesystem_config.cache_config.clone(),
-                s3_personality: test_config.filesystem_config.s3_personality,
+                cache_config: filesystem_config.cache_config.clone(),
+                s3_personality: filesystem_config.s3_personality,
             },
         ),
-        test_config.filesystem_config.clone(),
+        filesystem_config,
     )
 }
 
@@ -254,7 +228,9 @@ where
         runtime,
         bucket,
         &prefix,
-        &test_config,
+        test_config.filesystem_config,
+        #[cfg(feature = "manifest")]
+        test_config.manifest,
     );
     let fs = S3FuseFilesystem::new(fs, test_config.error_logger);
     let (session, mount) = if test_config.pass_fuse_fd {

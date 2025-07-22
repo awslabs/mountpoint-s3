@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use super::manifest_core::{Manifest, ManifestDirIter, ManifestEntry, ManifestError};
+use super::core::{Manifest, ManifestDirIter, ManifestEntry, ManifestError};
 
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
@@ -15,9 +15,9 @@ use crate::s3::config::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 
-/// Implementation of the `Metablock` trait that provides a read-only view of the manifest database.
+/// Implementation of the `Metablock` trait that provides a read-only view of the metadata store.
 ///
-/// This struct serves as the bridge between the filesystem operations and the manifest database,
+/// This struct serves as the bridge between the filesystem operations and the metadata store,
 /// handling lookups, directory listings, and attribute retrieval. It maintains the state needed
 /// for these operations, including directory handles for readdir operations.
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub struct ManifestMetablock {
     channels: Vec<Arc<S3Path>>,
     /// Time when the filesystem was mounted, used for setting timestamps in stat information.
     mount_time: OffsetDateTime,
-    /// The underlying manifest database that stores information about files and directories.
+    /// The underlying the metadata store that stores information about files and directories.
     manifest: Manifest,
     /// Counter for generating unique directory handle IDs for readdir operations.
     next_dir_handle_id: AtomicU64,

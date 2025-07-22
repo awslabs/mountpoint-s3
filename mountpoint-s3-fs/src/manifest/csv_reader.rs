@@ -31,7 +31,7 @@ impl<R: Read> Iterator for CsvReader<R> {
     }
 }
 
-/// [CsvEntry] represents a single row in an input CSV channel manifest file.
+/// CsvEntry represents a single row in an input CSV channel manifest file.
 ///
 /// Note that data in this struct is not yet validated.
 /// Specifically [partial_key] may contain forbidden symbols and be rejected later.

@@ -33,6 +33,7 @@ enum ThroughputConfig {
 
 /// Configuration options for a Mountpoint instance
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConfigOptions {
     /// Directory to mount the bucket at
     mountpoint: String,
@@ -167,24 +168,25 @@ fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
     Ok(config)
 }
 
-/// Processes a manifest and stores database in `database_directory`
+/// Processes a manifest and creates the metadata store in `database_directory`
 fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Result<Manifest> {
-    // TODO: fail fast if buckets are in different regions?
-    if config.channels.is_empty() || config.channels.len() > 20 {
-        return Err(anyhow!(
-            "At least one channel must be specified and the number of channels must not exceed 20"
-        ));
+    if config.channels.is_empty() {
+        return Err(anyhow!("At least one channel must be specified"));
     }
 
     // Generate manifest path and check if it exists
     let db_path = database_directory.join("metadata.db");
     info!(
-        "Ingesting CSV manifests into the database, channels {:?}",
+        "Ingesting CSV manifests into the metadata store, channels {:?}",
         config.channels
     );
     let start = Instant::now();
     ingest_manifest(&config.channels, &db_path)?;
-    info!("Created the database in {:?} stored at {:?}", start.elapsed(), db_path);
+    info!(
+        "Created the the metadata store in {:?} stored at {:?}",
+        start.elapsed(),
+        db_path
+    );
 
     Ok(Manifest::new(&db_path)?)
 }
@@ -204,7 +206,7 @@ fn mount_filesystem(
     let fs_config = config.build_filesystem_config()?;
     let mp_config = MountpointConfig::new(
         config.build_fuse_session_config()?,
-        fs_config.clone(),
+        fs_config,
         config.build_data_cache_config(),
     )
     .error_logger(error_logger);
