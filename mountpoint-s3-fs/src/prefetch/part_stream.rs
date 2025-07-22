@@ -195,11 +195,11 @@ impl<Client> Debug for PartStream<Client> {
 pub struct ClientPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ClientPartStream<Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter<Client>>) -> Self {
+    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>) -> Self {
         Self {
             runtime,
             client,

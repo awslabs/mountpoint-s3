@@ -124,15 +124,37 @@ fn parse_duration(arg: &str) -> Result<Duration, String> {
         .map_err(|e| format!("Invalid duration: {e}"))
 }
 
-fn create_memory_limiter(args: &CliArgs, client: &S3CrtClient) -> Arc<MemoryLimiter<S3CrtClient>> {
-    let max_memory_target = if let Some(target) = args.max_memory_target {
-        target * 1024 * 1024
-    } else {
-        // Default to 95% of total system memory
-        let sys = System::new_with_specifics(RefreshKind::everything());
-        (sys.total_memory() as f64 * 0.95) as u64
-    };
-    Arc::new(MemoryLimiter::new(client.clone(), max_memory_target))
+impl CliArgs {
+    fn memory_target_in_bytes(&self) -> u64 {
+        if let Some(target) = self.max_memory_target {
+            target * 1024 * 1024
+        } else {
+            // Default to 95% of total system memory
+            let sys = System::new_with_specifics(RefreshKind::everything());
+            (sys.total_memory() as f64 * 0.95) as u64
+        }
+    }
+
+    fn s3_client_config(&self) -> S3ClientConfig {
+        // Set up backpressure with the same initial window used in Mountpoint.
+        let mut client_config = S3ClientConfig::new()
+            .read_backpressure(true)
+            .initial_read_window(mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE)
+            .endpoint_config(EndpointConfig::new(self.region.as_str()));
+        if let Some(throughput_target_gbps) = self.maximum_throughput_gbps {
+            client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
+        }
+        if let Some(limit_gib) = self.crt_memory_limit_gib {
+            client_config = client_config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
+        }
+        if let Some(part_size) = self.part_size {
+            client_config = client_config.part_size(part_size as usize);
+        }
+        if let Some(nics) = &self.bind {
+            client_config = client_config.network_interface_names(nics.to_vec());
+        }
+        client_config
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -142,8 +164,9 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
-    let client = make_s3_client_from_args(&args).context("failed to create S3 CRT client")?;
-    let mem_limiter = create_memory_limiter(&args, &client);
+    let client_config = args.s3_client_config();
+    let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
+    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), args.memory_target_in_bytes()));
     let runtime = Runtime::new(client.event_loop_group());
 
     // Verify if all objects exist and collect metadata
@@ -257,25 +280,4 @@ async fn wait_for_download(
         total_bytes_read += bytes_read;
     }
     Ok(total_bytes_read)
-}
-
-fn make_s3_client_from_args(args: &CliArgs) -> anyhow::Result<S3CrtClient> {
-    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
-    let mut client_config = S3ClientConfig::new()
-        .read_backpressure(true)
-        .initial_read_window(initial_read_window_size)
-        .endpoint_config(EndpointConfig::new(args.region.as_str()));
-    if let Some(throughput_target_gbps) = args.maximum_throughput_gbps {
-        client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
-    }
-    if let Some(limit_gib) = args.crt_memory_limit_gib {
-        client_config = client_config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
-    }
-    if let Some(part_size) = args.part_size {
-        client_config = client_config.part_size(part_size as usize);
-    }
-    if let Some(nics) = &args.bind {
-        client_config = client_config.network_interface_names(nics.to_vec());
-    }
-    Ok(S3CrtClient::new(client_config)?)
 }

@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_channel::{Receiver, RecvError, Sender, unbounded};
 use humansize::make_format;
-use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
@@ -35,7 +34,7 @@ pub struct BackpressureConfig {
 /// It is used to send feedback ([Self::send_feedback]) to its corresponding [BackpressureLimiter],
 /// the counterpart which should be leveraged by the stream producer.
 #[derive(Debug)]
-pub struct BackpressureController<Client: ObjectClient> {
+pub struct BackpressureController {
     /// Sender for the [BackpressureLimiter] to receive size increments from the controller.
     read_window_updater: Sender<usize>,
     /// Amount by which the producer should be producing data ahead of [Self::next_read_offset].
@@ -58,7 +57,7 @@ pub struct BackpressureController<Client: ObjectClient> {
     /// Memory limiter is used to guide decisions on how much data to prefetch.
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 /// The [BackpressureLimiter] is used on producer side of a stream, for example,
@@ -81,10 +80,10 @@ pub struct BackpressureLimiter {
 ///
 /// This pair allows a consumer to send feedback ([BackpressureFeedbackEvent]) when starved or bytes are consumed,
 /// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
-pub fn new_backpressure_controller<Client: ObjectClient>(
+pub fn new_backpressure_controller(
     config: BackpressureConfig,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
-) -> (BackpressureController<Client>, BackpressureLimiter) {
+    mem_limiter: Arc<MemoryLimiter>,
+) -> (BackpressureController, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
@@ -114,7 +113,7 @@ pub fn new_backpressure_controller<Client: ObjectClient>(
     (controller, limiter)
 }
 
-impl<Client: ObjectClient> BackpressureController<Client> {
+impl BackpressureController {
     pub fn read_window_end_offset(&self) -> u64 {
         self.read_window_end_offset
     }
@@ -234,7 +233,7 @@ impl<Client: ObjectClient> BackpressureController<Client> {
     }
 }
 
-impl<Client: ObjectClient> Drop for BackpressureController<Client> {
+impl Drop for BackpressureController {
     fn drop(&mut self) {
         debug_assert!(
             self.next_read_offset <= self.request_end_offset,
@@ -435,7 +434,7 @@ mod tests {
 
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
-    ) -> (BackpressureController<MockClient>, BackpressureLimiter) {
+    ) -> (BackpressureController, BackpressureLimiter) {
         let client = MockClient::config()
             .bucket("test-bucket")
             .part_size(8 * 1024 * 1024)
