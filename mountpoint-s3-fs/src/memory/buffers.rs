@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use bytes::Bytes;
 
 use crate::sync::Arc;
@@ -5,7 +7,11 @@ use crate::sync::Arc;
 use super::pages::PagedBufferPtr;
 use super::stats::{BufferKind, PoolStats};
 
-/// Pool buffer.
+/// A buffer backed by the pool.
+///
+/// The memory for this buffer can be either part of a page (for "primary" buffers),
+/// or be a free allocation ("secondary" buffers), depending on the requested size
+/// and configuration of the [PagedPool](super::PagedPool).
 #[derive(Debug)]
 pub struct PoolBuffer(PoolBufferInner);
 
@@ -88,13 +94,14 @@ impl PoolBufferMut {
         overflow
     }
 
-    /// Set the length of this buffer, up to its capacity. When extending the
-    /// current length, exposes uninitialized data.
+    /// Fill the remaining of this buffer capacity with data from the given reader.
     ///
-    /// Returns the resulting length of the buffer (<= capacity).
-    pub fn set_len_uninit(&mut self, length: usize) -> usize {
-        self.len = self.buffer.capacity().min(length);
-        self.len
+    /// Will call [Read::read_exact] on `reader` and return an error if `reader` reaches
+    /// end-of-file before filling the buffer.
+    pub fn fill_from_reader(&mut self, mut reader: impl Read) -> Result<(), std::io::Error> {
+        reader.read_exact(&mut self.buffer.as_mut()[self.len..])?;
+        self.len = self.buffer.capacity();
+        Ok(())
     }
 
     pub fn is_full(&self) -> bool {
@@ -153,14 +160,14 @@ impl Drop for FreeBuffer {
 
 #[cfg(test)]
 mod tests {
-    use super::super::pages::tests::create_page;
+    use super::super::pages::Page;
 
     use super::*;
 
     use test_case::{test_case, test_matrix};
 
     fn primary(buffer_size: usize) -> PoolBuffer {
-        let page = create_page(buffer_size);
+        let page = Page::new_for_tests(buffer_size);
         let buffer_ptr = page
             .try_reserve(BufferKind::Other)
             .expect("should be able to reserve a buffer from a new page");
@@ -190,11 +197,11 @@ mod tests {
     }
 
     const BUFFER_SIZE: usize = 1024;
-    const SMALL_WRITE_SIZE: usize = 512;
-    const LARGE_WRITE_SIZE: usize = 1280;
+    const SMALLER_THEN_BUFFER_SIZE: usize = 512;
+    const LARGER_THAN_BUFFER_SIZE: usize = 1280;
 
-    #[test_matrix([primary, secondary], [SMALL_WRITE_SIZE, BUFFER_SIZE, LARGE_WRITE_SIZE])]
-    fn test_pool_buffer_mut(create_fn: fn(usize) -> PoolBuffer, write_size: usize) {
+    #[test_matrix([primary, secondary], [SMALLER_THEN_BUFFER_SIZE, BUFFER_SIZE, LARGER_THAN_BUFFER_SIZE])]
+    fn test_pool_buffer_mut_append(create_fn: fn(usize) -> PoolBuffer, write_size: usize) {
         let mut pool_buffer = PoolBufferMut::new(create_fn(BUFFER_SIZE));
 
         assert_eq!(pool_buffer.capacity(), BUFFER_SIZE);
@@ -219,5 +226,25 @@ mod tests {
 
         let bytes = pool_buffer.into_bytes();
         assert_eq!(bytes.as_ref(), &data[..appended_size]);
+    }
+
+    #[test_matrix([primary, secondary], [SMALLER_THEN_BUFFER_SIZE, BUFFER_SIZE, LARGER_THAN_BUFFER_SIZE])]
+    fn test_pool_buffer_mut_fill(create_fn: fn(usize) -> PoolBuffer, read_size: usize) {
+        let mut pool_buffer = PoolBufferMut::new(create_fn(BUFFER_SIZE));
+
+        assert_eq!(pool_buffer.capacity(), BUFFER_SIZE);
+        assert_eq!(pool_buffer.len(), 0);
+        assert!(pool_buffer.is_empty());
+        assert!(!pool_buffer.is_full());
+
+        let data = vec![42u8; read_size];
+        let result = pool_buffer.fill_from_reader(&data[..]);
+        if read_size >= BUFFER_SIZE {
+            result.expect("fill from large enough slice should succeed");
+            assert_eq!(pool_buffer.as_ref(), &data[..BUFFER_SIZE]);
+        } else {
+            result.expect_err("fill from small slice should fail");
+            assert!(pool_buffer.is_empty());
+        }
     }
 }

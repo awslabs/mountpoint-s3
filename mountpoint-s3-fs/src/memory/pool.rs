@@ -54,7 +54,7 @@ impl PagedPool {
         buffer_sizes.dedup();
 
         let stats = Arc::new(PoolStats::default());
-        let size_pools = buffer_sizes
+        let ordered_size_pools = buffer_sizes
             .iter()
             .map(|&buffer_size| SizePool {
                 pages: Default::default(),
@@ -62,7 +62,10 @@ impl PagedPool {
             })
             .collect();
 
-        let inner = PagedPoolInner { size_pools, stats };
+        let inner = PagedPoolInner {
+            ordered_size_pools,
+            stats,
+        };
         Self { inner: Arc::new(inner) }
     }
 
@@ -115,7 +118,7 @@ impl PagedPool {
     #[cfg(test)]
     fn page_count(&self) -> usize {
         self.inner
-            .size_pools
+            .ordered_size_pools
             .iter()
             .map(|pool| pool.pages.read().unwrap().len())
             .sum()
@@ -124,7 +127,7 @@ impl PagedPool {
     #[cfg(test)]
     fn used_buffer_count(&self, kind: BufferKind) -> usize {
         self.inner
-            .size_pools
+            .ordered_size_pools
             .iter()
             .map(|pool| pool.stats.used_buffers(kind))
             .sum()
@@ -145,7 +148,7 @@ impl MemoryPool for PagedPool {
 
 #[derive(Debug)]
 struct PagedPoolInner {
-    size_pools: Vec<SizePool>,
+    ordered_size_pools: Vec<SizePool>,
     stats: Arc<PoolStats>,
 }
 
@@ -155,17 +158,17 @@ impl PagedPoolInner {
             return None;
         }
 
-        let index = self.size_pools.partition_point(|p| p.stats.buffer_size < size);
-        if index == self.size_pools.len() {
+        let index = self.ordered_size_pools.partition_point(|p| p.stats.buffer_size < size);
+        if index == self.ordered_size_pools.len() {
             return None;
         }
 
-        Some(&self.size_pools[index])
+        Some(&self.ordered_size_pools[index])
     }
 
     fn trim(&self) -> bool {
         let mut removed = false;
-        for pool in &self.size_pools {
+        for pool in &self.ordered_size_pools {
             if pool.stats.empty_pages() == 0 {
                 continue;
             }
