@@ -69,16 +69,16 @@ def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
     try:
         source_path = HydraConfig.get().runtime.output_dir
         path = Path(source_path)
-        path_str = str(path) 
-        
+        path_str = str(path)
+
         instance_id = get_ec2_instance_id() or "local"
-        
+
         if "multirun" in path_str:
             parts = path_str.split("multirun")[1].lstrip("/\\").split("/")
             date_part, time_part = parts[0], parts[1]
-            source_path = os.path.dirname(source_path) 
+            source_path = os.path.dirname(source_path)
             s3_target_path = os.path.join("results", instance_id, "multirun", date_part, time_part)
-            
+
         elif "outputs" in path_str:
             parts = path_str.split("outputs")[1].lstrip("/\\").split("/")
             date_part, time_part = parts[0], parts[1]
