@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753171258943,
+  "lastUpdate": 1753283387580,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6df6fb183d946d2afd78d3b9ea7325964917c55d",
-          "message": "Upgrade to Rust 1.88 (#1493)\n\nUpgrade to the new compiler and address new clippy issues.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-06-27T17:07:36Z",
-          "tree_id": "5a0fd226bfb5e2c3fa3e9faf5b6e153b7839886d",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/6df6fb183d946d2afd78d3b9ea7325964917c55d"
-        },
-        "date": 1751052121059,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 15519.08203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 23853.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 39339.45703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 142.109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 302.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 205.48828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 319.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 75.640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 240.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 79.44921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 240.375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 34697.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 375.30078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 38086.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 393.453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 13451.4609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 263.1875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 11542.98828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 11673.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 259.44921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 402.45703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 235.23046875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 235.0078125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f73f89b29d673a3bc29e58b5c1f5e96e74ba534e",
+          "message": "[Experimental] Support mounting multiple buckets with CSV manifest (#1506)\n\nImplement `ManifestMetablock` which uses SQLite db as a source of object\nmetadata. This implementation also allows mounting multiple buckets\nwithin a single filesystem. This change is not intended to be applied to\nthe regular `mount-s3` binary, only to `mount_from_config` example.\n\n### Does this change impact existing behavior?\n\nNo, change is enabled in example only.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, of the `mountpoint-s3-fs` crate.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>",
+          "timestamp": "2025-07-23T12:55:13Z",
+          "tree_id": "dbbd80fbf7eb4fcb2fbfe447a6380f387d20c280",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f73f89b29d673a3bc29e58b5c1f5e96e74ba534e"
+        },
+        "date": 1753283387525,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 15006.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 27037.3203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 42555.09765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 133.3828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 307.49609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 238.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 328.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 72.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 232.40625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 78.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 231.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 31261.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 376.45703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 38290.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 386.109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 13080.8515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 257.2109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 12571.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 14055.69921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 258.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 390.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 252.390625,
             "unit": "MiB"
           }
         ]
