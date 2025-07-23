@@ -1,4 +1,6 @@
-## Unreleased (v0.18.0)
+## Unreleased
+
+## v0.18.0 (July 23, 2025)
 
 * Add support for custom memory pools. ([#1516](https://github.com/awslabs/mountpoint-s3/pull/1516))
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
