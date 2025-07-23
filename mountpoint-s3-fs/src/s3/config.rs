@@ -269,7 +269,7 @@ impl TargetThroughputSetting {
 //
 // Note the CRT does not respect this value right now, they always return chunks of part size
 // but this is the first window size we prefer.
-pub const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 + 128 * 1024;
+pub const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 * 8;
 
 impl ClientConfig {
     /// Create an [S3CrtClient]
