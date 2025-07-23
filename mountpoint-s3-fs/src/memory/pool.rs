@@ -105,8 +105,8 @@ impl PagedPool {
                 let buffer_ptr = pool.reserve(kind);
                 metrics::histogram!("pool.reserved_bytes", "type" => "primary", "kind" => kind.as_str())
                     .record(size as f64);
-                let slack = pool.buffer_size() - size;
-                metrics::histogram!("pool.slack_bytes", "kind" => kind.as_str()).record(slack as f64);
+                metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
+                    .record((pool.buffer_size() - size) as f64);
                 PoolBuffer::new_primary(buffer_ptr, size)
             }
             None => {

@@ -127,7 +127,7 @@ impl Page {
             return false;
         }
         self.inner.stats.remove_empty_page();
-        // Mark the page as full, even if no buffer is currently reserved. If a new request
+        // Mark the page as full, even though no buffer is currently reserved. If a new request
         // arrives before the page is removed from the pool, it will be denied.
         *bitmask = FULL_MASK;
         true

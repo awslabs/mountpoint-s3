@@ -247,4 +247,35 @@ mod tests {
             assert!(pool_buffer.is_empty());
         }
     }
+
+    #[test_matrix([primary, secondary], [SMALLER_THEN_BUFFER_SIZE, BUFFER_SIZE, LARGER_THAN_BUFFER_SIZE])]
+    fn test_pool_buffer_mut_fill_non_empty(create_fn: fn(usize) -> PoolBuffer, read_size: usize) {
+        let mut pool_buffer = PoolBufferMut::new(create_fn(BUFFER_SIZE));
+
+        assert_eq!(pool_buffer.capacity(), BUFFER_SIZE);
+        assert_eq!(pool_buffer.len(), 0);
+        assert!(pool_buffer.is_empty());
+        assert!(!pool_buffer.is_full());
+
+        const INITIAL_SIZE: usize = 10;
+        let initial = [7u8; INITIAL_SIZE];
+        let overflow = pool_buffer.append_from_slice(&mut &initial[..]);
+        assert!(overflow.is_empty());
+        assert_eq!(pool_buffer.len(), INITIAL_SIZE);
+
+        let read_size = read_size.checked_sub(INITIAL_SIZE).unwrap();
+        let data = vec![42u8; read_size];
+        let result = pool_buffer.fill_from_reader(&data[..]);
+        if read_size + INITIAL_SIZE >= BUFFER_SIZE {
+            result.expect("fill from large enough slice should succeed");
+            assert_eq!(&pool_buffer.as_ref()[0..INITIAL_SIZE], &initial[..]);
+            assert_eq!(
+                &pool_buffer.as_ref()[INITIAL_SIZE..],
+                &data[..BUFFER_SIZE - INITIAL_SIZE]
+            );
+        } else {
+            result.expect_err("fill from small slice should fail");
+            assert_eq!(pool_buffer.len(), INITIAL_SIZE);
+        }
+    }
 }
