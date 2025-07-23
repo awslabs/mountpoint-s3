@@ -2,6 +2,7 @@
 
 * Introduce `Metablock` abstraction and adjust the interface between `S3Filesystem` and implementors of `Metablock`. ([#1500](https://github.com/awslabs/mountpoint-s3/pull/1500), [#1488](https://github.com/awslabs/mountpoint-s3/pull/1488))
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+* Introduce `ManifestMetablock` under the `manifest` feature flag, which allows loading S3 metadata from disk. ([#1506](https://github.com/awslabs/mountpoint-s3/pull/1506))
 
 ## v0.5.0 (Jun 19, 2025)
 
