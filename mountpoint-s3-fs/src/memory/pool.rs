@@ -206,12 +206,17 @@ struct SizePool {
 impl SizePool {
     fn reserve(&self, kind: BufferKind) -> PagedBufferPtr {
         {
+            // Fast path: reserve a buffer from the existing pages (under a read lock).
             let read_pages = self.pages.read().unwrap();
             if let Some(buffer_ptr) = self.try_get_buffer_ptr(read_pages.iter(), kind) {
                 return buffer_ptr;
             }
         }
 
+        // Slow path: we could not find an available buffer on the first round, so we need
+        // a write lock to be able to add a page. But first, we check the existing pages again
+        // in case a buffer became available while we waited for the lock or another concurrent
+        // reserve already added a new page.
         let mut write_pages = self.pages.write().unwrap();
         if let Some(buffer_ptr) = self.try_get_buffer_ptr(write_pages.iter(), kind) {
             return buffer_ptr;
