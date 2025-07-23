@@ -268,14 +268,14 @@ mod tests {
         let result = pool_buffer.fill_from_reader(&data[..]);
         if read_size + INITIAL_SIZE >= BUFFER_SIZE {
             result.expect("fill from large enough slice should succeed");
-            assert_eq!(&pool_buffer.as_ref()[0..INITIAL_SIZE], &initial[..]);
+            assert_eq!(&pool_buffer.as_ref()[..INITIAL_SIZE], &initial[..]);
             assert_eq!(
                 &pool_buffer.as_ref()[INITIAL_SIZE..],
                 &data[..BUFFER_SIZE - INITIAL_SIZE]
             );
         } else {
             result.expect_err("fill from small slice should fail");
-            assert_eq!(pool_buffer.len(), INITIAL_SIZE);
+            assert_eq!(pool_buffer.as_ref(), &initial[..]);
         }
     }
 }
