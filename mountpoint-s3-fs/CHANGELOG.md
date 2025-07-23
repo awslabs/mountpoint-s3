@@ -1,4 +1,6 @@
-## Unreleased (v0.6.0)
+## Unreleased
+
+## v0.6.0 (July 23, 2025)
 
 * Introduce `Metablock` abstraction and adjust the interface between `S3Filesystem` and implementors of `Metablock`. ([#1500](https://github.com/awslabs/mountpoint-s3/pull/1500), [#1488](https://github.com/awslabs/mountpoint-s3/pull/1488))
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
