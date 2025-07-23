@@ -31,6 +31,7 @@
 //! more data from the sources and put them into the part queue. The BackpressureLimiter should be used
 //! as a mean to block ObjectPartStream thread to fetch more data.
 
+use std::cell::OnceCell;
 use std::fmt::Debug;
 
 use metrics::{counter, histogram};
@@ -58,6 +59,10 @@ use part::PartOperationError;
 use part_stream::{PartStream, RequestRange, RequestTaskConfig};
 use seek_window::SeekWindow;
 use task::RequestTask;
+
+// If for some reason, we cannot know the size of the first read
+// we will fall back to 256k chunking.
+static DEFAULT_READSIZE: usize = 256 * 1024;
 
 #[derive(Debug, Error)]
 pub enum PrefetchReadError<E> {
@@ -217,8 +222,9 @@ where
     backward_seek_window: SeekWindow,
     bucket: String,
     object_id: ObjectId,
-    // preferred part size in the prefetcher's part queue, not the object part
-    preferred_part_size: usize,
+    // Preferred part size in the prefetcher's part queue, not the object part
+    // will be initialised on the first read
+    preferred_part_size: OnceCell<usize>,
     /// Start offset for sequential read, used for calculating contiguous read metric
     sequential_read_start_offset: u64,
     next_sequential_read_offset: u64,
@@ -243,7 +249,7 @@ where
             config,
             backpressure_task: None,
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
-            preferred_part_size: 256 * 1024,
+            preferred_part_size: OnceCell::new(),
             sequential_read_start_offset: 0,
             next_sequential_read_offset: 0,
             next_request_offset: 0,
@@ -261,6 +267,14 @@ where
         offset: u64,
         length: usize,
     ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
+        // Initialise the prefered part size if not already initiliased
+        //
+        // We choose the value of the first read within reasonable bounds,
+        // assuming that the kernel will typically issue reads of that size
+        // to us.
+        // Since this is a `preferred_part_size` is a OnceCell, it only
+        // initialises once.
+        let _ = self.preferred_part_size.set(length.clamp(128 * 1024, 1024 * 1024));
         trace!(
             offset,
             length,
@@ -279,15 +293,9 @@ where
         offset: u64,
         length: usize,
     ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
-        // Currently, we set preferred part size to the current read size.
-        // Our assumption is that the read size will be the same for most sequential
-        // read and it can be aligned to the size of prefetched chunks.
-        //
-        // We initialize this value to 256k as it is the Linux's readahead size
-        // and it can also be used as a lower bound in case the read size is too small.
-        // The upper bound is 1MiB since it should be a common IO size.
-        let max_preferred_part_size = 1024 * 1024;
-        self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
+        // We should not need to initialise the preferred part size here, as this should have been called from `read`.
+        // To always have a valid part size, we default initilaise to 256k if it was not set by the read.
+        self.preferred_part_size.get_or_init(|| DEFAULT_READSIZE);
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
@@ -375,7 +383,7 @@ where
             object_id: self.object_id.clone(),
             range,
             read_part_size,
-            preferred_part_size: self.preferred_part_size,
+            preferred_part_size: *self.preferred_part_size.get_or_init(|| DEFAULT_READSIZE),
             initial_read_window_size,
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
