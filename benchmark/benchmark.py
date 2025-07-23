@@ -83,14 +83,14 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
             if len(parts) >= 3:
                 date_part = parts[date_idx]
                 time_part = parts[time_idx]
-                s3_target_path = f"results/{date_part}/{time_part}"
+                s3_target_path = f"s3://{bucket_name}/results/{date_part}/{time_part}"
 
                 aws_cmd = [
                     "aws",
                     "s3",
                     "sync",
                     str(source_path),
-                    f"s3://{bucket_name}/{s3_target_path}",
+                    s3_target_path,
                     "--region",
                     region,
                 ]
