@@ -1,9 +1,4 @@
-use std::{
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf},
-    time::Instant,
-};
+use std::{fs::File, io::BufReader, path::Path, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
@@ -18,27 +13,17 @@ use mountpoint_s3_fs::{
         session::FuseSession,
     },
     logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
-    manifest::{Manifest, ingest_manifest},
+    manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
     metrics::{self, MetricsSinkHandle},
-    prefix::Prefix,
-    s3::config::{ClientConfig, PartConfig, Region, S3Path, TargetThroughputSetting},
+    s3::config::{ClientConfig, PartConfig, Region, TargetThroughputSetting},
 };
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tempfile::tempdir_in;
 use tracing::info;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ChannelConfig {
-    directory_name: String,
-    bucket_name: String,
-    #[serde(default)]
-    prefix: String,
-    manifest_path: PathBuf,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 enum ThroughputConfig {
     IMDSAutoConfigure,
@@ -47,7 +32,8 @@ enum ThroughputConfig {
 }
 
 /// Configuration options for a Mountpoint instance
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConfigOptions {
     /// Directory to mount the bucket at
     mountpoint: String,
@@ -92,13 +78,11 @@ impl ConfigOptions {
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))
     }
 
-    fn build_filesystem_config(&self, manifest: Manifest) -> Result<S3FilesystemConfig> {
+    fn build_filesystem_config(&self) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
             ..Default::default()
         };
-
-        fs_config.manifest = Some(manifest);
 
         // Apply custom filesystem settings if provided
         if let Some(dir_mode) = self.dir_mode {
@@ -135,13 +119,6 @@ impl ConfigOptions {
             bind: None,
             part_config: PartConfig::with_part_size(self.part_size.unwrap_or(8388608)),
             user_agent: UserAgent::new(Some(user_agent_string)),
-        })
-    }
-
-    fn build_s3_path(&self) -> Result<S3Path> {
-        Ok(S3Path {
-            bucket_name: self.channels[0].bucket_name.clone(),
-            prefix: Prefix::new(&self.channels[0].prefix)?,
         })
     }
 
@@ -191,21 +168,25 @@ fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
     Ok(config)
 }
 
-/// Processes a manifest and stores database in `database_directory`
+/// Processes a manifest and creates the metadata store in `database_directory`
 fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Result<Manifest> {
-    // Error if no channels
-    if config.channels.len() != 1 {
-        return Err(anyhow!("Exactly one channel must be configured"));
+    if config.channels.is_empty() {
+        return Err(anyhow!("At least one channel must be specified"));
     }
 
-    let channel = &config.channels[0];
-    let csv_path = &channel.manifest_path;
     // Generate manifest path and check if it exists
     let db_path = database_directory.join("metadata.db");
-    info!("Creating manifest for channel {}", channel.directory_name);
+    info!(
+        "Ingesting CSV manifests into the metadata store, channels {:?}",
+        config.channels
+    );
     let start = Instant::now();
-    ingest_manifest(csv_path, &db_path)?;
-    info!("Created manifest in {:?} stored at {:?}", start.elapsed(), db_path);
+    ingest_manifest(&config.channels, &db_path)?;
+    info!(
+        "Created the the metadata store in {:?} stored at {:?}",
+        start.elapsed(),
+        db_path
+    );
 
     Ok(Manifest::new(&db_path)?)
 }
@@ -222,15 +203,13 @@ fn mount_filesystem(
     error_logger: impl ErrorLogger + Send + Sync + 'static,
 ) -> Result<FuseSession> {
     // Create the Mountpoint configuration
+    let fs_config = config.build_filesystem_config()?;
     let mp_config = MountpointConfig::new(
         config.build_fuse_session_config()?,
-        config.build_filesystem_config(manifest)?,
+        fs_config,
         config.build_data_cache_config(),
     )
     .error_logger(error_logger);
-
-    // Get S3 Path
-    let s3_path = config.build_s3_path()?;
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
@@ -239,9 +218,11 @@ fn mount_filesystem(
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
+    let metablock = ManifestMetablock::new(manifest)?;
+
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(s3_path, client, runtime)
+        .create_fuse_session(metablock, client, runtime)
         .context("Failed to create FUSE session")?;
 
     Ok(fuse_session)

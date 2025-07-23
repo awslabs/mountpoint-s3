@@ -31,6 +31,10 @@ pub fn get_test_bucket() -> String {
     return get_express_bucket();
 }
 
+pub fn get_second_standard_test_bucket() -> String {
+    std::env::var("S3_SECOND_BUCKET_NAME").expect("Set S3_SECOND_BUCKET_NAME to run integration tests")
+}
+
 #[cfg(feature = "s3express_tests")]
 pub fn get_express_bucket() -> String {
     std::env::var("S3_EXPRESS_ONE_ZONE_BUCKET_NAME")

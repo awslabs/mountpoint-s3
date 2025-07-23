@@ -425,8 +425,6 @@ where
         prefix,
         mount_point.path(),
         Default::default(),
-        false,
-        None,
     );
     (mount_point, session)
 }
