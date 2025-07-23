@@ -2861,6 +2861,7 @@ dependencies = [
  "metrics",
  "mountpoint-s3-client",
  "mountpoint-s3-crt",
+ "mountpoint-s3-fs",
  "percent-encoding",
  "pin-project",
  "platform-info",

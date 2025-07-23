@@ -1,3 +1,5 @@
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 mod async_util;
 pub mod autoconfigure;
 mod checksums;
@@ -9,6 +11,7 @@ pub mod logging;
 #[cfg(feature = "manifest")]
 pub mod manifest;
 pub mod mem_limiter;
+pub mod memory;
 pub mod metablock;
 pub mod metrics;
 pub mod object;
