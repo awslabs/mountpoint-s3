@@ -264,12 +264,12 @@ impl TargetThroughputSetting {
 // FUSE doesn't know the difference between regular reads and readahead reads, it will
 // send us a READ request for that 128k, so we'll have to block waiting for it even if
 // the application doesn't want it. This is all in the noise for sequential IO, but
-// waiting for the readahead hurts random IO. So we add 128k to the first request size
-// to avoid the latency hit of the second request.
+// waiting for the readahead hurts random IO.
+// So we request 2MB to stay aligned with the part size (8MB).
 //
 // Note the CRT does not respect this value right now, they always return chunks of part size
 // but this is the first window size we prefer.
-pub const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 * 8;
+pub const INITIAL_READ_WINDOW_SIZE: usize = 2 * 1024 * 1024;
 
 impl ClientConfig {
     /// Create an [S3CrtClient]
