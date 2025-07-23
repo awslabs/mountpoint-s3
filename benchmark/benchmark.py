@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 import urllib.request
 
@@ -62,20 +63,26 @@ def write_metadata(metadata: Dict[str, Any]) -> None:
         log.error("Failed to write metadata", exc_info=True)
 
 
-def upload_results_to_s3(bucket_name: str, region: str = "us-east-1") -> None:
+def upload_results_to_s3(bucket_name: str, region: str) -> None:
     """
     Upload benchmark results to S3 bucket using the AWS CLI.
     Only uploads results from multirun directories.
     """
     try:
-        output_path = Path(HydraConfig.get().runtime.output_dir)
-        parts = output_path.parts
-        if "multirun" in parts:
-            multirun_idx = parts.index("multirun")
-            if len(parts) > multirun_idx + 2:
-                date_part = parts[multirun_idx + 1]
-                time_part = parts[multirun_idx + 2]
-                source_path = output_path.parent
+        hydra_config = HydraConfig.get()
+
+        if hydra_config.mode == RunMode.MULTIRUN:
+            output_path = Path(hydra_config.runtime.output_dir)
+
+            source_path = output_path.parent
+
+            parts = output_path.parts
+            date_idx = len(parts) - 3
+            time_idx = len(parts) - 2
+
+            if len(parts) >= 3:
+                date_part = parts[date_idx]
+                time_part = parts[time_idx]
                 s3_target_path = f"results/{date_part}/{time_part}"
 
                 aws_cmd = [
@@ -246,8 +253,8 @@ def run_experiment(cfg: DictConfig) -> None:
 
         # Mark success if we get here without exceptions
         metadata["success"] = True
-    except Exception as e:
-        log.error(f"Benchmark execution failed: {str(e)}")
+    except Exception:
+        log.error("Benchmark execution failed:", exc_info=True)
         raise
     finally:
         try:
