@@ -82,7 +82,7 @@ impl Db {
     pub fn select_entry_by_id(&self, id: u64) -> Result<Option<DbEntry>> {
         let start = Instant::now();
         let conn = self.conn.lock().expect("lock must succeed");
-        metrics::histogram!("manifest.query.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "lock").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
         let query =
@@ -90,7 +90,8 @@ impl Db {
         tracing::debug!("executing {} with parameters {:?}", query, (id,));
         let mut stmt = conn.prepare(query)?;
         let result = stmt.query_row((id,), |row: &Row| row.try_into()).optional();
-        metrics::histogram!("manifest.query.lookup_by_id.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "lookup_by_id")
+            .record(start.elapsed().as_micros() as f64);
 
         result
     }
@@ -102,14 +103,15 @@ impl Db {
     pub fn select_entry(&self, parent_id: u64, name: &str) -> Result<Option<DbEntry>> {
         let start = Instant::now();
         let conn = self.conn.lock().expect("lock must succeed");
-        metrics::histogram!("manifest.query.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "lock").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
         let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE parent_id = ?1 AND name = ?2";
         tracing::debug!("executing {} with parameters {:?}", query, (parent_id, name,));
         let mut stmt = conn.prepare(query)?;
         let result = stmt.query_row((parent_id, name), |row: &Row| row.try_into()).optional();
-        metrics::histogram!("manifest.query.lookup.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "lookup")
+            .record(start.elapsed().as_micros() as f64);
 
         result
     }
@@ -121,7 +123,7 @@ impl Db {
     pub fn select_children(&self, parent_id: u64, next_offset: usize, batch_size: usize) -> Result<Vec<DbEntry>> {
         let start = Instant::now();
         let conn = self.conn.lock().expect("lock must succeed");
-        metrics::histogram!("manifest.query.lock.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "lock").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
         let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE parent_id = ?1 ORDER BY name LIMIT ?2 OFFSET ?3";
@@ -134,7 +136,8 @@ impl Db {
         let result: Result<Vec<DbEntry>> = stmt
             .query_map((parent_id, batch_size, next_offset), |row: &Row| row.try_into())?
             .collect();
-        metrics::histogram!("manifest.query.readdir.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "readdir")
+            .record(start.elapsed().as_micros() as f64);
 
         result
     }
@@ -205,7 +208,8 @@ impl Db {
         }
         drop(stmt);
         tx.commit()?;
-        metrics::histogram!("manifest.query.insert.elapsed_micros").record(start.elapsed().as_micros() as f64);
+        metrics::histogram!("manifest.query.duration_us", "query" => "insert")
+            .record(start.elapsed().as_micros() as f64);
         Ok(())
     }
 
