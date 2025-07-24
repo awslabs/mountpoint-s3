@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
 };
-use crate::prefix::Prefix;
+use crate::s3::Prefix;
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
@@ -305,9 +305,9 @@ pub enum WriteStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::s3::config::BucketName;
+    use crate::metablock::Metablock;
+    use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
-    use crate::{metablock::Metablock, s3::config::S3Path};
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockObject},
         types::ETag,
@@ -316,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -368,7 +368,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_can_remove_inodes() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -407,7 +407,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_shadowed_inode() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -445,7 +445,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unlink_verify_checksum() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -509,7 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_setattr_invalid_stat() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -575,7 +575,7 @@ mod tests {
         #[test]
         fn test_create_and_forget_race_condition() {
             async fn test_helper() {
-                let bucket = BucketName::new("test_bucket").unwrap();
+                let bucket = Bucket::new("test_bucket").unwrap();
                 let client = Arc::new(
                     MockClient::config()
                         .bucket(bucket.to_string())
@@ -621,7 +621,7 @@ mod tests {
         #[test]
         fn test_concurrent_rename_different_files() {
             async fn test_helper() {
-                let bucket = BucketName::new("test_bucket").unwrap();
+                let bucket = Bucket::new("test_bucket").unwrap();
                 let client = Arc::new(
                     MockClient::config()
                         .bucket(bucket.to_string())
@@ -720,7 +720,7 @@ mod tests {
         #[test]
         fn test_concurrent_rename_and_lookup() {
             async fn test_helper() {
-                let bucket = BucketName::new("test_bucket").unwrap();
+                let bucket = Bucket::new("test_bucket").unwrap();
                 let client = MockClient::config()
                     .bucket(bucket.to_string())
                     .part_size(1024 * 1024)

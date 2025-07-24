@@ -14,8 +14,7 @@ use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::S3Path;
+use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use nix::fcntl::{self, FdFlag};
 use tempfile::TempDir;
@@ -265,7 +264,7 @@ pub mod mock_session {
     use mountpoint_s3_client::mock_client::MockClient;
     use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
     use mountpoint_s3_fs::prefetch::Prefetcher;
-    use mountpoint_s3_fs::s3::config::BucketName;
+    use mountpoint_s3_fs::s3::Bucket;
 
     const BUCKET_NAME: &str = "test_bucket";
 
@@ -279,11 +278,11 @@ pub mod mock_session {
             format!("{test_name}/")
         };
 
-        let s3_path = S3Path::new(BucketName::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
+        let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
 
         let client = Arc::new(
             MockClient::config()
-                .bucket(s3_path.bucket_name.to_string())
+                .bucket(s3_path.bucket.to_string())
                 .part_size(test_config.part_size)
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
@@ -319,11 +318,11 @@ pub mod mock_session {
                 format!("{test_name}/")
             };
 
-            let s3_path = S3Path::new(BucketName::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
+            let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
 
             let client = Arc::new(
                 MockClient::config()
-                    .bucket(s3_path.bucket_name.to_string())
+                    .bucket(s3_path.bucket.to_string())
                     .part_size(test_config.part_size)
                     .enable_backpressure(true)
                     .initial_read_window_size(test_config.initial_read_window_size)
@@ -485,7 +484,7 @@ pub mod s3_session {
 
         let test_client = SDKTestClient {
             prefix: s3_path.prefix.to_string(),
-            bucket: s3_path.bucket_name.to_string(),
+            bucket: s3_path.bucket.to_string(),
             sdk_client,
         };
         TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
@@ -517,7 +516,7 @@ pub mod s3_session {
                 mount_dir.path(),
                 test_config,
             );
-            let test_client = create_test_client(&region, s3_path.bucket_name.as_str(), s3_path.prefix.as_str());
+            let test_client = create_test_client(&region, s3_path.bucket.as_str(), s3_path.prefix.as_str());
 
             TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
         }

@@ -8,8 +8,7 @@ use thiserror::Error;
 
 use crate::fs::InodeKind;
 use crate::metablock::{ROOT_INODE_NO, ValidKey, ValidKeyError};
-use crate::prefix::{Prefix, PrefixError};
-use crate::s3::config::{BucketName, S3Path, S3PathError};
+use crate::s3::{Bucket, Prefix, PrefixError, S3Path, S3PathError};
 
 use super::{
     CsvReader,
@@ -137,7 +136,7 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
         let csv_reader = CsvReader::new(BufReader::new(file));
         channel_manifest_readers.push(ChannelManifest {
             directory_name: config.directory_name.clone(),
-            s3_path: S3Path::new(BucketName::new(&config.bucket_name)?, Prefix::new(&config.prefix)?),
+            s3_path: S3Path::new(Bucket::new(&config.bucket_name)?, Prefix::new(&config.prefix)?),
             entries: csv_reader,
         });
     }
@@ -345,7 +344,7 @@ mod tests {
             &db_path,
             vec![ChannelManifest {
                 directory_name: "channel_0".to_string(),
-                s3_path: S3Path::new(BucketName::new("bucket").unwrap(), Default::default()),
+                s3_path: S3Path::new(Bucket::new("bucket").unwrap(), Default::default()),
                 entries,
             }],
             1000,
@@ -393,7 +392,7 @@ mod tests {
             &db_path,
             vec![ChannelManifest {
                 directory_name: "channel_0".to_string(),
-                s3_path: S3Path::new(BucketName::new("bucket").unwrap(), Default::default()),
+                s3_path: S3Path::new(Bucket::new("bucket").unwrap(), Default::default()),
                 entries,
             }],
             1000,

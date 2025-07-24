@@ -9,7 +9,7 @@ use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
 use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::s3::config::{BucketName, S3Path};
+use mountpoint_s3_fs::s3::{Bucket, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use tempfile::tempdir;
 use tracing_subscriber::EnvFilter;
@@ -157,7 +157,7 @@ fn mount_file_system(
     let filesystem_config = S3FilesystemConfig::default();
 
     let s3_path = S3Path::new(
-        BucketName::new(bucket_name).expect("invalid bucket name"),
+        Bucket::new(bucket_name).expect("invalid bucket name"),
         Default::default(),
     );
     println!(

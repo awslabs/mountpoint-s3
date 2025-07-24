@@ -787,7 +787,7 @@ mod tests {
     use super::*;
 
     use crate::prefetch::Prefetcher;
-    use crate::s3::config::{BucketName, S3Path};
+    use crate::s3::{Bucket, S3Path};
     use crate::{Superblock, SuperblockConfig};
 
     use fuser::FileType;
@@ -797,7 +797,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
-        let bucket = BucketName::new("bucket").unwrap();
+        let bucket = Bucket::new("bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())

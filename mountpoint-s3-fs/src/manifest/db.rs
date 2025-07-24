@@ -6,8 +6,7 @@ use std::time::Instant;
 
 use super::ManifestError;
 
-use crate::prefix::Prefix;
-use crate::s3::config::{BucketName, S3Path};
+use crate::s3::{Bucket, Prefix, S3Path};
 
 /// Represents an entry in the manifest database.
 ///
@@ -221,7 +220,7 @@ impl Db {
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare("INSERT INTO channels (id, bucket_name, prefix) VALUES (?1, ?2, ?3)")?;
         for (id, channel) in channels.into_iter().enumerate() {
-            stmt.execute((id, channel.bucket_name.as_str(), channel.prefix.as_str()))?;
+            stmt.execute((id, channel.bucket.as_str(), channel.prefix.as_str()))?;
         }
         drop(stmt);
         tx.commit()
@@ -245,7 +244,7 @@ impl Db {
                 Ok((
                     id,
                     S3Path::new(
-                        BucketName::new(bucket_string)
+                        Bucket::new(bucket_string)
                             .map_err(|err| Error::FromSqlConversionFailure(0, Type::Null, Box::new(err)))?,
                         Prefix::new(&prefix_string)
                             .map_err(|err| Error::FromSqlConversionFailure(0, Type::Null, Box::new(err)))?,

@@ -46,8 +46,7 @@ use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat, WriteMode};
 use crate::metablock::{InodeInformation, Lookup};
 use crate::metablock::{S3Location, TryAddDirEntry};
 use crate::metablock::{ValidKey, ValidName};
-use crate::s3::S3Personality;
-use crate::s3::config::S3Path;
+use crate::s3::{S3Path, S3Personality};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
 
@@ -419,12 +418,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let rename_object_result = self
             .inner
             .client
-            .rename_object(
-                &self.inner.s3_path.bucket_name,
-                src_key.as_ref(),
-                &dest_key,
-                &rename_params,
-            )
+            .rename_object(&self.inner.s3_path.bucket, src_key.as_ref(), &dest_key, &rename_params)
             .await;
 
         match rename_object_result {
@@ -456,7 +450,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     _ => Err(InodeError::client_error(
                         error,
                         "RenameObject failed",
-                        &self.inner.s3_path.bucket_name,
+                        &self.inner.s3_path.bucket,
                         src_key.as_ref(),
                     )),
                 };
@@ -633,7 +627,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
             }
             WriteStatus::Remote => {
-                let bucket = &self.inner.s3_path.bucket_name;
+                let bucket = &self.inner.s3_path.bucket;
                 let s3_key = self.inner.full_key_for_inode(&inode);
                 debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
                 let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
@@ -1284,11 +1278,11 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         let head_object_params = HeadObjectParams::new();
         let mut file_lookup = self
             .client
-            .head_object(&self.s3_path.bucket_name, object_key, &head_object_params)
+            .head_object(&self.s3_path.bucket, object_key, &head_object_params)
             .fuse();
         let mut dir_lookup = self
             .client
-            .list_objects(&self.s3_path.bucket_name, None, "/", 1, directory_prefix)
+            .list_objects(&self.s3_path.bucket, None, "/", 1, directory_prefix)
             .fuse();
 
         let mut file_state = None;
@@ -1303,12 +1297,12 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         }
                         // If the object is not found, might be a directory, so keep going
                         Err(ObjectClientError::ServiceError(HeadObjectError::NotFound)) => {},
-                        Err(e) => return Err(InodeError::client_error(e, "HeadObject failed", &self.s3_path.bucket_name, object_key)),
+                        Err(e) => return Err(InodeError::client_error(e, "HeadObject failed", &self.s3_path.bucket, object_key)),
                     }
                 }
 
                 result = dir_lookup => {
-                    let result = result.map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed", &self.s3_path.bucket_name, object_key))?;
+                    let result = result.map_err(|e| InodeError::client_error(e, "ListObjectsV2 failed", &self.s3_path.bucket, object_key))?;
 
                     let found_directory = if result
                         .common_prefixes
@@ -1802,8 +1796,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
 
     use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
-    use crate::prefix::Prefix;
-    use crate::s3::config::BucketName;
+    use crate::s3::{Bucket, Prefix};
 
     use super::*;
 
@@ -1822,7 +1815,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_lookup(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -1952,7 +1945,7 @@ mod tests {
     #[test_case(false; "not cached")]
     #[tokio::test]
     async fn test_lookup_with_caching(cached: bool) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = "prefix/";
         let client = Arc::new(
             MockClient::config()
@@ -2017,7 +2010,7 @@ mod tests {
     #[test_case(false; "not cached")]
     #[tokio::test]
     async fn test_negative_lookup_with_caching(cached: bool) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = "prefix/";
         let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
 
@@ -2073,7 +2066,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2229,7 +2222,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir_no_remote_keys(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
 
         let prefix = Prefix::new(prefix).expect("valid prefix");
@@ -2262,7 +2255,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir_local_keys_after_remote_keys(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2311,7 +2304,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_create_local_dir(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2349,7 +2342,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_readdir_lookup_after_rmdir(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2406,7 +2399,7 @@ mod tests {
     #[test_case("test_prefix/", false; "prefixed unordered")]
     #[tokio::test]
     async fn test_readdir_unordered(prefix: &str, ordered: bool) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let mut config = MockClient::config().bucket(bucket.to_string()).part_size(1024 * 1024);
         if !ordered {
             config = config.unordered_list_seed(Some(123456));
@@ -2523,7 +2516,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_rmdir_delete_status(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2576,7 +2569,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_parent_readdir_after_rmdir(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2614,7 +2607,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_lookup_after_unlink(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2649,7 +2642,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_finish_writing_convert_parent_local_dirs_to_remote() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2707,7 +2700,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_inode_reuse() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2737,7 +2730,7 @@ mod tests {
     #[test_case("subdir/"; "with subdirectory")]
     #[tokio::test]
     async fn test_lookup_directory_overlap(subdir: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2776,7 +2769,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_names() {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())
@@ -2830,7 +2823,7 @@ mod tests {
     #[test_case("test_prefix/"; "prefixed")]
     #[tokio::test]
     async fn test_setattr(prefix: &str) {
-        let bucket = BucketName::new("test_bucket").unwrap();
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
                 .bucket(bucket.to_string())

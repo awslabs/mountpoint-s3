@@ -25,8 +25,7 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::{BucketName, S3Path};
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -62,7 +61,7 @@ where
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
     let superblock = Superblock::new(
         client.clone(),
-        S3Path::new(BucketName::new(bucket).unwrap(), prefix.clone()),
+        S3Path::new(Bucket::new(bucket).unwrap(), prefix.clone()),
         SuperblockConfig {
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,

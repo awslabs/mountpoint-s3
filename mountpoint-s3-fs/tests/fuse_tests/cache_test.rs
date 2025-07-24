@@ -8,7 +8,7 @@ use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::s3::config::S3Path;
+use mountpoint_s3_fs::s3::S3Path;
 
 use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
@@ -36,8 +36,7 @@ const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 async fn express_invalid_block_read() {
     use mountpoint_s3_client::checksums::crc32c;
     use mountpoint_s3_client::types::{PutObjectSingleParams, UploadChecksum};
-    use mountpoint_s3_fs::prefix::Prefix;
-    use mountpoint_s3_fs::s3::config::BucketName;
+    use mountpoint_s3_fs::s3::{Bucket, Prefix};
 
     let bucket = get_standard_bucket();
     let cache_bucket = get_express_bucket();
@@ -49,7 +48,7 @@ async fn express_invalid_block_read() {
         client.clone(),
         ExpressDataCacheConfig::new(&cache_bucket, &bucket),
     ));
-    let s3_path = S3Path::new(BucketName::new(bucket.clone()).unwrap(), Prefix::new(&prefix).unwrap());
+    let s3_path = S3Path::new(Bucket::new(bucket.clone()).unwrap(), Prefix::new(&prefix).unwrap());
     let (mount_point, _session) = mount_bucket(client.clone(), cache.clone(), s3_path);
 
     // Put an object to the mounted bucket
@@ -103,8 +102,7 @@ async fn express_invalid_block_read() {
 #[test_case("key", 100, 1024 * 1024; "big file")]
 #[cfg(feature = "s3express_tests")]
 fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
-    use mountpoint_s3_fs::prefix::Prefix;
-    use mountpoint_s3_fs::s3::config::BucketName;
+    use mountpoint_s3_fs::s3::{Bucket, Prefix};
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
@@ -115,7 +113,7 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
     );
 
     let prefix = get_test_prefix("express_cache_write_read");
-    let s3_path = S3Path::new(BucketName::new(bucket_name).unwrap(), Prefix::new(&prefix).unwrap());
+    let s3_path = S3Path::new(Bucket::new(bucket_name).unwrap(), Prefix::new(&prefix).unwrap());
     cache_write_read_base(client, s3_path, key_suffix, key_size, object_size, cache)
 }
 
@@ -148,8 +146,7 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
 fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<String>, cache_bucket: String) {
     use mountpoint_s3_fs::ServerSideEncryption;
     use mountpoint_s3_fs::data_cache::ExpressDataCacheConfig;
-    use mountpoint_s3_fs::prefix::Prefix;
-    use mountpoint_s3_fs::s3::config::BucketName;
+    use mountpoint_s3_fs::s3::{Bucket, Prefix};
 
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default());
     let bucket_name = get_standard_bucket();
@@ -158,7 +155,7 @@ fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<Str
     let cache = ExpressDataCache::new(client.clone(), config);
 
     let prefix = get_test_prefix("express_cache_write_read");
-    let s3_path = S3Path::new(BucketName::new(bucket_name).unwrap(), Prefix::new(&prefix).unwrap());
+    let s3_path = S3Path::new(Bucket::new(bucket_name).unwrap(), Prefix::new(&prefix).unwrap());
     cache_write_read_base(client, s3_path, "key", 100, 1024, cache)
 }
 
@@ -321,8 +318,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
     use futures::executor::block_on;
     use mountpoint_s3_client::config::S3ClientConfig;
     use mountpoint_s3_fs::data_cache::DataCacheError;
-    use mountpoint_s3_fs::prefix::Prefix;
-    use mountpoint_s3_fs::s3::config::BucketName;
+    use mountpoint_s3_fs::s3::{Bucket, Prefix};
 
     let bucket_owner = get_bucket_owner();
     // Configure the client to enforce the bucket owner
@@ -354,7 +350,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
     }
 
     let cache = CacheTestWrapper::new(cache);
-    let s3_path = S3Path::new(BucketName::new(bucket).unwrap(), Prefix::new(&prefix).unwrap());
+    let s3_path = S3Path::new(Bucket::new(bucket).unwrap(), Prefix::new(&prefix).unwrap());
     let (mount_point, _session) = mount_bucket(client, cache.clone(), s3_path);
 
     // Write an object, no caching happens yet

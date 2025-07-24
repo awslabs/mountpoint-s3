@@ -12,11 +12,8 @@ use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::s3::config::{
-    BucketName, ClientConfig, PartConfig, S3Path, S3PathError, TargetThroughputSetting,
-};
+use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path, S3PathError, S3Personality};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 use sysinfo::{RefreshKind, System};
 
@@ -579,8 +576,8 @@ impl CliArgs {
                 if !express_path.prefix.as_str().is_empty() {
                     return Err(anyhow!("cache-xz argument must not contain a prefix"));
                 }
-                let bucket_name = &self.s3_path()?.bucket_name;
-                let express_bucket_name = express_path.bucket_name.as_str();
+                let bucket_name = &self.s3_path()?.bucket;
+                let express_bucket_name = express_path.bucket.as_str();
                 let config = ExpressDataCacheConfig::new(express_bucket_name, bucket_name)
                     .block_size(self.cache_block_size_in_bytes())
                     .sse(sse);
@@ -807,7 +804,7 @@ fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
 
 #[derive(Debug, Clone)]
 pub enum BucketNameOrS3Uri {
-    BucketName(BucketName),
+    BucketName(Bucket),
     S3Uri(S3Path),
 }
 
@@ -815,7 +812,7 @@ fn parse_bucket_name_or_s3_uri(bucket_name_or_uri: &str) -> Result<BucketNameOrS
     if bucket_name_or_uri.starts_with("s3://") {
         Ok(BucketNameOrS3Uri::S3Uri(S3Path::parse_s3_uri(bucket_name_or_uri)?))
     } else {
-        Ok(BucketNameOrS3Uri::BucketName(BucketName::new(
+        Ok(BucketNameOrS3Uri::BucketName(Bucket::new(
             bucket_name_or_uri.to_owned(),
         )?))
     }
@@ -861,7 +858,7 @@ mod tests {
             let cli_args = CliArgs::try_parse_from(["mount-s3", bucket_name, "test/location"])?;
             cli_args
                 .s3_path()
-                .map(|path| (path.bucket_name.to_string(), path.prefix.as_str().to_string()))
+                .map(|path| (path.bucket.to_string(), path.prefix.as_str().to_string()))
         }
         let s3_path = get_err(bucket_name);
         match (s3_path, expected_path) {

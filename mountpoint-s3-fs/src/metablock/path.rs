@@ -3,8 +3,7 @@ use std::{ffi::OsStr, fmt::Display};
 
 use thiserror::Error;
 
-use crate::prefix::Prefix;
-use crate::s3::config::S3Path;
+use crate::s3::{Prefix, S3Path};
 use crate::sync::Arc;
 
 use super::{InodeError, InodeKind};
@@ -171,7 +170,7 @@ impl S3Location {
 
     /// Get the bucket name
     pub fn bucket_name(&self) -> &str {
-        &self.path.bucket_name
+        &self.path.bucket
     }
 
     /// Get the full key

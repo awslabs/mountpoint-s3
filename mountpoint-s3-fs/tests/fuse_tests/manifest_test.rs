@@ -3,8 +3,7 @@ use crate::common::manifest::{DUMMY_ETAG, create_dummy_manifest, create_manifest
 #[cfg(feature = "s3_tests")]
 use crate::common::s3::{get_second_standard_test_bucket, get_test_prefix, get_test_region, get_test_sdk_client};
 use mountpoint_s3_fs::manifest::{ChannelManifest, DbEntry, InputManifestEntry, Manifest};
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::{BucketName, S3Path};
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use std::fs::{self, metadata};
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
@@ -78,7 +77,7 @@ fn test_readdir_manifest_multiple_buckets() {
         .map(|(i, files)| ChannelManifest {
             directory_name: format!("channel_{}", i + 1),
             s3_path: S3Path::new(
-                BucketName::new(format!("test_bucket_{}", i + 1)).unwrap(),
+                Bucket::new(format!("test_bucket_{}", i + 1)).unwrap(),
                 Default::default(),
             ),
             entries: Box::new(files.iter().map(create_entry)),
@@ -237,7 +236,7 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
     let visible_object_etag = put_object(
         &sdk_client,
-        s3_path.bucket_name.as_str(),
+        s3_path.bucket.as_str(),
         s3_path.prefix.as_str(),
         visible_object.0,
         visible_object.1.clone(),
@@ -245,7 +244,7 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     .await;
     put_object(
         &sdk_client,
-        s3_path.bucket_name.as_str(),
+        s3_path.bucket.as_str(),
         s3_path.prefix.as_str(),
         invisible_object.0,
         invisible_object.1,
@@ -325,7 +324,7 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
     let object_etag = put_object(
         &sdk_client,
-        s3_path.bucket_name.as_str(),
+        s3_path.bucket.as_str(),
         s3_path.prefix.as_str(),
         object.0,
         object.1.clone(),
@@ -358,8 +357,6 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
 #[cfg(feature = "s3_tests")]
 #[tokio::test]
 async fn test_basic_read_manifest_multiple_buckets() {
-    use mountpoint_s3_fs::s3::config::BucketName;
-
     use crate::common::s3::get_test_s3_path;
 
     let object1 = ("file1.txt", vec![b'1'; 1024]);
@@ -369,12 +366,12 @@ async fn test_basic_read_manifest_multiple_buckets() {
     let s3_path1 = get_test_s3_path("test_read_multiple_buckets");
     let bucket2 = get_second_standard_test_bucket();
     let prefix2 = get_test_prefix("test_read_multiple_buckets");
-    let s3_path2 = S3Path::new(BucketName::new(bucket2).unwrap(), Prefix::new(&prefix2).unwrap());
+    let s3_path2 = S3Path::new(Bucket::new(bucket2).unwrap(), Prefix::new(&prefix2).unwrap());
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
 
     let object1_etag = put_object(
         &sdk_client,
-        s3_path1.bucket_name.as_str(),
+        s3_path1.bucket.as_str(),
         s3_path1.prefix.as_str(),
         object1.0,
         object1.1.clone(),
@@ -382,7 +379,7 @@ async fn test_basic_read_manifest_multiple_buckets() {
     .await;
     let object2_etag = put_object(
         &sdk_client,
-        s3_path2.bucket_name.as_str(),
+        s3_path2.bucket.as_str(),
         s3_path2.prefix.as_str(),
         object2.0,
         object2.1.clone(),

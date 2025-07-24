@@ -11,7 +11,7 @@ use crate::metablock::{
     InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
     ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
 };
-use crate::s3::config::S3Path;
+use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 

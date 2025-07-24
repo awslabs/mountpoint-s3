@@ -4,6 +4,11 @@
 use mountpoint_s3_client::config::{EndpointConfig, SigningAlgorithm};
 
 pub mod config;
+pub mod path;
+pub mod prefix;
+
+pub use path::{Bucket, S3Path, S3PathError};
+pub use prefix::{Prefix, PrefixError};
 
 /// The type of S3 we're talking to.
 ///

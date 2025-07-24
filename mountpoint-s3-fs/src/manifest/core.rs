@@ -7,11 +7,11 @@ use tracing::error;
 
 use super::db::{Db, DbEntry};
 
-use crate::fs::{FUSE_ROOT_INODE, InodeKind};
 use crate::metablock::{
-    InodeInformation, InodeStat, Lookup, NEVER_EXPIRE_TTL, S3Location, ValidKey, ValidKeyError, ValidName,
+    InodeInformation, InodeKind, InodeStat, Lookup, NEVER_EXPIRE_TTL, ROOT_INODE_NO, S3Location, ValidKey,
+    ValidKeyError, ValidName,
 };
-use crate::s3::config::S3Path;
+use crate::s3::S3Path;
 use crate::sync::Arc;
 
 #[derive(Debug, Error)]
@@ -137,7 +137,7 @@ impl ManifestEntry {
                 } else {
                     // this invariant is guaranteed when constructed via [ManifestEntry::try_from], which is the only way we use
                     debug_assert_eq!(
-                        parent_id, FUSE_ROOT_INODE,
+                        parent_id, ROOT_INODE_NO,
                         "only synthetic channel dirs are allowed not to have parent_partial_key"
                     );
                     None
@@ -202,7 +202,7 @@ impl TryFrom<DbEntry> for ManifestEntry {
             (None, None) => {
                 // no etag and no size means a directory entry
                 let parent_partial_key = db_entry.parent_partial_key.map(ValidKey::try_from).transpose()?;
-                if parent_partial_key.is_none() && db_entry.parent_id != FUSE_ROOT_INODE {
+                if parent_partial_key.is_none() && db_entry.parent_id != ROOT_INODE_NO {
                     Err(ManifestError::InvalidRow(db_entry.id))
                 } else {
                     Ok(ManifestEntry::Directory {
