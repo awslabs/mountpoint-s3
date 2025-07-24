@@ -721,8 +721,11 @@ mod tests {
         assert_eq!(expected, results);
     }
 
+    #[test_case(8 * 1024 * 1024, 8 * 1024 * 1024; "matching block and pool buffer sizes")]
+    #[test_case(1024 * 1024, 8 * 1024 * 1024; "block size smaller than pool buffer size")]
+    #[test_case(8 * 1024 * 1024, 1024 * 1024; "block size larger than pool buffer size")]
     #[tokio::test]
-    async fn test_put_get() {
+    async fn test_put_get(block_size: u64, pool_buffer_size: usize) {
         let data_1 = ChecksummedBytes::new("Foo".into());
         let data_2 = ChecksummedBytes::new("Bar".into());
         let data_3 = ChecksummedBytes::new("Baz".into());
@@ -730,9 +733,8 @@ mod tests {
         let object_1_size = data_1.len() + data_3.len();
         let object_2_size = data_2.len();
 
-        let block_size = 8 * 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new([block_size as usize]);
+        let pool = PagedPool::new([pool_buffer_size]);
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
