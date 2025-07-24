@@ -59,6 +59,9 @@ class PrefetchBenchmark(BaseBenchmark):
         read_size = self.common_config['read_size']
         subprocess_args.extend(["--read-size", str(read_size)])
 
+        if self.prefetch_config.get('mock_client', False):
+            subprocess_args.append("--mock-client")
+
         for interface in self.common_config['network_interfaces']:
             subprocess_args.extend(["--bind", interface])
 
