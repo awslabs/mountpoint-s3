@@ -189,7 +189,7 @@ where
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdir.entries").increment(count as u64);
+                metrics::histogram!("fuse.readdir.entries").record(count as f64);
             }
             Err(e) => fuse_error!("readdir", reply, e, self, req),
         }
