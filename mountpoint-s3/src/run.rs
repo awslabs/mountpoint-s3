@@ -190,8 +190,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
 
     let superblock = Superblock::new(
         client.clone(),
-        &s3_path.bucket_name,
-        &s3_path.prefix,
+        s3_path,
         SuperblockConfig {
             cache_config: filesystem_config.cache_config.clone(),
             s3_personality: filesystem_config.s3_personality,

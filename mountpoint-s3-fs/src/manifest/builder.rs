@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::fs::InodeKind;
 use crate::metablock::{ROOT_INODE_NO, ValidKey, ValidKeyError};
 use crate::prefix::{Prefix, PrefixError};
-use crate::s3::config::S3Path;
+use crate::s3::config::{BucketName, S3Path, S3PathError};
 
 use super::{
     CsvReader,
@@ -31,6 +31,8 @@ pub enum InputManifestError {
     ConstraintViolation(#[source] rusqlite::Error),
     #[error("channel provided in the config is invalid: {0}")]
     InvalidChannel(String),
+    #[error("s3 bucket provided in the config is invalid")]
+    InvalidBucket(#[from] S3PathError),
     #[error("s3 prefix provided in the config is invalid")]
     InvalidPrefix(#[from] PrefixError),
     #[error("failed to write to the metadata store")]
@@ -135,10 +137,7 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
         let csv_reader = CsvReader::new(BufReader::new(file));
         channel_manifest_readers.push(ChannelManifest {
             directory_name: config.directory_name.clone(),
-            s3_path: S3Path {
-                bucket_name: config.bucket_name.clone(),
-                prefix: Prefix::new(&config.prefix)?,
-            },
+            s3_path: S3Path::new(BucketName::new(&config.bucket_name)?, Prefix::new(&config.prefix)?),
             entries: csv_reader,
         });
     }
@@ -346,10 +345,7 @@ mod tests {
             &db_path,
             vec![ChannelManifest {
                 directory_name: "channel_0".to_string(),
-                s3_path: S3Path {
-                    bucket_name: "bucket".to_string(),
-                    prefix: Prefix::new("").unwrap(),
-                },
+                s3_path: S3Path::new(BucketName::new("bucket").unwrap(), Default::default()),
                 entries,
             }],
             1000,
@@ -397,10 +393,7 @@ mod tests {
             &db_path,
             vec![ChannelManifest {
                 directory_name: "channel_0".to_string(),
-                s3_path: S3Path {
-                    bucket_name: "bucket".to_string(),
-                    prefix: Prefix::new("").unwrap(),
-                },
+                s3_path: S3Path::new(BucketName::new("bucket").unwrap(), Default::default()),
                 entries,
             }],
             1000,

@@ -7,7 +7,7 @@ use std::time::Instant;
 use super::ManifestError;
 
 use crate::prefix::Prefix;
-use crate::s3::config::S3Path;
+use crate::s3::config::{BucketName, S3Path};
 
 /// Represents an entry in the manifest database.
 ///
@@ -221,7 +221,7 @@ impl Db {
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare("INSERT INTO channels (id, bucket_name, prefix) VALUES (?1, ?2, ?3)")?;
         for (id, channel) in channels.into_iter().enumerate() {
-            stmt.execute((id, channel.bucket_name, channel.prefix.as_str()))?;
+            stmt.execute((id, channel.bucket_name.as_str(), channel.prefix.as_str()))?;
         }
         drop(stmt);
         tx.commit()
@@ -240,14 +240,16 @@ impl Db {
         let result: Result<Vec<(u64, S3Path)>> = stmt
             .query_map((), |row: &Row| {
                 let id: u64 = row.get(0)?;
+                let bucket_string: String = row.get(1)?;
                 let prefix_string: String = row.get(2)?;
                 Ok((
                     id,
-                    S3Path {
-                        bucket_name: row.get(1)?,
-                        prefix: Prefix::new(&prefix_string)
+                    S3Path::new(
+                        BucketName::new(bucket_string)
                             .map_err(|err| Error::FromSqlConversionFailure(0, Type::Null, Box::new(err)))?,
-                    },
+                        Prefix::new(&prefix_string)
+                            .map_err(|err| Error::FromSqlConversionFailure(0, Type::Null, Box::new(err)))?,
+                    ),
                 ))
             })?
             .collect();

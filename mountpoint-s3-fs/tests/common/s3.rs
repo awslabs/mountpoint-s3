@@ -1,10 +1,19 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
+use mountpoint_s3_fs::{
+    prefix::Prefix,
+    s3::config::{BucketName, S3Path},
+};
 use rand::RngCore;
 use rand_chacha::rand_core::OsRng;
 
 use crate::common::tokio_block_on;
+
+pub fn get_test_s3_path(test_name: &str) -> S3Path {
+    let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
+    S3Path::new(BucketName::new(bucket).unwrap(), Prefix::new(&prefix).unwrap())
+}
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let bucket = get_test_bucket();

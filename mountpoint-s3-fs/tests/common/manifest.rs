@@ -1,7 +1,6 @@
 use mountpoint_s3_fs::{
     manifest::{ChannelManifest, DbEntry, InputManifestEntry, InputManifestError, create_db},
-    prefix::Prefix,
-    s3::config::S3Path,
+    s3::config::{BucketName, S3Path},
 };
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
@@ -54,10 +53,7 @@ pub fn create_dummy_manifest<T: AsRef<str>>(
 
     let channel_manifests = vec![ChannelManifest {
         directory_name: channel_dir_name.to_string(),
-        s3_path: S3Path {
-            bucket_name: bucket_name.to_string(),
-            prefix: Prefix::new("").unwrap(),
-        },
+        s3_path: S3Path::new(BucketName::new(bucket_name).unwrap(), Default::default()),
         entries,
     }];
     let batch_size = 1024;

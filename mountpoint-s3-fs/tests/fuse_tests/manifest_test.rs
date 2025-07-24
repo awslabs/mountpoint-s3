@@ -1,12 +1,10 @@
 use crate::common::fuse::{self, TestClient, TestSessionConfig, read_dir_to_entry_names};
 use crate::common::manifest::{DUMMY_ETAG, create_dummy_manifest, create_manifest, insert_entries};
 #[cfg(feature = "s3_tests")]
-use crate::common::s3::{
-    get_second_standard_test_bucket, get_test_bucket_and_prefix, get_test_prefix, get_test_region, get_test_sdk_client,
-};
+use crate::common::s3::{get_second_standard_test_bucket, get_test_prefix, get_test_region, get_test_sdk_client};
 use mountpoint_s3_fs::manifest::{ChannelManifest, DbEntry, InputManifestEntry, Manifest};
 use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::S3Path;
+use mountpoint_s3_fs::s3::config::{BucketName, S3Path};
 use std::fs::{self, metadata};
 use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
@@ -79,10 +77,10 @@ fn test_readdir_manifest_multiple_buckets() {
         .enumerate()
         .map(|(i, files)| ChannelManifest {
             directory_name: format!("channel_{}", i + 1),
-            s3_path: S3Path {
-                bucket_name: format!("test_bucket_{}", i + 1),
-                prefix: Prefix::new("").unwrap(),
-            },
+            s3_path: S3Path::new(
+                BucketName::new(format!("test_bucket_{}", i + 1)).unwrap(),
+                Default::default(),
+            ),
             entries: Box::new(files.iter().map(create_entry)),
         })
         .collect();
@@ -229,21 +227,30 @@ fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>
 #[test_case(false, true; "stat then read")]
 #[tokio::test]
 async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read: bool) {
+    use crate::common::s3::get_test_s3_path;
+
     let visible_object = ("visible_object_key", vec![b'1'; 1024]);
     let invisible_object = ("invisible_object_key", vec![b'2'; 1024]);
 
     // put objects
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_basic_read_manifest_s3");
+    let s3_path = get_test_s3_path("test_basic_read_manifest_s3");
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
     let visible_object_etag = put_object(
         &sdk_client,
-        &bucket,
-        &prefix,
+        s3_path.bucket_name.as_str(),
+        s3_path.prefix.as_str(),
         visible_object.0,
         visible_object.1.clone(),
     )
     .await;
-    put_object(&sdk_client, &bucket, &prefix, invisible_object.0, invisible_object.1).await;
+    put_object(
+        &sdk_client,
+        s3_path.bucket_name.as_str(),
+        s3_path.prefix.as_str(),
+        invisible_object.0,
+        invisible_object.1,
+    )
+    .await;
 
     let entries = [Ok(InputManifestEntry::new(
         visible_object.0, // key does not contain the prefix
@@ -254,16 +261,13 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     .into_iter();
     let channel_manifests = vec![ChannelManifest {
         directory_name: "channel_0".to_string(),
-        s3_path: S3Path {
-            bucket_name: bucket.clone(),
-            prefix: Prefix::new(&prefix).unwrap(),
-        },
+        s3_path: s3_path.clone(),
         entries,
     }];
     // create manifest and do the mount
     let (_tmp_dir, db_path) = create_manifest(channel_manifests, 1000).expect("manifest must be created");
     let test_session =
-        fuse::s3_session::new_with_test_client(manifest_test_session_config(&db_path), sdk_client, &bucket, &prefix);
+        fuse::s3_session::new_with_test_client(manifest_test_session_config(&db_path), sdk_client, s3_path);
 
     // if configured so, readdir before read
     let channel_dir = test_session.mount_path().join("channel_0");
@@ -314,10 +318,19 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
 #[test_case(true, false, libc::ESTALE; "wrong etag")]
 #[tokio::test]
 async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, errno: i32) {
+    use crate::common::s3::get_test_s3_path;
+
     let object = ("visible_object_key", vec![b'1'; 1024]);
-    let (bucket, prefix) = get_test_bucket_and_prefix("test_basic_read_manifest_s3");
+    let s3_path = get_test_s3_path("test_basic_read_manifest_s3");
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
-    let object_etag = put_object(&sdk_client, &bucket, &prefix, object.0, object.1.clone()).await;
+    let object_etag = put_object(
+        &sdk_client,
+        s3_path.bucket_name.as_str(),
+        s3_path.prefix.as_str(),
+        object.0,
+        object.1.clone(),
+    )
+    .await;
 
     let entries = [Ok(InputManifestEntry::new(
         object.0, // key does not contain the prefix
@@ -328,15 +341,12 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
     .into_iter();
     let channel_manifests = vec![ChannelManifest {
         directory_name: "channel_0".to_string(),
-        s3_path: S3Path {
-            bucket_name: bucket.clone(),
-            prefix: Prefix::new(&prefix).unwrap(),
-        },
+        s3_path: s3_path.clone(),
         entries,
     }];
     let (_tmp_dir, db_path) = create_manifest(channel_manifests, 1000).expect("manifest must be created");
     let test_session =
-        fuse::s3_session::new_with_test_client(manifest_test_session_config(&db_path), sdk_client, &bucket, &prefix);
+        fuse::s3_session::new_with_test_client(manifest_test_session_config(&db_path), sdk_client, s3_path);
 
     let channel_dir = test_session.mount_path().join("channel_0");
     let mut fh = File::options().read(true).open(channel_dir.join(object.0)).unwrap();
@@ -348,41 +358,53 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
 #[cfg(feature = "s3_tests")]
 #[tokio::test]
 async fn test_basic_read_manifest_multiple_buckets() {
+    use mountpoint_s3_fs::s3::config::BucketName;
+
+    use crate::common::s3::get_test_s3_path;
+
     let object1 = ("file1.txt", vec![b'1'; 1024]);
     let object2 = ("file2.txt", vec![b'2'; 2048]);
 
     // Put objects in two different buckets
-    let (bucket1, prefix1) = get_test_bucket_and_prefix("test_read_multiple_buckets");
+    let s3_path1 = get_test_s3_path("test_read_multiple_buckets");
     let bucket2 = get_second_standard_test_bucket();
     let prefix2 = get_test_prefix("test_read_multiple_buckets");
+    let s3_path2 = S3Path::new(BucketName::new(bucket2).unwrap(), Prefix::new(&prefix2).unwrap());
     let sdk_client = get_test_sdk_client(&get_test_region()).await;
 
-    let object1_etag = put_object(&sdk_client, &bucket1, &prefix1, object1.0, object1.1.clone()).await;
-    let object2_etag = put_object(&sdk_client, &bucket2, &prefix2, object2.0, object2.1.clone()).await;
+    let object1_etag = put_object(
+        &sdk_client,
+        s3_path1.bucket_name.as_str(),
+        s3_path1.prefix.as_str(),
+        object1.0,
+        object1.1.clone(),
+    )
+    .await;
+    let object2_etag = put_object(
+        &sdk_client,
+        s3_path2.bucket_name.as_str(),
+        s3_path2.prefix.as_str(),
+        object2.0,
+        object2.1.clone(),
+    )
+    .await;
 
     // Create manifest with two channels pointing to different buckets
     let create_channel_manifest =
-        |directory_name: &str, bucket_name: &str, prefix, object: &(&str, Vec<u8>), etag: &str| ChannelManifest {
+        |directory_name: &str, s3_path: &S3Path, object: &(&str, Vec<u8>), etag: &str| ChannelManifest {
             directory_name: directory_name.to_string(),
-            s3_path: S3Path {
-                bucket_name: bucket_name.to_string(),
-                prefix: Prefix::new(prefix).unwrap(),
-            },
+            s3_path: s3_path.clone(),
             entries: [Ok(InputManifestEntry::new(object.0, etag, object.1.len()).unwrap())].into_iter(),
         };
     let channel_manifests = vec![
-        create_channel_manifest("channel_1", &bucket1, &prefix1, &object1, &object1_etag),
-        create_channel_manifest("channel_2", &bucket2, &prefix2, &object2, &object2_etag),
+        create_channel_manifest("channel_1", &s3_path1, &object1, &object1_etag),
+        create_channel_manifest("channel_2", &s3_path2, &object2, &object2_etag),
     ];
 
     // Create manifest and mount
     let (_tmp_dir, db_path) = create_manifest(channel_manifests, 1000).expect("manifest must be created");
-    let test_session = fuse::s3_session::new_with_test_client(
-        manifest_test_session_config(&db_path),
-        sdk_client.clone(),
-        &bucket1,
-        &prefix1,
-    );
+    let test_session =
+        fuse::s3_session::new_with_test_client(manifest_test_session_config(&db_path), sdk_client.clone(), s3_path1);
 
     // Read file from first bucket
     let mut fh1 = File::options()

@@ -14,7 +14,9 @@ use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
 use mountpoint_s3_fs::prefix::Prefix;
 use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::config::{
+    BucketName, ClientConfig, PartConfig, S3Path, S3PathError, TargetThroughputSetting,
+};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 use sysinfo::{RefreshKind, System};
 
@@ -55,7 +57,7 @@ Arguments:
 pub struct CliArgs {
     #[clap(
         help = "Name of bucket, or an S3 URI, to mount",
-        value_parser = |arg: &str| BucketNameOrS3Uri::try_from(arg.to_string()),
+        value_parser = parse_bucket_name_or_s3_uri,
     )]
     pub bucket_name: BucketNameOrS3Uri,
 
@@ -345,7 +347,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "BUCKET",
         group = "cache_group",
-        value_parser = |arg: &str| BucketNameOrS3Uri::try_from(arg.to_string()),
+        value_parser = parse_bucket_name_or_s3_uri,
     )]
     pub cache_xz: Option<BucketNameOrS3Uri>,
 
@@ -455,7 +457,7 @@ impl CliArgs {
         let s3path = match self.bucket_name.clone() {
             BucketNameOrS3Uri::S3Uri(s3uri) => {
                 if prefix.as_str().is_empty() {
-                    s3uri.into()
+                    s3uri
                 } else {
                     return Err(anyhow!("explicit prefix option not allowed with S3 URI"));
                 }
@@ -566,7 +568,7 @@ impl CliArgs {
         let bucket_name = self.cache_xz.to_owned()?;
         let s3path = match bucket_name {
             BucketNameOrS3Uri::BucketName(bucket_name) => S3Path::new(bucket_name, Prefix::empty()),
-            BucketNameOrS3Uri::S3Uri(s3_uri) => s3_uri.into(),
+            BucketNameOrS3Uri::S3Uri(s3_uri) => s3_uri,
         };
         Some(s3path)
     }
@@ -803,6 +805,22 @@ fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum BucketNameOrS3Uri {
+    BucketName(BucketName),
+    S3Uri(S3Path),
+}
+
+fn parse_bucket_name_or_s3_uri(bucket_name_or_uri: &str) -> Result<BucketNameOrS3Uri, S3PathError> {
+    if bucket_name_or_uri.starts_with("s3://") {
+        Ok(BucketNameOrS3Uri::S3Uri(S3Path::parse_s3_uri(bucket_name_or_uri)?))
+    } else {
+        Ok(BucketNameOrS3Uri::BucketName(BucketName::new(
+            bucket_name_or_uri.to_owned(),
+        )?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,7 +861,7 @@ mod tests {
             let cli_args = CliArgs::try_parse_from(["mount-s3", bucket_name, "test/location"])?;
             cli_args
                 .s3_path()
-                .map(|path| (path.bucket_name, path.prefix.as_str().to_string()))
+                .map(|path| (path.bucket_name.to_string(), path.prefix.as_str().to_string()))
         }
         let s3_path = get_err(bucket_name);
         match (s3_path, expected_path) {

@@ -51,7 +51,7 @@ pub fn create_mock_client(
     let s3_personality = personality.unwrap_or(S3Personality::Standard);
 
     let config = MockClient::config()
-        .bucket(&s3_path.bucket_name)
+        .bucket(s3_path.bucket_name.to_string())
         .part_size(part_size as usize)
         .unordered_list_seed(None)
         .enable_backpressure(true)
