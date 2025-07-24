@@ -14,5 +14,6 @@
     "loglevel": "debug,awscrt=off",
     "throughput_config": {
         "type": "IMDSAutoConfigure"
-    }
+    },
+    "memory_limit_bytes": 2147483648
 }

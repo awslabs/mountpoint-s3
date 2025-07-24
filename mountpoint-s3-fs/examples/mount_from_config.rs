@@ -58,6 +58,8 @@ struct ConfigOptions {
     auto_unmount: Option<bool>,
     user_agent_prefix: Option<String>,
     part_size: Option<usize>,
+    /// Target memory limit (in bytes) that Mountpoint will try to enforce
+    memory_limit_bytes: Option<u64>,
 
     // File system options
     dir_mode: Option<u16>,
@@ -96,6 +98,9 @@ impl ConfigOptions {
         }
         if let Some(gid) = self.gid {
             fs_config.uid = gid;
+        }
+        if let Some(memory_limit_bytes) = self.memory_limit_bytes {
+            fs_config.mem_limit = memory_limit_bytes;
         }
         Ok(fs_config)
     }
