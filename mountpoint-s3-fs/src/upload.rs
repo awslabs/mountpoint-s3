@@ -29,6 +29,9 @@ pub use incremental::AppendUploadRequest;
 pub struct Uploader<Client: ObjectClient> {
     client: Client,
     runtime: Runtime,
+    /// Memory pool used by the incremental uploader.
+    /// The atomic uploader does not directly reserve buffers, but relies on
+    /// the client, which is configured with the same pool in Mountpoint.
     pool: PagedPool,
     mem_limiter: Arc<MemoryLimiter>,
     storage_class: Option<String>,

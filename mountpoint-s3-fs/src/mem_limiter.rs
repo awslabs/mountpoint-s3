@@ -26,10 +26,11 @@ impl BufferArea {
 
 /// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
 /// Currently, there are two metrics we take into account:
-/// 1) the memory reserved by prefetcher instances for the data requested or fetched from CRT client.
-/// 2) the memory reserved by the memory pool for buffers outside the prefetcher.
+/// 1) the memory directly reserved on the limiter by prefetcher and (incremental) uploader instances.
+/// 2) the memory reserved on the memory pool by the CRT client for any other request (currently, for multi-part uploads,
+///    triggered by atomic uploader instances).
 ///
-/// Single instance of this struct is shared among all of the prefetchers (file handles).
+/// Single instance of this struct is shared among all of the prefetchers (file handles) and (incremental) uploaders.
 ///
 /// Each file handle upon creation makes an initial reservation request with a minimal read window size of `1MiB + 128KiB`. This
 /// is accepted unconditionally since we want to allow any file handle to make progress even if that means going over the memory
@@ -52,6 +53,8 @@ impl BufferArea {
 ///                                     mem reserved by the backpressure controller
 ///                                     (on `BackpressureFeedbackEvent`)
 ///
+/// Incremental uploder instances may try to reserve multiple buffers to queue append requests. Under memory pressure,
+/// each instance will limit to a single buffer.
 #[derive(Debug)]
 pub struct MemoryLimiter {
     mem_limit: u64,
@@ -60,10 +63,9 @@ pub struct MemoryLimiter {
     mem_reserved: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
-    // We will also take pool's reserved memory into account because even if the
-    // prefetch takes control over the entire read path but we don't record or control
-    // memory usage on the write path today, so we will rely on the pool's stats
-    // for "other buffers" and adjust the prefetcher read window accordingly.
+    /// Memory pool used by the S3 client.
+    /// Since we don't directly control memory usage of multi-part uploads (atomic uploader), we will
+    /// rely on the pool's stats for PutObject buffers and adjust the prefetcher read window accordingly.
     pool: PagedPool,
 }
 
@@ -142,8 +144,15 @@ impl MemoryLimiter {
             .saturating_sub(self.additional_mem_reserved)
     }
 
-    // Get reserved memory from the memory pool for buffers outside the prefetcher.
+    /// Get reserved memory from the memory pool for buffers not tracked by this limiter.
     fn pool_mem_reserved(&self) -> u64 {
+        // The limiter already tracks buffers from
+        // * the prefetcher (GetObject and DiskCache),
+        // * the incremental uploader (Append).
+        //
+        // Here we fetch the pool's stats for the remaining kinds:
+        // * PutObject (multi-part uploads),
+        // * Other (currently not used).
         (self.pool.reserved_bytes(BufferKind::PutObject) + self.pool.reserved_bytes(BufferKind::Other)) as u64
     }
 }
