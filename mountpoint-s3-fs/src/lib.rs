@@ -16,7 +16,6 @@ pub mod metablock;
 pub mod metrics;
 pub mod object;
 pub mod prefetch;
-pub mod prefix;
 pub mod s3;
 mod superblock;
 mod sync;

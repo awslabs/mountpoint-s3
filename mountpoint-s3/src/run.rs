@@ -10,8 +10,8 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
-use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path};
+use mountpoint_s3_fs::s3::config::ClientConfig;
+use mountpoint_s3_fs::s3::{S3Path, S3Personality};
 use mountpoint_s3_fs::{MountpointConfig, Runtime, Superblock, SuperblockConfig, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
@@ -190,8 +190,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
 
     let superblock = Superblock::new(
         client.clone(),
-        &s3_path.bucket_name,
-        &s3_path.prefix,
+        s3_path,
         SuperblockConfig {
             cache_config: filesystem_config.cache_config.clone(),
             s3_personality: filesystem_config.s3_personality,
@@ -251,8 +250,8 @@ pub fn create_s3_client(
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());
-    let s3_personality = personality
-        .unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket_name, &client.endpoint_config()));
+    let s3_personality =
+        personality.unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
 }

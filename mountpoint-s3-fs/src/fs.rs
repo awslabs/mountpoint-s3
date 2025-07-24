@@ -787,6 +787,7 @@ mod tests {
     use super::*;
 
     use crate::prefetch::Prefetcher;
+    use crate::s3::{Bucket, S3Path};
     use crate::{Superblock, SuperblockConfig};
 
     use fuser::FileType;
@@ -796,10 +797,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
-        let bucket = "bucket";
+        let bucket = Bucket::new("bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
-                .bucket(bucket)
+                .bucket(bucket.to_string())
                 .enable_backpressure(true)
                 .initial_read_window_size(1024 * 1024)
                 .build(),
@@ -817,8 +818,7 @@ mod tests {
         };
         let superblock = Superblock::new(
             client.clone(),
-            bucket,
-            &Default::default(),
+            S3Path::new(bucket, Default::default()),
             SuperblockConfig {
                 cache_config: fs_config.cache_config.clone(),
                 s3_personality: fs_config.s3_personality,

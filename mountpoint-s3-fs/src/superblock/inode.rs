@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
 };
-use crate::prefix::Prefix;
+use crate::s3::Prefix;
 use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
@@ -306,6 +306,7 @@ pub enum WriteStatus {
 mod tests {
     use super::*;
     use crate::metablock::Metablock;
+    use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockObject},
@@ -315,14 +316,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget() {
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
-                .bucket("test_bucket")
+                .bucket(bucket.to_string())
                 .part_size(1024 * 1024)
                 .build(),
         );
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
         let ino = 42;
         let inode_name = "made-up-inode";
         let inode = Inode::new(
@@ -362,9 +368,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_can_remove_inodes() {
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
-                .bucket("test_bucket")
+                .bucket(bucket.to_string())
                 .part_size(1024 * 1024)
                 .build(),
         );
@@ -372,7 +379,11 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let ino = lookup.ino();
@@ -396,9 +407,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_forget_shadowed_inode() {
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
-                .bucket("test_bucket")
+                .bucket(bucket.to_string())
                 .part_size(1024 * 1024)
                 .build(),
         );
@@ -406,7 +418,11 @@ mod tests {
         let name = "foo";
         client.add_object(name, b"foo".into());
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
 
         let lookup = superblock.lookup(ROOT_INODE_NO, name.as_ref()).await.unwrap();
         let lookup_count = superblock.get_lookup_count(ROOT_INODE_NO);
@@ -429,16 +445,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_unlink_verify_checksum() {
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
-                .bucket("test_bucket")
+                .bucket(bucket.to_string())
                 .part_size(1024 * 1024)
                 .build(),
         );
         let file_name = "corrupted";
         client.add_object(file_name.as_ref(), MockObject::constant(0xaa, 30, ETag::for_tests()));
 
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
 
         // Create an inode with "corrupted" metadata, i.e.
         // checksum not matching ino + full key.
@@ -488,13 +509,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_setattr_invalid_stat() {
+        let bucket = Bucket::new("test_bucket").unwrap();
         let client = Arc::new(
             MockClient::config()
-                .bucket("test_bucket")
+                .bucket(bucket.to_string())
                 .part_size(1024 * 1024)
                 .build(),
         );
-        let superblock = Superblock::new(client.clone(), "test_bucket", &Default::default(), Default::default());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
 
         let ino: u64 = 42;
         let inode_name = "made-up-inode";
@@ -549,9 +575,10 @@ mod tests {
         #[test]
         fn test_create_and_forget_race_condition() {
             async fn test_helper() {
+                let bucket = Bucket::new("test_bucket").unwrap();
                 let client = Arc::new(
                     MockClient::config()
-                        .bucket("test_bucket")
+                        .bucket(bucket.to_string())
                         .part_size(1024 * 1024)
                         .build(),
                 );
@@ -561,8 +588,7 @@ mod tests {
 
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
-                    "test_bucket",
-                    &Default::default(),
+                    S3Path::new(bucket, Default::default()),
                     Default::default(),
                 ));
 
@@ -595,9 +621,10 @@ mod tests {
         #[test]
         fn test_concurrent_rename_different_files() {
             async fn test_helper() {
+                let bucket = Bucket::new("test_bucket").unwrap();
                 let client = Arc::new(
                     MockClient::config()
-                        .bucket("test_bucket")
+                        .bucket(bucket.to_string())
                         .part_size(1024 * 1024)
                         .enable_rename(true)
                         .build(),
@@ -606,8 +633,7 @@ mod tests {
                 // Create directories first
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
-                    "test_bucket",
-                    &Default::default(),
+                    S3Path::new(bucket, Default::default()),
                     Default::default(),
                 ));
 
@@ -694,8 +720,9 @@ mod tests {
         #[test]
         fn test_concurrent_rename_and_lookup() {
             async fn test_helper() {
+                let bucket = Bucket::new("test_bucket").unwrap();
                 let client = MockClient::config()
-                    .bucket("test_bucket")
+                    .bucket(bucket.to_string())
                     .part_size(1024 * 1024)
                     .enable_rename(true)
                     .build();
@@ -708,8 +735,7 @@ mod tests {
 
                 let superblock = Arc::new(Superblock::new(
                     client,
-                    "test_bucket",
-                    &Default::default(),
+                    S3Path::new(bucket, Default::default()),
                     Default::default(),
                 ));
                 // Create two threads, one that renames and one that tries to open the destination

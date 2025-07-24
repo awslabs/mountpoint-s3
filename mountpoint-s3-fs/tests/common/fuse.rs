@@ -14,7 +14,7 @@ use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
-use mountpoint_s3_fs::prefix::Prefix;
+use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use nix::fcntl::{self, FdFlag};
 use tempfile::TempDir;
@@ -162,8 +162,7 @@ fn create_filesystem<Client>(
     client: Client,
     prefetcher_builder: PrefetcherBuilder<Client>,
     runtime: Runtime,
-    bucket: &str,
-    prefix: &Prefix,
+    s3_path: S3Path,
     filesystem_config: S3FilesystemConfig,
     #[cfg(feature = "manifest")] manifest: Option<Manifest>,
 ) -> S3Filesystem<Client>
@@ -187,8 +186,7 @@ where
         runtime,
         Superblock::new(
             client,
-            bucket,
-            prefix,
+            s3_path,
             SuperblockConfig {
                 cache_config: filesystem_config.cache_config.clone(),
                 s3_personality: filesystem_config.s3_personality,
@@ -203,8 +201,7 @@ pub fn create_fuse_session<Client>(
     client: Client,
     prefetcher_builder: PrefetcherBuilder<Client>,
     runtime: Runtime,
-    bucket: &str,
-    prefix: &str,
+    s3_path: S3Path,
     mount_dir: &Path,
     test_config: TestSessionConfig,
 ) -> (BackgroundSession, Option<Mount>)
@@ -220,14 +217,11 @@ where
     // `MountOption::AllowOther` corresponds to `SessionACL::All`;
     let session_acl = fuser::SessionACL::All;
 
-    let prefix = Prefix::new(prefix).expect("valid prefix");
-
     let fs = create_filesystem(
         client.clone(),
         prefetcher_builder,
         runtime,
-        bucket,
-        &prefix,
+        s3_path,
         test_config.filesystem_config,
         #[cfg(feature = "manifest")]
         test_config.manifest,
@@ -270,6 +264,7 @@ pub mod mock_session {
     use mountpoint_s3_client::mock_client::MockClient;
     use mountpoint_s3_client::types::{HeadObjectParams, ObjectAttribute};
     use mountpoint_s3_fs::prefetch::Prefetcher;
+    use mountpoint_s3_fs::s3::Bucket;
 
     const BUCKET_NAME: &str = "test_bucket";
 
@@ -283,9 +278,11 @@ pub mod mock_session {
             format!("{test_name}/")
         };
 
+        let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
+
         let client = Arc::new(
             MockClient::config()
-                .bucket(BUCKET_NAME)
+                .bucket(s3_path.bucket.to_string())
                 .part_size(test_config.part_size)
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
@@ -298,8 +295,7 @@ pub mod mock_session {
             client.clone(),
             prefetcher_builder,
             runtime,
-            BUCKET_NAME,
-            &prefix,
+            s3_path,
             mount_dir.path(),
             test_config,
         );
@@ -322,9 +318,11 @@ pub mod mock_session {
                 format!("{test_name}/")
             };
 
+            let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
+
             let client = Arc::new(
                 MockClient::config()
-                    .bucket(BUCKET_NAME)
+                    .bucket(s3_path.bucket.to_string())
                     .part_size(test_config.part_size)
                     .enable_backpressure(true)
                     .initial_read_window_size(test_config.initial_read_window_size)
@@ -336,8 +334,7 @@ pub mod mock_session {
                 client.clone(),
                 prefetcher_builder,
                 runtime,
-                BUCKET_NAME,
-                &prefix,
+                s3_path,
                 mount_dir.path(),
                 test_config,
             );
@@ -444,9 +441,7 @@ pub mod mock_session {
 pub mod s3_session {
     use super::*;
 
-    use crate::common::s3::{
-        get_test_bucket_and_prefix, get_test_endpoint_config, get_test_region, get_test_sdk_client,
-    };
+    use crate::common::s3::{get_test_endpoint_config, get_test_region, get_test_s3_path, get_test_sdk_client};
     use aws_sdk_s3::Client;
     use aws_sdk_s3::operation::head_object::HeadObjectError;
     use aws_sdk_s3::primitives::ByteStream;
@@ -458,20 +453,15 @@ pub mod s3_session {
 
     /// Create a FUSE mount backed by a real S3 client
     pub fn new(test_name: &str, test_config: TestSessionConfig) -> TestSession {
-        let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
+        let s3_path = get_test_s3_path(test_name);
         let region = get_test_region();
         let sdk_client = tokio_block_on(async { get_test_sdk_client(&region).await });
 
-        new_with_test_client(test_config, sdk_client, &bucket, &prefix)
+        new_with_test_client(test_config, sdk_client, s3_path)
     }
 
     /// Create a FUSE mount backed by a real S3 client, session will use a test client provided by the caller
-    pub fn new_with_test_client(
-        test_config: TestSessionConfig,
-        sdk_client: Client,
-        bucket: &str,
-        prefix: &str,
-    ) -> TestSession {
+    pub fn new_with_test_client(test_config: TestSessionConfig, sdk_client: Client, s3_path: S3Path) -> TestSession {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let client_config = S3ClientConfig::default()
@@ -487,18 +477,17 @@ pub mod s3_session {
             client,
             prefetcher_builder,
             runtime,
-            bucket,
-            prefix,
+            s3_path.clone(),
             mount_dir.path(),
             test_config,
         );
 
         let test_client = SDKTestClient {
-            prefix: prefix.to_owned(),
-            bucket: bucket.to_owned(),
+            prefix: s3_path.prefix.to_string(),
+            bucket: s3_path.bucket.to_string(),
             sdk_client,
         };
-        TestSession::new(mount_dir, session, test_client, prefix.to_owned(), mount)
+        TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
     }
 
     /// Create a FUSE mount backed by a real S3 client, with caching
@@ -509,7 +498,7 @@ pub mod s3_session {
         |test_name, test_config| {
             let mount_dir = tempfile::tempdir().unwrap();
 
-            let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
+            let s3_path = get_test_s3_path(test_name);
             let region = get_test_region();
 
             let client = create_crt_client(
@@ -523,14 +512,13 @@ pub mod s3_session {
                 client,
                 prefetcher_builder,
                 runtime,
-                &bucket,
-                &prefix,
+                s3_path.clone(),
                 mount_dir.path(),
                 test_config,
             );
-            let test_client = create_test_client(&region, &bucket, &prefix);
+            let test_client = create_test_client(&region, s3_path.bucket.as_str(), s3_path.prefix.as_str());
 
-            TestSession::new(mount_dir, session, test_client, prefix, mount)
+            TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
         }
     }
 
