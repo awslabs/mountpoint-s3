@@ -181,6 +181,8 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
         client_config.part_config.read_size_bytes,
         client_config.part_config.write_size_bytes,
     ]);
+    // Schedule trimming of empty memory pages every minutes. We should consider
+    // event-based triggers and/or a configurable interval in the future.
     pool.schedule_trim(Duration::from_secs(60));
 
     let s3_path = args.s3_path()?;
