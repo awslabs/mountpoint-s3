@@ -7,9 +7,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use clap::{Parser, value_parser};
+use futures::executor::ThreadPool;
 use futures::executor::block_on;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
-use mountpoint_s3_client::types::HeadObjectParams;
+use mountpoint_s3_client::mock_client::{MockClient, MockObject};
+use mountpoint_s3_client::types::{ETag, HeadObjectParams};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
@@ -17,6 +19,7 @@ use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
 use sysinfo::{RefreshKind, System};
+use tracing::debug;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -116,6 +119,9 @@ pub struct CliArgs {
 
     #[clap(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
     output_file: Option<PathBuf>,
+
+    #[clap(long, help = "Use mock S3 client instead of real S3")]
+    mock_client: bool,
 }
 
 fn parse_duration(arg: &str) -> Result<Duration, String> {
@@ -164,8 +170,55 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
+
+    if args.mock_client {
+        run_mock_benchmark(bucket, &args)?;
+    } else {
+        run_real_benchmark(bucket, &args)?;
+    }
+
+    Ok(())
+}
+
+fn run_mock_benchmark(bucket: &str, args: &CliArgs) -> anyhow::Result<()> {
+    // Use mock client - create mock objects of 100GiB each
+    let mock_object_size = 1024 * 1024 * 1024 * 1024; // 100GiB
+
+    let mut config = MockClient::config()
+        .bucket(bucket)
+        .unordered_list_seed(None)
+        .enable_backpressure(true)
+        .part_size(args.part_size.unwrap_or(8 * 1024 * 1024) as usize)
+        .initial_read_window_size(mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE);
+
+    // Configure part size to match real client behavior
+    if let Some(part_size) = args.part_size {
+        config = config.part_size(part_size as usize);
+    }
+
+    let client = Arc::new(MockClient::new(config));
+    // Add mock objects for each key
+    let mut object_metadata = Vec::new();
+    for key in &args.s3_keys {
+        client.add_object(key, MockObject::ramp(0xaa, mock_object_size, ETag::for_tests()));
+        object_metadata.push((
+            ObjectId::new(key.to_string(), ETag::for_tests()),
+            mock_object_size as u64,
+        ));
+    }
+
+    // For mock client, we need to create a simple runtime since ThroughputMockClient doesn't have event_loop_group
+    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), args.memory_target_in_bytes()));
+    let runtime = Runtime::new(ThreadPool::builder().name_prefix("runtime").create()?);
+
+    run_mock_benchmark_impl(client, mem_limiter, runtime, bucket, object_metadata, args)
+}
+
+fn run_real_benchmark(bucket: &str, args: &CliArgs) -> anyhow::Result<()> {
+    // Use real S3 client
     let client_config = args.s3_client_config();
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
+    let client = Arc::new(client);
     let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), args.memory_target_in_bytes()));
     let runtime = Runtime::new(client.event_loop_group());
 
@@ -180,6 +233,39 @@ fn main() -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
+    run_real_benchmark_impl(client, mem_limiter, runtime, bucket, object_metadata, args)
+}
+
+fn run_mock_benchmark_impl(
+    client: Arc<MockClient>,
+    mem_limiter: Arc<MemoryLimiter>,
+    runtime: Runtime,
+    bucket: &str,
+    object_metadata: Vec<(ObjectId, u64)>,
+    args: &CliArgs,
+) -> anyhow::Result<()> {
+    run_benchmark_generic(client, mem_limiter, runtime, bucket, object_metadata, args)
+}
+
+fn run_real_benchmark_impl(
+    client: Arc<S3CrtClient>,
+    mem_limiter: Arc<MemoryLimiter>,
+    runtime: Runtime,
+    bucket: &str,
+    object_metadata: Vec<(ObjectId, u64)>,
+    args: &CliArgs,
+) -> anyhow::Result<()> {
+    run_benchmark_generic(client, mem_limiter, runtime, bucket, object_metadata, args)
+}
+
+fn run_benchmark_generic<T: ObjectClient + Send + Sync + 'static>(
+    client: Arc<T>,
+    mem_limiter: Arc<MemoryLimiter>,
+    runtime: Runtime,
+    bucket: &str,
+    object_metadata: Vec<(ObjectId, u64)>,
+    args: &CliArgs,
+) -> anyhow::Result<()> {
     let total_start = Instant::now();
     let mut iteration = 0;
     let mut total_bytes = 0;
@@ -202,6 +288,7 @@ fn main() -> anyhow::Result<()> {
                 let received_bytes = received_bytes.clone();
                 let object_id = object_id.clone();
                 let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+
                 let read_size = args.read_size;
 
                 let task = scope.spawn(move || {
@@ -248,13 +335,13 @@ fn main() -> anyhow::Result<()> {
         (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
     );
 
-    if let Some(output_path) = args.output_file {
+    if let Some(output_path) = &args.output_file {
         let output_file = std::fs::File::create(output_path).expect("Failed to create output_file: {output_path}");
         let results = json!({
             "summary": {
                 "total_bytes": total_bytes,
                 "total_elapsed_seconds": total_elapsed.as_secs_f64(),
-                "max_duration_seconds": max_duration,
+                "max_duration_seconds": max_duration.as_secs_f64(),
                 "iterations": iteration,
             },
             "iterations": iter_results
@@ -265,8 +352,8 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn wait_for_download(
-    mut request: PrefetchGetObject<S3CrtClient>,
+async fn wait_for_download<T: ObjectClient + Clone + Send + Sync>(
+    mut request: PrefetchGetObject<T>,
     size: u64,
     read_size: u64,
     timeout: Instant,
@@ -276,6 +363,7 @@ async fn wait_for_download(
     while offset < size && Instant::now() < timeout {
         let bytes = request.read(offset, read_size as usize).await?;
         let bytes_read = bytes.len() as u64;
+        debug!("Got {bytes_read}");
         offset += bytes_read;
         total_bytes_read += bytes_read;
     }
