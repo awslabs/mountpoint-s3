@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::ops::{Deref, DerefMut};
 
 use bytes::Bytes;
 
@@ -45,8 +46,22 @@ impl PoolBuffer {
     }
 }
 
-impl AsMut<[u8]> for PoolBuffer {
-    fn as_mut(&mut self) -> &mut [u8] {
+impl Deref for PoolBuffer {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        match &self.0 {
+            PoolBufferInner::Primary { buffer_ptr, size } => {
+                // SAFETY: returned slice will be valid until this buffer is dropped.
+                unsafe { std::slice::from_raw_parts(buffer_ptr.as_raw_ptr(), *size) }
+            }
+            PoolBufferInner::Secondary(boxed) => &boxed.data,
+        }
+    }
+}
+
+impl DerefMut for PoolBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
         match &mut self.0 {
             PoolBufferInner::Primary { buffer_ptr, size } => {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
@@ -57,15 +72,15 @@ impl AsMut<[u8]> for PoolBuffer {
     }
 }
 
+impl AsMut<[u8]> for PoolBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self
+    }
+}
+
 impl AsRef<[u8]> for PoolBuffer {
     fn as_ref(&self) -> &[u8] {
-        match &self.0 {
-            PoolBufferInner::Primary { buffer_ptr, size } => {
-                // SAFETY: returned slice will be valid until this buffer is dropped.
-                unsafe { std::slice::from_raw_parts(buffer_ptr.as_raw_ptr(), *size) }
-            }
-            PoolBufferInner::Secondary(boxed) => &boxed.data,
-        }
+        self
     }
 }
 
@@ -125,15 +140,29 @@ impl PoolBufferMut {
     }
 }
 
+impl Deref for PoolBufferMut {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer[..self.len]
+    }
+}
+
+impl DerefMut for PoolBufferMut {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buffer[..self.len]
+    }
+}
+
 impl AsRef<[u8]> for PoolBufferMut {
     fn as_ref(&self) -> &[u8] {
-        &self.buffer.as_ref()[..self.len]
+        self
     }
 }
 
 impl AsMut<[u8]> for PoolBufferMut {
     fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buffer.as_mut()[..self.len]
+        self
     }
 }
 
@@ -188,7 +217,7 @@ mod tests {
         assert_eq!(pool_buffer.capacity(), BUFFER_SIZE);
 
         let data = &[42u8; BUFFER_SIZE];
-        pool_buffer.as_mut().copy_from_slice(data);
+        pool_buffer.copy_from_slice(data);
 
         assert_eq!(pool_buffer.as_ref(), data);
 
@@ -209,8 +238,8 @@ mod tests {
         assert!(pool_buffer.is_empty());
         assert!(!pool_buffer.is_full());
 
-        let slice = pool_buffer.as_ref();
-        assert!(slice.is_empty());
+        let buffer_as_slice: &[u8] = &pool_buffer;
+        assert!(buffer_as_slice.is_empty());
 
         let data = vec![42u8; write_size];
         let mut slice = &data[..];
@@ -222,10 +251,10 @@ mod tests {
         assert_eq!(slice.len(), appended_size);
 
         assert_eq!(pool_buffer.len(), appended_size);
-        assert_eq!(pool_buffer.as_ref(), &data[..appended_size]);
+        assert_eq!(&pool_buffer[..], &data[..appended_size]);
 
         let bytes = pool_buffer.into_bytes();
-        assert_eq!(bytes.as_ref(), &data[..appended_size]);
+        assert_eq!(&bytes[..], &data[..appended_size]);
     }
 
     #[test_matrix([primary, secondary], [SMALLER_THEN_BUFFER_SIZE, BUFFER_SIZE, LARGER_THAN_BUFFER_SIZE])]
@@ -241,7 +270,7 @@ mod tests {
         let result = pool_buffer.fill_from_reader(&data[..]);
         if read_size >= BUFFER_SIZE {
             result.expect("fill from large enough slice should succeed");
-            assert_eq!(pool_buffer.as_ref(), &data[..BUFFER_SIZE]);
+            assert_eq!(&pool_buffer[..], &data[..BUFFER_SIZE]);
         } else {
             result.expect_err("fill from small slice should fail");
             assert!(pool_buffer.is_empty());
@@ -268,14 +297,11 @@ mod tests {
         let result = pool_buffer.fill_from_reader(&data[..]);
         if read_size + INITIAL_SIZE >= BUFFER_SIZE {
             result.expect("fill from large enough slice should succeed");
-            assert_eq!(&pool_buffer.as_ref()[..INITIAL_SIZE], &initial[..]);
-            assert_eq!(
-                &pool_buffer.as_ref()[INITIAL_SIZE..],
-                &data[..BUFFER_SIZE - INITIAL_SIZE]
-            );
+            assert_eq!(&pool_buffer[..INITIAL_SIZE], &initial[..]);
+            assert_eq!(&pool_buffer[INITIAL_SIZE..], &data[..BUFFER_SIZE - INITIAL_SIZE]);
         } else {
             result.expect_err("fill from small slice should fail");
-            assert_eq!(pool_buffer.as_ref(), &initial[..]);
+            assert_eq!(&pool_buffer[..], &initial[..]);
         }
     }
 }
