@@ -686,14 +686,14 @@ where
         };
 
         let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.location.full_key())
+            .complete_if_in_progress(self, file_handle.ino, &file_handle.location)
             .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {
             Ok(upload_completed_async) => {
                 if upload_completed_async {
-                    debug!(key = ?&file_handle.location.full_key(), "upload completed async after file was closed");
+                    debug!(key = %file_handle.location, "upload completed async after file was closed");
                 }
                 Ok(())
             }
