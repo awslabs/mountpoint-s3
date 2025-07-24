@@ -91,6 +91,7 @@ block_size = []
 event_log = []
 mem_limiter = []
 manifest = ["csv", "rusqlite"]
+otlp_integration = []
 # Features for choosing tests
 fips_tests = []
 fuse_tests = []

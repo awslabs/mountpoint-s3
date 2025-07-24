@@ -280,6 +280,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     #[clap(long, help = "Enable logging of summarized performance metrics", help_heading = LOGGING_OPTIONS_HEADER)]
     pub log_metrics: bool,
 
+    #[cfg(feature = "otlp_integration")]
     #[clap(
         long,
         help = "Enable OTLP metrics export to the specified endpoint",
@@ -288,6 +289,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub log_metrics_otlp: Option<String>,
 
+    #[cfg(feature = "otlp_integration")]
     #[clap(
         long,
         help = "OTLP metrics export interval in seconds [default: 5]",
