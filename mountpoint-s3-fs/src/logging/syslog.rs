@@ -113,6 +113,10 @@ where
         let metadata = normalized_meta.as_ref().unwrap_or_else(|| event.metadata());
 
         let mut message = format!("[{}] ", metadata.level());
+
+        // Add thread name to log message like other formatter layers:
+        let _ = write!(message, "{:0>2?} ", std::thread::current().id());
+
         // First deal with any spans by walking up the span tree and adding each span's formatted
         // representation to the message
         if let Some(scope) = ctx.event_scope(event) {
@@ -226,9 +230,12 @@ mod tests {
         let output = buf.into_string();
         // The actual output is syslog-formatted, so includes the current time and PID. Let's just
         // check the parts of the payload we really care about.
-        let expected = "[INFO] span1{msg1=1 field1=1 field2=2}:span2{msg2=2 field3=3 field4=4}: mountpoint_s3_fs::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6";
+        let expected = format!(
+            "[INFO] {:0>2?} span1{{msg1=1 field1=1 field2=2}}:span2{{msg2=2 field3=3 field4=4}}: mountpoint_s3_fs::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6",
+            std::thread::current().id()
+        );
         assert!(
-            output.ends_with(expected),
+            output.ends_with(&expected),
             "expected payload {output:?} to end with {expected:?}",
         );
         assert!(
