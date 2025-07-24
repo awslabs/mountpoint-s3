@@ -77,12 +77,9 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
             source_path = output_path.parent
 
             parts = output_path.parts
-            date_idx = len(parts) - 3
-            time_idx = len(parts) - 2
 
             if len(parts) >= 3:
-                date_part = parts[date_idx]
-                time_part = parts[time_idx]
+                date_part, time_part = parts[-3:-1]
                 s3_target_path = f"s3://{bucket_name}/results/{date_part}/{time_part}"
 
                 aws_cmd = [
