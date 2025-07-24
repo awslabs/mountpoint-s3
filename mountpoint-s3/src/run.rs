@@ -21,6 +21,7 @@ use crate::{build_info, parse_cli_args};
 
 /// Initialize metrics based on CLI arguments.
 /// Returns a handle that must be kept alive for the duration of metrics collection.
+#[cfg(feature = "otlp_integration")]
 fn init_metrics(
     log_metrics_otlp: &Option<String>,
     log_metrics_otlp_interval: Option<u64>,
@@ -45,8 +46,13 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
+        #[cfg(feature = "otlp_integration")]
         let otlp_endpoint = args.log_metrics_otlp.clone();
+        #[cfg(feature = "otlp_integration")]
         let _metrics = init_metrics(&otlp_endpoint, args.log_metrics_otlp_interval)?;
+
+        #[cfg(not(feature = "otlp_integration"))]
+        let _metrics = metrics::install(None);
 
         create_pid_file()?;
 
@@ -77,8 +83,13 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
             ForkResult::Child => {
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
+                #[cfg(feature = "otlp_integration")]
                 let otlp_endpoint = args.log_metrics_otlp.clone();
+                #[cfg(feature = "otlp_integration")]
                 let _metrics = init_metrics(&otlp_endpoint, args.log_metrics_otlp_interval)?;
+
+                #[cfg(not(feature = "otlp_integration"))]
+                let _metrics = metrics::install(None);
 
                 create_pid_file()?;
 

@@ -58,16 +58,16 @@ impl Metric {
             Metric::Counter(inner) => {
                 let (sum, n) = inner.load_and_reset()?;
                 let fmt = if n == 1 {
-                    format!("{}", sum)
+                    format!("{sum}")
                 } else {
-                    format!("{} (n={})", sum, n)
+                    format!("{sum} (n={n})")
                 };
                 Some((MetricValue::Counter(sum), fmt))
             }
             // Gauges can't reset because they can be incremented/decremented
             Metric::Gauge(inner) => {
                 let value = inner.load_if_changed()?;
-                let fmt = format!("{}", value);
+                let fmt = format!("{value}");
                 Some((MetricValue::Gauge(value), fmt))
             }
             Metric::Histogram(histogram) => {

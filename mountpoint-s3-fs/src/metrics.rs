@@ -483,8 +483,7 @@ mod tests {
         let error = result.unwrap_err().to_string();
         assert!(
             error.contains("Invalid OTLP endpoint configuration"),
-            "Error message should indicate invalid configuration: {}",
-            error
+            "Error message should indicate invalid configuration: {error}"
         );
 
         // Test with no OTLP config (should succeed)
