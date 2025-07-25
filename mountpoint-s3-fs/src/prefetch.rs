@@ -355,7 +355,7 @@ where
     ) -> Result<RequestTask<Client>, PrefetchReadError<Client::ClientError>> {
         let start = self.next_sequential_read_offset;
         let object_size = self.size as usize;
-        let read_part_size = self.part_stream.client().read_part_size().unwrap_or(8 * 1024 * 1024);
+        let read_part_size = self.part_stream.client().read_part_size();
         let range = RequestRange::new(object_size, start, object_size);
 
         // The prefetcher now relies on backpressure mechanism so it must be enabled
@@ -542,8 +542,7 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool =
-            PagedPool::new_with_candidate_sizes([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
+        let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
         let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {

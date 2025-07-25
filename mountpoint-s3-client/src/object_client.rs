@@ -33,13 +33,11 @@ pub trait ObjectClient {
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
-    /// Query the part size this client uses for GET operations to the object store. This
-    /// can be `None` if the client does not do multi-part operations.
-    fn read_part_size(&self) -> Option<usize>;
+    /// Query the part size this client uses for GET operations to the object store.
+    fn read_part_size(&self) -> usize;
 
-    /// Query the part size this client uses for PUT operations to the object store. This
-    /// can be `None` if the client does not do multi-part operations.
-    fn write_part_size(&self) -> Option<usize>;
+    /// Query the part size this client uses for PUT operations to the object store.
+    fn write_part_size(&self) -> usize;
 
     /// Query the initial read window size this client uses for backpressure GetObject requests.
     /// This can be `None` if backpressure is disabled.

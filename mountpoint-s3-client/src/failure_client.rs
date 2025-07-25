@@ -73,11 +73,11 @@ where
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
 
-    fn read_part_size(&self) -> Option<usize> {
+    fn read_part_size(&self) -> usize {
         self.client.read_part_size()
     }
 
-    fn write_part_size(&self) -> Option<usize> {
+    fn write_part_size(&self) -> usize {
         self.client.write_part_size()
     }
 

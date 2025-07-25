@@ -25,7 +25,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     hasher: crc32c::Hasher,
-    maximum_upload_size: Option<usize>,
+    maximum_upload_size: usize,
     sse: ServerSideEncryption,
 }
 
@@ -74,9 +74,7 @@ where
 
         let put_bucket = params.bucket.to_owned();
         let put_key = params.key.to_owned();
-        let maximum_upload_size = client
-            .write_part_size()
-            .map(|ps| ps.saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS));
+        let maximum_upload_size = client.write_part_size().saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS);
         let request = runtime
             .spawn_with_result(async move { client.put_object(&put_bucket, &put_key, &put_object_params).await })
             .unwrap();
@@ -104,10 +102,10 @@ where
                 expected_offset: next_offset,
             });
         }
-        if let Some(maximum_size) = self.maximum_upload_size {
-            if next_offset + data.len() as u64 > maximum_size as u64 {
-                return Err(UploadError::ObjectTooBig { maximum_size });
-            }
+        if next_offset + data.len() as u64 > self.maximum_upload_size as u64 {
+            return Err(UploadError::ObjectTooBig {
+                maximum_size: self.maximum_upload_size,
+            });
         }
 
         self.hasher.update(data);
@@ -222,7 +220,7 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let buffer_size = client.write_part_size().unwrap();
+        let buffer_size = client.write_part_size();
         let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);

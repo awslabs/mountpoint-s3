@@ -123,11 +123,11 @@ impl ObjectClient for ThroughputMockClient {
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
-    fn read_part_size(&self) -> Option<usize> {
+    fn read_part_size(&self) -> usize {
         self.inner.read_part_size()
     }
 
-    fn write_part_size(&self) -> Option<usize> {
+    fn write_part_size(&self) -> usize {
         self.inner.write_part_size()
     }
 
