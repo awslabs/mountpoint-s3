@@ -1203,6 +1203,8 @@ mod tests {
         use shuttle::rand::Rng;
         use shuttle::{check_pct, check_random};
 
+        use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
+
         struct ShuttleRuntime;
         impl Spawn for ShuttleRuntime {
             fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
@@ -1216,8 +1218,8 @@ mod tests {
             let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
             let max_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
-            let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
-            let initial_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
+            let part_size = rng.gen_range(16usize..1 * INITIAL_READ_WINDOW_SIZE);
+            let initial_read_window_size = rng.gen_range(16usize..1 * INITIAL_READ_WINDOW_SIZE);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
