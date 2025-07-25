@@ -6,6 +6,7 @@ defaults:
 
 # ===== Common parameters for all benchmarks =====
 s3_bucket: ???
+s3_result_bucket: !!null
 application_workers: 1
 iteration: 0
 iterations: 1

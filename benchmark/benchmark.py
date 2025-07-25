@@ -5,9 +5,12 @@ import os
 import signal
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import hydra
+from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 import urllib.request
 
@@ -58,6 +61,53 @@ def write_metadata(metadata: Dict[str, Any]) -> None:
         log.debug("Metadata written to metadata.json")
     except Exception:
         log.error("Failed to write metadata", exc_info=True)
+
+
+def upload_results_to_s3(bucket_name: str, region: str) -> None:
+    """
+    Upload benchmark results to S3 bucket using the AWS CLI.
+    Only uploads results from multirun directories.
+    """
+    try:
+        hydra_config = HydraConfig.get()
+
+        if hydra_config.mode == RunMode.MULTIRUN:
+            output_path = Path(hydra_config.runtime.output_dir)
+
+            source_path = output_path.parent
+
+            parts = output_path.parts
+
+            if len(parts) >= 3:
+                date_part, time_part = parts[-3:-1]
+                s3_target_path = f"s3://{bucket_name}/results/{date_part}/{time_part}"
+
+                aws_cmd = [
+                    "aws",
+                    "s3",
+                    "sync",
+                    str(source_path),
+                    s3_target_path,
+                    "--region",
+                    region,
+                ]
+                result = subprocess.run(aws_cmd, capture_output=True, text=True)
+
+                if result.returncode == 0:
+                    log.info("Successfully uploaded multirun benchmark results to S3")
+                else:
+                    log.error(f"Failed to upload benchmark results to S3. Return code: {result.returncode}")
+                    if result.stderr:
+                        log.error(f"AWS CLI error: {result.stderr}")
+                    if result.stdout:
+                        log.error(f"AWS CLI output: {result.stdout}")
+            else:
+                log.info("Skipping upload: multirun path structure not as expected")
+        else:
+            log.info("Skipping upload for non-multirun path as requested")
+
+    except Exception as e:
+        log.error(f"Error uploading results to S3: {str(e)}", exc_info=True)
 
 
 class ResourceMonitoring:
@@ -206,11 +256,22 @@ def run_experiment(cfg: DictConfig) -> None:
     finally:
         try:
             benchmark.post_process()
-        except Exception:
-            log.error("Post-processing failed:", exc_info=True)
+        except Exception as e:
+            log.error(f"Post-processing failed: {str(e)}")
         finally:
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
+
+            result_bucket_name = common_config.get("s3_result_bucket")
+
+            # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
+            region = common_config.get("region", "us-east-1")
+
+            if result_bucket_name:
+                log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
+                upload_results_to_s3(result_bucket_name, region)
+            else:
+                log.info("No results bucket specified (s3_result_bucket), skipping upload")
 
 
 if __name__ == "__main__":
