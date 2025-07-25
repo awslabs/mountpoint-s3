@@ -542,7 +542,8 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool = PagedPool::new([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
+        let pool =
+            PagedPool::new_with_candidate_sizes([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
         let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {
@@ -1229,7 +1230,7 @@ mod tests {
                     .initial_read_window_size(initial_read_window_size)
                     .build(),
             );
-            let pool = PagedPool::new([part_size]);
+            let pool = PagedPool::new_with_candidate_sizes([part_size]);
             let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
@@ -1290,7 +1291,7 @@ mod tests {
                     .initial_read_window_size(initial_read_window_size)
                     .build(),
             );
-            let pool = PagedPool::new([part_size]);
+            let pool = PagedPool::new_with_candidate_sizes([part_size]);
             let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();

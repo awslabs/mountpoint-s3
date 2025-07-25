@@ -40,7 +40,7 @@ fn cache_read_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Pat
         block_size: BLOCK_SIZE,
         limit: mountpoint_s3_fs::data_cache::CacheLimit::Unbounded,
     };
-    let pool = PagedPool::new([BLOCK_SIZE as usize]);
+    let pool = PagedPool::new_with_candidate_sizes([BLOCK_SIZE as usize]);
     let cache = DiskDataCache::new(config, pool);
     let cache_key = ObjectId::new("a".into(), ETag::for_tests());
     let bytes = ChecksummedBytes::new(data.to_owned().into());

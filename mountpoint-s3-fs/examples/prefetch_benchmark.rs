@@ -165,7 +165,7 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
-    let pool = PagedPool::new([args.part_size.unwrap_or(8 * 1024 * 1024) as usize]);
+    let pool = PagedPool::new_with_candidate_sizes([args.part_size.unwrap_or(8 * 1024 * 1024) as usize]);
     let client_config = args.s3_client_config().memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
     let mem_limiter = Arc::new(MemoryLimiter::new(pool, args.memory_target_in_bytes()));

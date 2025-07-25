@@ -219,7 +219,7 @@ fn mount_filesystem(
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
-    let pool = PagedPool::new([client_config.part_config.read_size_bytes]);
+    let pool = PagedPool::new_with_candidate_sizes([client_config.part_config.read_size_bytes]);
     let client = client_config
         .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;

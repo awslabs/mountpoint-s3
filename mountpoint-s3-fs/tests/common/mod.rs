@@ -46,7 +46,7 @@ pub fn make_test_filesystem(
             .initial_read_window_size(256 * 1024)
             .build(),
     );
-    let pool = PagedPool::new([part_size]);
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
     (client, fs)
 }

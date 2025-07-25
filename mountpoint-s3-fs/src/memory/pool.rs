@@ -45,18 +45,35 @@ pub struct PagedPool {
 }
 
 impl PagedPool {
-    /// Creates a new pool with the given set of buffer sizes.
+    /// Maximum size for a primary buffer.
     ///
-    /// Duplicate sizes are ignored.
-    pub fn new(buffer_sizes: impl Into<Vec<usize>>) -> Self {
-        let mut buffer_sizes: Vec<_> = buffer_sizes.into();
-        buffer_sizes.sort();
-        buffer_sizes.dedup();
+    /// Buffers larger than this size will be allocated from secondary memory.
+    pub const MAX_BUFFER_SIZE: usize = 64 * 1024 * 1024;
+
+    /// Default size for a primary buffer.
+    ///
+    /// Used when no other valid buffer size is provided when creating the pool.
+    pub const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024;
+
+    /// Create a new pool, configuring primary memory with the given set of
+    /// buffer sizes, if valid.
+    ///
+    /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE](Self::MAX_BUFFER_SIZE))
+    /// or duplicate values for buffer sizes. If no valid value is provided,
+    /// uses [DEFAULT_BUFFER_SIZE](Self::DEFAULT_BUFFER_SIZE).
+    pub fn new_with_candidate_sizes(buffer_sizes: impl Into<Vec<usize>>) -> Self {
+        let mut ordered_sizes: Vec<_> = buffer_sizes.into();
+        ordered_sizes.retain(|&size| size > 0 && size <= Self::MAX_BUFFER_SIZE);
+        ordered_sizes.dedup();
+        ordered_sizes.sort();
+        if ordered_sizes.is_empty() {
+            ordered_sizes.push(Self::DEFAULT_BUFFER_SIZE);
+        }
 
         let stats = Arc::new(PoolStats::default());
-        let ordered_size_pools = buffer_sizes
-            .iter()
-            .map(|&buffer_size| SizePool {
+        let ordered_size_pools = ordered_sizes
+            .into_iter()
+            .map(|buffer_size| SizePool {
                 pages: Default::default(),
                 stats: Arc::new(SizePoolStats::new(buffer_size, stats.clone())),
             })
@@ -264,14 +281,14 @@ mod tests {
     #[test_case(&[1, 2, 3], &[5, 10])]
     #[test_case(&vec![42u8; 1000], &[128, 1024])]
     fn test_from_slice(original: &[u8], buffer_sizes: &[usize]) {
-        let pool = PagedPool::new(buffer_sizes);
+        let pool = PagedPool::new_with_candidate_sizes(buffer_sizes);
         let bytes = copy_from_slice(&pool, original);
         assert_eq!(original, bytes.as_ref());
     }
 
     #[test_case(&[5, 10, 1024])]
     fn test_pages(buffer_sizes: &[usize]) {
-        let pool = PagedPool::new(buffer_sizes);
+        let pool = PagedPool::new_with_candidate_sizes(buffer_sizes);
 
         for &size in buffer_sizes {
             let original = vec![1u8; size];
@@ -307,7 +324,7 @@ mod tests {
     #[test_matrix(&vec![42u8; 1000], &[128, 1024], [None, Some(Duration::from_millis(10))])]
     #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [None, Some(Duration::from_millis(10))])]
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
-        let pool = PagedPool::new(buffer_sizes);
+        let pool = PagedPool::new_with_candidate_sizes(buffer_sizes);
         if let Some(duration) = schedule {
             pool.schedule_trim(duration);
         }
@@ -341,7 +358,7 @@ mod tests {
     fn test_reserved_bytes() {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
-        let pool = PagedPool::new([buffer_size]);
+        let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
         let mut buffers = Vec::new();
         for (&kind, &count) in &reservations {
             for _ in 0..count {

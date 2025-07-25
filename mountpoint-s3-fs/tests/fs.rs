@@ -729,7 +729,7 @@ async fn test_upload_aborted_on_write_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
-        PagedPool::new([part_size]),
+        PagedPool::new_with_candidate_sizes([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -805,7 +805,7 @@ async fn test_upload_aborted_on_fsync_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
-        PagedPool::new([part_size]),
+        PagedPool::new_with_candidate_sizes([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -866,7 +866,7 @@ async fn test_upload_aborted_on_release_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
-        PagedPool::new([part_size]),
+        PagedPool::new_with_candidate_sizes([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -1530,7 +1530,7 @@ async fn test_lookup_404_not_an_error() {
     let name = "test_lookup_404_not_an_error";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new([part_size]);
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let client_config = S3ClientConfig::default()
         .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true)
@@ -1567,7 +1567,7 @@ async fn test_lookup_forbidden() {
     let policy = deny_single_object_access_policy(&bucket, &key);
 
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new([part_size]);
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
         .auth_config(auth_config)
@@ -1650,7 +1650,7 @@ async fn test_rename_support_is_cached() {
     const FILE_NAME: &str = "a.txt";
 
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new([part_size]);
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let client = Arc::new(
         MockClient::config()
             .bucket(BUCKET_NAME)

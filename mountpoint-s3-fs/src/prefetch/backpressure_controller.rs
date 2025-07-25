@@ -436,7 +436,7 @@ mod tests {
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController, BackpressureLimiter) {
-        let pool = PagedPool::new([8 * 1024 * 1024]);
+        let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
         let mem_limiter = Arc::new(MemoryLimiter::new(
             pool,
             backpressure_config.max_read_window_size as u64,

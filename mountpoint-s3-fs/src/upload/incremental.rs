@@ -484,7 +484,8 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool = PagedPool::new([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
+        let pool =
+            PagedPool::new_with_candidate_sizes([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
@@ -1135,7 +1136,7 @@ mod tests {
         let key = "hello";
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
-        let pool = PagedPool::new([32]);
+        let pool = PagedPool::new_with_candidate_sizes([32]);
 
         // Use a memory limiter with 0 limit
         let mem_limiter = MemoryLimiter::new(pool.clone(), 0);
