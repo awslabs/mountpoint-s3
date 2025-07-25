@@ -140,6 +140,9 @@ where
         initial_offset: u64,
         initial_etag: Option<ETag>,
     ) -> AppendUploadRequest<Client> {
+        // Limit the queue capacity to hold buffers for a total of at most
+        // MAX_BYTES_IN_QUEUE, but ensure it allows at least 1 buffer.
+        let capacity = (MAX_BYTES_IN_QUEUE / self.buffer_size).max(1);
         let params = AppendUploadQueueParams {
             bucket,
             key,
@@ -147,7 +150,7 @@ where
             initial_etag,
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
-            capacity: MAX_BYTES_IN_QUEUE / self.buffer_size,
+            capacity,
         };
         AppendUploadRequest::new(
             &self.runtime,

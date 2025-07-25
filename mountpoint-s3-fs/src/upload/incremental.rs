@@ -163,6 +163,7 @@ where
         mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
+        assert!(params.capacity > 0, "append queue capacity must be greater than 0");
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
         let (request_sender, request_receiver) = bounded(params.capacity);
         let (response_sender, response_receiver) = unbounded();
