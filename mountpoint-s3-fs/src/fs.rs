@@ -17,6 +17,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::metablock::Metablock;
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::metablock::{InodeInformation, TryAddDirEntry};
@@ -144,17 +145,19 @@ where
     pub fn new(
         client: Client,
         prefetch_builder: PrefetcherBuilder<Client>,
+        pool: PagedPool,
         runtime: Runtime,
         metablock: impl Metablock + 'static,
         config: S3FilesystemConfig,
     ) -> Self {
         trace!(?config, "new filesystem");
 
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
             runtime,
+            pool,
             mem_limiter,
             UploaderConfig::new(client.write_part_size().unwrap())
                 .storage_class(config.storage_class.to_owned())
@@ -809,6 +812,7 @@ mod tests {
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+        let pool = PagedPool::new([32]);
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
@@ -824,7 +828,7 @@ mod tests {
                 s3_personality: fs_config.s3_personality,
             },
         );
-        let mut fs = S3Filesystem::new(client, prefetcher_builder, runtime, superblock, fs_config);
+        let mut fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
 
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();

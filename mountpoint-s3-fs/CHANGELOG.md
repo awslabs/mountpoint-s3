@@ -1,5 +1,6 @@
 ## Unreleased (v0.7.0)
 
+* Adopt a unified memory pool to reduce overall memory usage. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
 * Replace `S3Uri` with `S3Path` and consolidate related types like `Bucket` and `Prefix` into the `s3` module.
   ([#1535](https://github.com/awslabs/mountpoint-s3/pull/1535))
 

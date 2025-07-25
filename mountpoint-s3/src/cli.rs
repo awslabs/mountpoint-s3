@@ -522,7 +522,7 @@ impl CliArgs {
         filesystem_config
     }
 
-    fn cache_block_size_in_bytes(&self) -> u64 {
+    pub fn cache_block_size_in_bytes(&self) -> u64 {
         #[cfg(feature = "block_size")]
         if let Some(kib) = self.cache_block_size {
             return kib * 1024;

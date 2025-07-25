@@ -84,7 +84,7 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 #[serial]
 fn cache_and_direct_io_test_mock(prefix: &str) {
     cache_and_direct_io_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
     );
 }
@@ -94,7 +94,7 @@ fn cache_and_direct_io_test_mock(prefix: &str) {
 #[serial]
 fn cache_and_direct_io_test_s3() {
     cache_and_direct_io_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "cache_and_direct_io_test_s3",
     );
 }

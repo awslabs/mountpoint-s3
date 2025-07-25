@@ -13,6 +13,7 @@ use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
@@ -164,9 +165,10 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
-    let client_config = args.s3_client_config();
+    let pool = PagedPool::new([args.part_size.unwrap_or(8 * 1024 * 1024) as usize]);
+    let client_config = args.s3_client_config().memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
-    let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), args.memory_target_in_bytes()));
+    let mem_limiter = Arc::new(MemoryLimiter::new(pool, args.memory_target_in_bytes()));
     let runtime = Runtime::new(client.event_loop_group());
 
     // Verify if all objects exist and collect metadata

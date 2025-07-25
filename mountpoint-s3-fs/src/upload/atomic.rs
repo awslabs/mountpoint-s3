@@ -201,6 +201,7 @@ mod tests {
 
     use crate::fs::SseCorruptedError;
     use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::memory::PagedPool;
     use crate::sync::Arc;
     use crate::upload::{Uploader, UploaderConfig};
 
@@ -222,11 +223,13 @@ mod tests {
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let buffer_size = client.write_part_size().unwrap();
+        let pool = PagedPool::new([buffer_size]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,
             runtime,
+            pool,
             mem_limiter.into(),
             UploaderConfig::new(buffer_size)
                 .storage_class(storage_class)
