@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753452787573,
+  "lastUpdate": 1753462621678,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "chagem@amazon.com",
-            "name": "Christian Hagemeier",
-            "username": "c-hagem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "382a369680a30073b725c206d528a8ebf834e864",
-          "message": "Introduce builder pattern for mockclientconfig (#1502)\n\nUse a builder pattern for MockClientConfig.\n\n### Does this change impact existing behavior?\n\nDoes not impact existing behaviour as it only changes the way we build\nthe structure.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Christian Hagemeier <chagem@amazon.com>",
-          "timestamp": "2025-07-07T07:56:41Z",
-          "tree_id": "f8f99873c1e51ad626f9076cb3560b9086b54f2f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/382a369680a30073b725c206d528a8ebf834e864"
-        },
-        "date": 1751882178505,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 1290.02099609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 2006.9126953125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 808.9701171875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 1478.10859375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 273.2669921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 377.61533203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 177.4369140625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 267.71044921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 3810.13525390625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 4140.29140625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 1277.23681640625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 1219.41728515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 1367.9298828125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 836.0515625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1103.27783203125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 976.37177734375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 948.28662109375,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 1009.4791015625,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "renanmag@amazon.co.uk",
+            "name": "Renan Magagnin",
+            "username": "renanmagagnin"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "884323ea89ed9dc7ad612b67c7903cb80e35e9ba",
+          "message": "Add usages of INITIAL_READ_WINDOW_SIZE (#1541)\n\nReplaces hard-coded initial read window sizes with usages of the\nconstant `INITIAL_READ_WINDOW_SIZE`.\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>",
+          "timestamp": "2025-07-25T15:00:09Z",
+          "tree_id": "918432d509e5398a0dc5d3e70734fce49b9dc8ab",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/884323ea89ed9dc7ad612b67c7903cb80e35e9ba"
+        },
+        "date": 1753462620648,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 1429.37431640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 2314.05654296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 875.62392578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 1609.78955078125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 278.59169921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 394.5908203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 208.432421875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 261.8341796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 4562.245703125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 4423.688671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1352.7181640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 1409.62197265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 839.77900390625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 1188.34658203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1323.0279296875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 957.1162109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 1559.96318359375,
             "unit": "MiB/s"
           }
         ]
