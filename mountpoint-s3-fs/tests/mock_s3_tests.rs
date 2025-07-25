@@ -205,7 +205,7 @@ fn create_fs_with_mock_s3(bucket: &str) -> (S3Filesystem<S3CrtClient>, MockServe
         .addressing_style(AddressingStyle::Path) // mock server responds to path style requests only
         .endpoint(endpoint);
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new([part_size]);
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let client_config = S3ClientConfig::default()
         .endpoint_config(endpoint_config)
         .auth_config(S3ClientAuthConfig::NoSigning)

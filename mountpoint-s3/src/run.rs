@@ -176,7 +176,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     let client_config = args.client_config(build_info::FULL_VERSION);
 
     // Set up a paged memory pool
-    let pool = PagedPool::new([
+    let pool = PagedPool::new_with_candidate_sizes([
         args.cache_block_size_in_bytes() as usize,
         client_config.part_config.read_size_bytes,
         client_config.part_config.write_size_bytes,

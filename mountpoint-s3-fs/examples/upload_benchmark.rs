@@ -101,7 +101,7 @@ fn main() {
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), url).expect("Failed to parse endpoint URL");
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
-    let pool = PagedPool::new([args.write_part_size]);
+    let pool = PagedPool::new_with_candidate_sizes([args.write_part_size]);
     let mut config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)

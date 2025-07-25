@@ -142,7 +142,7 @@ fn mount_file_system(
     region: &str,
     throughput_target_gbps: Option<f64>,
 ) -> BackgroundSession {
-    let pool = PagedPool::new([8 * 1024 * 1024]);
+    let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
     config = config
         .read_backpressure(true)

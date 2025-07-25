@@ -173,7 +173,7 @@ mod tests {
     }
 
     async fn run_test(ops: Vec<Op>) {
-        let pool = PagedPool::new([1024]);
+        let pool = PagedPool::new_with_candidate_sizes([1024]);
         let mem_limiter = MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
         let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());
