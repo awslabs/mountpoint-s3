@@ -332,8 +332,9 @@ mod tests {
 
     use crate::mem_limiter::MemoryLimiter;
     use crate::memory::PagedPool;
+    use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
 
-    #[test_case(1024 * 1024 + 128 * 1024, 2)] // real config
+    #[test_case(INITIAL_READ_WINDOW_SIZE, 2)] // real config
     #[test_case(3 * 1024 * 1024, 4)]
     #[test_case(8 * 1024 * 1024, 8)]
     #[test_case(2 * 1024 * 1024 * 1024, 2)]

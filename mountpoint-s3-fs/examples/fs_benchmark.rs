@@ -10,6 +10,7 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::prefetch::Prefetcher;
+use mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE;
 use mountpoint_s3_fs::s3::{Bucket, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use tempfile::tempdir;
@@ -143,10 +144,9 @@ fn mount_file_system(
 ) -> BackgroundSession {
     let pool = PagedPool::new([8 * 1024 * 1024]);
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
-    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     config = config
         .read_backpressure(true)
-        .initial_read_window(initial_read_window_size)
+        .initial_read_window(INITIAL_READ_WINDOW_SIZE)
         .memory_pool(pool.clone());
     if let Some(throughput_target_gbps) = throughput_target_gbps {
         config = config.throughput_target_gbps(throughput_target_gbps);

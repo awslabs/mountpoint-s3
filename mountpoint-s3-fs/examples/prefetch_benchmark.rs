@@ -16,6 +16,7 @@ use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
+use mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE;
 use serde_json::{json, to_writer};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
@@ -140,7 +141,7 @@ impl CliArgs {
         // Set up backpressure with the same initial window used in Mountpoint.
         let mut client_config = S3ClientConfig::new()
             .read_backpressure(true)
-            .initial_read_window(mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE)
+            .initial_read_window(INITIAL_READ_WINDOW_SIZE)
             .endpoint_config(EndpointConfig::new(self.region.as_str()));
         if let Some(throughput_target_gbps) = self.maximum_throughput_gbps {
             client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
