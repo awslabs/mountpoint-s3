@@ -484,8 +484,7 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool =
-            PagedPool::new_with_candidate_sizes([client.read_part_size().unwrap(), client.write_part_size().unwrap()]);
+        let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
