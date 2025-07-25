@@ -2,6 +2,7 @@
 
 * Update underlying S3 client version and file system core library version.
 * Log messages now include the thread ID that logged the message, like "ThreadId(01)", after the level. ([#1460](https://github.com/awslabs/mountpoint-s3/pull/1460))
+* Fix issue preventing incremental upload to handle very large write part sizes. ([#1538](https://github.com/awslabs/mountpoint-s3/pull/1538))
 
 ## v1.19.0 (Jun 19, 2025)
 
