@@ -183,6 +183,16 @@ impl S3Location {
     }
 }
 
+impl Display for S3Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{} (bucket: {})",
+            self.path.prefix, self.partial_key, self.path.bucket
+        )
+    }
+}
+
 /// A valid name for an [Inode](super::Inode).
 #[derive(Debug, Clone, Copy)]
 pub struct ValidName<'a>(&'a str);
