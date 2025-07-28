@@ -116,6 +116,7 @@ where
         mem_limiter: Arc<MemoryLimiter>,
         config: UploaderConfig,
     ) -> Self {
+        assert!(config.buffer_size > 0, "buffer_size should be greater than 0 for uploads");
         Self {
             client,
             runtime,
@@ -152,7 +153,6 @@ where
         initial_offset: u64,
         initial_etag: Option<ETag>,
     ) -> AppendUploadRequest<Client> {
-        assert!(self.buffer_size > 0, "write-part-size should be greater than 0 for incremental uploads");
         // Limit the queue capacity to hold buffers for a total of at most
         // MAX_BYTES_IN_QUEUE, but ensure it allows at least 1 buffer.
         let capacity = (MAX_BYTES_IN_QUEUE / self.buffer_size).max(1);
