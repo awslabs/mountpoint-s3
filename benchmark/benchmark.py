@@ -244,8 +244,8 @@ def run_experiment(cfg: DictConfig) -> None:
     finally:
         try:
             benchmark.post_process()
-        except Exception as e:
-            log.error(f"Post-processing failed: {str(e)}")
+        except Exception:
+            log.error("Post-processing failed:", exc_info=True)
         finally:
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
