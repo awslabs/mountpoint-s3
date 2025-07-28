@@ -1089,6 +1089,7 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw
     };
     let test_config = TestSessionConfig {
         filesystem_config,
+        max_worker_threads: 1, // avoid concurrency issues with read after write. (FIXME)
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
