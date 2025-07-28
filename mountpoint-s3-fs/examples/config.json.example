@@ -1,4 +1,5 @@
 {
+    "config_version": "0.0.1",
     "mountpoint": "/exmpl/mountpoint",
     "metadata_store_dir": "/exmpl/tmpdir",
     "event_log_dir": "/exmpl/event_log_dir",

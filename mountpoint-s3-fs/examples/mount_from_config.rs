@@ -24,6 +24,8 @@ use serde::Deserialize;
 use tempfile::tempdir_in;
 use tracing::info;
 
+const CONFIG_VERSION: &str = "0.0.1";
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 enum ThroughputConfig {
@@ -36,6 +38,8 @@ enum ThroughputConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConfigOptions {
+    /// Version of the configuration format
+    config_version: String,
     /// Directory to mount the bucket at
     mountpoint: String,
     /// AWS region of the bucket, e.g. "us-east-2"
@@ -165,6 +169,17 @@ impl ConfigOptions {
             }
         }
     }
+
+    fn validate_version(&self) -> Result<()> {
+        if self.config_version != CONFIG_VERSION {
+            Err(anyhow!(
+                "Unsupported version of the configuration format, supported version is {}",
+                CONFIG_VERSION
+            ))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
@@ -248,6 +263,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
     // Read the config
     let config = load_config(&args.config).context("Failed to load config")?;
+    config.validate_version()?;
     // Set up the error logger
     let error_logger = FileErrorLogger::new(&config.event_log_dir, || {
         // trigger graceful shutdown (with umount) by sending a signal to self
