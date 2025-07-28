@@ -1,5 +1,10 @@
-## Unreleased (v0.18.1)
+## Unreleased
 
+## v0.19.0 (July 28, 2025)
+
+### Breaking changes
+
+* Make `ObjectClient` part sizes no longer optional. ([#1542](https://github.com/awslabs/mountpoint-s3/pull/1542))
 * Remove `restore_buffer_copy` feature flag. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
 
 ## v0.18.0 (July 23, 2025)
