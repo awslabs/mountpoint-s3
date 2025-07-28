@@ -72,13 +72,12 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
     hydra_config = HydraConfig.get()
 
     if hydra_config.mode == RunMode.MULTIRUN:
-        parts = Path(hydra_config.runtime.output_dir).parent.parts
+        source_path = Path(hydra_config.runtime.output_dir).parent
 
-        date_part, time_part = parts[-2:]
+        assert len(source_path.parts) >= 2, "Source path must have at least 2 parts for date/time extraction"
+        date_part, time_part = source_path.parts[-2:]
 
         s3_target_path = f"s3://{bucket_name}/results/{date_part}/{time_part}"
-
-        source_path = Path(hydra_config.runtime.output_dir).parent
 
         aws_cmd = [
             "aws",
@@ -91,7 +90,7 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
         ]
         result = subprocess.run(aws_cmd, capture_output=True, text=True)
         if result.returncode == 0:
-            log.info("Successfully uploaded multirun benchmark results to S3")
+            log.info("Successfully uploaded benchmark results to S3")
         else:
             log.error(f"S3 upload failed: {result.stderr.strip()}")
     else:
@@ -238,6 +237,17 @@ def run_experiment(cfg: DictConfig) -> None:
 
         # Mark success if we get here without exceptions
         metadata["success"] = True
+
+        result_bucket_name = common_config.get("s3_result_bucket")
+
+        # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
+        region = common_config.get("region", "us-east-1")
+        if result_bucket_name:
+            log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
+            upload_results_to_s3(result_bucket_name, region)
+        else:
+            log.info("No results bucket specified (s3_result_bucket), skipping upload")
+
     except Exception:
         log.error("Benchmark execution failed:", exc_info=True)
         raise
@@ -249,17 +259,6 @@ def run_experiment(cfg: DictConfig) -> None:
         finally:
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
-
-            result_bucket_name = common_config.get("s3_result_bucket")
-
-            # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
-            region = common_config.get("region", "us-east-1")
-
-            if result_bucket_name:
-                log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
-                upload_results_to_s3(result_bucket_name, region)
-            else:
-                log.info("No results bucket specified (s3_result_bucket), skipping upload")
 
 
 if __name__ == "__main__":
