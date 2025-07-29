@@ -39,6 +39,7 @@ enum ThroughputConfig {
 #[serde(deny_unknown_fields)]
 struct ConfigOptions {
     /// Version of the configuration format
+    #[allow(dead_code)]
     config_version: String,
     /// Directory to mount the bucket at
     mountpoint: String,
@@ -169,20 +170,31 @@ impl ConfigOptions {
             }
         }
     }
+}
 
-    fn validate_version(&self) -> Result<()> {
-        if self.config_version != CONFIG_VERSION {
-            Err(anyhow!(
-                "Unsupported version of the configuration format, supported version is {}",
-                CONFIG_VERSION
-            ))
-        } else {
-            Ok(())
-        }
+/// Reads the config_version field from a JSON config file and validates it against CONFIG_VERSION
+fn validate_config_version<P: AsRef<Path>>(path: P) -> Result<()> {
+    #[derive(Deserialize)]
+    struct VersionOnly {
+        config_version: String,
     }
+
+    let file = File::open(&path)?;
+    let reader = BufReader::new(file);
+    let version_info: VersionOnly = serde_json::from_reader(reader)?;
+
+    if version_info.config_version != CONFIG_VERSION {
+        return Err(anyhow!(
+            "Unsupported version of the configuration format, supported version is {}",
+            CONFIG_VERSION
+        ));
+    }
+
+    Ok(())
 }
 
 fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
+    validate_config_version(path.as_ref())?;
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let config: ConfigOptions = serde_json::from_reader(reader)?;
@@ -263,7 +275,6 @@ fn main() -> Result<()> {
     let args = Args::parse();
     // Read the config
     let config = load_config(&args.config).context("Failed to load config")?;
-    config.validate_version()?;
     // Set up the error logger
     let error_logger = FileErrorLogger::new(&config.event_log_dir, || {
         // trigger graceful shutdown (with umount) by sending a signal to self
