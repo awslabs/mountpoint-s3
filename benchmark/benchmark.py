@@ -18,6 +18,7 @@ from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 from benchmarks.client_benchmark import ClientBenchmark
 from benchmarks.crt_benchmark import CrtBenchmark
 from benchmarks.fio_benchmark import FioBenchmark
+from benchmarks.filesystem_api_benchmark import FilesystemApiBenchmark
 from benchmarks.prefetch_benchmark import PrefetchBenchmark
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
@@ -225,6 +226,8 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark = ClientBenchmark(cfg, metadata)
     elif benchmark_type == "client-bp":
         benchmark = ClientBenchmark(cfg, metadata, backpressure=True)
+    elif benchmark_type == "filesystem_api":
+        benchmark = FilesystemApiBenchmark(cfg, metadata)
     else:
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
 

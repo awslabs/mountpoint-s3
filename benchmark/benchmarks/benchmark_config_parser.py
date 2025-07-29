@@ -84,3 +84,13 @@ class BenchmarkConfigParser:
         return {
             'read_window_size': getattr(client_cfg, 'read_window_size', 2147483648),  # Reaslitic default value 8M/2G?
         }
+
+    def get_filesystem_api_config(self) -> Dict[str, Any]:
+        filesystem_api_cfg = self.cfg.benchmarks.filesystem_api
+        return {
+            'max_memory_target': getattr(filesystem_api_cfg, 'max_memory_target', None),
+            'crt_memory_limit_gib': getattr(filesystem_api_cfg, 'crt_memory_limit_gib', None),
+            'threads_per_file': getattr(filesystem_api_cfg, 'threads_per_file', 1),
+            'iterations': getattr(filesystem_api_cfg, 'iterations', None),
+            'mock_client': getattr(filesystem_api_cfg, 'mock_client', False),
+        }
