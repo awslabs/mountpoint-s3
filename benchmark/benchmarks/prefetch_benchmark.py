@@ -23,6 +23,7 @@ class PrefetchBenchmark(BaseBenchmark):
         subprocess_args = [
             "cargo",
             "run",
+            "--release",
             "--example",
             "prefetch_benchmark",
             self.common_config['s3_bucket'],
