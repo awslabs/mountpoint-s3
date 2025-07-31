@@ -31,7 +31,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
 
-        let _metrics = metrics::install();
+        let _metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
         create_pid_file()?;
 
@@ -63,7 +63,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
-                let _metrics = metrics::install();
+                let _metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
 
                 create_pid_file()?;
 
