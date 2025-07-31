@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, path::Path, time::Instant};
+use std::{fs::File, io::Read, path::Path, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
@@ -24,6 +24,8 @@ use serde::Deserialize;
 use tempfile::tempdir_in;
 use tracing::info;
 
+const CONFIG_VERSION: &str = "0.0.1";
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 enum ThroughputConfig {
@@ -36,6 +38,9 @@ enum ThroughputConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConfigOptions {
+    /// Version of the configuration format
+    #[allow(dead_code)]
+    config_version: String,
     /// Directory to mount the bucket at
     mountpoint: String,
     /// AWS region of the bucket, e.g. "us-east-2"
@@ -167,10 +172,31 @@ impl ConfigOptions {
     }
 }
 
+/// Reads the config_version field from a JSON config file and validates it against CONFIG_VERSION
+fn validate_config_version(json_str: &str) -> Result<()> {
+    #[derive(Deserialize)]
+    struct VersionOnly {
+        config_version: String,
+    }
+
+    let version_info: VersionOnly = serde_json::from_str(json_str)?;
+
+    if version_info.config_version != CONFIG_VERSION {
+        return Err(anyhow!(
+            "Unsupported version of the configuration format, supported version is {}",
+            CONFIG_VERSION
+        ));
+    }
+
+    Ok(())
+}
+
 fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let config: ConfigOptions = serde_json::from_reader(reader)?;
+    let mut file = File::open(path)?;
+    let mut json_str = String::new();
+    file.read_to_string(&mut json_str)?;
+    validate_config_version(&json_str)?;
+    let config: ConfigOptions = serde_json::from_str(&json_str)?;
     Ok(config)
 }
 
