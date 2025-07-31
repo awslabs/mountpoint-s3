@@ -410,6 +410,7 @@ mod tests {
     use crate::{
         data_cache::InMemoryDataCache,
         mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
+        memory::PagedPool,
         object::ObjectId,
     };
 
@@ -453,7 +454,8 @@ mod tests {
                 .initial_read_window_size(initial_read_window_size)
                 .build(),
         );
-        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -535,7 +537,8 @@ mod tests {
                 .initial_read_window_size(initial_read_window_size)
                 .build(),
         );
-        let mem_limiter = Arc::new(MemoryLimiter::new(mock_client.clone(), MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());

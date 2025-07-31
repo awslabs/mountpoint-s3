@@ -1,5 +1,11 @@
 ## Unreleased
 
+## v0.7.0 (July 28, 2025)
+
+* Adopt a unified memory pool to reduce overall memory usage. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
+* Replace `S3Uri` with `S3Path` and consolidate related types like `Bucket` and `Prefix` into the `s3` module.
+  ([#1535](https://github.com/awslabs/mountpoint-s3/pull/1535))
+
 ## v0.6.0 (July 23, 2025)
 
 * Introduce `Metablock` abstraction and adjust the interface between `S3Filesystem` and implementors of `Metablock`. ([#1500](https://github.com/awslabs/mountpoint-s3/pull/1500), [#1488](https://github.com/awslabs/mountpoint-s3/pull/1488))

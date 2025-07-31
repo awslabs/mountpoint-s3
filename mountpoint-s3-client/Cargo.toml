@@ -1,7 +1,7 @@
 [package]
 name = "mountpoint-s3-client"
 # See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.18.0"
+version = "0.19.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
@@ -56,17 +56,20 @@ tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
 mountpoint-s3-client = { path = ".", features = ["mock"] }
 
+# Required to run the tests using the custom memory pool from the fs crate.
+mountpoint-s3-fs = { path = "../mountpoint-s3-fs" }
+
 [build-dependencies]
 built = { version = "0.8.0", features = ["git2"] }
 
 [features]
-restore_buffer_copy = []
 mock = ["dep:async-io", "dep:async-lock", "dep:md-5", "dep:rand", "dep:rand_chacha"]
 # Features for choosing tests
 s3_tests = []
 fips_tests = []
 s3express_tests = []
 pool_tests = []
+fs_pool_tests = []
 
 [lib]
 doctest = false

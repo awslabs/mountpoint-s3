@@ -6,6 +6,7 @@ use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use sysinfo::{RefreshKind, System};
@@ -100,10 +101,12 @@ fn main() {
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), url).expect("Failed to parse endpoint URL");
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
+    let pool = PagedPool::new_with_candidate_sizes([args.write_part_size]);
     let mut config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)
-        .write_part_size(args.write_part_size);
+        .write_part_size(args.write_part_size)
+        .memory_pool(pool.clone());
     if let Some(crt_mem_limit_gib) = args.crt_memory_limit_gib {
         config = config.memory_limit_in_bytes(crt_mem_limit_gib * 1024 * 1024 * 1024);
     }
@@ -118,7 +121,7 @@ fn main() {
             let sys = System::new_with_specifics(RefreshKind::everything());
             (sys.total_memory() as f64 * 0.95) as u64
         };
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), max_memory_target));
 
         let buffer_size = args.write_part_size;
         let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
@@ -134,6 +137,7 @@ fn main() {
         let uploader = Uploader::new(
             client.clone(),
             runtime.clone(),
+            pool.clone(),
             mem_limiter,
             UploaderConfig::new(buffer_size)
                 .server_side_encryption(server_side_encryption)

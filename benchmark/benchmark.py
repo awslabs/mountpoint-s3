@@ -5,9 +5,12 @@ import os
 import signal
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import hydra
+from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 import urllib.request
 
@@ -58,6 +61,40 @@ def write_metadata(metadata: Dict[str, Any]) -> None:
         log.debug("Metadata written to metadata.json")
     except Exception:
         log.error("Failed to write metadata", exc_info=True)
+
+
+def upload_results_to_s3(bucket_name: str, region: str) -> None:
+    """
+    Upload benchmark results to S3 bucket using the AWS CLI.
+    Only uploads results from multirun directories.
+    """
+
+    hydra_config = HydraConfig.get()
+
+    if hydra_config.mode == RunMode.MULTIRUN:
+        source_path = Path(hydra_config.runtime.output_dir).parent
+
+        assert len(source_path.parts) >= 2, "Source path must have at least 2 parts for date/time extraction"
+        date_part, time_part = source_path.parts[-2:]
+
+        s3_target_path = f"s3://{bucket_name}/results/{date_part}/{time_part}"
+
+        aws_cmd = [
+            "aws",
+            "s3",
+            "sync",
+            str(source_path),
+            s3_target_path,
+            "--region",
+            region,
+        ]
+        result = subprocess.run(aws_cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            log.info("Successfully uploaded benchmark results to S3")
+        else:
+            log.error(f"S3 upload failed: {result.stderr.strip()}")
+    else:
+        log.info("Skipping benchmark upload for non-multirun")
 
 
 class ResourceMonitoring:
@@ -200,6 +237,17 @@ def run_experiment(cfg: DictConfig) -> None:
 
         # Mark success if we get here without exceptions
         metadata["success"] = True
+
+        result_bucket_name = common_config.get("s3_result_bucket")
+
+        # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
+        region = common_config.get("region", "us-east-1")
+        if result_bucket_name:
+            log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
+            upload_results_to_s3(result_bucket_name, region)
+        else:
+            log.info("No results bucket specified (s3_result_bucket), skipping upload")
+
     except Exception:
         log.error("Benchmark execution failed:", exc_info=True)
         raise

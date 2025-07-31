@@ -19,8 +19,9 @@ use mountpoint_s3_client::mock_client::throughput_client::ThroughputMockClient;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::s3::config::{ClientConfig, S3Path, TargetThroughputSetting};
+use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::s3::config::{ClientConfig, INITIAL_READ_WINDOW_SIZE, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::{S3Path, S3Personality};
 
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
@@ -29,6 +30,7 @@ fn main() -> anyhow::Result<()> {
 
 pub fn create_mock_client(
     client_config: ClientConfig,
+    _pool: PagedPool,
     s3_path: &S3Path,
     personality: Option<S3Personality>,
 ) -> anyhow::Result<(Arc<ThroughputMockClient>, Runtime, S3Personality)> {
@@ -36,7 +38,7 @@ pub fn create_mock_client(
     // this one. Buckets starting with "sthree-" are always invalid against real S3:
     // https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
     anyhow::ensure!(
-        &s3_path.bucket_name.starts_with("sthree-"),
+        &s3_path.bucket.starts_with("sthree-"),
         "mock-mount-s3 bucket names must start with `sthree-`"
     );
 
@@ -51,11 +53,11 @@ pub fn create_mock_client(
     let s3_personality = personality.unwrap_or(S3Personality::Standard);
 
     let config = MockClient::config()
-        .bucket(&s3_path.bucket_name)
+        .bucket(s3_path.bucket.to_string())
         .part_size(part_size as usize)
         .unordered_list_seed(None)
         .enable_backpressure(true)
-        .initial_read_window_size(1024 * 1024 + 128 * 1024) // matching real MP
+        .initial_read_window_size(INITIAL_READ_WINDOW_SIZE) // matching real MP
         .enable_rename(s3_personality.supports_rename_object());
 
     let client = if let TargetThroughputSetting::User {

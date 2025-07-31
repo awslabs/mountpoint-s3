@@ -1414,16 +1414,16 @@ impl ObjectClient for S3CrtClient {
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
-    fn read_part_size(&self) -> Option<usize> {
-        Some(self.inner.read_part_size)
+    fn read_part_size(&self) -> usize {
+        self.inner.read_part_size
     }
 
-    fn write_part_size(&self) -> Option<usize> {
+    fn write_part_size(&self) -> usize {
         // TODO: the CRT does some clamping to a max size rather than just swallowing the part size
         // we configured it with, so this might be wrong. Right now the only clamping is to the max
         // S3 part size (5GiB), so this shouldn't affect the result.
         // https://github.com/awslabs/aws-c-s3/blob/94e3342c12833c5199/source/s3_client.c#L337-L344
-        Some(self.inner.write_part_size)
+        self.inner.write_part_size
     }
 
     fn initial_read_window_size(&self) -> Option<usize> {

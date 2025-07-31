@@ -112,7 +112,7 @@ fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
 )]
 fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "basic_read_test_with_cache",
         read_only,
         pass_fuse_fd,
@@ -135,7 +135,7 @@ fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: boo
 )]
 fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,

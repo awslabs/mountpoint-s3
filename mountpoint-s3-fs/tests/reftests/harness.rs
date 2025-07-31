@@ -18,7 +18,7 @@ use futures::future::{BoxFuture, FutureExt};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, InodeNo, OpenFlags, ToErrno};
-use mountpoint_s3_fs::prefix::Prefix;
+use mountpoint_s3_fs::s3::Prefix;
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;

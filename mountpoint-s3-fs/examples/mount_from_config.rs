@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, path::Path, time::Instant};
+use std::{fs::File, io::Read, path::Path, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
@@ -14,6 +14,7 @@ use mountpoint_s3_fs::{
     },
     logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
     manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
+    memory::PagedPool,
     metrics::{self, MetricsSinkHandle},
     s3::config::{ClientConfig, PartConfig, Region, TargetThroughputSetting},
 };
@@ -22,6 +23,8 @@ use nix::unistd::Pid;
 use serde::Deserialize;
 use tempfile::tempdir_in;
 use tracing::info;
+
+const CONFIG_VERSION: &str = "0.0.1";
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -35,6 +38,9 @@ enum ThroughputConfig {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConfigOptions {
+    /// Version of the configuration format
+    #[allow(dead_code)]
+    config_version: String,
     /// Directory to mount the bucket at
     mountpoint: String,
     /// AWS region of the bucket, e.g. "us-east-2"
@@ -58,6 +64,8 @@ struct ConfigOptions {
     auto_unmount: Option<bool>,
     user_agent_prefix: Option<String>,
     part_size: Option<usize>,
+    /// Target memory limit (in bytes) that Mountpoint will try to enforce
+    memory_limit_bytes: Option<u64>,
 
     // File system options
     dir_mode: Option<u16>,
@@ -96,6 +104,9 @@ impl ConfigOptions {
         }
         if let Some(gid) = self.gid {
             fs_config.uid = gid;
+        }
+        if let Some(memory_limit_bytes) = self.memory_limit_bytes {
+            fs_config.mem_limit = memory_limit_bytes;
         }
         Ok(fs_config)
     }
@@ -161,10 +172,31 @@ impl ConfigOptions {
     }
 }
 
+/// Reads the config_version field from a JSON config file and validates it against CONFIG_VERSION
+fn validate_config_version(json_str: &str) -> Result<()> {
+    #[derive(Deserialize)]
+    struct VersionOnly {
+        config_version: String,
+    }
+
+    let version_info: VersionOnly = serde_json::from_str(json_str)?;
+
+    if version_info.config_version != CONFIG_VERSION {
+        return Err(anyhow!(
+            "Unsupported version of the configuration format, supported version is {}",
+            CONFIG_VERSION
+        ));
+    }
+
+    Ok(())
+}
+
 fn load_config<P: AsRef<Path>>(path: P) -> Result<ConfigOptions> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-    let config: ConfigOptions = serde_json::from_reader(reader)?;
+    let mut file = File::open(path)?;
+    let mut json_str = String::new();
+    file.read_to_string(&mut json_str)?;
+    validate_config_version(&json_str)?;
+    let config: ConfigOptions = serde_json::from_str(&json_str)?;
     Ok(config)
 }
 
@@ -213,8 +245,9 @@ fn mount_filesystem(
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
+    let pool = PagedPool::new_with_candidate_sizes([client_config.part_config.read_size_bytes]);
     let client = client_config
-        .create_client(None)
+        .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;
     let runtime = Runtime::new(client.event_loop_group());
 
@@ -222,7 +255,7 @@ fn mount_filesystem(
 
     // Create and run the FUSE session
     let fuse_session = mp_config
-        .create_fuse_session(metablock, client, runtime)
+        .create_fuse_session(metablock, client, runtime, pool)
         .context("Failed to create FUSE session")?;
 
     Ok(fuse_session)

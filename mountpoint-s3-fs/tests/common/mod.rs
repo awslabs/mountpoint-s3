@@ -24,8 +24,9 @@ use mountpoint_s3_client::config::{
 };
 use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::prefix::Prefix;
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -36,20 +37,23 @@ pub fn make_test_filesystem(
     prefix: &Prefix,
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
+    let part_size = 1024 * 1024;
     let client = Arc::new(
         MockClient::config()
             .bucket(bucket)
-            .part_size(1024 * 1024)
+            .part_size(part_size)
             .enable_backpressure(true)
             .initial_read_window_size(256 * 1024)
             .build(),
     );
-    let fs = make_test_filesystem_with_client(client.clone(), bucket, prefix, config);
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
+    let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
     (client, fs)
 }
 
 pub fn make_test_filesystem_with_client<Client>(
     client: Client,
+    pool: PagedPool,
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
@@ -61,14 +65,13 @@ where
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
     let superblock = Superblock::new(
         client.clone(),
-        bucket,
-        prefix,
+        S3Path::new(Bucket::new(bucket).unwrap(), prefix.clone()),
         SuperblockConfig {
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,
         },
     );
-    S3Filesystem::new(client, prefetcher_builder, runtime, superblock, config)
+    S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, config)
 }
 
 #[track_caller]

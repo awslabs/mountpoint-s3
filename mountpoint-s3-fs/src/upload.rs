@@ -10,6 +10,7 @@ use tracing::error;
 use crate::async_util::Runtime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::sync::Arc;
 
 mod atomic;
@@ -28,6 +29,10 @@ pub use incremental::AppendUploadRequest;
 pub struct Uploader<Client: ObjectClient> {
     client: Client,
     runtime: Runtime,
+    /// Memory pool used by the incremental uploader.
+    /// The atomic uploader does not directly reserve buffers, but relies on
+    /// the client, which is configured with the same pool in Mountpoint.
+    pool: PagedPool,
     mem_limiter: Arc<MemoryLimiter>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
@@ -104,10 +109,17 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     /// Create a new [Uploader] that will make requests to the given client.
-    pub fn new(client: Client, runtime: Runtime, mem_limiter: Arc<MemoryLimiter>, config: UploaderConfig) -> Self {
+    pub fn new(
+        client: Client,
+        runtime: Runtime,
+        pool: PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
+        config: UploaderConfig,
+    ) -> Self {
         Self {
             client,
             runtime,
+            pool,
             mem_limiter,
             storage_class: config.storage_class,
             server_side_encryption: config.server_side_encryption,
@@ -140,6 +152,9 @@ where
         initial_offset: u64,
         initial_etag: Option<ETag>,
     ) -> AppendUploadRequest<Client> {
+        // Limit the queue capacity to hold buffers for a total of at most
+        // MAX_BYTES_IN_QUEUE, but ensure it allows at least 1 buffer.
+        let capacity = (MAX_BYTES_IN_QUEUE / self.buffer_size).max(1);
         let params = AppendUploadQueueParams {
             bucket,
             key,
@@ -147,12 +162,13 @@ where
             initial_etag,
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
-            capacity: MAX_BYTES_IN_QUEUE / self.buffer_size,
+            capacity,
         };
         AppendUploadRequest::new(
             &self.runtime,
             self.client.clone(),
             self.buffer_size,
+            self.pool.clone(),
             self.mem_limiter.clone(),
             params,
         )

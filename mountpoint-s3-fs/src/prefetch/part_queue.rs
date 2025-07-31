@@ -153,6 +153,7 @@ impl<Client: ObjectClient> Drop for PartQueue<Client> {
 mod tests {
     use crate::checksums::ChecksummedBytes;
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+    use crate::memory::PagedPool;
     use crate::object::ObjectId;
 
     use super::*;
@@ -172,8 +173,8 @@ mod tests {
     }
 
     async fn run_test(ops: Vec<Op>) {
-        let client = MockClient::config().build();
-        let mem_limiter = MemoryLimiter::new(client, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        let mem_limiter = MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
         let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());
         let mut current_offset = 0;

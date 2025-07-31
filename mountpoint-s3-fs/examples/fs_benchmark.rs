@@ -8,7 +8,10 @@ use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::prefetch::Prefetcher;
+use mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE;
+use mountpoint_s3_fs::s3::{Bucket, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use tempfile::tempdir;
 use tracing_subscriber::EnvFilter;
@@ -139,11 +142,12 @@ fn mount_file_system(
     region: &str,
     throughput_target_gbps: Option<f64>,
 ) -> BackgroundSession {
+    let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
-    let initial_read_window_size = 1024 * 1024 + 128 * 1024;
     config = config
         .read_backpressure(true)
-        .initial_read_window(initial_read_window_size);
+        .initial_read_window(INITIAL_READ_WINDOW_SIZE)
+        .memory_pool(pool.clone());
     if let Some(throughput_target_gbps) = throughput_target_gbps {
         config = config.throughput_target_gbps(throughput_target_gbps);
     }
@@ -155,22 +159,25 @@ fn mount_file_system(
 
     let filesystem_config = S3FilesystemConfig::default();
 
+    let s3_path = S3Path::new(
+        Bucket::new(bucket_name).expect("invalid bucket name"),
+        Default::default(),
+    );
     println!(
-        "Mounting bucket {} to path {}",
-        bucket_name,
+        "Mounting {} to path {}",
+        s3_path.bucket_description(),
         mountpoint.to_str().unwrap()
     );
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
     let superblock = Superblock::new(
         client.clone(),
-        bucket_name,
-        &Default::default(),
+        s3_path,
         SuperblockConfig {
             cache_config: filesystem_config.cache_config.clone(),
             s3_personality: filesystem_config.s3_personality,
         },
     );
-    let fs = S3Filesystem::new(client, prefetcher_builder, runtime, superblock, filesystem_config);
+    let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, filesystem_config);
     let session = Session::new(S3FuseFilesystem::new(fs, None), mountpoint, &options)
         .expect("Should have created FUSE session successfully");
 

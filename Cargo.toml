@@ -11,3 +11,6 @@ resolver = "2"
 
 [profile.release]
 debug = 2
+opt-level = 3
+lto = true # Link-time optimization
+codegen-units = 1  # Single compilation unit for better optimization

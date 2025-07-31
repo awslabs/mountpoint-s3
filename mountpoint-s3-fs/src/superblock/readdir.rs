@@ -101,9 +101,9 @@ impl ReaddirHandle {
         };
 
         let iter = if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(&inner.s3_path.bucket, &full_path, page_size, local_entries.into())
         } else {
-            ReaddirIter::unordered(&inner.s3_path.bucket_name, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(&inner.s3_path.bucket, &full_path, page_size, local_entries.into())
         };
 
         Ok(Self {

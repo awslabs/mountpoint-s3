@@ -327,12 +327,14 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientError};
+    use mountpoint_s3_client::mock_client::MockClientError;
     use test_case::test_case;
 
     use crate::mem_limiter::MemoryLimiter;
+    use crate::memory::PagedPool;
+    use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
 
-    #[test_case(1024 * 1024 + 128 * 1024, 2)] // real config
+    #[test_case(INITIAL_READ_WINDOW_SIZE, 2)] // real config
     #[test_case(3 * 1024 * 1024, 4)]
     #[test_case(8 * 1024 * 1024, 8)]
     #[test_case(2 * 1024 * 1024 * 1024, 2)]
@@ -435,14 +437,9 @@ mod tests {
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController, BackpressureLimiter) {
-        let client = MockClient::config()
-            .bucket("test-bucket")
-            .part_size(8 * 1024 * 1024)
-            .enable_backpressure(true)
-            .initial_read_window_size(backpressure_config.initial_read_window_size)
-            .build();
+        let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
         let mem_limiter = Arc::new(MemoryLimiter::new(
-            client,
+            pool,
             backpressure_config.max_read_window_size as u64,
         ));
         new_backpressure_controller(backpressure_config, mem_limiter.clone())

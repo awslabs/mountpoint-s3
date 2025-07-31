@@ -1,4 +1,5 @@
 {
+    "config_version": "0.0.1",
     "mountpoint": "/exmpl/mountpoint",
     "metadata_store_dir": "/exmpl/tmpdir",
     "event_log_dir": "/exmpl/event_log_dir",
@@ -14,5 +15,6 @@
     "loglevel": "debug,awscrt=off",
     "throughput_config": {
         "type": "IMDSAutoConfigure"
-    }
+    },
+    "memory_limit_bytes": 2147483648
 }

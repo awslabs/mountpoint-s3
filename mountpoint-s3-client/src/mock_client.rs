@@ -834,12 +834,12 @@ impl ObjectClient for MockClient {
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
-    fn read_part_size(&self) -> Option<usize> {
-        Some(self.config.part_size)
+    fn read_part_size(&self) -> usize {
+        self.config.part_size
     }
 
-    fn write_part_size(&self) -> Option<usize> {
-        Some(self.config.part_size)
+    fn write_part_size(&self) -> usize {
+        self.config.part_size
     }
 
     fn initial_read_window_size(&self) -> Option<usize> {
@@ -1532,7 +1532,7 @@ mod tests {
             .initial_read_window_size(256)
             .build();
 
-        let part_size = client.read_part_size().unwrap();
+        let part_size = client.read_part_size();
         let size = part_size * 2;
         let range = 0..(part_size + 1) as u64;
 

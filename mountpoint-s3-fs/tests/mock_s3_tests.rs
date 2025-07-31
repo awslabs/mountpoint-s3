@@ -11,6 +11,7 @@ use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIEN
 use mountpoint_s3_fs::fs::{FUSE_ROOT_INODE, OpenFlags, ToErrno};
 
 use mountpoint_s3_fs::S3Filesystem;
+use mountpoint_s3_fs::memory::PagedPool;
 use test_case::test_case;
 
 mod common;
@@ -203,14 +204,17 @@ fn create_fs_with_mock_s3(bucket: &str) -> (S3Filesystem<S3CrtClient>, MockServe
     let endpoint_config = EndpointConfig::new("PLACEHOLDER")
         .addressing_style(AddressingStyle::Path) // mock server responds to path style requests only
         .endpoint(endpoint);
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let client_config = S3ClientConfig::default()
         .endpoint_config(endpoint_config)
         .auth_config(S3ClientAuthConfig::NoSigning)
+        .memory_pool(pool.clone())
         .read_backpressure(true)
         .max_attempts(NonZeroUsize::new(3).unwrap()); // retry S3 request 3 times (which equals the existing default)
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
     (
-        make_test_filesystem_with_client(client, bucket, &Default::default(), Default::default()),
+        make_test_filesystem_with_client(client, pool, bucket, &Default::default(), Default::default()),
         server,
     )
 }

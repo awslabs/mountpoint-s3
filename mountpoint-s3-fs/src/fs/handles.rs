@@ -154,18 +154,10 @@ where
                 Err(e) => Err(e.into()),
             },
             UploadState::Completed => {
-                return Err(err!(
-                    libc::EIO,
-                    "upload already completed for key {:?}",
-                    handle.location.full_key()
-                ));
+                return Err(err!(libc::EIO, "upload already completed for key {}", handle.location));
             }
             UploadState::Failed(e) => {
-                return Err(err!(
-                    *e,
-                    "upload already aborted for key {:?}",
-                    handle.location.full_key()
-                ));
+                return Err(err!(*e, "upload already aborted for key {}", handle.location));
             }
         };
 
@@ -194,11 +186,7 @@ where
         match &self {
             UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => {
-                return Err(err!(
-                    *e,
-                    "upload already aborted for key {:?}",
-                    handle.location.full_key()
-                ));
+                return Err(err!(*e, "upload already aborted for key {}", handle.location));
             }
             _ => {}
         };
@@ -210,7 +198,7 @@ where
                 written_bytes,
             } => {
                 let current_offset = request.current_offset();
-                match Self::commit_append(request, &handle.location.full_key()).await {
+                match Self::commit_append(request, &handle.location).await {
                     Ok(etag) => {
                         // Restart append request.
                         let initial_etag = etag.or(initial_etag);
@@ -234,7 +222,7 @@ where
                 }
             }
             UploadState::MPUInProgress { request, .. } => {
-                let result = Self::complete_upload(fs, handle.ino, handle.location.full_key().as_ref(), request).await;
+                let result = Self::complete_upload(fs, handle.ino, &handle.location, request).await;
                 if let Err(e) = &result {
                     *self = UploadState::Failed(e.to_errno());
                 }
@@ -260,12 +248,12 @@ where
             }
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
-                    debug!(key=?handle.location.full_key(), "not completing upload because nothing was written yet");
+                    debug!(key=%handle.location, "not completing upload because nothing was written yet");
                     return Ok(());
                 }
                 if !are_from_same_process(open_pid, pid) {
                     debug!(
-                        key=?handle.location.full_key(),
+                        key=%handle.location,
                         pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
                     return Ok(());
@@ -284,9 +272,9 @@ where
         let result = match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
-            } => Self::complete_append(fs, handle.ino, &handle.location.full_key(), request, initial_etag).await,
+            } => Self::complete_append(fs, handle.ino, &handle.location, request, initial_etag).await,
             UploadState::MPUInProgress { request, .. } => {
-                Self::complete_upload(fs, handle.ino, &handle.location.full_key(), request).await
+                Self::complete_upload(fs, handle.ino, &handle.location, request).await
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         };
@@ -304,7 +292,7 @@ where
         self,
         fs: &S3Filesystem<Client>,
         ino: InodeNo,
-        key: &str,
+        key: &S3Location,
     ) -> Result<bool, Error> {
         match self {
             UploadState::AppendInProgress {
@@ -324,20 +312,20 @@ where
     async fn complete_upload(
         fs: &S3Filesystem<Client>,
         ino: InodeNo,
-        key: &str,
+        key: &S3Location,
         upload: UploadRequest<Client>,
     ) -> Result<(), Error> {
         let size = upload.size();
         let (put_result, etag) = match upload.complete().await {
             Ok(result) => {
-                debug!(etag=?result.etag.as_str(), ?key, size, "put succeeded");
+                debug!(etag=?result.etag.as_str(), %key, size, "put succeeded");
                 (Ok(()), Some(result.etag))
             }
             Err(e) => (Err(err!(libc::EIO, source:e, "put failed")), None),
         };
         if let Err(err) = fs.metablock.finish_writing(ino, etag).await {
             // Log the issue but still return put_result.
-            error!(?err, ?key, "error updating the inode status");
+            error!(?err, %key, "error updating the inode status");
         }
         put_result
     }
@@ -345,7 +333,7 @@ where
     async fn complete_append(
         fs: &S3Filesystem<Client>,
         ino: InodeNo,
-        key: &str,
+        key: &S3Location,
         upload: AppendUploadRequest<Client>,
         initial_etag: Option<ETag>,
     ) -> Result<(), Error> {
@@ -361,14 +349,14 @@ where
         }
     }
 
-    async fn commit_append(upload: AppendUploadRequest<Client>, key: &str) -> Result<Option<ETag>, Error> {
+    async fn commit_append(upload: AppendUploadRequest<Client>, key: &S3Location) -> Result<Option<ETag>, Error> {
         match upload.complete().await {
             Ok(Some(result)) => {
-                debug!(key, "put succeeded");
+                debug!(%key, "put succeeded");
                 Ok(Some(result.etag))
             }
             Ok(None) => {
-                debug!(key, "no put required");
+                debug!(%key, "no put required");
                 Ok(None)
             }
             Err(e) => Err(err!(libc::EIO, source:e, "put failed")),

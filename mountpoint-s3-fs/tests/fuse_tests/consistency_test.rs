@@ -58,7 +58,7 @@ fn page_cache_sharing_test_s3() {
 #[test]
 fn page_cache_sharing_test_s3_with_cache() {
     page_cache_sharing_test(
-        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "page_cache_sharing_test",
     );
 }
@@ -73,7 +73,7 @@ fn page_cache_sharing_test_mock(prefix: &str) {
 #[test_case("page_cache_sharing_test"; "prefix")]
 fn page_cache_sharing_test_mock_with_cache(prefix: &str) {
     page_cache_sharing_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
     );
 }

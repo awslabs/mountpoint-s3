@@ -355,7 +355,7 @@ where
     ) -> Result<RequestTask<Client>, PrefetchReadError<Client::ClientError>> {
         let start = self.next_sequential_read_offset;
         let object_size = self.size as usize;
-        let read_part_size = self.part_stream.client().read_part_size().unwrap_or(8 * 1024 * 1024);
+        let read_part_size = self.part_stream.client().read_part_size();
         let range = RequestRange::new(object_size, start, object_size);
 
         // The prefetcher now relies on backpressure mechanism so it must be enabled
@@ -493,6 +493,7 @@ mod tests {
     use crate::Runtime;
     use crate::data_cache::InMemoryDataCache;
     use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::memory::PagedPool;
     use crate::sync::Arc;
 
     use super::*;
@@ -541,7 +542,8 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {
             PrefetcherType::Default => Prefetcher::default_builder(client),
@@ -1201,6 +1203,8 @@ mod tests {
         use shuttle::rand::Rng;
         use shuttle::{check_pct, check_random};
 
+        use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
+
         struct ShuttleRuntime;
         impl Spawn for ShuttleRuntime {
             fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
@@ -1214,8 +1218,8 @@ mod tests {
             let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
             let max_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
-            let part_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
-            let initial_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024 + 128 * 1024);
+            let part_size = rng.gen_range(16usize..1 * INITIAL_READ_WINDOW_SIZE);
+            let initial_read_window_size = rng.gen_range(16usize..1 * INITIAL_READ_WINDOW_SIZE);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
@@ -1227,7 +1231,8 @@ mod tests {
                     .initial_read_window_size(initial_read_window_size)
                     .build(),
             );
-            let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+            let pool = PagedPool::new_with_candidate_sizes([part_size]);
+            let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1287,7 +1292,8 @@ mod tests {
                     .initial_read_window_size(initial_read_window_size)
                     .build(),
             );
-            let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT));
+            let pool = PagedPool::new_with_candidate_sizes([part_size]);
+            let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
