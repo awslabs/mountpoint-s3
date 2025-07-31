@@ -9,7 +9,7 @@ On other systems, syslog entries are likely written to a file such as `/var/log/
 When running `mount-s3` in foreground mode (the `-f, --foreground` command-line argument), Mountpoint will emit logs to stdout in addition to syslog or any configured log directory (see below).
 
 > [!NOTE]
-> If you are using [Mountpoint for Amazon S3 CSI Driver](https://github.com/awslabs/mountpoint-s3-csi-driver/), logs will be written to the syslog on the underlying node.
+> If you are using [Mountpoint for Amazon S3 CSI Driver](https://github.com/awslabs/mountpoint-s3-csi-driver/), Mountpoint logs are available in the Mountpoint Pod logs as standard Kubernetes logs.
 > Follow [Mountpoint CSI Driver's LOGGING.md guide](https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/LOGGING.md) to learn about how to get logs for both Mountpoint and the driver itself.
 
 ## Logging to a file
