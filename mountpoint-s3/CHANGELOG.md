@@ -8,6 +8,10 @@
 
 * Add support for renaming files using the RenameObject API when mounting directory buckets in S3 Express One Zone. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
 
+### Other changes
+
+* Mountpoint's prefetcher has an updated backpressure algorithm which advances the amount of data prefetched with each read rather than waiting for half of the read window to be consumed. The aim of the change is to achieve higher sequential-read throughput. ([#1453](https://github.com/awslabs/mountpoint-s3/pull/1453))
+
 ## v1.18.0 (May 30, 2025)
 
 ### New features
