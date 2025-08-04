@@ -85,6 +85,8 @@ impl Metric {
                         histogram.value_at_quantile(0.999),
                         histogram.max(),
                     );
+                    // FIXME: This is incomplete for OpenTelemetry histogram integration. Currently only returning max value.
+                    // The full implementation will be done later.
                     (MetricValue::Histogram(histogram.max() as f64), fmt)
                 })
             }
