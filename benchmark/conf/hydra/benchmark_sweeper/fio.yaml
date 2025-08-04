@@ -1,0 +1,3 @@
+# @package hydra.sweeper
+params:
+  'benchmarks.fio.direct_io': false, true

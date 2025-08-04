@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -195,6 +196,35 @@ class ResourceMonitoring:
         finally:
             resource._close()
 
+def _auto_add_benchmark_sweeper() -> None:
+    """
+    Automatically add +hydra/benchmark_sweeper=<type> based on benchmark_type parameter.
+    This allows users to just specify benchmark_type instead of the full command.
+    """
+    benchmark_type = None
+    for arg in sys.argv[1:]:
+        if arg.startswith("benchmark_type="):
+            benchmark_type = arg.split("=", 1)[1]
+            break
+
+    if benchmark_type:
+        sweeper_override = f"+hydra/benchmark_sweeper={benchmark_type}"
+        has_sweeper_override = any(
+            arg.startswith("+hydra/benchmark_sweeper=") or arg.startswith("hydra/benchmark_sweeper=")
+            for arg in sys.argv[1:]
+        )
+
+        if not has_sweeper_override:
+            # we add the sweeper override before the benchmark_type argument and find position of benchmark_type argument
+            for i, arg in enumerate(sys.argv):
+                if arg.startswith("benchmark_type="):
+                    sys.argv.insert(i, sweeper_override)
+                    break
+            else:
+                sys.argv.insert(1, sweeper_override)
+
+# Auto add the appropriate benchmark sweeper before Hydra processes arguments
+_auto_add_benchmark_sweeper()
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run_experiment(cfg: DictConfig) -> None:
