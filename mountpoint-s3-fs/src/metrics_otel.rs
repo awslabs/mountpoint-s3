@@ -1,6 +1,7 @@
 use opentelemetry::KeyValue;
 use opentelemetry::global;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
+use std::convert::TryFrom;
 use std::time::Duration;
 
 use crate::metrics::MetricValue;
@@ -131,6 +132,14 @@ impl OtlpMetricsExporter {
                 // Will be implemented later
             }
         }
+    }
+}
+
+impl TryFrom<&OtlpConfig> for OtlpMetricsExporter {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(config: &OtlpConfig) -> Result<Self, Self::Error> {
+        OtlpMetricsExporter::new(config)
     }
 }
 

@@ -110,7 +110,8 @@ impl MetricsSink {
                 ));
             }
 
-            match OtlpMetricsExporter::new(&config) {
+            // Use TryInto to convert OtlpConfig to OtlpMetricsExporter
+            match std::convert::TryInto::<OtlpMetricsExporter>::try_into(&config) {
                 Ok(exporter) => {
                     tracing::info!("OpenTelemetry metrics export enabled to {}", config.endpoint);
                     Some(exporter)
