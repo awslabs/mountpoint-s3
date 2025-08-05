@@ -208,7 +208,8 @@ def _auto_add_benchmark_sweeper() -> None:
             break
 
     if benchmark_type:
-        sweeper_override = f"+hydra/benchmark_sweeper={benchmark_type}"
+        config_name = "multi" if "," in benchmark_type else benchmark_type
+        sweeper_override = f"+hydra/benchmark_sweeper={config_name}"
         has_sweeper_override = any(
             arg.startswith("+hydra/benchmark_sweeper=") or arg.startswith("hydra/benchmark_sweeper=")
             for arg in sys.argv[1:]

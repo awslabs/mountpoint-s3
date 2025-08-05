@@ -1,0 +1,12 @@
+# @package hydra.sweeper
+_target_: hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper
+max_batch_size: null
+params:
+  # FIO parameters
+  'benchmarks.fio.direct_io': false, true
+  # Prefetch parameters
+  'benchmarks.prefetch.max_memory_target': null, 1073741824, 2147483648
+  # CRT parameters (none currently)
+  # Client parameters (none currently)  
+  # Client-BP parameters
+  'benchmarks.client_backpressure.read_window_size': 8388608, 2147483648
