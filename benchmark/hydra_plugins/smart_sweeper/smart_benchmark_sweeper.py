@@ -25,6 +25,7 @@ ConfigStore.instance().store(
     group="hydra/sweeper", name="smart_benchmark", node=SmartBenchmarkSweeperConf
 )
 
+
 class SmartBenchmarkSweeper(Sweeper):
     def __init__(self, max_batch_size: Optional[int] = None, params: Optional[Dict[str, str]] = None):
         self.max_batch_size = max_batch_size
