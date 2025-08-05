@@ -3,8 +3,11 @@
 //! This module hooks up the [metrics](https://docs.rs/metrics) facade to a metrics sink that
 //! currently just emits them to a tracing log entry.
 
+#[cfg(feature = "otlp_integration")]
 pub use crate::metrics_otel::OtlpConfig;
+#[cfg(feature = "otlp_integration")]
 use crate::metrics_otel::OtlpMetricsExporter;
+#[cfg(feature = "otlp_integration")]
 use opentelemetry::KeyValue;
 
 use std::thread::{self, JoinHandle};
@@ -35,8 +38,13 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 /// done with their work; metrics generated after shutting down the sink will be lost.
 ///
 /// Panics if a sink has already been installed.
-pub fn install(otlp_config: Option<OtlpConfig>) -> anyhow::Result<MetricsSinkHandle> {
-    let sink = Arc::new(MetricsSink::new(otlp_config)?);
+pub fn install(
+    #[cfg(feature = "otlp_integration")] otlp_config: Option<OtlpConfig>,
+) -> anyhow::Result<MetricsSinkHandle> {
+    let sink = Arc::new(MetricsSink::new(
+        #[cfg(feature = "otlp_integration")]
+        otlp_config,
+    )?);
     let mut sys = System::new();
 
     let (tx, rx) = channel();
@@ -96,11 +104,13 @@ fn poll_process_metrics(sys: &mut System) {
 #[derive(Debug)]
 struct MetricsSink {
     metrics: DashMap<Key, Metric>,
+    #[cfg(feature = "otlp_integration")]
     otlp_exporter: Option<OtlpMetricsExporter>,
 }
 
 impl MetricsSink {
-    fn new(otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
+    fn new(#[cfg(feature = "otlp_integration")] otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
+        #[cfg(feature = "otlp_integration")]
         // Initialise the OTLP exporter if a config is provided
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
@@ -110,6 +120,7 @@ impl MetricsSink {
                 ));
             }
 
+            #[cfg(feature = "otlp_integration")]
             // Use TryInto to convert OtlpConfig to OtlpMetricsExporter
             match std::convert::TryInto::<OtlpMetricsExporter>::try_into(&config) {
                 Ok(exporter) => {
@@ -135,10 +146,10 @@ impl MetricsSink {
 
         Ok(Self {
             metrics: DashMap::with_capacity(64),
+            #[cfg(feature = "otlp_integration")]
             otlp_exporter,
         })
     }
-
     fn counter(&self, key: &Key) -> metrics::Counter {
         let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::counter);
         entry.as_counter()
@@ -155,7 +166,7 @@ impl MetricsSink {
     }
 
     /// Publish all this sink's metrics to `tracing` log messages
-    /// Send metrics to OTLP if enabled
+    /// and send metrics to OTLP if enabled
     fn publish(&self) {
         // Collect the output lines so we can sort them to make reading easier
         let mut metrics = vec![];
@@ -163,21 +174,30 @@ impl MetricsSink {
         for mut entry in self.metrics.iter_mut() {
             let (key, metric) = entry.pair_mut();
 
+            #[cfg(feature = "otlp_integration")]
             // Get both the value and string representation of the metric (this also resets the metric)
             let Some((value, metric_str)) = metric.value_and_fmt_and_reset() else {
                 continue;
             };
 
-            // If OTLP export is enabled, send metrics to OpenTelemetry
-            if let Some(exporter) = &self.otlp_exporter {
-                // Convert labels to OpenTelemetry KeyValue pairs
-                let attributes: Vec<KeyValue> = key
-                    .labels()
-                    .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
-                    .collect();
+            #[cfg(not(feature = "otlp_integration"))]
+            let Some((_, metric_str)) = metric.value_and_fmt_and_reset() else {
+                continue;
+            };
 
-                // Record the metric using its value
-                exporter.record_metric(key, &value, &attributes);
+            #[cfg(feature = "otlp_integration")]
+            {
+                // If OTLP export is enabled, send metrics to OpenTelemetry
+                if let Some(exporter) = &self.otlp_exporter {
+                    // Convert labels to OpenTelemetry KeyValue pairs
+                    let attributes: Vec<KeyValue> = key
+                        .labels()
+                        .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
+                        .collect();
+
+                    // Record the metric using its value
+                    exporter.record_metric(key, &value, &attributes);
+                }
             }
             let labels = if key.labels().len() == 0 {
                 String::new()
@@ -274,7 +294,13 @@ mod tests {
 
     #[test]
     fn basic_metrics() {
-        let sink = Arc::new(MetricsSink::new(None).unwrap());
+        let sink = Arc::new(
+            MetricsSink::new(
+                #[cfg(feature = "otlp_integration")]
+                None,
+            )
+            .unwrap(),
+        );
         let recorder = MetricsRecorder { sink: sink.clone() };
         with_local_recorder(&recorder, || {
             // Run twice to check reset works
@@ -388,6 +414,7 @@ mod tests {
     /// ```
     #[test]
     #[ignore]
+    #[cfg(feature = "otlp_integration")]
     fn otlp_metrics() {
         use tracing::info;
         use tracing_subscriber::fmt::format::FmtSpan;
@@ -475,6 +502,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "otlp_integration")]
     fn test_otlp_endpoint_validation() {
         // Test with an invalid URI - we need to directly test the MetricsSink::new function
         // since install() will try to set up a global recorder which can only be done once

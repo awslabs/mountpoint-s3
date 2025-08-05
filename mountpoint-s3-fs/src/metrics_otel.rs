@@ -1,14 +1,24 @@
+#[cfg(feature = "otlp_integration")]
 use opentelemetry::KeyValue;
+#[cfg(feature = "otlp_integration")]
 use opentelemetry::global;
+#[cfg(feature = "otlp_integration")]
 use opentelemetry_otlp::{Protocol, WithExportConfig};
+#[cfg(feature = "otlp_integration")]
 use std::convert::TryFrom;
+#[cfg(feature = "otlp_integration")]
 use std::time::Duration;
 
+#[cfg(feature = "otlp_integration")]
 use crate::metrics::MetricValue;
+#[cfg(feature = "otlp_integration")]
 use metrics::Key;
+#[cfg(feature = "otlp_integration")]
 use std::collections::HashMap;
+#[cfg(feature = "otlp_integration")]
 use std::sync::Mutex;
 
+#[cfg(feature = "otlp_integration")]
 /// Configuration for OpenTelemetry metrics export
 #[derive(Debug, Clone)]
 pub struct OtlpConfig {
@@ -18,6 +28,7 @@ pub struct OtlpConfig {
     pub interval_secs: u64,
 }
 
+#[cfg(feature = "otlp_integration")]
 impl OtlpConfig {
     /// Create a new OtlpConfig with the specified endpoint and default interval
     pub fn new(endpoint: &str) -> Self {
@@ -34,6 +45,7 @@ impl OtlpConfig {
     }
 }
 
+#[cfg(feature = "otlp_integration")]
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
     meter: opentelemetry::metrics::Meter,
@@ -42,6 +54,7 @@ pub struct OtlpMetricsExporter {
     histograms: Mutex<HashMap<String, opentelemetry::metrics::Histogram<f64>>>,
 }
 
+#[cfg(feature = "otlp_integration")]
 impl OtlpMetricsExporter {
     /// Create a new OtlpMetricsExporter with the specified configuration
     /// Returns a Result containing the new exporter or an error if initialisation failed
@@ -135,6 +148,7 @@ impl OtlpMetricsExporter {
     }
 }
 
+#[cfg(feature = "otlp_integration")]
 impl TryFrom<&OtlpConfig> for OtlpMetricsExporter {
     type Error = Box<dyn std::error::Error>;
 
@@ -143,6 +157,7 @@ impl TryFrom<&OtlpConfig> for OtlpMetricsExporter {
     }
 }
 
+#[cfg(feature = "otlp_integration")]
 #[cfg(test)]
 mod tests {
     use super::*;

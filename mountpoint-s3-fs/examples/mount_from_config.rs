@@ -193,7 +193,11 @@ fn process_manifests(config: &ConfigOptions, database_directory: &Path) -> Resul
 
 fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHandle)> {
     let logging = init_logging(config.build_logging_config())?;
-    let metrics = metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
+    let metrics = metrics::install(
+        #[cfg(feature = "otlp_integration")]
+        None,
+    )
+    .map_err(|e| anyhow!("Failed to initialize metrics: {}", e))?;
     Ok((logging, metrics))
 }
 

@@ -159,7 +159,11 @@ impl CliArgs {
 
 fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
+    #[cfg(feature = "otlp_integration")]
+    let _metrics_handle = mountpoint_s3_fs::metrics::install(
+        #[cfg(feature = "otlp_integration")]
+        None,
+    );
 
     let args = CliArgs::parse();
 
