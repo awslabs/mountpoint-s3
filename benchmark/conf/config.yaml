@@ -18,13 +18,12 @@ write_part_size: 16777216  # 16 MiB, to allow for uploads of large files
 object_size_in_gib: 100  # Size of the object to benchmark
 benchmark_type: "fio" # fio, prefetch, client, client-bp, crt
 s3_keys: !!null
+download_checksums: true
 
-# Network configuration
 network:
   interface_names: []
   maximum_throughput_gbps: !!null
 
-# Monitoring options (common to all benchmarks)
 monitoring:
   with_bwm: false
   with_perf_stat: false
@@ -60,8 +59,6 @@ benchmarks:
   client:  
     # None 
 
-  client_backpressure:
-    read_window_size: !!null #2147483648 
 
 hydra:
   help:
