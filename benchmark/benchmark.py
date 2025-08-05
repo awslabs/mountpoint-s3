@@ -196,6 +196,7 @@ class ResourceMonitoring:
         finally:
             resource._close()
 
+
 def _auto_add_benchmark_sweeper() -> None:
     """
     Automatically add +hydra/benchmark_sweeper=<type> based on benchmark_type parameter.
@@ -224,8 +225,10 @@ def _auto_add_benchmark_sweeper() -> None:
             else:
                 sys.argv.insert(1, sweeper_override)
 
+
 # Auto add the appropriate benchmark sweeper before Hydra processes arguments
 _auto_add_benchmark_sweeper()
+
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run_experiment(cfg: DictConfig) -> None:

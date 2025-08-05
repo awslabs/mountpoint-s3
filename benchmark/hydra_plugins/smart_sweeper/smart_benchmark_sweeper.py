@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import itertools
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from hydra.types import HydraContext
 from hydra.core.config_store import ConfigStore
@@ -15,15 +15,15 @@ from omegaconf import DictConfig, OmegaConf
 
 log = logging.getLogger(__name__)
 
+
 @dataclass
 class SmartBenchmarkSweeperConf:
     _target_: str = "hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper"
     max_batch_size: Optional[int] = None
     params: Optional[Dict[str, str]] = None
 
-ConfigStore.instance().store(
-    group="hydra/sweeper", name="smart_benchmark", node=SmartBenchmarkSweeperConf
-)
+
+ConfigStore.instance().store(group="hydra/sweeper", name="smart_benchmark", node=SmartBenchmarkSweeperConf)
 
 
 class SmartBenchmarkSweeper(Sweeper):
@@ -42,12 +42,8 @@ class SmartBenchmarkSweeper(Sweeper):
         self.hydra_context = hydra_context
 
     def sweep(self, arguments: List[str]) -> Any:
-        assert self.config is not None
-        assert self.launcher is not None
-        
-        # Extract benchmark types from arguments
         benchmark_types = self._extract_benchmark_types(arguments)
-        log.info(f"SmartBenchmarkSweeper: Running benchmark types: {benchmark_types}")
+        log.info(f"Running benchmark types: {benchmark_types}")
 
         # Save sweep config
         sweep_dir = Path(self.config.hydra.sweep.dir)
@@ -75,7 +71,7 @@ class SmartBenchmarkSweeper(Sweeper):
             self.validate_batch_is_legal(all_combinations)
             results = self.launcher.launch(all_combinations, initial_job_idx=initial_job_idx)
             returns.append(results)
-        
+
         return returns
 
     def _extract_benchmark_types(self, arguments: List[str]) -> List[str]:
@@ -93,42 +89,35 @@ class SmartBenchmarkSweeper(Sweeper):
 
         for override in parsed_overrides:
             key = override.get_key_element()
-            
+
             if key == "benchmark_type":
-                continue 
+                continue  # we ekip benchmark_type - we'll add it manually for each combination as you can see below
             elif key.startswith("benchmarks."):
-                param_type = key.split(".")[1]  
+                param_type = key.split(".")[1]  # Extract benchmark type from "benchmarks.fio.direct_io" -> "fio"
                 if param_type == benchmark_type:
-                    type_specific_params.append(override)
+                    type_specific_params.append(override)  # This parameter belongs to our current benchmark type
                 else:
-                    # Set other benchmark types' params to null
-                    other_type_nulls.append(f"{key}=null")
+                    other_type_nulls.append(f"{key}=null")  # Null out parameters for other benchmark types
             else:
-                common_params.append(override)
+                common_params.append(
+                    override
+                )  # Parameters that apply to ALL benchmark types (e.g., s3_bucket, mountpoint.fuse_threads)
 
         param_lists = []
 
         param_lists.append([f"benchmark_type={benchmark_type}"])
 
-        for override in common_params:
-            if override.is_sweep_override():
+        def add_param_overrides(overrides):
+            """Add parameter overrides to param_lists"""
+            for override in overrides:
                 key = override.get_key_element()
-                sweep = [f"{key}={val}" for val in override.sweep_string_iterator()]
-                param_lists.append(sweep)
-            else:
-                key = override.get_key_element()
-                value = override.get_value_element_as_str()
-                param_lists.append([f"{key}={value}"])
+                if override.is_sweep_override():
+                    param_lists.append([f"{key}={val}" for val in override.sweep_string_iterator()])
+                else:
+                    param_lists.append([f"{key}={override.get_value_element_as_str()}"])
 
-        for override in type_specific_params:
-            if override.is_sweep_override():
-                key = override.get_key_element()
-                sweep = [f"{key}={val}" for val in override.sweep_string_iterator()]
-                param_lists.append(sweep)
-            else:
-                key = override.get_key_element()
-                value = override.get_value_element_as_str()
-                param_lists.append([f"{key}={value}"])
+        add_param_overrides(common_params)
+        add_param_overrides(type_specific_params)
 
         if param_lists:
             combinations = list(itertools.product(*param_lists))
