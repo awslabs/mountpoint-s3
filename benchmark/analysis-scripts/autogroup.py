@@ -44,6 +44,17 @@ def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
     config_dict = OmegaConf.to_container(config, resolve=True)
     return flatten_config(config_dict)
 
+def to_gigabits_per_second(
+    bytes: Union[int, float],
+    seconds: Union[int, float],
+) -> float:
+    """
+    Converts bytes to gigabits per second
+    """
+    bits = bytes * 8
+    gigabits = bits / 1_000_000_000
+    return gigabits / float(seconds)
+
 
 def flatten_config(config: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
     """Flatten nested configuration dictionary."""
@@ -70,24 +81,24 @@ def parse_benchmark_file(file_path: str) -> Optional[float]:
 
             # Client/Prefetch format
             case {'summary': {'total_bytes': total_bytes, 'total_elapsed_seconds': total_seconds}}:
-                return (total_bytes * 8) / (1024 * 1024 * 1024 * total_seconds)
+                return to_gigabits_per_second(bytes=total_bytes, seconds=total_seconds)
 
             # Client/Prefetch format with missing fields
             case {'summary': summary}:
                 total_bytes = summary.get('total_bytes', 0)
                 total_seconds = summary.get('total_elapsed_seconds', 1)
-                return (total_bytes * 8) / (1024 * 1024 * 1024 * total_seconds)
+                return to_gigabits_per_second(bytes=total_bytes, seconds=total_seconds)
 
             # FIO format
             case {'jobs': [{'read': {'io_bytes': io_bytes, 'runtime': runtime_ms}}, *_]}:
-                return (io_bytes * 8) / (1024 * 1024 * 1024 * (runtime_ms / 1000))
+                return to_gigabits_per_second(bytes=io_bytes, seconds=runtime_ms / 1000)
 
             # FIO format with missing fields
             case {'jobs': [job, *_]}:
                 read_data = job.get('read', {})
                 io_bytes = read_data.get('io_bytes', 0)
                 runtime_ms = read_data.get('runtime', 1000)
-                return (io_bytes * 8) / (1024 * 1024 * 1024 * (runtime_ms / 1000))
+                return to_gigabits_per_second(bytes=io_bytes, seconds=runtime_ms / 1000)
 
             # Unknown format
             case _:
