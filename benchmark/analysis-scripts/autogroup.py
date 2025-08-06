@@ -3,6 +3,7 @@ import json
 import argparse
 import glob
 import csv
+import warnings
 
 from tabulate import tabulate
 from colorama import Fore, Style, init
@@ -36,6 +37,8 @@ def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
             override_list = OmegaConf.to_container(overrides, resolve=True)
             if isinstance(override_list, list):
                 config = OmegaConf.merge(config, OmegaConf.from_dotlist(override_list))
+            else:
+                warnings.warn("Unable to merge overrides, as they are not a list")
 
     # Convert to regular dict and flatten
     config_dict = OmegaConf.to_container(config, resolve=True)
@@ -88,11 +91,11 @@ def parse_benchmark_file(file_path: str) -> Optional[float]:
 
             # Unknown format
             case _:
-                print(f"{Fore.YELLOW}⚠️  Warning: Unknown format in {file_path}{Style.RESET_ALL}")
+                warnings.warn(f"Unknown format in {file_path}")
                 return None
 
     except Exception as e:
-        print(f"{Fore.YELLOW}⚠️  Warning: Error parsing {file_path}: {e}{Style.RESET_ALL}")
+        warnings.warn(f" Warning: Error parsing {file_path}: {e}")
         return None
 
 
@@ -129,14 +132,12 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     ignore_params = {'hydra.job.num', 'hydra.run.dir', 'hydra.job.id', 'hydra.job.name', 'iteration'}
 
     # Check which parameters vary
-    for key in all_keys:
-        if key not in ignore_params:
-            values = set()
-            for config in all_configs:
-                values.add(str(config.get(key, 'N/A')))
-            if len(values) > 1:
-                varying.add(key)
-                continue
+    varying = {
+        key for key in all_keys
+        if len({str(config.get(key, 'N/A')) for config in all_configs}) > 1
+    }
+
+    varying -= ignore_params
 
     # Always include benchmark_type if it exists in any config
     if 'benchmark_type' in all_keys:
@@ -207,8 +208,7 @@ def main() -> None:
     # Sort rows by all columns
     def sort_key(row: List[str]) -> List[Union[int, float, str]]:
         key_parts = []
-        for i, header in enumerate(aggregated_headers):
-            value = row[i]
+        for value, header in zip(row, aggregated_headers):
             if header == 'benchmark_type':
                 # Use custom ordering for benchmark type
                 key_parts.append(benchmark_type_sort_key(value))
