@@ -5,10 +5,14 @@ import glob
 import csv
 
 from tabulate import tabulate
+from colorama import Fore, Style, init
 import numpy as np
 from collections import defaultdict
 from typing import Dict, Any, Optional, Tuple, List, Set, Union
 from omegaconf import OmegaConf
+
+# Initialize colorama for cross-platform colored output
+init()
 
 
 def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
@@ -84,10 +88,11 @@ def parse_benchmark_file(file_path: str) -> Optional[float]:
 
             # Unknown format
             case _:
+                print(f"{Fore.YELLOW}⚠️  Warning: Unknown format in {file_path}{Style.RESET_ALL}")
                 return None
 
     except Exception as e:
-        print(f"Error parsing {file_path}: {e}")
+        print(f"{Fore.YELLOW}⚠️  Warning: Error parsing {file_path}: {e}{Style.RESET_ALL}")
         return None
 
 
@@ -102,6 +107,9 @@ def process_iteration(iteration_dir: str) -> Tuple[Dict[str, Any], Optional[floa
             throughput = parse_benchmark_file(files[0])
             if throughput is not None:
                 break
+
+    if throughput is None:
+        print(f"{Fore.YELLOW}⚠️  Warning: No valid throughput data found in {iteration_dir}{Style.RESET_ALL}")
 
     return config, throughput
 
