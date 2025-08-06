@@ -23,7 +23,7 @@ fi
 optional_args=""
 
 if [[ -n "${S3_ENDPOINT_URL}" ]]; then
-  optional_args+="--endpoint-url=${S3_ENDPOINT_URL}"
+  optional_args+="--endpoint-url=${S3_ENDPOINT_URL} --force-path-style"
 fi
 
 if [[ -n "${S3_DEBUG}" ]]; then
