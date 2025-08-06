@@ -1,20 +1,23 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "omegaconf",
+#     "tabulate",
+# ]
+# ///
+
 import os
 import json
 import argparse
 import glob
 import csv
 import warnings
+import statistics
 
 from tabulate import tabulate
-from colorama import Fore, Style, init
-import numpy as np
 from collections import defaultdict
 from typing import Dict, Any, Optional, Tuple, List, Set, Union
 from omegaconf import OmegaConf
-
-# Initialize colorama for cross-platform colored output
-init()
-
 
 def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
     """Parse Hydra config and overrides for an iteration using OmegaConf and flattens the result"""
@@ -124,7 +127,7 @@ def process_iteration(iteration_dir: str) -> Tuple[Dict[str, Any], Optional[floa
                 break
 
     if throughput is None:
-        print(f"{Fore.YELLOW}⚠️  Warning: No valid throughput data found in {iteration_dir}{Style.RESET_ALL}")
+        warnings.warn(f"Warning: No valid throughput data found in {iteration_dir}")
 
     return config, throughput
 
@@ -134,7 +137,6 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     if not all_configs:
         return set()
 
-    varying = set()
     # Get all keys from all configs
     all_keys = set()
     for config in all_configs:
@@ -177,11 +179,11 @@ def main() -> None:
     all_results.sort(key=lambda x: int(x[2]))
 
     # Find parameters that vary between iterations
-    varying_params = find_varying_parameters([config for config, _, _ in all_results])
+    varying_params = sorted(find_varying_parameters([config for config, _, _ in all_results]))
 
     # Print varying parameters
     print("\nVarying parameters between iterations:")
-    print(", ".join(sorted(varying_params)))
+    print(", ".join(varying_params))
 
     # Group by varying parameters
     grouped_results = defaultdict(list)
@@ -190,7 +192,7 @@ def main() -> None:
         grouped_results[key].append(throughput)
 
     # Aggregated results table
-    aggregated_headers = list(sorted(varying_params)) + [
+    aggregated_headers = varying_params + [
         "Count",
         "Avg (Gbps)",
         "Std Dev (Gbps)",
@@ -203,10 +205,10 @@ def main() -> None:
         for _, value in config_key:
             row.append(value)
         row.append(len(throughputs))
-        row.append(f"{np.mean(throughputs):.2f}")
-        row.append(f"{np.std(throughputs):.2f}")
-        row.append(f"{np.min(throughputs):.2f}")
-        row.append(f"{np.max(throughputs):.2f}")
+        row.append(f"{statistics.mean(throughputs):.2f}")
+        row.append(f"{statistics.stdev(throughputs):.2f}")
+        row.append(f"{min(throughputs):.2f}")
+        row.append(f"{max(throughputs):.2f}")
         aggregated_rows.append(row)
 
     # Custom sorting function for benchmark types
