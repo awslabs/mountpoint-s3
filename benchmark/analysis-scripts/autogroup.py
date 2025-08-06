@@ -44,6 +44,7 @@ def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
     config_dict = OmegaConf.to_container(config, resolve=True)
     return flatten_config(config_dict)
 
+
 def to_gigabits_per_second(
     bytes: Union[int, float],
     seconds: Union[int, float],
@@ -143,10 +144,7 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     ignore_params = {'hydra.job.num', 'hydra.run.dir', 'hydra.job.id', 'hydra.job.name', 'iteration'}
 
     # Check which parameters vary
-    varying = {
-        key for key in all_keys
-        if len({str(config.get(key, 'N/A')) for config in all_configs}) > 1
-    }
+    varying = {key for key in all_keys if len({str(config.get(key, 'N/A')) for config in all_configs}) > 1}
 
     varying -= ignore_params
 
