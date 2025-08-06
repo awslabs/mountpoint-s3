@@ -75,12 +75,11 @@ class ClientBenchmark(BaseBenchmark):
         if not self.common_config['download_checksums']:
             client_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
 
-        subprocess_env = os.environ.copy()
-        subprocess_env.update(client_env)
+        subprocess_env = os.environ.copy() | client_env
         log.debug("Subprocess env: %s", subprocess_env)
 
         log.info("Running client benchmark with args: %s", subprocess_args)
-        subprocess.run(subprocess_args, check=True, capture_output=True, text=True, env=client_env)
+        subprocess.run(subprocess_args, check=True, capture_output=True, text=True, env=subprocess_env)
         log.info("Client benchmark completed successfully.")
 
     def post_process(self) -> Dict[str, Any]:
