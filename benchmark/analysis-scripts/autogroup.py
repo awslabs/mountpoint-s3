@@ -1,87 +1,97 @@
-#!/usr/bin/env python3
 import os
 import json
 import argparse
 import glob
-import yaml
+import csv
+
 from tabulate import tabulate
 import numpy as np
 from collections import defaultdict
+from typing import Dict, Any, Optional, Tuple, List, Set, Union
+from omegaconf import OmegaConf
 
 
-def parse_hydra_config(iteration_dir):
-    """Parse Hydra config and overrides for an iteration."""
-    config = {}
+def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
+    """Parse Hydra config and overrides for an iteration using OmegaConf and flattens the result"""
     hydra_dir = os.path.join(iteration_dir, '.hydra')
 
     # Read base config
     config_path = os.path.join(hydra_dir, 'config.yaml')
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config.update(yaml.safe_load(f))
+    if not os.path.exists(config_path):
+        return {}
+
+    # Load base config with OmegaConf
+    config = OmegaConf.load(config_path)
 
     # Apply overrides
     override_path = os.path.join(hydra_dir, 'overrides.yaml')
     if os.path.exists(override_path):
-        with open(override_path, 'r') as f:
-            overrides = yaml.safe_load(f)
-            if overrides:
-                for override in overrides:
-                    if '=' in override:
-                        key, value = override.split('=', 1)
-                        # Handle nested keys
-                        if '.' in key:
-                            parts = key.split('.')
-                            current = config
-                            for part in parts[:-1]:
-                                current = current.setdefault(part, {})
-                            current[parts[-1]] = value
-                        else:
-                            config[key] = value
+        overrides = OmegaConf.load(override_path)
+        if overrides:
+            # Convert overrides list to OmegaConf and merge
+            override_list = OmegaConf.to_container(overrides, resolve=True)
+            if isinstance(override_list, list):
+                config = OmegaConf.merge(config, OmegaConf.from_dotlist(override_list))
 
-    return flatten_config(config)
+    # Convert to regular dict and flatten
+    config_dict = OmegaConf.to_container(config, resolve=True)
+    return flatten_config(config_dict)
 
 
-def flatten_config(config, parent_key='', sep='.'):
+def flatten_config(config: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
     """Flatten nested configuration dictionary."""
-    items = []
+    result = {}
     for k, v in config.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
-            items.extend(flatten_config(v, new_key, sep=sep).items())
+            result.update(flatten_config(v, new_key, sep=sep))
         else:
-            items.append((new_key, v))
-    return dict(items)
+            result[new_key] = v
+    return result
 
 
-def parse_benchmark_file(file_path):
+def parse_benchmark_file(file_path: str) -> Optional[float]:
     """Parse benchmark output file and return throughput."""
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
 
-        if 'throughput_gbps' in data:  # CRT format
-            return data['throughput_gbps']
+        match data:
+            # CRT format
+            case {'throughput_gbps': throughput}:
+                return throughput
 
-        elif 'summary' in data:  # Client/Prefetch format
-            summary = data['summary']
-            total_bytes = summary.get('total_bytes', 0)
-            total_seconds = summary.get('total_elapsed_seconds', 1)
-            return (total_bytes * 8) / (1024 * 1024 * 1024 * total_seconds)
+            # Client/Prefetch format
+            case {'summary': {'total_bytes': total_bytes, 'total_elapsed_seconds': total_seconds}}:
+                return (total_bytes * 8) / (1024 * 1024 * 1024 * total_seconds)
 
-        elif 'jobs' in data:  # FIO format
-            job = data['jobs'][0]
-            read_data = job.get('read', {})
-            io_bytes = read_data.get('io_bytes', 0)
-            runtime_ms = read_data.get('runtime', 1000)
-            return (io_bytes * 8) / (1024 * 1024 * 1024 * (runtime_ms / 1000))
+            # Client/Prefetch format with missing fields
+            case {'summary': summary}:
+                total_bytes = summary.get('total_bytes', 0)
+                total_seconds = summary.get('total_elapsed_seconds', 1)
+                return (total_bytes * 8) / (1024 * 1024 * 1024 * total_seconds)
+
+            # FIO format
+            case {'jobs': [{'read': {'io_bytes': io_bytes, 'runtime': runtime_ms}}, *_]}:
+                return (io_bytes * 8) / (1024 * 1024 * 1024 * (runtime_ms / 1000))
+
+            # FIO format with missing fields
+            case {'jobs': [job, *_]}:
+                read_data = job.get('read', {})
+                io_bytes = read_data.get('io_bytes', 0)
+                runtime_ms = read_data.get('runtime', 1000)
+                return (io_bytes * 8) / (1024 * 1024 * 1024 * (runtime_ms / 1000))
+
+            # Unknown format
+            case _:
+                return None
 
     except Exception as e:
         print(f"Error parsing {file_path}: {e}")
         return None
 
 
-def process_iteration(iteration_dir):
+def process_iteration(iteration_dir: str) -> Tuple[Dict[str, Any], Optional[float]]:
     """Process a single iteration directory."""
     config = parse_hydra_config(iteration_dir)
 
@@ -96,14 +106,12 @@ def process_iteration(iteration_dir):
     return config, throughput
 
 
-def find_varying_parameters(all_configs):
+def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     """Identify parameters that vary across configurations, ignoring run-specific parameters."""
     if not all_configs:
         return set()
 
     varying = set()
-    reference = all_configs[0]
-
     # Get all keys from all configs
     all_keys = set()
     for config in all_configs:
@@ -120,6 +128,7 @@ def find_varying_parameters(all_configs):
                 values.add(str(config.get(key, 'N/A')))
             if len(values) > 1:
                 varying.add(key)
+                continue
 
     # Always include benchmark_type if it exists in any config
     if 'benchmark_type' in all_keys:
@@ -128,9 +137,10 @@ def find_varying_parameters(all_configs):
     return varying
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Print benchmark throughput data automatically grouped')
     parser.add_argument('--base-dir', required=True, help='Base directory containing benchmark results')
+    parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
     args = parser.parse_args()
 
     # List to store all results
@@ -162,7 +172,13 @@ def main():
         grouped_results[key].append(throughput)
 
     # Aggregated results table
-    aggregated_headers = list(sorted(varying_params)) + ["Count", "Avg (Gbps)", "Std Dev (Gbps)"]
+    aggregated_headers = list(sorted(varying_params)) + [
+        "Count",
+        "Avg (Gbps)",
+        "Std Dev (Gbps)",
+        "Min (Gbps)",
+        "Max (Gbps)",
+    ]
     aggregated_rows = []
     for config_key, throughputs in grouped_results.items():
         row = []
@@ -171,13 +187,45 @@ def main():
         row.append(len(throughputs))
         row.append(f"{np.mean(throughputs):.2f}")
         row.append(f"{np.std(throughputs):.2f}")
+        row.append(f"{np.min(throughputs):.2f}")
+        row.append(f"{np.max(throughputs):.2f}")
         aggregated_rows.append(row)
 
-    # Sort rows by average throughput (descending)
-    aggregated_rows.sort(key=lambda x: float(x[-2]), reverse=True)
+    # Custom sorting function for benchmark types
+    def benchmark_type_sort_key(value: str) -> int:
+        benchmark_order = {'crt': 0, 'client': 1, 'client-bp': 2, 'prefetch': 3, 'fio': 4}
+        return benchmark_order.get(value, 999)  # Unknown types go to end
+
+    # Sort rows by all columns
+    def sort_key(row: List[str]) -> List[Union[int, float, str]]:
+        key_parts = []
+        for i, header in enumerate(aggregated_headers):
+            value = row[i]
+            if header == 'benchmark_type':
+                # Use custom ordering for benchmark type
+                key_parts.append(benchmark_type_sort_key(value))
+            else:
+                # For other columns, sort alphabetically/numerically
+                try:
+                    # Try to convert to float for numeric sorting
+                    key_parts.append(float(value))
+                except (ValueError, TypeError):
+                    # If not numeric, sort as string
+                    key_parts.append(str(value))
+        return key_parts
+
+    aggregated_rows.sort(key=sort_key)
 
     print("\nResults Summary:")
     print(tabulate(aggregated_rows, headers=aggregated_headers, tablefmt="grid"))
+
+    # Write to CSV if requested
+    if args.csv_output:
+        with open(args.csv_output, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(aggregated_headers)
+            writer.writerows(aggregated_rows)
+        print(f"\nResults written to CSV: {args.csv_output}")
 
 
 if __name__ == "__main__":
