@@ -113,6 +113,7 @@ def process_iteration(iteration_dir: str) -> Tuple[Dict[str, Any], Optional[floa
     config = parse_hydra_config(iteration_dir)
 
     throughput = None
+    # FIXME: Do not use this glob hack for fio throughput
     for file_pattern in ['crt_output.json', 'client-output.json', 'prefetch-output.json', 'fio.*.json']:
         files = glob.glob(os.path.join(iteration_dir, file_pattern))
         if files:
@@ -188,7 +189,7 @@ def main() -> None:
     # Aggregated results table
     aggregated_headers = varying_params + [
         "Count",
-        "Avg (Gbps)",
+        "Median (Gbps)",
         "Std Dev (Gbps)",
         "Min (Gbps)",
         "Max (Gbps)",
@@ -199,7 +200,7 @@ def main() -> None:
         for _, value in config_key:
             row.append(value)
         row.append(len(throughputs))
-        row.append(f"{statistics.mean(throughputs):.2f}")
+        row.append(f"{statistics.median(throughputs):.2f}")
         row.append(f"{statistics.stdev(throughputs):.2f}")
         row.append(f"{min(throughputs):.2f}")
         row.append(f"{max(throughputs):.2f}")
