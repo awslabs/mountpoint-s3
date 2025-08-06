@@ -208,6 +208,9 @@ def _auto_add_benchmark_sweeper() -> None:
             benchmark_type = arg.split("=", 1)[1]
             break
 
+    if not benchmark_type:
+        benchmark_type = "fio"
+
     if benchmark_type:
         config_name = "multi" if "," in benchmark_type else benchmark_type
         sweeper_override = f"+hydra/benchmark_sweeper={config_name}"

@@ -2,6 +2,5 @@
 _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
 max_batch_size: null
 params:
-  'application_workers': 1, 4, 16, 64, 128
+  'application_workers': 1, 4, 16, 64
   'iteration': "range(${iterations})"
-  'mountpoint.fuse_threads': 1, 16, 64
