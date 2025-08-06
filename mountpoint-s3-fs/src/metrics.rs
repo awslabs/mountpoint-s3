@@ -41,10 +41,10 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 pub fn install(
     #[cfg(feature = "otlp_integration")] otlp_config: Option<OtlpConfig>,
 ) -> anyhow::Result<MetricsSinkHandle> {
-    let sink = Arc::new(MetricsSink::new(
-        #[cfg(feature = "otlp_integration")]
-        otlp_config,
-    )?);
+    #[cfg(feature = "otlp_integration")]
+    let sink = Arc::new(MetricsSink::new(otlp_config)?);
+    #[cfg(not(feature = "otlp_integration"))]
+    let sink = Arc::new(MetricsSink::new());
     let mut sys = System::new();
 
     let (tx, rx) = channel();
@@ -109,8 +109,68 @@ struct MetricsSink {
 }
 
 impl MetricsSink {
-    fn new(#[cfg(feature = "otlp_integration")] otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
-        #[cfg(feature = "otlp_integration")]
+    fn counter(&self, key: &Key) -> metrics::Counter {
+        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::counter);
+        entry.as_counter()
+    }
+
+    fn gauge(&self, key: &Key) -> metrics::Gauge {
+        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::gauge);
+        entry.as_gauge()
+    }
+
+    fn histogram(&self, key: &Key) -> metrics::Histogram {
+        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::histogram);
+        entry.as_histogram()
+    }
+}
+
+#[cfg(not(feature = "otlp_integration"))]
+impl MetricsSink {
+    fn new() -> Self {
+        Self {
+            metrics: DashMap::with_capacity(64),
+        }
+    }
+
+    /// Publish all this sink's metrics to `tracing` log messages
+    fn publish(&self) {
+        // Collect the output lines so we can sort them to make reading easier
+        let mut metrics = vec![];
+
+        for mut entry in self.metrics.iter_mut() {
+            let (key, metric) = entry.pair_mut();
+
+            // Get both the value and string representation of the metric (this also resets the metric)
+            let Some((_, metric_str)) = metric.value_and_fmt_and_reset() else {
+                continue;
+            };
+
+            let labels = if key.labels().len() == 0 {
+                String::new()
+            } else {
+                format!(
+                    "[{}]",
+                    key.labels()
+                        .map(|label| format!("{}={}", label.key(), label.value()))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            };
+            metrics.push(format!("{}{}: {}", key.name(), labels, metric_str));
+        }
+
+        metrics.sort();
+
+        for metric in metrics {
+            tracing::info!(target: TARGET_NAME, "{}", metric);
+        }
+    }
+}
+
+#[cfg(feature = "otlp_integration")]
+impl MetricsSink {
+    fn new(otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
         // Initialise the OTLP exporter if a config is provided
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
@@ -120,7 +180,6 @@ impl MetricsSink {
                 ));
             }
 
-            #[cfg(feature = "otlp_integration")]
             // Use TryInto to convert OtlpConfig to OtlpMetricsExporter
             match std::convert::TryInto::<OtlpMetricsExporter>::try_into(&config) {
                 Ok(exporter) => {
@@ -146,23 +205,8 @@ impl MetricsSink {
 
         Ok(Self {
             metrics: DashMap::with_capacity(64),
-            #[cfg(feature = "otlp_integration")]
             otlp_exporter,
         })
-    }
-    fn counter(&self, key: &Key) -> metrics::Counter {
-        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::counter);
-        entry.as_counter()
-    }
-
-    fn gauge(&self, key: &Key) -> metrics::Gauge {
-        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::gauge);
-        entry.as_gauge()
-    }
-
-    fn histogram(&self, key: &Key) -> metrics::Histogram {
-        let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::histogram);
-        entry.as_histogram()
     }
 
     /// Publish all this sink's metrics to `tracing` log messages
@@ -174,31 +218,23 @@ impl MetricsSink {
         for mut entry in self.metrics.iter_mut() {
             let (key, metric) = entry.pair_mut();
 
-            #[cfg(feature = "otlp_integration")]
             // Get both the value and string representation of the metric (this also resets the metric)
             let Some((value, metric_str)) = metric.value_and_fmt_and_reset() else {
                 continue;
             };
 
-            #[cfg(not(feature = "otlp_integration"))]
-            let Some((_, metric_str)) = metric.value_and_fmt_and_reset() else {
-                continue;
-            };
+            // If OTLP export is enabled, send metrics to OpenTelemetry
+            if let Some(exporter) = &self.otlp_exporter {
+                // Convert labels to OpenTelemetry KeyValue pairs
+                let attributes: Vec<KeyValue> = key
+                    .labels()
+                    .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
+                    .collect();
 
-            #[cfg(feature = "otlp_integration")]
-            {
-                // If OTLP export is enabled, send metrics to OpenTelemetry
-                if let Some(exporter) = &self.otlp_exporter {
-                    // Convert labels to OpenTelemetry KeyValue pairs
-                    let attributes: Vec<KeyValue> = key
-                        .labels()
-                        .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
-                        .collect();
-
-                    // Record the metric using its value
-                    exporter.record_metric(key, &value, &attributes);
-                }
+                // Record the metric using its value
+                exporter.record_metric(key, &value, &attributes);
             }
+
             let labels = if key.labels().len() == 0 {
                 String::new()
             } else {
@@ -294,13 +330,10 @@ mod tests {
 
     #[test]
     fn basic_metrics() {
-        let sink = Arc::new(
-            MetricsSink::new(
-                #[cfg(feature = "otlp_integration")]
-                None,
-            )
-            .unwrap(),
-        );
+        #[cfg(feature = "otlp_integration")]
+        let sink = Arc::new(MetricsSink::new(None).unwrap());
+        #[cfg(not(feature = "otlp_integration"))]
+        let sink = Arc::new(MetricsSink::new());
         let recorder = MetricsRecorder { sink: sink.clone() };
         with_local_recorder(&recorder, || {
             // Run twice to check reset works
