@@ -90,10 +90,7 @@ struct UploadBenchmarkArgs {
 
 fn main() {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install(
-        #[cfg(feature = "otlp_integration")]
-        None,
-    );
+    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
 
     let args = UploadBenchmarkArgs::parse();
     println!("starting upload benchmark with {:?}", &args);

@@ -29,13 +29,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
-
-        #[cfg(feature = "otlp_integration")]
         let _metrics = metrics::install(None);
-
-        #[cfg(not(feature = "otlp_integration"))]
-        let _metrics = metrics::install();
-
         create_pid_file()?;
 
         // mount file system as a foreground process
@@ -66,11 +60,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
-                #[cfg(feature = "otlp_integration")]
                 let _metrics = metrics::install(None);
-
-                #[cfg(not(feature = "otlp_integration"))]
-                let _metrics = metrics::install();
 
                 create_pid_file()?;
 

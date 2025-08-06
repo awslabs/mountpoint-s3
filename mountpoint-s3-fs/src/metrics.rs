@@ -33,18 +33,22 @@ const AGGREGATION_PERIOD: Duration = Duration::from_secs(5);
 /// The log target to use for emitted metrics
 pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 
+/// Configuration for metrics collection
+pub enum MetricsConfig {
+    /// No special configuration
+    None,
+    /// OpenTelemetry configuration (only available with "otlp_integration" feature)
+    #[cfg(feature = "otlp_integration")]
+    Otlp(OtlpConfig),
+}
+
 /// Initialize and install the global metrics sink, and return a handle that can be used to shut
 /// the sink down. The sink should only be shut down after any threads that generate metrics are
 /// done with their work; metrics generated after shutting down the sink will be lost.
 ///
 /// Panics if a sink has already been installed.
-pub fn install(
-    #[cfg(feature = "otlp_integration")] otlp_config: Option<OtlpConfig>,
-) -> anyhow::Result<MetricsSinkHandle> {
-    #[cfg(feature = "otlp_integration")]
-    let sink = Arc::new(MetricsSink::new(otlp_config)?);
-    #[cfg(not(feature = "otlp_integration"))]
-    let sink = Arc::new(MetricsSink::new());
+pub fn install(config: Option<MetricsConfig>) -> anyhow::Result<MetricsSinkHandle> {
+    let sink = Arc::new(MetricsSink::new(config)?);
     let mut sys = System::new();
 
     let (tx, rx) = channel();
@@ -127,10 +131,10 @@ impl MetricsSink {
 
 #[cfg(not(feature = "otlp_integration"))]
 impl MetricsSink {
-    fn new() -> Self {
-        Self {
+    fn new(_config: Option<MetricsConfig>) -> anyhow::Result<Self> {
+        Ok(Self {
             metrics: DashMap::with_capacity(64),
-        }
+        })
     }
 
     /// Publish all this sink's metrics to `tracing` log messages
@@ -170,7 +174,13 @@ impl MetricsSink {
 
 #[cfg(feature = "otlp_integration")]
 impl MetricsSink {
-    fn new(otlp_config: Option<OtlpConfig>) -> anyhow::Result<Self> {
+    fn new(config: Option<MetricsConfig>) -> anyhow::Result<Self> {
+        // Initialise the OTLP exporter if a config is provided
+        let otlp_config = match config {
+            Some(MetricsConfig::Otlp(config)) => Some(config),
+            _ => None,
+        };
+
         // Initialise the OTLP exporter if a config is provided
         let otlp_exporter = if let Some(config) = otlp_config {
             // Basic validation of the endpoint URL
@@ -330,10 +340,7 @@ mod tests {
 
     #[test]
     fn basic_metrics() {
-        #[cfg(feature = "otlp_integration")]
         let sink = Arc::new(MetricsSink::new(None).unwrap());
-        #[cfg(not(feature = "otlp_integration"))]
-        let sink = Arc::new(MetricsSink::new());
         let recorder = MetricsRecorder { sink: sink.clone() };
         with_local_recorder(&recorder, || {
             // Run twice to check reset works
@@ -473,8 +480,8 @@ mod tests {
         info!("Using OTLP endpoint: {}", endpoint);
 
         // Initialize metrics with an OTLP config
-        let config = OtlpConfig::new(&endpoint).with_interval_secs(1);
-        let sink = Arc::new(MetricsSink::new(Some(config)).unwrap());
+        let otlp_config = OtlpConfig::new(&endpoint).with_interval_secs(1);
+        let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
         let recorder = MetricsRecorder { sink: sink.clone() };
 
         with_local_recorder(&recorder, || {
@@ -539,8 +546,8 @@ mod tests {
     fn test_otlp_endpoint_validation() {
         // Test with an invalid URI - we need to directly test the MetricsSink::new function
         // since install() will try to set up a global recorder which can only be done once
-        let config = OtlpConfig::new("not-a-valid-uri");
-        let result = MetricsSink::new(Some(config));
+        let otlp_config = OtlpConfig::new("not-a-valid-uri");
+        let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
         assert!(result.is_err());
         let error = result.unwrap_err().to_string();
         assert!(
@@ -553,8 +560,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Test with a syntactically valid endpoint (should succeed)
-        let config = OtlpConfig::new("http://example.com:4318/v1/metrics");
-        let result = MetricsSink::new(Some(config));
+        let otlp_config = OtlpConfig::new("http://example.com:4318/v1/metrics");
+        let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
         assert!(result.is_ok());
     }
 }
