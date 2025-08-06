@@ -19,6 +19,7 @@ from collections import defaultdict
 from typing import Dict, Any, Optional, Tuple, List, Set, Union
 from omegaconf import OmegaConf
 
+
 def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
     """Parse Hydra config and overrides for an iteration using OmegaConf and flattens the result"""
     hydra_dir = os.path.join(iteration_dir, '.hydra')
@@ -97,20 +98,13 @@ def parse_benchmark_file(file_path: str) -> Optional[float]:
             case {'jobs': [{'read': {'io_bytes': io_bytes, 'runtime': runtime_ms}}, *_]}:
                 return to_gigabits_per_second(bytes=io_bytes, seconds=runtime_ms / 1000)
 
-            # FIO format with missing fields
-            case {'jobs': [job, *_]}:
-                read_data = job.get('read', {})
-                io_bytes = read_data.get('io_bytes', 0)
-                runtime_ms = read_data.get('runtime', 1000)
-                return to_gigabits_per_second(bytes=io_bytes, seconds=runtime_ms / 1000)
-
             # Unknown format
             case _:
                 warnings.warn(f"Unknown format in {file_path}")
                 return None
 
     except Exception as e:
-        warnings.warn(f" Warning: Error parsing {file_path}: {e}")
+        warnings.warn(f"Warning: Error parsing {file_path}: {e}")
         return None
 
 
