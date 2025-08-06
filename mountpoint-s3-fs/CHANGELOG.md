@@ -5,6 +5,7 @@
 * Adopt a unified memory pool to reduce overall memory usage. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
 * Replace `S3Uri` with `S3Path` and consolidate related types like `Bucket` and `Prefix` into the `s3` module.
   ([#1535](https://github.com/awslabs/mountpoint-s3/pull/1535))
+* `PrefetchGetObject` now has an updated backpressure algorithm advancing the read window with each call to `PrefetchGetObject::read`, with the aim of higher sequential-read throughput. ([#1453](https://github.com/awslabs/mountpoint-s3/pull/1453))
 
 ## v0.6.0 (July 23, 2025)
 
