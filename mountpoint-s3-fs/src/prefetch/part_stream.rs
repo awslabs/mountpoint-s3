@@ -290,6 +290,12 @@ where
         pin_mut!(request_stream);
         while let Some(next) = request_stream.next().await {
             let GetBodyPart { offset, data: mut body } = next?;
+            trace!("got a body part at offset {offset}");
+            const DEFAULT_PART_SIZE: u64 = 8 * 1024 * 1024;
+            if offset % DEFAULT_PART_SIZE != 0 {
+                metrics::counter!("s3.client.part_size_not_aligned", "part_size" => self.preferred_part_size.to_string())
+                    .increment(1);
+            }
             // pre-split the body into multiple parts as suggested by preferred part size
             // in order to avoid validating checksum on large parts at read.
             let mut curr_offset = offset;

@@ -339,7 +339,8 @@ where
             if response.is_empty() && part_bytes.len() == to_read as usize {
                 return Ok(part_bytes);
             }
-
+            // Emit a metric here, since we have consumed an unaligned part
+            counter!("prefetch.unaligned_part").increment(1);
             let part_len = part_bytes.len() as u64;
             response.extend(part_bytes)?;
             to_read -= part_len;
