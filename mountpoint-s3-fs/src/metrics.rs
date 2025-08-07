@@ -35,8 +35,6 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 
 /// Configuration for metrics collection
 pub enum MetricsConfig {
-    /// No special configuration
-    None,
     /// OpenTelemetry configuration (only available with "otlp_integration" feature)
     #[cfg(feature = "otlp_integration")]
     Otlp(OtlpConfig),
