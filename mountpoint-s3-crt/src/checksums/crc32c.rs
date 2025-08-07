@@ -42,6 +42,11 @@ impl Hasher {
         self.state = Crc32c(Self::crc32c(buf, self.state.0));
     }
 
+    /// Return the computed CRC32C checksum value without finalizing the hasher.
+    pub fn current_value(&self) -> Crc32c {
+        self.state
+    }
+
     /// Finalize the hash state and return the computed CRC32C checksum value.
     pub fn finalize(self) -> Crc32c {
         self.state

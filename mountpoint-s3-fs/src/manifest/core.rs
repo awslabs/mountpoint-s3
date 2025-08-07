@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
+use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::error;
@@ -24,173 +25,136 @@ pub enum ManifestError {
     InvalidRow(u64),
     #[error("read invalid channel row with id {0}")]
     InvalidChannel(u64),
+    #[error("invalid checksum for the entry with key {0}, computed {1}, received {2}")]
+    InvalidChecksum(String, u32, u32),
 }
 
-/// An validated entry to be returned by manifest_lookup() and ManifestDirIter::next_entry().
-///
-/// Represents either a file or directory in the S3 bucket manifest.
-/// Files have additional metadata like etag and size, while directories
-/// may be regular directories or synthetic channel directories.
 #[derive(Debug, Clone)]
-pub enum ManifestEntry {
-    /// Represents a file in the S3 bucket.
-    File {
-        /// Unique identifier for this file entry, used as inode number.
-        id: u64,
-        /// Identifier of the parent directory entry.
-        parent_id: u64,
-        /// Identifier of the S3 channel (bucket+prefix combination) this file belongs to.
-        channel_id: usize,
-        /// Partial key of the parent directory.
-        parent_partial_key: ValidKey,
-        /// Name of the file.
-        name: String,
-        /// Entity tag (ETag) of the S3 object, used for content validation.
-        etag: String,
-        /// Size of the S3 object in bytes.
-        size: usize,
-    },
-    /// Represents a directory in the S3 bucket.
-    Directory {
-        /// Unique identifier for this directory entry, used as inode number.
-        id: u64,
-        /// Identifier of the parent directory entry.
-        parent_id: u64,
-        /// Identifier of the S3 channel (bucket+prefix combination) this directory belongs to.
-        channel_id: usize,
-        /// Partial key of the parent directory, not set for synthetic channel directories.
-        parent_partial_key: Option<ValidKey>,
-        /// Name of the directory.
-        name: String,
-    },
+enum ManifestEntryKind {
+    File { etag: String, size: usize },
+    Directory,
+}
+
+/// A validated entry to be returned by manifest_lookup() and ManifestDirIter::next_entry().
+#[derive(Debug, Clone)]
+pub struct ManifestEntry {
+    /// Unique identifier for this file entry, used as inode number.
+    id: u64,
+    /// Identifier of the parent directory entry.
+    parent_id: u64,
+    /// Identifier of the S3 channel (bucket+prefix combination) this file belongs to.
+    channel_id: usize,
+    /// Partial key of the parent directory.
+    parent_partial_key: Option<ValidKey>,
+    /// Name of the file.
+    name: String,
+    /// Kind and associated metadata.
+    kind: ManifestEntryKind,
+    /// CRC32C checksum of this entry.
+    checksum: u32,
 }
 
 impl ManifestEntry {
-    /// Returns the unique identifier (inode number) of this entry.
-    pub fn id(&self) -> u64 {
-        match self {
-            ManifestEntry::File { id, .. } => *id,
-            ManifestEntry::Directory { id, .. } => *id,
-        }
-    }
-
-    /// Returns the channel identifier for this entry.
-    pub fn channel_id(&self) -> usize {
-        match self {
-            ManifestEntry::File { channel_id, .. } => *channel_id,
-            ManifestEntry::Directory { channel_id, .. } => *channel_id,
-        }
-    }
-
     /// Returns identifier of the parent of this entry.
     pub fn parent_id(&self) -> u64 {
-        match self {
-            ManifestEntry::File { parent_id, .. } => *parent_id,
-            ManifestEntry::Directory { parent_id, .. } => *parent_id,
-        }
+        self.parent_id
     }
 
     /// Converts this entry into a `Lookup` object.
     ///
     /// Used in lookup and getattr file system operations.
-    ///
-    /// The `Lookup` object contains information needed by the filesystem
-    /// to represent this entry, including its inode number, stat information,
-    /// and S3 location.
-    pub fn into_lookup(self, path: Arc<S3Path>, mount_time: OffsetDateTime) -> Result<Lookup, ManifestError> {
-        let lookup = match self {
-            ManifestEntry::File {
-                id,
-                parent_partial_key,
-                name,
-                etag,
-                size,
-                ..
-            } => Lookup::new(
-                id,
-                Self::stat_for_file(&etag, size, mount_time),
-                InodeKind::File,
-                true,
-                Some(S3Location::new(
-                    path,
-                    parent_partial_key.new_child(
-                        ValidName::parse_str(&name).map_err(|_| ManifestError::InvalidRow(id))?,
-                        InodeKind::File,
-                    )?,
-                )),
-            ),
-            ManifestEntry::Directory {
-                id,
-                parent_id,
-                parent_partial_key,
-                name,
-                ..
-            } => {
-                let location = if let Some(parent_partial_key) = parent_partial_key {
-                    Some(S3Location::new(
-                        path,
-                        parent_partial_key.new_child(
-                            ValidName::parse_str(&name).map_err(|_| ManifestError::InvalidRow(id))?,
-                            InodeKind::Directory,
-                        )?,
-                    ))
-                } else {
-                    // this invariant is guaranteed when constructed via [ManifestEntry::try_from], which is the only way we use
-                    debug_assert_eq!(
-                        parent_id, ROOT_INODE_NO,
-                        "only synthetic channel dirs are allowed not to have parent_partial_key"
-                    );
-                    None
-                };
-                Lookup::new(
-                    id,
-                    Self::stat_for_directory(mount_time),
-                    InodeKind::Directory,
-                    true,
-                    location,
-                )
-            }
-        };
-        Ok(lookup)
+    pub fn into_lookup(self, channels: &[Arc<S3Path>], mount_time: OffsetDateTime) -> Result<Lookup, ManifestError> {
+        let s3_path = self.channel(channels)?;
+        let (id, partial_key, entry_kind) = self.validate_checksum(s3_path.as_ref())?;
+        let stat = Self::stat(entry_kind, mount_time);
+        let inode_kind = partial_key.kind();
+        // s3_location is not set for virtual directories
+        let s3_location = self
+            .parent_partial_key
+            .map(move |_| S3Location::new(s3_path, partial_key));
+        Ok(Lookup::new(id, stat, inode_kind, true, s3_location))
     }
 
     /// Converts this entry into inode information and name. Used in readdir.
-    ///
-    /// This method extracts the essential filesystem metadata from the entry,
-    /// including inode number, stat information, and kind (file or directory).
     pub fn into_inode_information(
         self,
+        channels: &[Arc<S3Path>],
         mount_time: OffsetDateTime,
     ) -> Result<(InodeInformation, String), ManifestError> {
-        let (ino, name, kind, stat) = match self {
-            ManifestEntry::File {
-                id, name, etag, size, ..
-            } => (id, name, InodeKind::File, Self::stat_for_file(&etag, size, mount_time)),
-            ManifestEntry::Directory { id, name, .. } => {
-                (id, name, InodeKind::Directory, Self::stat_for_directory(mount_time))
-            }
+        let s3_path = self.channel(channels)?;
+        let (id, partial_key, entry_kind) = self.validate_checksum(s3_path.as_ref())?;
+        let stat = Self::stat(entry_kind, mount_time);
+        let inode_kind = partial_key.kind();
+        let name = partial_key.name();
+        Ok((InodeInformation::new(id, stat, inode_kind, true), name.to_string()))
+    }
+
+    fn channel(&self, channels: &[Arc<S3Path>]) -> Result<Arc<S3Path>, ManifestError> {
+        let channel_id = self.channel_id;
+        if channel_id >= channels.len() {
+            error!("channel id {} specified in entry {} is invalid", channel_id, self.id);
+            return Err(ManifestError::InvalidRow(self.id));
+        }
+        Ok(channels[channel_id].clone())
+    }
+
+    /// Computes and validates the checksum, returns validated data: (id, partial_key, entry_kind).
+    ///
+    /// Note: this method will copy etag and parent_partial_key, which may be avoided, but intentionally done this way to improve readability.
+    fn validate_checksum(&self, path: &S3Path) -> Result<(u64, ValidKey, ManifestEntryKind), ManifestError> {
+        let name = ValidName::parse_str(&self.name).map_err(|_| ManifestError::InvalidRow(self.id))?;
+
+        // Compute checksum
+        let (partial_key, computed_checksum, _) = match &self.kind {
+            ManifestEntryKind::File { etag, size } => compute_checksum(
+                self.id,
+                self.parent_id,
+                self.parent_partial_key.as_ref(),
+                name,
+                Some(etag),
+                Some(*size),
+                path,
+            )?,
+            ManifestEntryKind::Directory => compute_checksum(
+                self.id,
+                self.parent_id,
+                self.parent_partial_key.as_ref(),
+                name,
+                None,
+                None,
+                path,
+            )?,
         };
-        ValidName::parse_str(&name).map_err(|_| ManifestError::InvalidRow(ino))?;
-        Ok((InodeInformation::new(ino, stat, kind, true), name))
+
+        // Validate checksum
+        if computed_checksum.value() != self.checksum {
+            return Err(ManifestError::InvalidChecksum(
+                self.name.clone(),
+                computed_checksum.value(),
+                self.checksum,
+            ));
+        }
+
+        Ok((self.id, partial_key, self.kind.clone()))
     }
 
-    /// Creates stat information for a directory entry.
-    fn stat_for_directory(mount_time: OffsetDateTime) -> InodeStat {
-        InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL)
-    }
-
-    /// Creates stat information for a file entry.
-    fn stat_for_file(etag: &str, size: usize, mount_time: OffsetDateTime) -> InodeStat {
-        InodeStat::for_file(
-            size,
-            mount_time,
-            Some(etag.into()),
-            // Intentionally leaving `storage_class` and `restore_status` empty,
-            // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
-            None,
-            None,
-            NEVER_EXPIRE_TTL,
-        )
+    /// Creates stat information based on the kind of this manifest entry.
+    fn stat(kind: ManifestEntryKind, mount_time: OffsetDateTime) -> InodeStat {
+        match kind {
+            ManifestEntryKind::File { etag, size } => {
+                InodeStat::for_file(
+                    size,
+                    mount_time,
+                    Some(etag.into()),
+                    // Intentionally leaving `storage_class` and `restore_status` empty,
+                    // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
+                    None,
+                    None,
+                    NEVER_EXPIRE_TTL,
+                )
+            }
+            ManifestEntryKind::Directory => InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
+        }
     }
 }
 
@@ -198,39 +162,82 @@ impl TryFrom<DbEntry> for ManifestEntry {
     type Error = ManifestError;
 
     fn try_from(db_entry: DbEntry) -> Result<Self, Self::Error> {
-        match (db_entry.etag, db_entry.size) {
-            (None, None) => {
-                // no etag and no size means a directory entry
-                let parent_partial_key = db_entry.parent_partial_key.map(ValidKey::try_from).transpose()?;
-                if parent_partial_key.is_none() && db_entry.parent_id != ROOT_INODE_NO {
-                    Err(ManifestError::InvalidRow(db_entry.id))
-                } else {
-                    Ok(ManifestEntry::Directory {
-                        id: db_entry.id,
-                        parent_id: db_entry.parent_id,
-                        channel_id: db_entry.channel_id,
-                        parent_partial_key,
-                        name: db_entry.name,
-                    })
-                }
-            }
-            (Some(etag), Some(size)) => Ok(ManifestEntry::File {
-                // existing etag and size means a file entry
-                id: db_entry.id,
-                parent_id: db_entry.parent_id,
-                channel_id: db_entry.channel_id,
-                parent_partial_key: db_entry
-                    .parent_partial_key
-                    .map(ValidKey::try_from)
-                    .transpose()?
-                    .ok_or(ManifestError::InvalidRow(db_entry.id))?,
-                name: db_entry.name,
-                etag,
-                size,
-            }),
-            _ => Err(ManifestError::InvalidRow(db_entry.id)),
+        let parent_partial_key = db_entry.parent_partial_key.map(ValidKey::try_from).transpose()?;
+        if parent_partial_key.is_none() && db_entry.parent_id != ROOT_INODE_NO {
+            error!("only channel directories may have no parent_key, id: {}", db_entry.id);
+            return Err(ManifestError::InvalidRow(db_entry.id));
         }
+
+        let kind = match (db_entry.etag, db_entry.size) {
+            (None, None) => ManifestEntryKind::Directory,
+            (Some(etag), Some(size)) => ManifestEntryKind::File { etag, size },
+            _ => return Err(ManifestError::InvalidRow(db_entry.id)),
+        };
+
+        Ok(ManifestEntry {
+            id: db_entry.id,
+            parent_id: db_entry.parent_id,
+            channel_id: db_entry.channel_id,
+            parent_partial_key,
+            name: db_entry.name,
+            kind,
+            checksum: db_entry.checksum,
+        })
     }
+}
+
+/// A helper to compute the checksum of the given set of fields.
+///
+/// Computes (partial_key, full_checksum, partial_checksum), with full_checksum including all of the fields
+/// and partial_checksum including only (partial_key, etag, size).
+///
+/// Note: this function will reconstruct the s3 key from parent_partial_key and name, this may mean unnecessary
+/// copying parent_partial_key in certain cases, but intentionally done this way to improve readability.
+pub fn compute_checksum(
+    id: u64,
+    parent_id: u64,
+    parent_partial_key: Option<&ValidKey>,
+    name: ValidName,
+    etag: Option<&str>,
+    size: Option<usize>,
+    s3_path: &S3Path,
+) -> Result<(ValidKey, Crc32c, Crc32c), ValidKeyError> {
+    // Create the partial key of the entry
+    let kind = if etag.is_some() && size.is_some() {
+        InodeKind::File
+    } else {
+        InodeKind::Directory
+    };
+
+    let partial_key = if let Some(parent_key) = parent_partial_key {
+        parent_key.new_child(name, kind)?
+    } else {
+        ValidKey::root().new_child(name, kind)?
+    };
+
+    // Compute checksums
+    let mut hasher = crc32c::Hasher::new();
+
+    hasher.update(partial_key.as_bytes());
+
+    if let Some(etag) = etag {
+        hasher.update(etag.as_bytes());
+    }
+    if let Some(size) = size {
+        // we encode size with big endian byte order and with a fixed width of 8 bytes (rust: u64, java: long)
+        let size = size as u64;
+        hasher.update(size.to_be_bytes().as_ref());
+    }
+    let partial_checksum = hasher.current_value();
+
+    hasher.update(id.to_be_bytes().as_ref());
+    hasher.update(parent_id.to_be_bytes().as_ref());
+
+    hasher.update(s3_path.bucket.as_bytes());
+    hasher.update(s3_path.prefix.as_str().as_bytes());
+
+    let full_checksum = hasher.finalize();
+    Ok((partial_key, full_checksum, partial_checksum))
 }
 
 /// Manifest of all objects in the mounted directory.
