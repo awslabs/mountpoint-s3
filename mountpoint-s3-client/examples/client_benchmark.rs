@@ -117,11 +117,11 @@ fn run_benchmark(
         let received_size = received_size.load(Ordering::SeqCst);
         total_bytes += received_size;
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
+            "{}: received {} bytes in {:.2}s: {:.2} Gb/s",
             iteration,
             received_size,
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+            (received_size as f64) / elapsed.as_secs_f64() / (1000 * 1000 * 1000 / 8) as f64
         );
 
         iter_results.push(json!({
@@ -135,11 +135,11 @@ fn run_benchmark(
 
     let total_elapsed = total_start.elapsed();
     println!(
-        "Total: received {} bytes in {:.2}s across {} iterations: {:.2} Gib/s",
+        "Total: received {} bytes in {:.2}s across {} iterations: {:.2} Gb/s",
         total_bytes,
         total_elapsed.as_secs_f64(),
         iter_results.len(),
-        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1000 * 1000 * 1000 / 8) as f64
     );
 
     if let Some(output_path) = output_path {
@@ -199,7 +199,7 @@ struct CliArgs {
     #[arg(
         long,
         help = "Desired throughput in Gbps",
-        default_value_t = 10.0,
+        default_value_t = 100.0,
         visible_alias = "maximum-throughput-gbps"
     )]
     throughput_target_gbps: f64,
