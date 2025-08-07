@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 from typing import Dict, Any
 
@@ -67,9 +68,15 @@ class PrefetchBenchmark(BaseBenchmark):
             subprocess_args.extend(["--max-duration", str(run_time)])
 
         subprocess_args.extend(["--output-file", "prefetch-output.json"])
+        prefetch_env = {}
+        if not self.common_config['download_checksums']:
+            prefetch_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
+
+        subprocess_env = os.environ.copy() | prefetch_env
+        log.debug("Subprocess env: %s", subprocess_env)
 
         log.info("Running prefetch benchmark with args: %s", subprocess_args)
-        subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
+        subprocess.run(subprocess_args, check=True, capture_output=True, text=True, env=subprocess_env)
         log.info("Prefetch benchmark completed successfully.")
 
     def post_process(self) -> None:
