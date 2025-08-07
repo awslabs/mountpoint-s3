@@ -58,6 +58,7 @@ class BenchmarkConfigParser:
             'prefix': getattr(mp_cfg, 'prefix', None),
             'stub_mode': getattr(mp_cfg, 'stub_mode', 'off'),
             'upload_checksums': getattr(mp_cfg, 'upload_checksums', None),
+            'max_memory_target': getattr(mp_cfg, 'max_memory_target', None),
         }
 
     def get_fio_config(self) -> Dict[str, Any]:
