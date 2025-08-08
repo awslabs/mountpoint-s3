@@ -91,7 +91,7 @@ struct UploadBenchmarkArgs {
 
 fn main() {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install();
+    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
 
     let args = UploadBenchmarkArgs::parse();
     println!("starting upload benchmark with {:?}", &args);
