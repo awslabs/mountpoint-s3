@@ -54,6 +54,7 @@ benchmarks:
   
   prefetch:
     max_memory_target: !!null
+    max_read_window_size: !!null
   
   crt:
     crt_benchmarks_path: !!null
@@ -62,7 +63,7 @@ benchmarks:
     # None 
 
   client_backpressure:
-    read_window_size: !!null #2147483648 
+    max_read_window_size: !!null #2147483648
 
 
 hydra:

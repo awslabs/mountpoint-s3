@@ -72,6 +72,7 @@ class BenchmarkConfigParser:
         prefetch_cfg = self.cfg.benchmarks.prefetch
         return {
             'max_memory_target': getattr(prefetch_cfg, 'max_memory_target', None),
+            'max_read_window_size': getattr(prefetch_cfg, 'max_read_window_size', None),
         }
 
     def get_crt_config(self) -> Dict[str, Any]:
@@ -83,5 +84,5 @@ class BenchmarkConfigParser:
     def get_client_config(self) -> Dict[str, Any]:
         client_cfg = self.cfg.benchmarks.client
         return {
-            'read_window_size': getattr(client_cfg, 'read_window_size', 2147483648),  # Reaslitic default value 8M/2G?
+            'max_read_window_size': getattr(client_cfg, 'max_read_window_size', 2147483648),  # Realistic default value of 2GiB
         }

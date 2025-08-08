@@ -218,7 +218,7 @@ struct CliArgs {
     #[arg(
         long,
         help = "Initial read window size in bytes, used to dictate how far ahead we request data from S3",
-        default_value = "0"
+        default_value = "2147483648"
     )]
     initial_window_size: Option<usize>,
     #[arg(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
