@@ -98,6 +98,10 @@ second_account_tests = []
 name = "mount_from_config"
 required-features = ["manifest", "event_log"]
 
+[[example]]
+name = "create_manifest"
+required-features = ["manifest"]
+
 [[bench]]
 name = "cache_serialization"
 harness = false

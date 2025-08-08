@@ -1,11 +1,14 @@
-use rusqlite::types::Type;
-use rusqlite::{Connection, Error, OptionalExtension, Result, Row};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use super::ManifestError;
+use mountpoint_s3_client::checksums::crc32c::Crc32c;
+use rusqlite::types::Type;
+use rusqlite::{Connection, Error, OptionalExtension, Result, Row};
 
+use super::{InputManifestError, ManifestError, core::compute_checksum};
+
+use crate::metablock::{ValidKey, ValidName};
 use crate::s3::{Bucket, Prefix, S3Path};
 
 /// Represents an entry in the manifest database.
@@ -33,6 +36,88 @@ pub struct DbEntry {
     pub etag: Option<String>,
     /// Size of the S3 object in bytes, not set for directories.
     pub size: Option<usize>,
+    /// CRC32C checksum of this entry.
+    ///
+    /// This is initially computed by our code upon creation of DbEntry from [InputManifestEntry].
+    /// It is stored in the database and verified on retrieval, before serving fuse requests.
+    pub checksum: u32,
+}
+
+impl DbEntry {
+    /// Creates a DB entry and computes the checksum of the fields to store in the DB later.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: u64,
+        parent_id: u64,
+        channel_id: usize,
+        parent_partial_key: Option<ValidKey>,
+        name: ValidName,
+        etag: Option<String>,
+        size: Option<usize>,
+        s3_path: &S3Path, // this is only used to compute a checksum
+    ) -> Result<Self, InputManifestError> {
+        let (_, checksum, _) = compute_checksum(
+            id,
+            parent_id,
+            parent_partial_key.as_ref(),
+            name,
+            etag.as_deref(),
+            size,
+            s3_path,
+        )?;
+        Ok(Self {
+            id,
+            parent_id,
+            channel_id,
+            parent_partial_key: parent_partial_key.map(String::from),
+            name: name.to_string(),
+            etag,
+            size,
+            checksum: checksum.value(),
+        })
+    }
+
+    /// Creates a DB entry and verifies the partial checksum (of partial_key, etag, size) against the computed value.
+    /// Also computes the full checksum to store in the DB later.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_partial_checksum(
+        id: u64,
+        parent_id: u64,
+        channel_id: usize,
+        parent_partial_key: Option<ValidKey>,
+        name: ValidName,
+        etag: Option<String>,
+        size: Option<usize>,
+        s3_path: &S3Path,               // this is only used to compute a checksum
+        input_partial_checksum: Crc32c, // the partial checksum, received as an input, to validate
+    ) -> Result<Self, InputManifestError> {
+        let (_, checksum, partial_checksum) = compute_checksum(
+            id,
+            parent_id,
+            parent_partial_key.as_ref(),
+            name,
+            etag.as_deref(),
+            size,
+            s3_path,
+        )?;
+        if input_partial_checksum != partial_checksum {
+            return Err(InputManifestError::InvalidChecksum(
+                name.to_string(),
+                partial_checksum.value(),
+                input_partial_checksum.value(),
+            ));
+        }
+        Ok(Self {
+            id,
+            parent_id,
+            channel_id,
+            parent_partial_key: parent_partial_key.map(String::from),
+            name: name.to_string(),
+            etag,
+            size,
+            checksum: checksum.value(),
+        })
+    }
 }
 
 impl TryFrom<&Row<'_>> for DbEntry {
@@ -47,6 +132,7 @@ impl TryFrom<&Row<'_>> for DbEntry {
             name: row.get(4)?,
             etag: row.get(5)?,
             size: row.get(6)?,
+            checksum: row.get(7)?,
         })
     }
 }
@@ -84,8 +170,7 @@ impl Db {
         metrics::histogram!("manifest.connection_lock.duration_us").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
-        let query =
-            "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE id = ?1";
+        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size, checksum FROM s3_objects WHERE id = ?1";
         tracing::debug!("executing {} with parameters {:?}", query, (id,));
         let mut stmt = conn.prepare(query)?;
         let result = stmt.query_row((id,), |row: &Row| row.try_into()).optional();
@@ -105,7 +190,7 @@ impl Db {
         metrics::histogram!("manifest.connection_lock.duration_us").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
-        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE parent_id = ?1 AND name = ?2";
+        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size, checksum FROM s3_objects WHERE parent_id = ?1 AND name = ?2";
         tracing::debug!("executing {} with parameters {:?}", query, (parent_id, name,));
         let mut stmt = conn.prepare(query)?;
         let result = stmt.query_row((parent_id, name), |row: &Row| row.try_into()).optional();
@@ -125,7 +210,7 @@ impl Db {
         metrics::histogram!("manifest.connection_lock.duration_us").record(start.elapsed().as_micros() as f64);
 
         let start = Instant::now();
-        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size FROM s3_objects WHERE parent_id = ?1 ORDER BY name LIMIT ?2 OFFSET ?3";
+        let query = "SELECT id, parent_id, channel_id, parent_partial_key, name, etag, size, checksum FROM s3_objects WHERE parent_id = ?1 ORDER BY name LIMIT ?2 OFFSET ?3";
         tracing::debug!(
             "executing {} with parameters {:?}",
             query,
@@ -154,7 +239,8 @@ impl Db {
                 parent_partial_key  TEXT      NULL,
                 name                TEXT      NOT NULL,
                 etag                TEXT      NULL,
-                size                INTEGER   NULL
+                size                INTEGER   NULL,
+                checksum            INTEGER   NOT NULL
             )",
             (),
         )?;
@@ -192,7 +278,7 @@ impl Db {
         let start = Instant::now();
         let tx = conn.transaction()?;
         let mut stmt = tx.prepare(
-            "INSERT INTO s3_objects (id, parent_id, channel_id, parent_partial_key, name, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO s3_objects (id, parent_id, channel_id, parent_partial_key, name, etag, size, checksum) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
         for entry in entries {
             stmt.execute((
@@ -203,6 +289,7 @@ impl Db {
                 &entry.name,
                 &entry.etag,
                 entry.size,
+                entry.checksum,
             ))?;
         }
         drop(stmt);

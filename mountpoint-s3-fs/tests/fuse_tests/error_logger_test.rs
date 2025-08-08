@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_INTERNAL;
 use mountpoint_s3_fs::manifest::DbEntry;
+use mountpoint_s3_fs::metablock::ValidKey;
+use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{
     logging::error_logger::{Event, FileErrorLogger},
     manifest::Manifest,
@@ -34,19 +36,22 @@ fn test_manifest_error_logged() {
     }];
 
     // create a fuse session with a manifest containing a corrupted entry (no etag)
+    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (tmp_dir, manifest_db_path) =
-        create_dummy_manifest::<&str>(&[], 0, "", "test_bucket").expect("manifest must be created");
+        create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
     insert_entries(
         &manifest_db_path,
-        &[DbEntry {
-            id: 3,
-            parent_id: 1,
-            channel_id: 0,
-            parent_partial_key: Some("".to_string()),
-            name: "key".to_string(),
-            etag: None,
-            size: Some(1),
-        }],
+        &[DbEntry::new(
+            3,
+            1,
+            0,
+            Some(ValidKey::root()),
+            "key".try_into().unwrap(),
+            None,
+            Some(1),
+            &s3_path,
+        )
+        .expect("must be a valid db entry")],
     )
     .expect("insert invalid row must succeed");
     let error_logger = Box::new(FileErrorLogger::new(tmp_dir.path(), || ()).expect("must create a error callback"));
@@ -57,7 +62,7 @@ fn test_manifest_error_logged() {
         ..Default::default()
     };
 
-    let test_session = fuse::mock_session::new("test_manifest_error_logged", test_session_config);
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), test_session_config);
 
     // try to lookup and expect an EIO error
     let e = std::fs::metadata(test_session.mount_path().join("key")).expect_err("lookup must fail");
