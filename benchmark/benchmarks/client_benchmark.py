@@ -34,7 +34,7 @@ class ClientBenchmark(BaseBenchmark):
 
         if self.backpressure:
             subprocess_args.append("--enable-backpressure")
-            if (initial_window_size := self.client_config['read_window_size']) is not None:
+            if (initial_window_size := self.client_config['max_read_window_size']) is not None:
                 subprocess_args.extend(["--initial-window-size", str(initial_window_size)])
 
         if (run_time := self.common_config['run_time']) is not None:

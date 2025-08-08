@@ -72,6 +72,9 @@ class PrefetchBenchmark(BaseBenchmark):
         if not self.common_config['download_checksums']:
             prefetch_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
 
+        if self.prefetch_config['max_read_window_size'] is not None:
+            prefetch_env["UNSTABLE_MOUNTPOINT_MAX_PREFETCH_WINDOW_SIZE"] = str(self.prefetch_config['max_read_window_size'])
+
         subprocess_env = os.environ.copy() | prefetch_env
         log.debug("Subprocess env: %s", subprocess_env)
 
