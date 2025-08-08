@@ -111,6 +111,51 @@ struct MetricsSink {
 }
 
 impl MetricsSink {
+    fn new(config: Option<MetricsConfig>) -> anyhow::Result<Self> {
+        // Match on the config to determine what kind of metrics sink to create
+        match config {
+            None => Ok(Self {
+                metrics: DashMap::with_capacity(64),
+                #[cfg(feature = "otlp_integration")]
+                otlp_exporter: None,
+            }),
+
+            // OTLP configuration (only available with "otlp_integration" feature)
+            #[cfg(feature = "otlp_integration")]
+            Some(MetricsConfig::Otlp(config)) => {
+                // Basic validation of the endpoint URL
+                if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
+                    return Err(anyhow::anyhow!(
+                        "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://"
+                    ));
+                }
+
+                // Use TryInto to convert OtlpConfig to OtlpMetricsExporter
+                let otlp_exporter = match std::convert::TryInto::<OtlpMetricsExporter>::try_into(&config) {
+                    Ok(exporter) => {
+                        tracing::info!("OpenTelemetry metrics export enabled to {}", config.endpoint);
+                        Some(exporter)
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to initialise OTLP exporter: {}", e);
+
+                        // If the user explicitly requested metrics export but it failed,
+                        // we should return an error rather than silently continuing without metrics
+                        return Err(anyhow::anyhow!(
+                            "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.",
+                            e
+                        ));
+                    }
+                };
+
+                Ok(Self {
+                    metrics: DashMap::with_capacity(64),
+                    #[cfg(feature = "otlp_integration")]
+                    otlp_exporter,
+                })
+            }
+        }
+    }
     fn counter(&self, key: &Key) -> metrics::Counter {
         let entry = self.metrics.entry(key.clone()).or_insert_with(Metric::counter);
         entry.as_counter()
@@ -129,12 +174,6 @@ impl MetricsSink {
 
 #[cfg(not(feature = "otlp_integration"))]
 impl MetricsSink {
-    fn new(_config: Option<MetricsConfig>) -> anyhow::Result<Self> {
-        Ok(Self {
-            metrics: DashMap::with_capacity(64),
-        })
-    }
-
     /// Publish all this sink's metrics to `tracing` log messages
     fn publish(&self) {
         // Collect the output lines so we can sort them to make reading easier
@@ -172,51 +211,6 @@ impl MetricsSink {
 
 #[cfg(feature = "otlp_integration")]
 impl MetricsSink {
-    fn new(config: Option<MetricsConfig>) -> anyhow::Result<Self> {
-        // Initialise the OTLP exporter if a config is provided
-        let otlp_config = match config {
-            Some(MetricsConfig::Otlp(config)) => Some(config),
-            _ => None,
-        };
-
-        // Initialise the OTLP exporter if a config is provided
-        let otlp_exporter = if let Some(config) = otlp_config {
-            // Basic validation of the endpoint URL
-            if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
-                return Err(anyhow::anyhow!(
-                    "Invalid OTLP endpoint configuration: endpoint must start with http:// or https://"
-                ));
-            }
-
-            // Use TryInto to convert OtlpConfig to OtlpMetricsExporter
-            match std::convert::TryInto::<OtlpMetricsExporter>::try_into(&config) {
-                Ok(exporter) => {
-                    tracing::info!("OpenTelemetry metrics export enabled to {}", config.endpoint);
-                    Some(exporter)
-                }
-                Err(e) => {
-                    tracing::error!("Failed to initialise OTLP exporter: {}", e);
-
-                    // If the user explicitly requested metrics export but it failed,
-                    // we should return an error rather than silently continuing without metrics
-                    return Err(anyhow::anyhow!(
-                        "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.",
-                        e
-                    ));
-                }
-            }
-        } else {
-            // No OTLP config provided, running without OpenTelemetry metrics export
-            tracing::debug!("Running without OpenTelemetry metrics export");
-            None
-        };
-
-        Ok(Self {
-            metrics: DashMap::with_capacity(64),
-            otlp_exporter,
-        })
-    }
-
     /// Publish all this sink's metrics to `tracing` log messages
     /// and send metrics to OTLP if enabled
     fn publish(&self) {
