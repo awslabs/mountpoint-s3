@@ -13,6 +13,7 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
+use mountpoint_s3_fs::memory::PagedPool;
 use serde_json::{json, to_writer};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
@@ -116,11 +117,11 @@ fn run_benchmark(
         let received_size = received_size.load(Ordering::SeqCst);
         total_bytes += received_size;
         println!(
-            "{}: received {} bytes in {:.2}s: {:.2} Gib/s",
+            "{}: received {} bytes in {:.2}s: {:.2} Gb/s",
             iteration,
             received_size,
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+            (received_size as f64) / elapsed.as_secs_f64() / (1000 * 1000 * 1000 / 8) as f64
         );
 
         iter_results.push(json!({
@@ -134,11 +135,11 @@ fn run_benchmark(
 
     let total_elapsed = total_start.elapsed();
     println!(
-        "Total: received {} bytes in {:.2}s across {} iterations: {:.2} Gib/s",
+        "Total: received {} bytes in {:.2}s across {} iterations: {:.2} Gb/s",
         total_bytes,
         total_elapsed.as_secs_f64(),
         iter_results.len(),
-        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1000 * 1000 * 1000 / 8) as f64
     );
 
     if let Some(output_path) = output_path {
@@ -198,7 +199,7 @@ struct CliArgs {
     #[arg(
         long,
         help = "Desired throughput in Gbps",
-        default_value_t = 10.0,
+        default_value_t = 100.0,
         visible_alias = "maximum-throughput-gbps"
     )]
     throughput_target_gbps: f64,
@@ -238,8 +239,10 @@ fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S
     config = config.throughput_target_gbps(args.throughput_target_gbps);
     config = config.memory_limit_in_bytes(args.crt_memory_limit_gb * 1024 * 1024 * 1024);
     config = config.network_interface_names(nics);
-
     config = config.part_size(args.part_size);
+
+    let pool = PagedPool::new_with_candidate_sizes([args.part_size]);
+    config = config.memory_pool(pool.clone());
 
     if args.enable_backpressure {
         config = config.read_backpressure(true);
