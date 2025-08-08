@@ -40,7 +40,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
             "run",
             "--quiet",
             "--release",
-            "--features=mock",
+            "--features=mock,mem_limiter",
         ]
 
         if stub_mode == "s3_client":
@@ -89,6 +89,9 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
 
     if mp_config['upload_checksums'] is not None:
         subprocess_args.append(f"--upload-checksums={mp_config['upload_checksums']}")
+
+    if (max_memory_target := mp_config['max_memory_target']) is not None:
+        subprocess_args.append(f"--max-memory-target={max_memory_target}")
 
     if (fuse_threads := mp_config['fuse_threads']) is not None:
         subprocess_args.append(f"--max-threads={fuse_threads}")

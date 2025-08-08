@@ -39,6 +39,7 @@ mountpoint:
   mountpoint_congestion_threshold: !!null
   mountpoint_binary: !!null
   upload_checksums: !!null
+  max_memory_target: !!null # memory upper-limit in MB
   stub_mode: "off"  # Options: "off", "fs_handler", "s3_client"
   mountpoint_debug: false
   mountpoint_debug_crt: false
@@ -53,7 +54,7 @@ benchmarks:
     fio_io_engine: "psync"
   
   prefetch:
-    max_memory_target: !!null
+    max_memory_target: !!null # memory upper-limit in MB
   
   crt:
     crt_benchmarks_path: !!null
