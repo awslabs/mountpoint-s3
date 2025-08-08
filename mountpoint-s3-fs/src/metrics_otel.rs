@@ -129,7 +129,7 @@ impl OtlpMetricsExporter {
             MetricValue::Gauge(val) => self.record_gauge(key, *val, attributes),
             MetricValue::Histogram(_mean) => {
                 // Do nothing for histograms for now
-                // Will be implemented later
+                // TODO: Will be implemented later
             }
         }
     }
