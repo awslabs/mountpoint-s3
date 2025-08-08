@@ -3,7 +3,8 @@ import itertools
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
+import itertools
+import re
 from hydra.types import HydraContext
 from hydra.core.config_store import ConfigStore
 from hydra.core.override_parser.overrides_parser import OverridesParser
@@ -81,51 +82,38 @@ class SmartBenchmarkSweeper(Sweeper):
                 return [bt.strip() for bt in benchmark_type_str.split(",")]
         return ["fio"]
 
+
     def _generate_combinations_for_type(self, benchmark_type: str, parsed_overrides) -> List[List[str]]:
-        # Separate parameters by category
-        common_params = []
-        type_specific_params = []
-        other_type_nulls = []
+        common, type_specific, other_type_nulls = [], [], set()
+        type_re = re.compile(r'^benchmarks\.([^.]+)\.')
 
-        for override in parsed_overrides:
-            key = override.get_key_element()
+        for ov in parsed_overrides:
+            k = ov.get_key_element()
+            if k == "benchmark_type":
+                continue
 
-            if key == "benchmark_type":
-                continue  # we ekip benchmark_type - we'll add it manually for each combination as you can see below
-            elif key.startswith("benchmarks."):
-                param_type = key.split(".")[1]  # Extract benchmark type from "benchmarks.fio.direct_io" -> "fio"
-                if param_type == benchmark_type:
-                    type_specific_params.append(override)  # This parameter belongs to our current benchmark type
+            m = type_re.match(k)
+            if m:
+                if m.group(1) == benchmark_type:
+                    type_specific.append(ov)
                 else:
-                    other_type_nulls.append(f"{key}=null")  # Null out parameters for other benchmark types
+                    other_type_nulls.add(k)
             else:
-                common_params.append(
-                    override
-                )  # Parameters that apply to ALL benchmark types (e.g., s3_bucket, mountpoint.fuse_threads)
+                common.append(ov)
 
-        param_lists = []
+        def expand(ov):
+            key = ov.get_key_element()
+            if ov.is_sweep_override():
+                return [f"{key}={v}" for v in ov.sweep_string_iterator()]
+            else:
+                return [f"{key}={ov.get_value_element_as_str()}"]
 
-        param_lists.append([f"benchmark_type={benchmark_type}"])
+        param_lists = [[f"benchmark_type={benchmark_type}"]]
+        param_lists += [expand(ov) for ov in common]
+        param_lists += [expand(ov) for ov in type_specific]
 
-        def add_param_overrides(overrides):
-            """Add parameter overrides to param_lists"""
-            for override in overrides:
-                key = override.get_key_element()
-                if override.is_sweep_override():
-                    param_lists.append([f"{key}={val}" for val in override.sweep_string_iterator()])
-                else:
-                    param_lists.append([f"{key}={override.get_value_element_as_str()}"])
+        combos = itertools.product(*param_lists)
+        nulls = [f"{k}=null" for k in sorted(other_type_nulls)]
 
-        add_param_overrides(common_params)
-        add_param_overrides(type_specific_params)
-
-        if param_lists:
-            combinations = list(itertools.product(*param_lists))
-            result = []
-            for combo in combinations:
-                # Add the null values for other benchmark types
-                combo_list = list(combo) + other_type_nulls
-                result.append(combo_list)
-            return result
-        else:
-            return [[f"benchmark_type={benchmark_type}"] + other_type_nulls]
+        result = [list(c) + nulls for c in combos]
+        return result or [[f"benchmark_type={benchmark_type}"] + nulls]

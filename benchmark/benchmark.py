@@ -205,7 +205,7 @@ def _auto_add_benchmark_sweeper() -> None:
     benchmark_type = None
     for arg in sys.argv[1:]:
         if arg.startswith("benchmark_type="):
-            benchmark_type = arg.split("=", 1)[1]
+            benchmark_type = arg.removeprefix("benchmark_type=")
             break
 
     if not benchmark_type:
