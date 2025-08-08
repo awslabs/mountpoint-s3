@@ -1,0 +1,6 @@
+# Base sweeper configuration with common parameters for all benchmark types
+_target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
+max_batch_size: null
+params:
+  'application_workers': 1, 4, 16, 64
+  'iteration': "range(${iterations})"
