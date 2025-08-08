@@ -92,7 +92,7 @@ pub struct CliArgs {
     #[arg(
         long,
         help = "Size of read requests requests to the prefetcher",
-        default_value_t = 128 * 1024,
+        default_value_t = 256 * 1024,
         value_name = "BYTES",
     )]
     read_size: usize,
@@ -233,9 +233,9 @@ fn main() -> anyhow::Result<()> {
         let received_size = received_bytes.load(Ordering::SeqCst);
         total_bytes += received_size;
         println!(
-            "{iteration}: received {received_size} bytes in {:.2}s: {:.2} Gib/s",
+            "{iteration}: received {received_size} bytes in {:.2}s: {:.2} Gb/s",
             elapsed.as_secs_f64(),
-            (received_size as f64) / elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+            (received_size as f64) / elapsed.as_secs_f64() / (1000 * 1000 * 1000 / 8) as f64
         );
         iter_results.push(json!({
             "iteration": iteration,
@@ -246,9 +246,9 @@ fn main() -> anyhow::Result<()> {
     }
     let total_elapsed = total_start.elapsed();
     println!(
-        "\nTotal: {iteration} iterations, {total_bytes} bytes in {:.2}s: {:.2} Gib/s",
+        "\nTotal: {iteration} iterations, {total_bytes} bytes in {:.2}s: {:.2} Gb/s",
         total_elapsed.as_secs_f64(),
-        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1024 * 1024 * 1024 / 8) as f64
+        (total_bytes as f64) / total_elapsed.as_secs_f64() / (1000 * 1000 * 1000 / 8) as f64
     );
 
     if let Some(output_path) = args.output_file {
