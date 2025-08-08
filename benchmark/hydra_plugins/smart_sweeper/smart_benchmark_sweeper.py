@@ -3,7 +3,6 @@ import itertools
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import itertools
 import re
 from hydra.types import HydraContext
 from hydra.core.config_store import ConfigStore
@@ -81,7 +80,6 @@ class SmartBenchmarkSweeper(Sweeper):
                 benchmark_type_str = arg.split("=", 1)[1]
                 return [bt.strip() for bt in benchmark_type_str.split(",")]
         return ["fio"]
-
 
     def _generate_combinations_for_type(self, benchmark_type: str, parsed_overrides) -> List[List[str]]:
         common, type_specific, other_type_nulls = [], [], set()
