@@ -85,11 +85,12 @@ fn fuse_mount_pure(
     }
 
     let res = fuse_mount_sys(mountpoint, options)?;
-    if let Some(file) = res {
-        Ok((file, None))
-    } else {
-        // Retry
-        fuse_mount_fusermount(mountpoint, options)
+    match res {
+        Some(file) => Ok((file, None)),
+        _ => {
+            // Retry
+            fuse_mount_fusermount(mountpoint, options)
+        }
     }
 }
 

@@ -23,7 +23,7 @@ pub enum TimeOrNow {
 }
 
 macro_rules! errno {
-    ($x: expr) => {
+    ($x: expr_2021) => {
         Errno(unsafe {
             // This is a static assertion that the constant $x is > 0
             const _X: [(); 0 - !{

@@ -286,10 +286,9 @@ impl SimpleFS {
 
     fn allocate_next_inode(&self) -> Inode {
         let path = Path::new(&self.data_dir).join("superblock");
-        let current_inode = if let Ok(file) = File::open(&path) {
-            bincode::deserialize_from(file).unwrap()
-        } else {
-            fuser::FUSE_ROOT_ID
+        let current_inode = match File::open(&path) {
+            Ok(file) => bincode::deserialize_from(file).unwrap(),
+            _ => fuser::FUSE_ROOT_ID,
         };
 
         let file = OpenOptions::new()
@@ -335,10 +334,9 @@ impl SimpleFS {
         let path = Path::new(&self.data_dir)
             .join("contents")
             .join(inode.to_string());
-        if let Ok(file) = File::open(path) {
-            Ok(bincode::deserialize_from(file).unwrap())
-        } else {
-            Err(libc::ENOENT)
+        match File::open(path) {
+            Ok(file) => Ok(bincode::deserialize_from(file).unwrap()),
+            _ => Err(libc::ENOENT),
         }
     }
 
@@ -359,10 +357,9 @@ impl SimpleFS {
         let path = Path::new(&self.data_dir)
             .join("inodes")
             .join(inode.to_string());
-        if let Ok(file) = File::open(path) {
-            Ok(bincode::deserialize_from(file).unwrap())
-        } else {
-            Err(libc::ENOENT)
+        match File::open(path) {
+            Ok(file) => Ok(bincode::deserialize_from(file).unwrap()),
+            _ => Err(libc::ENOENT),
         }
     }
 
@@ -729,13 +726,16 @@ impl Filesystem for SimpleFS {
     fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
         debug!("readlink() called on {:?}", inode);
         let path = self.content_path(inode);
-        if let Ok(mut file) = File::open(path) {
-            let file_size = file.metadata().unwrap().len();
-            let mut buffer = vec![0; file_size as usize];
-            file.read_exact(&mut buffer).unwrap();
-            reply.data(&buffer);
-        } else {
-            reply.error(libc::ENOENT);
+        match File::open(path) {
+            Ok(mut file) => {
+                let file_size = file.metadata().unwrap().len();
+                let mut buffer = vec![0; file_size as usize];
+                file.read_exact(&mut buffer).unwrap();
+                reply.data(&buffer);
+            }
+            _ => {
+                reply.error(libc::ENOENT);
+            }
         }
     }
 
@@ -1398,16 +1398,19 @@ impl Filesystem for SimpleFS {
         }
 
         let path = self.content_path(inode);
-        if let Ok(file) = File::open(path) {
-            let file_size = file.metadata().unwrap().len();
-            // Could underflow if file length is less than local_start
-            let read_size = min(size, file_size.saturating_sub(offset as u64) as u32);
+        match File::open(path) {
+            Ok(file) => {
+                let file_size = file.metadata().unwrap().len();
+                // Could underflow if file length is less than local_start
+                let read_size = min(size, file_size.saturating_sub(offset as u64) as u32);
 
-            let mut buffer = vec![0; read_size as usize];
-            file.read_exact_at(&mut buffer, offset as u64).unwrap();
-            reply.data(&buffer);
-        } else {
-            reply.error(libc::ENOENT);
+                let mut buffer = vec![0; read_size as usize];
+                file.read_exact_at(&mut buffer, offset as u64).unwrap();
+                reply.data(&buffer);
+            }
+            _ => {
+                reply.error(libc::ENOENT);
+            }
         }
     }
 
@@ -1431,28 +1434,31 @@ impl Filesystem for SimpleFS {
         }
 
         let path = self.content_path(inode);
-        if let Ok(mut file) = OpenOptions::new().write(true).open(path) {
-            file.seek(SeekFrom::Start(offset as u64)).unwrap();
-            file.write_all(data).unwrap();
+        match OpenOptions::new().write(true).open(path) {
+            Ok(mut file) => {
+                file.seek(SeekFrom::Start(offset as u64)).unwrap();
+                file.write_all(data).unwrap();
 
-            let mut attrs = self.get_inode(inode).unwrap();
-            attrs.last_metadata_changed = time_now();
-            attrs.last_modified = time_now();
-            if data.len() + offset as usize > attrs.size as usize {
-                attrs.size = (data.len() + offset as usize) as u64;
+                let mut attrs = self.get_inode(inode).unwrap();
+                attrs.last_metadata_changed = time_now();
+                attrs.last_modified = time_now();
+                if data.len() + offset as usize > attrs.size as usize {
+                    attrs.size = (data.len() + offset as usize) as u64;
+                }
+                // #[cfg(feature = "abi-7-31")]
+                // if flags & FUSE_WRITE_KILL_PRIV as i32 != 0 {
+                //     clear_suid_sgid(&mut attrs);
+                // }
+                // XXX: In theory we should only need to do this when WRITE_KILL_PRIV is set for 7.31+
+                // However, xfstests fail in that case
+                clear_suid_sgid(&mut attrs);
+                self.write_inode(&attrs);
+
+                reply.written(data.len() as u32);
             }
-            // #[cfg(feature = "abi-7-31")]
-            // if flags & FUSE_WRITE_KILL_PRIV as i32 != 0 {
-            //     clear_suid_sgid(&mut attrs);
-            // }
-            // XXX: In theory we should only need to do this when WRITE_KILL_PRIV is set for 7.31+
-            // However, xfstests fail in that case
-            clear_suid_sgid(&mut attrs);
-            self.write_inode(&attrs);
-
-            reply.written(data.len() as u32);
-        } else {
-            reply.error(libc::EBADF);
+            _ => {
+                reply.error(libc::EBADF);
+            }
         }
     }
 
@@ -1799,22 +1805,25 @@ impl Filesystem for SimpleFS {
         reply: ReplyEmpty,
     ) {
         let path = self.content_path(inode);
-        if let Ok(file) = OpenOptions::new().write(true).open(path) {
-            unsafe {
-                libc::fallocate64(file.into_raw_fd(), mode, offset, length);
-            }
-            if mode & libc::FALLOC_FL_KEEP_SIZE == 0 {
-                let mut attrs = self.get_inode(inode).unwrap();
-                attrs.last_metadata_changed = time_now();
-                attrs.last_modified = time_now();
-                if (offset + length) as u64 > attrs.size {
-                    attrs.size = (offset + length) as u64;
+        match OpenOptions::new().write(true).open(path) {
+            Ok(file) => {
+                unsafe {
+                    libc::fallocate64(file.into_raw_fd(), mode, offset, length);
                 }
-                self.write_inode(&attrs);
+                if mode & libc::FALLOC_FL_KEEP_SIZE == 0 {
+                    let mut attrs = self.get_inode(inode).unwrap();
+                    attrs.last_metadata_changed = time_now();
+                    attrs.last_modified = time_now();
+                    if (offset + length) as u64 > attrs.size {
+                        attrs.size = (offset + length) as u64;
+                    }
+                    self.write_inode(&attrs);
+                }
+                reply.ok();
             }
-            reply.ok();
-        } else {
-            reply.error(libc::ENOENT);
+            _ => {
+                reply.error(libc::ENOENT);
+            }
         }
     }
 
@@ -1845,33 +1854,39 @@ impl Filesystem for SimpleFS {
         }
 
         let src_path = self.content_path(src_inode);
-        if let Ok(file) = File::open(src_path) {
-            let file_size = file.metadata().unwrap().len();
-            // Could underflow if file length is less than local_start
-            let read_size = min(size, file_size.saturating_sub(src_offset as u64));
+        match File::open(src_path) {
+            Ok(file) => {
+                let file_size = file.metadata().unwrap().len();
+                // Could underflow if file length is less than local_start
+                let read_size = min(size, file_size.saturating_sub(src_offset as u64));
 
-            let mut data = vec![0; read_size as usize];
-            file.read_exact_at(&mut data, src_offset as u64).unwrap();
+                let mut data = vec![0; read_size as usize];
+                file.read_exact_at(&mut data, src_offset as u64).unwrap();
 
-            let dest_path = self.content_path(dest_inode);
-            if let Ok(mut file) = OpenOptions::new().write(true).open(dest_path) {
-                file.seek(SeekFrom::Start(dest_offset as u64)).unwrap();
-                file.write_all(&data).unwrap();
+                let dest_path = self.content_path(dest_inode);
+                match OpenOptions::new().write(true).open(dest_path) {
+                    Ok(mut file) => {
+                        file.seek(SeekFrom::Start(dest_offset as u64)).unwrap();
+                        file.write_all(&data).unwrap();
 
-                let mut attrs = self.get_inode(dest_inode).unwrap();
-                attrs.last_metadata_changed = time_now();
-                attrs.last_modified = time_now();
-                if data.len() + dest_offset as usize > attrs.size as usize {
-                    attrs.size = (data.len() + dest_offset as usize) as u64;
+                        let mut attrs = self.get_inode(dest_inode).unwrap();
+                        attrs.last_metadata_changed = time_now();
+                        attrs.last_modified = time_now();
+                        if data.len() + dest_offset as usize > attrs.size as usize {
+                            attrs.size = (data.len() + dest_offset as usize) as u64;
+                        }
+                        self.write_inode(&attrs);
+
+                        reply.written(data.len() as u32);
+                    }
+                    _ => {
+                        reply.error(libc::EBADF);
+                    }
                 }
-                self.write_inode(&attrs);
-
-                reply.written(data.len() as u32);
-            } else {
-                reply.error(libc::EBADF);
             }
-        } else {
-            reply.error(libc::ENOENT);
+            _ => {
+                reply.error(libc::ENOENT);
+            }
         }
     }
 }
