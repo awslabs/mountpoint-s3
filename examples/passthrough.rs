@@ -2,14 +2,14 @@
 //
 //   cargo run --example passthrough --features abi-7-40 /tmp/foobar
 
-use clap::{crate_version, Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, crate_version};
 use fuser::{
-    consts, BackingId, FileAttr, FileType, Filesystem, KernelConfig, MountOption, ReplyAttr,
-    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request,
+    BackingId, FileAttr, FileType, Filesystem, KernelConfig, MountOption, ReplyAttr,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, Request, consts,
 };
 use libc::ENOENT;
 use std::collections::HashMap;
-use std::ffi::{c_int, OsStr};
+use std::ffi::{OsStr, c_int};
 use std::fs::File;
 use std::rc::{Rc, Weak};
 use std::time::{Duration, UNIX_EPOCH};

@@ -2,9 +2,9 @@ use super::fuse3_sys::{
     fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
-use super::{with_fuse_args, MountOption};
+use super::{MountOption, with_fuse_args};
 use std::{
-    ffi::{c_void, CString},
+    ffi::{CString, c_void},
     fs::File,
     io,
     os::unix::{ffi::OsStrExt, io::FromRawFd},

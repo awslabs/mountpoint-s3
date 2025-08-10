@@ -10,8 +10,8 @@
 use std::{
     ffi::OsStr,
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -22,8 +22,8 @@ use libc::{ENOBUFS, ENOENT, ENOTDIR};
 use clap::Parser;
 
 use fuser::{
-    FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyDirectory, ReplyEntry, Request,
-    FUSE_ROOT_ID,
+    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyDirectory,
+    ReplyEntry, Request,
 };
 
 struct ClockFS<'a> {

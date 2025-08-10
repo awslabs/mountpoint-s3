@@ -3,9 +3,9 @@
 //! A request represents information about a filesystem operation the kernel driver wants us to
 //! perform.
 
-use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
+use super::fuse_abi::{InvalidOpcodeError, fuse_in_header, fuse_opcode};
 
-use super::{fuse_abi as abi, Errno, Response};
+use super::{Errno, Response, fuse_abi as abi};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Display, path::Path};
@@ -268,11 +268,11 @@ mod op {
     use crate::ll::Response;
 
     use super::{
-        super::{argument::ArgumentIterator, TimeOrNow},
+        super::{TimeOrNow, argument::ArgumentIterator},
         FilenameInDir, Request,
     };
     use super::{
-        abi::consts::*, abi::*, FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId,
+        FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId, abi::consts::*, abi::*,
     };
     use std::{
         convert::TryInto,

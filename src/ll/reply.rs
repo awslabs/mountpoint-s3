@@ -9,9 +9,9 @@ use std::{
 
 use crate::FileType;
 
-use super::{fuse_abi as abi, Errno, FileHandle, Generation, INodeNo};
+use super::{Errno, FileHandle, Generation, INodeNo, fuse_abi as abi};
 use super::{Lock, RequestId};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use zerocopy::{Immutable, IntoBytes};
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;

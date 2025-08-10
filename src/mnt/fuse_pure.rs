@@ -7,7 +7,7 @@
 #![allow(missing_docs)]
 
 use super::is_mounted;
-use super::mount_options::{option_to_string, MountOption};
+use super::mount_options::{MountOption, option_to_string};
 use libc::c_int;
 use log::{debug, error};
 use std::ffi::{CStr, CString, OsStr};

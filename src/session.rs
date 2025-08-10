@@ -15,10 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
-use crate::ll::fuse_abi as abi;
-use crate::request::Request;
 use crate::Filesystem;
 use crate::MountOption;
+use crate::ll::fuse_abi as abi;
+use crate::request::Request;
 use crate::{channel::Channel, mnt::Mount};
 #[cfg(feature = "abi-7-11")]
 use crate::{channel::ChannelSender, notify::Notifier};
@@ -90,7 +90,9 @@ impl<FS: Filesystem> Session<FS> {
             && !(options.contains(&MountOption::AllowRoot)
                 || options.contains(&MountOption::AllowOther))
         {
-            warn!("Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling");
+            warn!(
+                "Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling"
+            );
             let mut modified_options = options.to_vec();
             modified_options.push(MountOption::AllowOther);
             Mount::new(mountpoint, &modified_options)?

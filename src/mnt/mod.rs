@@ -47,12 +47,12 @@ fn with_fuse_args<T, F: FnOnce(&fuse_args) -> T>(options: &[MountOption], f: F) 
     })
 }
 
+#[cfg(fuser_mount_impl = "pure-rust")]
+pub use fuse_pure::Mount;
 #[cfg(fuser_mount_impl = "libfuse2")]
 pub use fuse2::Mount;
 #[cfg(fuser_mount_impl = "libfuse3")]
 pub use fuse3::Mount;
-#[cfg(fuser_mount_impl = "pure-rust")]
-pub use fuse_pure::Mount;
 #[cfg(not(fuser_mount_impl = "libfuse3"))]
 use std::ffi::CStr;
 

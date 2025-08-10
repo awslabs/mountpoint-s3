@@ -12,8 +12,8 @@ use std::{
     ffi::OsStr,
     os::unix::ffi::OsStrExt,
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     thread,
     time::{Duration, UNIX_EPOCH},
@@ -22,8 +22,8 @@ use std::{
 use libc::{EACCES, EBADF, EBUSY, EINVAL, ENOENT, ENOTDIR};
 
 use fuser::{
+    FUSE_ROOT_ID, FileAttr, FileType, MountOption, PollHandle, Request,
     consts::{FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE, FUSE_POLL_SCHEDULE_NOTIFY},
-    FileAttr, FileType, MountOption, PollHandle, Request, FUSE_ROOT_ID,
 };
 
 const NUMFILES: u8 = 16;

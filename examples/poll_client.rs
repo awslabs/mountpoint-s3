@@ -17,7 +17,7 @@ use std::os::fd::{AsFd, AsRawFd, RawFd};
 const NUMFILES: usize = 16;
 
 fn make_nonblock(fd: RawFd) {
-    use nix::fcntl::{fcntl, FcntlArg, OFlag};
+    use nix::fcntl::{FcntlArg, OFlag, fcntl};
     let arg = FcntlArg::F_SETFL(OFlag::O_NONBLOCK);
     fcntl(fd, arg).expect("failed to set fd nonblocking");
 }

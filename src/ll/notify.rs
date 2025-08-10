@@ -3,7 +3,7 @@ use std::{convert::TryInto, io::IoSlice, mem::size_of, num::TryFromIntError};
 #[allow(unused)]
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use zerocopy::{Immutable, IntoBytes};
 
 use super::fuse_abi as abi;

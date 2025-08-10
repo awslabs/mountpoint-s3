@@ -10,7 +10,7 @@ use super::fuse2_sys::fuse_args;
 use libc::c_void;
 use libc::{c_char, c_int};
 
-extern "C" {
+unsafe extern "C" {
     // Really this returns *fuse_session, but we don't need to access its fields
     pub fn fuse_session_new(
         args: *const fuse_args,

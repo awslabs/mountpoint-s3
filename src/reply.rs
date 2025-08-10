@@ -7,13 +7,12 @@
 //! error() exactly once).
 
 use crate::ll::{
-    self,
+    self, Generation,
     reply::{DirEntPlusList, DirEntryPlus},
-    Generation,
 };
 use crate::ll::{
-    reply::{DirEntList, DirEntOffset, DirEntry},
     INodeNo,
+    reply::{DirEntList, DirEntOffset, DirEntry},
 };
 #[cfg(feature = "abi-7-40")]
 use crate::{consts::FOPEN_PASSTHROUGH, passthrough::BackingId};
@@ -698,7 +697,7 @@ mod test {
     use super::*;
     use crate::{FileAttr, FileType};
     use std::io::IoSlice;
-    use std::sync::mpsc::{sync_channel, SyncSender};
+    use std::sync::mpsc::{SyncSender, sync_channel};
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
     use zerocopy::{Immutable, IntoBytes};
