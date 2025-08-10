@@ -7,6 +7,7 @@ documentation = "https://docs.rs/fuser"
 homepage = "https://github.com/cberner/fuser"
 version = "0.15.1"
 edition = "2024"
+rust-version = "1.85"
 readme = "README.md"
 authors = ["Christopher Berner <christopherberner@gmail.com>"]
 keywords = ["fuse", "filesystem", "system", "bindings"]
