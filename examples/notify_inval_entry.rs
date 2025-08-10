@@ -112,7 +112,7 @@ impl<'a> Filesystem for ClockFS<'a> {
                 ClockFS::FILE_INO,
                 offset + 1,
                 FileType::RegularFile,
-                &self.get_filename(),
+                self.get_filename(),
             )
         {
             reply.error(ENOBUFS);
