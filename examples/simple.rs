@@ -221,7 +221,7 @@ impl From<InodeAttributes> for fuser::FileAttr {
         fuser::FileAttr {
             ino: attrs.inode,
             size: attrs.size,
-            blocks: (attrs.size + BLOCK_SIZE - 1) / BLOCK_SIZE,
+            blocks: attrs.size.div_ceil(BLOCK_SIZE),
             atime: system_time_from_time(attrs.last_accessed.0, attrs.last_accessed.1),
             mtime: system_time_from_time(attrs.last_modified.0, attrs.last_modified.1),
             ctime: system_time_from_time(

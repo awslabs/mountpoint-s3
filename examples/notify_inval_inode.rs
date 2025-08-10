@@ -31,7 +31,7 @@ struct ClockFS<'a> {
     lookup_cnt: &'a AtomicU64,
 }
 
-impl<'a> ClockFS<'a> {
+impl ClockFS<'_> {
     const FILE_INO: u64 = 2;
     const FILE_NAME: &'static str = "current_time";
 
@@ -66,7 +66,7 @@ impl<'a> ClockFS<'a> {
     }
 }
 
-impl<'a> Filesystem for ClockFS<'a> {
+impl Filesystem for ClockFS<'_> {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent != FUSE_ROOT_ID || name != AsRef::<OsStr>::as_ref(&Self::FILE_NAME) {
             reply.error(ENOENT);
