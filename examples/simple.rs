@@ -2073,7 +2073,7 @@ fn main() {
         // Return a special error code for permission denied, which usually indicates that
         // "user_allow_other" is missing from /etc/fuse.conf
         if e.kind() == ErrorKind::PermissionDenied {
-            error!("{}", e.to_string());
+            error!("{e}");
             std::process::exit(2);
         }
     }
