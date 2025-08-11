@@ -30,9 +30,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
-
-        let _metrics = metrics::install();
-
+        let _metrics = metrics::install(None);
         create_pid_file()?;
 
         // mount file system as a foreground process
@@ -63,7 +61,7 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
 
-                let _metrics = metrics::install();
+                let _metrics = metrics::install(None);
 
                 create_pid_file()?;
 

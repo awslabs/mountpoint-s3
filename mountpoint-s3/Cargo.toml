@@ -51,6 +51,7 @@ built = { version = "0.8.0", features = ["git2"] }
 block_size = ["mountpoint-s3-fs/block_size"]
 event_log = ["mountpoint-s3-fs/event_log"]
 mem_limiter = ["mountpoint-s3-fs/mem_limiter"]
+otlp_integration = ["mountpoint-s3-fs/otlp_integration"]
 # Features for choosing tests
 s3_tests = ["mountpoint-s3-fs/s3_tests"]
 fuse_tests = ["mountpoint-s3-fs/fuse_tests"]

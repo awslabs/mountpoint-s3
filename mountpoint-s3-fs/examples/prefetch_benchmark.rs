@@ -161,7 +161,7 @@ impl CliArgs {
 
 fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install();
+    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
 
     let args = CliArgs::parse();
 
