@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import hydra
+import psutil
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
@@ -98,7 +99,7 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
 
 
 class ResourceMonitoring:
-    def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool):
+    def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool, with_flamegraph: bool):
         """Resource monitoring setup.
 
         target_pid: Process pid to monitor where applicable
@@ -110,8 +111,10 @@ class ResourceMonitoring:
         self.mpstat_process = None
         self.bwm_ng_process = None
         self.perf_stat_process = None
+        self.flamegraph_process = None
         self.with_bwm = with_bwm
         self.with_perf_stat = with_perf_stat
+        self.with_flamegraph = with_flamegraph
         self.output_files = []
 
     def _start(self) -> None:
@@ -121,11 +124,15 @@ class ResourceMonitoring:
             self.bwm_ng_process = self._start_bwm_ng()
         if self.with_perf_stat:
             self.perf_stat_process = self._start_perf_stat()
+        if self.with_flamegraph:
+            self.flamegraph_process = self._start_flamegraph()
 
     def _close(self) -> None:
         log.debug("Shutting down resource monitors...")
         for process in [self.mpstat_process, self.bwm_ng_process, self.perf_stat_process]:
             self._stop_resource_monitor(process)
+        if self.flamegraph_process != None:
+            self._stop_flamegraph(self.flamegraph_process)
 
         for output_file in self.output_files:
             try:
@@ -141,6 +148,27 @@ class ResourceMonitoring:
         except Exception:
             log.error("Error shutting down monitoring:", exc_info=True)
 
+    def _stop_flamegraph(self, process):
+        try:
+            if process:
+               # Find all perf processes that are children of the flamegraph process
+               try:
+                  parent = psutil.Process(process.pid)
+                  children = parent.children(recursive=True)
+                  # Kill perf process first (child)
+                  for child in children:
+                     if 'perf' in child.name():
+                        child.send_signal(signal.SIGINT)
+                        child.wait()
+                  # Then kill the flamegraph process (parent)
+                  process.send_signal(signal.SIGINT)
+                  process.wait()
+
+               except psutil.NoSuchProcess:
+                  log.warning(f"Process {process.pid} no longer exists")
+
+        except Exception:
+           log.error("Error shutting down monitoring:", exc_info=True)
     def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
         """Start process_args with output to output_file.
 
@@ -186,9 +214,23 @@ class ResourceMonitoring:
         log.info("Starting perf stat with args: %s", " ".join(perf_args))
         return subprocess.Popen(perf_args)
 
+    def _start_flamegraph(self):
+        """Produces a flamegraph"""
+
+        flamegraph_args = [
+            "flamegraph",
+            "--pid",
+            str(self.target_pid),
+            "-o",
+            "flamegraph.svg"
+        ]
+
+        log.info("Starting flamegraph with args %s", " ".join(flamegraph_args))
+        return subprocess.Popen(flamegraph_args)
+
     @contextmanager
-    def managed(target_pid, with_bwm=False, with_perf_stat=False):
-        resource = ResourceMonitoring(target_pid, with_bwm, with_perf_stat)
+    def managed(target_pid, with_bwm=False, with_perf_stat=False, with_flamegraph=False):
+        resource = ResourceMonitoring(target_pid, with_bwm, with_perf_stat, with_flamegraph)
         try:
             resource._start()
             yield resource
@@ -232,7 +274,7 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark.setup()
         target_pid = metadata.get("target_pid")
 
-        with ResourceMonitoring.managed(target_pid, cfg.monitoring.with_bwm, cfg.monitoring.with_perf_stat):
+        with ResourceMonitoring.managed(target_pid, cfg.monitoring.with_bwm, cfg.monitoring.with_perf_stat, cfg.monitoring.with_flamegraph):
             benchmark.run_benchmark()
 
         # Mark success if we get here without exceptions

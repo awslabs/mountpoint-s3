@@ -29,6 +29,7 @@ network:
 monitoring:
   with_bwm: false
   with_perf_stat: false
+  with_flamegraph: false
 
 # ===== Mountpoint configuration =====
 mountpoint:
@@ -52,18 +53,18 @@ benchmarks:
       - sequential_read
     fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
     fio_io_engine: "psync"
-  
+
   prefetch:
     max_memory_target: !!null # memory upper-limit in MB
-  
+
   crt:
     crt_benchmarks_path: !!null
 
-  client:  
-    # None 
+  client:
+    # None
 
   client_backpressure:
-    read_window_size: !!null #2147483648 
+    read_window_size: !!null #2147483648
 
 
 hydra:
