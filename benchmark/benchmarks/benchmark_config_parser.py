@@ -81,8 +81,9 @@ class BenchmarkConfigParser:
             'crt_benchmarks_path': getattr(crt_cfg, 'crt_benchmarks_path', None),
         }
 
-    def get_client_config(self) -> Dict[str, Any]:
-        client_cfg = self.cfg.benchmarks.client
+    def get_client_config(self, config_section: str = 'client') -> Dict[str, Any]:
+        section_name = config_section.replace('-', '_')
+        client_cfg = getattr(self.cfg.benchmarks, section_name)
         return {
-            'read_window_size': getattr(client_cfg, 'read_window_size', 2147483648),  # Reaslitic default value 8M/2G?
+            'read_window_size': getattr(client_cfg, 'read_window_size', 2147483648),  # Realistic default value 8M/2G?
         }

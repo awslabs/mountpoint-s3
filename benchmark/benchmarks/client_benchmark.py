@@ -17,7 +17,8 @@ class ClientBenchmark(BaseBenchmark):
         self.backpressure = backpressure
         self.config_parser = BenchmarkConfigParser(cfg)
         self.common_config = self.config_parser.get_common_config()
-        self.client_config = self.config_parser.get_client_config()
+        config_section = 'client_backpressure' if backpressure else 'client'
+        self.client_config = self.config_parser.get_client_config(config_section)
 
     def setup(self) -> Dict[str, Any]:
         return self.metadata
