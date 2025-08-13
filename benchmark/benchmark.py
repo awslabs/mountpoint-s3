@@ -99,7 +99,14 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
 
 
 class ResourceMonitoring:
-    def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool, with_flamegraph: bool, flamegraph_scripts_path: Optional[str] = None):
+    def __init__(
+        self,
+        target_pid,
+        with_bwm: bool,
+        with_perf_stat: bool,
+        with_flamegraph: bool,
+        flamegraph_scripts_path: Optional[str] = None,
+    ):
         """Resource monitoring setup.
 
         target_pid: Process pid to monitor where applicable
@@ -199,24 +206,31 @@ class ResourceMonitoring:
 
             # Step 1: perf script -i perf.data > perf.txt
             with open("perf.txt", "w") as perf_txt:
-                result = subprocess.run(["perf", "script", "-i", "perf.data"],
-                                      stdout=perf_txt, stderr=subprocess.PIPE, text=True)
+                result = subprocess.run(
+                    ["perf", "script", "-i", "perf.data"], stdout=perf_txt, stderr=subprocess.PIPE, text=True
+                )
                 if result.returncode != 0:
                     log.warning(f"perf script failed: {result.stderr}")
                     return
 
             # Step 2: ./stackcollapse-perf.pl perf.txt > stacks.txt
             with open("perf.txt", "r") as perf_txt, open("stacks.txt", "w") as stacks_txt:
-                result = subprocess.run([stackcollapse_script],
-                                      stdin=perf_txt, stdout=stacks_txt, stderr=subprocess.PIPE, text=True)
+                result = subprocess.run(
+                    [stackcollapse_script], stdin=perf_txt, stdout=stacks_txt, stderr=subprocess.PIPE, text=True
+                )
                 if result.returncode != 0:
                     log.warning(f"stackcollapse-perf.pl failed: {result.stderr}")
                     return
 
             # Step 3: ./flamegraph.pl --inverted stacks.txt > inverted-flamegraph.svg
             with open("stacks.txt", "r") as stacks_txt, open("inverted-flamegraph.svg", "w") as flamegraph_svg:
-                result = subprocess.run([flamegraph_script, "--inverted", "--reverse"],
-                                      stdin=stacks_txt, stdout=flamegraph_svg, stderr=subprocess.PIPE, text=True)
+                result = subprocess.run(
+                    [flamegraph_script, "--inverted", "--reverse"],
+                    stdin=stacks_txt,
+                    stdout=flamegraph_svg,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
                 if result.returncode != 0:
                     log.warning(f"flamegraph.pl failed: {result.stderr}")
                     return
@@ -334,8 +348,11 @@ def run_experiment(cfg: DictConfig) -> None:
         target_pid = metadata.get("target_pid")
 
         with ResourceMonitoring.managed(
-            target_pid, cfg.monitoring.with_bwm, cfg.monitoring.with_perf_stat, cfg.monitoring.with_flamegraph,
-            cfg.monitoring.get("flamegraph_scripts_path")
+            target_pid,
+            cfg.monitoring.with_bwm,
+            cfg.monitoring.with_perf_stat,
+            cfg.monitoring.with_flamegraph,
+            cfg.monitoring.get("flamegraph_scripts_path"),
         ):
             benchmark.run_benchmark()
 
