@@ -84,7 +84,7 @@ impl LatencyConfig {
             .tiers
             .iter()
             .find(|t| rand_val < t.threshold)
-            .unwrap_or(&self.tiers[3]);
+            .unwrap_or(&self.tiers[self.tiers.len() - 1]);
 
         tier.distribution.sample(&mut rng).max(0.0)
     }
