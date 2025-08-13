@@ -194,7 +194,7 @@ class ResourceMonitoring:
     def _generate_inverted_flamegraph(self):
         """Generate inverted flamegraph using flamegraph.pl scripts.
 
-           Possible enhancement/TODO: We could optimise runtime here by not using cargo flamegraph to get perf data and compute both graphs from one invocation of stackcollapse, etc.
+        Possible enhancement/TODO: We could optimise runtime here by not using cargo flamegraph to get perf data and compute both graphs from one invocation of stackcollapse, etc.
         """
         try:
             stackcollapse_script = os.path.join(self.flamegraph_scripts_path, "stackcollapse-perf.pl")
