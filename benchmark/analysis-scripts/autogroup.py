@@ -201,7 +201,10 @@ def main() -> None:
             row.append(value)
         row.append(len(throughputs))
         row.append(f"{statistics.median(throughputs):.2f}")
-        row.append(f"{statistics.stdev(throughputs):.2f}")
+        if len(throughputs) > 1:
+            row.append(f"{statistics.stdev(throughputs):.2f}")
+        else:
+            row.append("N/A")
         row.append(f"{min(throughputs):.2f}")
         row.append(f"{max(throughputs):.2f}")
         aggregated_rows.append(row)
