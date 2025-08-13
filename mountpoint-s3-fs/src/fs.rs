@@ -4,6 +4,7 @@ use bytes::Bytes;
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::sync::OnceLock;
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -28,6 +29,10 @@ use crate::upload::{Uploader, UploaderConfig};
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
+
+static STUB_LATENCY_CONFIG: OnceLock<Option<crate::stubbed_fs::LatencyConfig>> = OnceLock::new();
+// Static 1MB buffer of zeros for efficient stubbed reads
+static ZERO_BUFFER: [u8; 1024 * 1024] = [0; 1024 * 1024];
 
 #[macro_use]
 mod error;
@@ -433,7 +438,32 @@ where
             // This compile-time configuration allows us to return simply zeroes to FUSE,
             // allowing us to remove Mountpoint's logic from the loop and compare performance
             // with and without the rest of Mountpoint's logic (such as file handle interaction, prefetcher, etc.).
-            return Ok(vec![0u8; size as usize].into());
+
+            // Calculate latency first
+            let latency_micros = if std::env::var("EXPERIMENTAL_STUB_DISTRIBUTION_ON").is_ok() {
+                let config = STUB_LATENCY_CONFIG.get_or_init(crate::stubbed_fs::LatencyConfig::from_env);
+                if let Some(latency_config) = config {
+                    let latency = latency_config.sample_latency();
+                    metrics::histogram!("fs.stubhandler.simulated_latency_us").record(latency);
+                    latency
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            };
+
+            if latency_micros > 0.0 {
+                let duration = std::time::Duration::from_micros(latency_micros as u64);
+                std::thread::sleep(duration);
+            }
+
+            // Use static buffer for reads under 1MB to avoid allocations
+            return if size as usize <= ZERO_BUFFER.len() {
+                Ok(Bytes::from_static(&ZERO_BUFFER[..size as usize]))
+            } else {
+                Ok(vec![0u8; size as usize].into())
+            };
         }
 
         let handle = {

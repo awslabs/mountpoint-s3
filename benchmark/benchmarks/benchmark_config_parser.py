@@ -86,3 +86,33 @@ class BenchmarkConfigParser:
         return {
             'read_window_size': getattr(client_cfg, 'read_window_size', 2147483648),  # Reaslitic default value 8M/2G?
         }
+
+    def get_stub_latencies_config(self) -> Dict[str, Any]:
+        stub_cfg = getattr(self.cfg, 'stub_latencies', None)
+        if stub_cfg is None:
+            return {
+                'simulate_latencies': False,
+                'tiers': None,
+            }
+
+        return {
+            'simulate_latencies': getattr(stub_cfg, 'simulate_latencies', False),
+            'tiers': {
+                'default': {
+                    'mean': getattr(stub_cfg.default, 'mean', 180.0),
+                    'stddev': getattr(stub_cfg.default, 'stddev', 40.0),
+                },
+                'p90': {
+                    'mean': getattr(stub_cfg.p90, 'mean', 400.0),
+                    'stddev': getattr(stub_cfg.p90, 'stddev', 60.0),
+                },
+                'p99': {
+                    'mean': getattr(stub_cfg.p99, 'mean', 650.0),
+                    'stddev': getattr(stub_cfg.p99, 'stddev', 100.0),
+                },
+                'p999': {
+                    'mean': getattr(stub_cfg.p999, 'mean', 2000.0),
+                    'stddev': getattr(stub_cfg.p999, 'stddev', 5000.0),
+                },
+            }
+        }
