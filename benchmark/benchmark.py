@@ -167,8 +167,17 @@ class ResourceMonitoring:
                 except psutil.NoSuchProcess:
                     log.warning(f"Process {process.pid} no longer exists")
 
+                # Clean up perf.data file if it exists
+                try:
+                    if os.path.exists("perf.data"):
+                        os.remove("perf.data")
+                        log.debug("Cleaned up perf.data file")
+                except Exception:
+                    log.warning("Failed to clean up perf.data file", exc_info=True)
+
         except Exception:
             log.error("Error shutting down monitoring:", exc_info=True)
+
 
     def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
         """Start process_args with output to output_file.
