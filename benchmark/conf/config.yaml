@@ -29,7 +29,8 @@ network:
 monitoring:
   with_bwm: false
   with_perf_stat: false
-  with_flamegraph: false
+  with_flamegraph: true
+  flamegraph_scripts_path: !!null        # Path to directory containing stackcollapse-perf.pl and flamegraph.pl from https://github.com/brendangregg/FlameGraph
 
 # ===== Mountpoint configuration =====
 mountpoint:
