@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import hydra
+import psutil
 from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
@@ -98,20 +99,31 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
 
 
 class ResourceMonitoring:
-    def __init__(self, target_pid, with_bwm: bool, with_perf_stat: bool):
+    def __init__(
+        self,
+        target_pid,
+        with_bwm: bool,
+        with_perf_stat: bool,
+        with_flamegraph: bool,
+        flamegraph_scripts_path: Optional[str] = None,
+    ):
         """Resource monitoring setup.
 
         target_pid: Process pid to monitor where applicable
         with_bwm: Whether to start bandwidth monitor tool `bwm-ng`.  Optional because it's not available
         in the default AL2023 distro so you have to install it first.
-        with_perf_stat: Whether to gather performance counter statistics."""
+        with_perf_stat: Whether to gather performance counter statistics.
+        flamegraph_scripts_path: Path to directory containing flamegraph.pl scripts (optional)"""
 
         self.target_pid = target_pid
         self.mpstat_process = None
         self.bwm_ng_process = None
         self.perf_stat_process = None
+        self.flamegraph_process = None
         self.with_bwm = with_bwm
         self.with_perf_stat = with_perf_stat
+        self.with_flamegraph = with_flamegraph
+        self.flamegraph_scripts_path = flamegraph_scripts_path
         self.output_files = []
 
     def _start(self) -> None:
@@ -121,11 +133,15 @@ class ResourceMonitoring:
             self.bwm_ng_process = self._start_bwm_ng()
         if self.with_perf_stat:
             self.perf_stat_process = self._start_perf_stat()
+        if self.with_flamegraph:
+            self.flamegraph_process = self._start_flamegraph()
 
     def _close(self) -> None:
         log.debug("Shutting down resource monitors...")
         for process in [self.mpstat_process, self.bwm_ng_process, self.perf_stat_process]:
             self._stop_resource_monitor(process)
+        if self.flamegraph_process is not None:
+            self._stop_flamegraph(self.flamegraph_process)
 
         for output_file in self.output_files:
             try:
@@ -140,6 +156,100 @@ class ResourceMonitoring:
                 process.wait()
         except Exception:
             log.error("Error shutting down monitoring:", exc_info=True)
+
+    def _stop_flamegraph(self, process):
+        try:
+            if process:
+                # Find all perf processes that are children of the flamegraph process
+                try:
+                    parent = psutil.Process(process.pid)
+                    children = parent.children(recursive=True)
+                    # Kill perf process first (child)
+                    for child in children:
+                        if 'perf' in child.name():
+                            child.send_signal(signal.SIGINT)
+                            child.wait()
+                    # Then kill the flamegraph process (parent)
+                    process.send_signal(signal.SIGINT)
+                    process.wait()
+
+                except psutil.NoSuchProcess:
+                    log.warning(f"Process {process.pid} no longer exists")
+
+                # Generate inverted flamegraph if scripts path is provided and perf.data exists
+                if self.flamegraph_scripts_path and os.path.exists("perf.data"):
+                    self._generate_inverted_flamegraph()
+
+                # Clean up perf.data file if it exists
+                try:
+                    if os.path.exists("perf.data"):
+                        os.remove("perf.data")
+                        log.debug("Cleaned up perf.data file")
+                except Exception:
+                    log.warning("Failed to clean up perf.data file", exc_info=True)
+
+        except Exception:
+            log.error("Error shutting down monitoring:", exc_info=True)
+
+    def _generate_inverted_flamegraph(self):
+        """Generate inverted flamegraph using flamegraph.pl scripts.
+
+        Possible enhancement/TODO: We could optimise runtime here by not using cargo flamegraph to get perf data and compute both graphs from one invocation of stackcollapse, etc.
+        """
+        try:
+            stackcollapse_script = os.path.join(self.flamegraph_scripts_path, "stackcollapse-perf.pl")
+            flamegraph_script = os.path.join(self.flamegraph_scripts_path, "flamegraph.pl")
+
+            # Check if scripts exist
+            if not os.path.exists(stackcollapse_script) or not os.path.exists(flamegraph_script):
+                log.warning(f"Flamegraph scripts not found in {self.flamegraph_scripts_path}")
+                return
+
+            log.info("Generating inverted flamegraph...")
+
+            # Step 1: perf script -i perf.data > perf.txt
+            with open("perf.txt", "w") as perf_txt:
+                result = subprocess.run(
+                    ["perf", "script", "-i", "perf.data"], stdout=perf_txt, stderr=subprocess.PIPE, text=True
+                )
+                if result.returncode != 0:
+                    log.warning(f"perf script failed: {result.stderr}")
+                    return
+
+            # Step 2: ./stackcollapse-perf.pl perf.txt > stacks.txt
+            with open("perf.txt", "r") as perf_txt, open("stacks.txt", "w") as stacks_txt:
+                result = subprocess.run(
+                    [stackcollapse_script], stdin=perf_txt, stdout=stacks_txt, stderr=subprocess.PIPE, text=True
+                )
+                if result.returncode != 0:
+                    log.warning(f"stackcollapse-perf.pl failed: {result.stderr}")
+                    return
+
+            # Step 3: ./flamegraph.pl --inverted stacks.txt > inverted-flamegraph.svg
+            with open("stacks.txt", "r") as stacks_txt, open("inverted-flamegraph.svg", "w") as flamegraph_svg:
+                result = subprocess.run(
+                    [flamegraph_script, "--inverted", "--reverse"],
+                    stdin=stacks_txt,
+                    stdout=flamegraph_svg,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    log.warning(f"flamegraph.pl failed: {result.stderr}")
+                    return
+
+            log.info("Successfully generated inverted flamegraph: inverted-flamegraph.svg")
+
+            # Clean up intermediate files
+            for temp_file in ["perf.txt", "stacks.txt"]:
+                try:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                except Exception as e:
+                    log.debug(f"Failed to remove temporary file {temp_file}: {e}")
+
+        except Exception:
+            log.error("Error generating inverted flamegraph:", exc_info=True)
 
     def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
         """Start process_args with output to output_file.
@@ -186,9 +296,17 @@ class ResourceMonitoring:
         log.info("Starting perf stat with args: %s", " ".join(perf_args))
         return subprocess.Popen(perf_args)
 
+    def _start_flamegraph(self):
+        """Produces a flamegraph"""
+
+        flamegraph_args = ["flamegraph", "--pid", str(self.target_pid), "-o", "flamegraph.svg"]
+
+        log.info("Starting flamegraph with args %s", " ".join(flamegraph_args))
+        return subprocess.Popen(flamegraph_args)
+
     @contextmanager
-    def managed(target_pid, with_bwm=False, with_perf_stat=False):
-        resource = ResourceMonitoring(target_pid, with_bwm, with_perf_stat)
+    def managed(target_pid, with_bwm=False, with_perf_stat=False, with_flamegraph=False, flamegraph_scripts_path=None):
+        resource = ResourceMonitoring(target_pid, with_bwm, with_perf_stat, with_flamegraph, flamegraph_scripts_path)
         try:
             resource._start()
             yield resource
@@ -232,7 +350,13 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark.setup()
         target_pid = metadata.get("target_pid")
 
-        with ResourceMonitoring.managed(target_pid, cfg.monitoring.with_bwm, cfg.monitoring.with_perf_stat):
+        with ResourceMonitoring.managed(
+            target_pid,
+            cfg.monitoring.with_bwm,
+            cfg.monitoring.with_perf_stat,
+            cfg.monitoring.with_flamegraph,
+            cfg.monitoring.get("flamegraph_scripts_path"),
+        ):
             benchmark.run_benchmark()
 
         # Mark success if we get here without exceptions

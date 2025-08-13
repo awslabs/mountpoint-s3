@@ -42,6 +42,7 @@ class BenchmarkConfigParser:
             'with_bwm': getattr(self.cfg.monitoring, 'with_bwm', False),
             'write_part_size': getattr(self.cfg, 'write_part_size', 16777216),  # 16 MiB
             'with_perf_stat': getattr(self.cfg.monitoring, 'with_perf_stat', False),
+            'with_flamegraph': getattr(self.cfg.monitoring, 'with_flamegraph', False),
             'download_checksums': getattr(self.cfg, 'download_checksums', True),
         }
 
