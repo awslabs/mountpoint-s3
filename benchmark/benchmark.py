@@ -131,7 +131,7 @@ class ResourceMonitoring:
         log.debug("Shutting down resource monitors...")
         for process in [self.mpstat_process, self.bwm_ng_process, self.perf_stat_process]:
             self._stop_resource_monitor(process)
-        if self.flamegraph_process != None:
+        if self.flamegraph_process is not None:
             self._stop_flamegraph(self.flamegraph_process)
 
         for output_file in self.output_files:
@@ -151,24 +151,25 @@ class ResourceMonitoring:
     def _stop_flamegraph(self, process):
         try:
             if process:
-               # Find all perf processes that are children of the flamegraph process
-               try:
-                  parent = psutil.Process(process.pid)
-                  children = parent.children(recursive=True)
-                  # Kill perf process first (child)
-                  for child in children:
-                     if 'perf' in child.name():
-                        child.send_signal(signal.SIGINT)
-                        child.wait()
-                  # Then kill the flamegraph process (parent)
-                  process.send_signal(signal.SIGINT)
-                  process.wait()
+                # Find all perf processes that are children of the flamegraph process
+                try:
+                    parent = psutil.Process(process.pid)
+                    children = parent.children(recursive=True)
+                    # Kill perf process first (child)
+                    for child in children:
+                        if 'perf' in child.name():
+                            child.send_signal(signal.SIGINT)
+                            child.wait()
+                    # Then kill the flamegraph process (parent)
+                    process.send_signal(signal.SIGINT)
+                    process.wait()
 
-               except psutil.NoSuchProcess:
-                  log.warning(f"Process {process.pid} no longer exists")
+                except psutil.NoSuchProcess:
+                    log.warning(f"Process {process.pid} no longer exists")
 
         except Exception:
-           log.error("Error shutting down monitoring:", exc_info=True)
+            log.error("Error shutting down monitoring:", exc_info=True)
+
     def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
         """Start process_args with output to output_file.
 
@@ -217,13 +218,7 @@ class ResourceMonitoring:
     def _start_flamegraph(self):
         """Produces a flamegraph"""
 
-        flamegraph_args = [
-            "flamegraph",
-            "--pid",
-            str(self.target_pid),
-            "-o",
-            "flamegraph.svg"
-        ]
+        flamegraph_args = ["flamegraph", "--pid", str(self.target_pid), "-o", "flamegraph.svg"]
 
         log.info("Starting flamegraph with args %s", " ".join(flamegraph_args))
         return subprocess.Popen(flamegraph_args)
@@ -274,7 +269,9 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark.setup()
         target_pid = metadata.get("target_pid")
 
-        with ResourceMonitoring.managed(target_pid, cfg.monitoring.with_bwm, cfg.monitoring.with_perf_stat, cfg.monitoring.with_flamegraph):
+        with ResourceMonitoring.managed(
+            target_pid, cfg.monitoring.with_bwm, cfg.monitoring.with_perf_stat, cfg.monitoring.with_flamegraph
+        ):
             benchmark.run_benchmark()
 
         # Mark success if we get here without exceptions
