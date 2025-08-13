@@ -114,5 +114,5 @@ class BenchmarkConfigParser:
                     'mean': getattr(stub_cfg.p999, 'mean', 2000.0),
                     'stddev': getattr(stub_cfg.p999, 'stddev', 5000.0),
                 },
-            }
+            },
         }
