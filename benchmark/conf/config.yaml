@@ -29,6 +29,7 @@ network:
 monitoring:
   with_bwm: false
   with_perf_stat: false
+  with_flamegraph: false
 
 # ===== Mountpoint configuration =====
 mountpoint:
@@ -40,9 +41,28 @@ mountpoint:
   mountpoint_binary: !!null
   upload_checksums: !!null
   max_memory_target: !!null # memory upper-limit in MB
-  stub_mode: "off"  # Options: "off", "fs_handler", "s3_client"
-  mountpoint_debug: false
+  stub_mode: "fs_handler"  # Options: "off", "fs_handler", "s3_client"
+  mountpoint_debug: true
   mountpoint_debug_crt: false
+
+# ===== Stub latency configuration =====
+stub_latencies:
+  # Enable/disable latency simulation for stubbed filesystem reads
+  simulate_latencies: true
+  # Latency tiers for stubbed filesystem reads (when stub_mode: "fs_handler")
+  # Format: mean and standard deviation in microseconds
+  default:
+    mean: 180.0
+    stddev: 40.0
+  p90:
+    mean: 400.0
+    stddev: 60.0
+  p99:
+    mean: 650.0
+    stddev: 100.0
+  p999:
+    mean: 2000.0
+    stddev: 5000.0
 
 # ===== Benchmark-specific configurations =====
 benchmarks:
@@ -52,18 +72,18 @@ benchmarks:
       - sequential_read
     fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
     fio_io_engine: "psync"
-  
+
   prefetch:
     max_memory_target: !!null # memory upper-limit in MB
-  
+
   crt:
     crt_benchmarks_path: !!null
 
-  client:  
-    # None 
+  client:
+    # None
 
   client_backpressure:
-    read_window_size: !!null #2147483648 
+    read_window_size: !!null #2147483648
 
 
 hydra:

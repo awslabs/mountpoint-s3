@@ -30,6 +30,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
     config_parser = BenchmarkConfigParser(cfg)
     common_config = config_parser.get_common_config()
     mp_config = config_parser.get_mountpoint_config()
+    stub_latencies_config = config_parser.get_stub_latencies_config()
 
     bucket = common_config['s3_bucket']
     stub_mode = mp_config['stub_mode']
@@ -125,6 +126,18 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
             pass
         case "fs_handler":
             mp_env["MOUNTPOINT_BUILD_STUB_FS_HANDLER"] = "1"
+
+            # Configure stub latency simulation if enabled
+            if stub_latencies_config['simulate_latencies']:
+                tiers = stub_latencies_config['tiers']
+                latency_tiers = f"{tiers['default']['mean']},{tiers['default']['stddev']},{tiers['p90']['mean']},{tiers['p90']['stddev']},{tiers['p99']['mean']},{tiers['p99']['stddev']},{tiers['p999']['mean']},{tiers['p999']['stddev']}"
+
+                mp_env["EXPERIMENTAL_STUB_DISTRIBUTION_ON"] = "1"
+                mp_env["EXPERIMENTAL_STUB_DISTRIBUTION_TIERS"] = latency_tiers
+
+                log.info(f"Stub latency simulation enabled with tiers: {latency_tiers}")
+            else:
+                log.info("Stub latency simulation disabled")
         case "s3_client":
             # Already handled when building cargo command
             pass

@@ -19,6 +19,7 @@ pub mod metrics_otel;
 pub mod object;
 pub mod prefetch;
 pub mod s3;
+mod stubbed_fs;
 mod superblock;
 mod sync;
 pub mod upload;
