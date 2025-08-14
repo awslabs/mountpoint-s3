@@ -40,6 +40,9 @@ pub enum ManagedCacheDirError {
 }
 
 impl ManagedCacheDir {
+    const MOUNTPOINT_CACHE_DIR_NAME: &str = "mountpoint-cache";
+    const MOUNTPOINT_OLD_CACHE_DIR_PREFIX: &str = "old-mountpoint-cache.";
+
     /// Create a new directory inside the provided parent path.
     ///
     /// If `should_cleanup` is `true` and `<parent_path>/mountpoint-cache` already exists,
@@ -54,7 +57,7 @@ impl ManagedCacheDir {
         cache_key: Option<&OsStr>,
         should_cleanup: bool,
     ) -> Result<Self, ManagedCacheDirError> {
-        let mountpoint_cache_path = parent_path.as_ref().join("mountpoint-cache");
+        let mountpoint_cache_path = parent_path.as_ref().join(ManagedCacheDir::MOUNTPOINT_CACHE_DIR_NAME);
         let managed_cache_path = match cache_key {
             None => mountpoint_cache_path.clone(),
             Some(cache_key) => mountpoint_cache_path.join(hash_cache_key(cache_key.as_bytes())),
@@ -105,9 +108,11 @@ impl ManagedCacheDir {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or_default();
-        let renamed_cache_path = self
-            .mountpoint_cache_path
-            .with_file_name(format!("old-mountpoint-cache.{epoch_ns}"));
+        let renamed_cache_path = self.mountpoint_cache_path.with_file_name(format!(
+            "{}{}",
+            ManagedCacheDir::MOUNTPOINT_OLD_CACHE_DIR_PREFIX,
+            epoch_ns
+        ));
 
         tracing::debug!(
             cache_subdirectory = ?self.mountpoint_cache_path,
