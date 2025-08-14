@@ -358,7 +358,6 @@ def run_experiment(cfg: DictConfig) -> None:
             process = subprocess.Popen(
                 command.args,
                 env=command.env,
-                cwd=command.cwd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -377,7 +376,6 @@ def run_experiment(cfg: DictConfig) -> None:
             cfg.monitoring.get("flamegraph_scripts_path"),
         ):
             stdout, stderr = process.communicate()
-            execution_time = time.time() - start_time
 
             if stdout is not None and isinstance(stdout, bytes):
                 stdout = stdout.decode('utf-8')
@@ -385,7 +383,7 @@ def run_experiment(cfg: DictConfig) -> None:
                 stderr = stderr.decode('utf-8')
 
             result = CommandResult(
-                returncode=process.returncode, stdout=stdout, stderr=stderr, execution_time=execution_time
+                returncode=process.returncode, stdout=stdout, stderr=stderr
             )
 
         metadata["success"] = True

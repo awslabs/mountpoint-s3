@@ -10,7 +10,6 @@ class CommandResult:
     returncode: int
     stdout: Optional[str] = None
     stderr: Optional[str] = None
-    execution_time: float = 0.0
 
 
 @dataclass
@@ -19,7 +18,6 @@ class Command:
 
     args: List[str]
     env: Dict[str, str] = field(default_factory=dict)
-    cwd: Optional[str] = None
     capture_output: bool = False
 
     def __post_init__(self):
