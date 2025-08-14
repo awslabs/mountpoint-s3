@@ -4,7 +4,6 @@ import logging
 import os
 import signal
 import subprocess
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -353,7 +352,6 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark.setup()
         command = benchmark.get_command()
 
-        start_time = time.time()
         if command.capture_output:
             process = subprocess.Popen(
                 command.args,
@@ -382,9 +380,7 @@ def run_experiment(cfg: DictConfig) -> None:
             if stderr is not None and isinstance(stderr, bytes):
                 stderr = stderr.decode('utf-8')
 
-            result = CommandResult(
-                returncode=process.returncode, stdout=stdout, stderr=stderr
-            )
+            result = CommandResult(returncode=process.returncode, stdout=stdout, stderr=stderr)
 
         metadata["success"] = True
 
