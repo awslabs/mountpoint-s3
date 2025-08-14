@@ -54,9 +54,9 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
         #[cfg(feature = "otlp_integration")]
-        let otlp_endpoint = args.log_metrics_otlp.clone();
+        let otlp_endpoint = args.otlp_endpoint.clone();
         #[cfg(feature = "otlp_integration")]
-        let _metrics = init_metrics(&otlp_endpoint, args.log_metrics_otlp_interval)?;
+        let _metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
         #[cfg(not(feature = "otlp_integration"))]
         let _metrics = metrics::install(None);
@@ -91,9 +91,9 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
                 #[cfg(feature = "otlp_integration")]
-                let otlp_endpoint = args.log_metrics_otlp.clone();
+                let otlp_endpoint = args.otlp_endpoint.clone();
                 #[cfg(feature = "otlp_integration")]
-                let _metrics = init_metrics(&otlp_endpoint, args.log_metrics_otlp_interval)?;
+                let _metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
                 #[cfg(not(feature = "otlp_integration"))]
                 let _metrics = metrics::install(None);

@@ -282,22 +282,22 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     #[cfg(feature = "otlp_integration")]
     #[clap(
         long,
-        help = "Enable OTLP metrics export to the specified endpoint",
+        help = "OTLP endpoint for publishing metrics",
         help_heading = LOGGING_OPTIONS_HEADER,
         value_name = "ENDPOINT"
     )]
-    pub log_metrics_otlp: Option<String>,
+    pub otlp_endpoint: Option<String>,
 
     #[cfg(feature = "otlp_integration")]
     #[clap(
         long,
-        help = "OTLP metrics export interval in seconds [default: 5]",
+        help = "OTLP metrics export interval in seconds [default: 60]",
         help_heading = LOGGING_OPTIONS_HEADER,
         value_name = "SECONDS",
         value_parser = value_parser!(u64).range(1..),
-        requires = "log_metrics_otlp"
+        requires = "otlp_endpoint"
     )]
-    pub log_metrics_otlp_interval: Option<u64>,
+    pub otlp_export_interval: Option<u64>,
 
     #[clap(short, long, help = "Enable debug logging for Mountpoint", help_heading = LOGGING_OPTIONS_HEADER)]
     pub debug: bool,
