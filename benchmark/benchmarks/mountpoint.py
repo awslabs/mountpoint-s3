@@ -6,6 +6,7 @@ from typing import Dict, Any
 from omegaconf import DictConfig
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
+from benchmarks.cargo_helper import build_binary
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 log = logging.getLogger(__name__)
@@ -35,22 +36,24 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
     stub_mode = mp_config['stub_mode']
 
     if mp_config['mountpoint_binary'] is None:
-        mountpoint_args = [
-            "cargo",
-            "run",
-            "--quiet",
-            "--release",
-            "--features=mock,mem_limiter",
-        ]
+        # Compile the binary instead of using cargo run
+        features = ["mock", "mem_limiter"]
+        build_env = {}
 
         if stub_mode == "s3_client":
             # `mock-mount-s3` requires bucket to be prefixed with `sthree-` to verify we're not actually reaching S3
             logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")
             bucket = f"sthree-{bucket}"
-            mountpoint_args.append("--bin=mock-mount-s3")
+            binary_name = "mock-mount-s3"
+        elif stub_mode == "fs_handler":
+            binary_name = "mount-s3"
+            build_env["MOUNTPOINT_BUILD_STUB_FS_HANDLER"] = "1"
+        else:
+            binary_name = "mount-s3"
 
-        # End Cargo command, begin passing arguments to Mountpoint
-        mountpoint_args.append("--")
+        log.info(f"Compiling {binary_name} with features: {features}")
+        mountpoint_binary = build_binary(binary_name, features, build_env)
+        mountpoint_args = [mountpoint_binary]
     else:
         mountpoint_args = [mp_config['mountpoint_binary']]
 

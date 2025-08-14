@@ -1,16 +1,14 @@
 from abc import ABC, abstractmethod
-import logging
 from typing import Dict, Any
 
-
-log = logging.getLogger(__name__)
+from .command import Command, CommandResult
 
 
 class BaseBenchmark(ABC):
     """
     Abstract base class for all benchmarks.
     - setup: Prepare the environment for the benchmark
-    - run_benchmark: Execute the actual benchmark workload
+    - get_command: Return the command to execute for this benchmark
     - post_process: Process results, collect logs, and clean up
     """
 
@@ -25,19 +23,22 @@ class BaseBenchmark(ABC):
         pass
 
     @abstractmethod
-    def run_benchmark(self) -> Dict[str, Any]:
+    def get_command(self) -> Command:
         """
-        Run the actual benchmark workload.
+        Return the command to execute for this benchmark.
 
         Returns:
-            Dict containing benchmark results metadata
+            Command object containing the subprocess arguments and environment.
         """
         pass
 
     @abstractmethod
-    def post_process(self) -> Dict[str, Any]:
+    def post_process(self, result: CommandResult) -> Dict[str, Any]:
         """
-        Process results, collect logs, and clean up resources.
+        Process results and output, collect logs, and clean up resources.
+
+        Args:
+            result: The result of command execution
 
         Returns:
             Dict containing post-processing metadata

@@ -1,9 +1,11 @@
 import logging
-import os
+
 import subprocess
 from typing import Dict, Any
 
 from benchmarks.base_benchmark import BaseBenchmark
+from benchmarks.command import Command, CommandResult
+from benchmarks.cargo_helper import build_example
 from omegaconf import DictConfig
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
@@ -13,20 +15,21 @@ log = logging.getLogger(__name__)
 
 class PrefetchBenchmark(BaseBenchmark):
     def __init__(self, cfg: DictConfig, metadata: Dict[str, Any]):
+        self.metadata = metadata
         self.config_parser = BenchmarkConfigParser(cfg)
         self.common_config = self.config_parser.get_common_config()
         self.prefetch_config = self.config_parser.get_prefetch_config()
 
-    def setup(self) -> None:
-        pass
+    def setup(self) -> Dict[str, Any]:
+        log.info("Compiling prefetch_benchmark example...")
+        self.executable_path = build_example("prefetch_benchmark")
+        log.info(f"Prefetch benchmark executable ready at: {self.executable_path}")
 
-    def run_benchmark(self) -> None:
+        return self.metadata
+
+    def get_command(self) -> Command:
         subprocess_args = [
-            "cargo",
-            "run",
-            "--release",
-            "--example",
-            "prefetch_benchmark",
+            self.executable_path,
             self.common_config['s3_bucket'],
         ]
 
@@ -68,16 +71,22 @@ class PrefetchBenchmark(BaseBenchmark):
             subprocess_args.extend(["--max-duration", str(run_time)])
 
         subprocess_args.extend(["--output-file", "prefetch-output.json"])
+
         prefetch_env = {}
         if not self.common_config['download_checksums']:
             prefetch_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
 
-        subprocess_env = os.environ.copy() | prefetch_env
-        log.debug("Subprocess env: %s", subprocess_env)
+        log.info("Prefetch benchmark command prepared with args: %s", subprocess_args)
 
-        log.info("Running prefetch benchmark with args: %s", subprocess_args)
-        subprocess.run(subprocess_args, check=True, capture_output=True, text=True, env=subprocess_env)
+        return Command(args=subprocess_args, env=prefetch_env, capture_output=True)
+
+    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+        if result.returncode != 0:
+            log.error(f"Prefetch benchmark failed with exit code {result.returncode}")
+            if result.stderr:
+                log.error(f"Error output: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, ["prefetch_benchmark"])
+
         log.info("Prefetch benchmark completed successfully.")
-
-    def post_process(self) -> None:
-        pass
+        self.metadata["prefetch_output_file"] = "prefetch-output.json"
+        return self.metadata

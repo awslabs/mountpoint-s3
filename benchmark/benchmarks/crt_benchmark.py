@@ -7,6 +7,7 @@ import tempfile
 from typing import Dict, Any
 
 from benchmarks.base_benchmark import BaseBenchmark
+from benchmarks.command import Command, CommandResult
 from omegaconf import DictConfig
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
@@ -26,6 +27,7 @@ class CrtBenchmark(BaseBenchmark):
             raise ValueError("crt_benchmarks_path is required. Please populate benchmarks.crt.crt_benchmarks_path")
 
         self.crt_benchmark_runner = f"{self.crt_benchmarks_path}/build/c/install/bin/s3-benchrunner-c"
+        self.crt_cfg_file = None
 
     def _generate_benchmark_config(self, objects, object_size_in_gib, run_time) -> dict[str, Any]:
         config = {
@@ -49,7 +51,7 @@ class CrtBenchmark(BaseBenchmark):
         return config
 
     def setup(self) -> Dict[str, Any]:
-        # Setup the the benchmark configuration files
+        # Setup the benchmark configuration files
         object_size_in_gib = self.common_config['object_size_in_gib']
         app_workers = self.common_config['application_workers']
         run_time = self.common_config['run_time']
@@ -84,7 +86,9 @@ class CrtBenchmark(BaseBenchmark):
         except subprocess.CalledProcessError as e:
             raise RuntimeError("CRT build failed") from e
 
-    def run_benchmark(self) -> Dict[str, Any]:
+        return self.metadata
+
+    def get_command(self) -> Command:
         region = self.common_config.get('region')
 
         subprocess_args = [
@@ -101,16 +105,11 @@ class CrtBenchmark(BaseBenchmark):
         if network_interfaces := self.common_config['network_interfaces']:
             subprocess_args.extend(["--nic", ",".join(network_interfaces)])
 
-        log.info(f"Running CRT benchmark: {subprocess_args}")
-        result = subprocess.run(subprocess_args, check=True, capture_output=True, text=True)
-        log.info("CRT benchmark completed successfully")
-
-        self.parse_benchmark_output(result.stdout)
+        log.info(f"CRT benchmark command prepared with args: {subprocess_args}")
+        return Command(args=subprocess_args, capture_output=True)
 
     def parse_benchmark_output(self, output):
-        # Parse the output and extract the results
-        # Parse single run result
-        # Run:1 Secs:56.572429 Gb/s:60.735838
+        """Parse the CRT benchmark output and extract metrics."""
         # FIXME: Ideally, we should patch CRT benchmarks to emit bytes downloads
         # and a json file with results
         run_pattern = r"Run:(\d+)\s+Secs:(\d+\.\d+)\s+Gb/s:(\d+\.\d+)"
@@ -119,18 +118,30 @@ class CrtBenchmark(BaseBenchmark):
             duration_secs = float(match.group(2))
             throughput_gbps = float(match.group(3))
             metrics = {"duration_secs": duration_secs, "throughput_gbps": throughput_gbps}
-
-            # Write metrics to file
-            with open(f"{os.getcwd()}/crt_output.json", 'w') as f:
-                json.dump(metrics, f, indent=4)
-
             return metrics
         return {}
 
-    def post_process(self) -> None:
+    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+        if result.returncode != 0:
+            log.error(f"CRT benchmark failed with exit code {result.returncode}")
+            if result.stderr:
+                log.error(f"Error output: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, ["s3-benchrunner-c"])
+
+        log.info("CRT benchmark completed successfully")
+
+        metrics = self.parse_benchmark_output(result.stdout)
+
+        with open(f"{os.getcwd()}/crt_output.json", 'w') as f:
+            json.dump(metrics, f, indent=4)
+
+        self.metadata["crt_metrics"] = metrics
+        self.metadata["crt_output_file"] = "crt_output.json"
+
         try:
-            log.info(f"Remove CRT benchmark configuration: {self.crt_cfg_file}")
-            os.remove(self.crt_cfg_file)
-        except Exception:
-            pass
-        return {}
+            if self.crt_cfg_file and os.path.exists(self.crt_cfg_file):
+                log.info(f"Remove CRT benchmark configuration: {self.crt_cfg_file}")
+                os.remove(self.crt_cfg_file)
+        except Exception as e:
+            log.warning(f"Failed to clean up CRT config file: {e}")
+        return self.metadata

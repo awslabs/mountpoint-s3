@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -17,6 +18,7 @@ import urllib.request
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 from benchmarks.client_benchmark import ClientBenchmark
+from benchmarks.command import CommandResult
 from benchmarks.crt_benchmark import CrtBenchmark
 from benchmarks.fio_benchmark import FioBenchmark
 from benchmarks.prefetch_benchmark import PrefetchBenchmark
@@ -346,9 +348,26 @@ def run_experiment(cfg: DictConfig) -> None:
     else:
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
 
+    result = None
     try:
         benchmark.setup()
-        target_pid = metadata.get("target_pid")
+        command = benchmark.get_command()
+
+        start_time = time.time()
+        if command.capture_output:
+            process = subprocess.Popen(
+                command.args,
+                env=command.env,
+                cwd=command.cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        else:
+            process = subprocess.Popen(command.args, env=command.env, cwd=command.cwd)
+
+        target_pid = metadata.get("target_pid", process.pid)
+        metadata["target_pid"] = target_pid
 
         with ResourceMonitoring.managed(
             target_pid,
@@ -357,30 +376,39 @@ def run_experiment(cfg: DictConfig) -> None:
             cfg.monitoring.with_flamegraph,
             cfg.monitoring.get("flamegraph_scripts_path"),
         ):
-            benchmark.run_benchmark()
+            stdout, stderr = process.communicate()
+            execution_time = time.time() - start_time
 
-        # Mark success if we get here without exceptions
+            if stdout is not None and isinstance(stdout, bytes):
+                stdout = stdout.decode('utf-8')
+            if stderr is not None and isinstance(stderr, bytes):
+                stderr = stderr.decode('utf-8')
+
+            result = CommandResult(
+                returncode=process.returncode, stdout=stdout, stderr=stderr, execution_time=execution_time
+            )
+
         metadata["success"] = True
-
-        result_bucket_name = common_config.get("s3_result_bucket")
-
-        # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
-        region = common_config.get("region", "us-east-1")
-        if result_bucket_name:
-            log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
-            upload_results_to_s3(result_bucket_name, region)
-        else:
-            log.info("No results bucket specified (s3_result_bucket), skipping upload")
 
     except Exception:
         log.error("Benchmark execution failed:", exc_info=True)
         raise
     finally:
         try:
-            benchmark.post_process()
+            if result is not None:
+                benchmark.post_process(result)
         except Exception:
             log.error("Post-processing failed:", exc_info=True)
         finally:
+            result_bucket_name = common_config.get("s3_result_bucket")
+            # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
+            region = common_config.get("region", "us-east-1")
+            if result_bucket_name:
+                log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
+                upload_results_to_s3(result_bucket_name, region)
+            else:
+                log.info("No results bucket specified (s3_result_bucket), skipping upload")
+
             write_metadata(metadata)
             metadata["end_time"] = datetime.now(tz=timezone.utc)
 
