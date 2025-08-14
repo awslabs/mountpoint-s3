@@ -69,7 +69,9 @@ impl ManagedCacheDir {
         };
 
         if should_cleanup {
-            managed_cache_dir.remove_in_background()?;
+            managed_cache_dir
+                .remove_in_background()
+                .map_err(ManagedCacheDirError::CleanupFailure)?;
         }
         Self::create_dir(&managed_cache_dir.mountpoint_cache_path)?;
         if cache_key.is_some() {
@@ -81,12 +83,7 @@ impl ManagedCacheDir {
     /// Remove the cache sub-directory, along with its contents if any
     fn remove(&self) -> Result<(), ManagedCacheDirError> {
         tracing::debug!(cache_subdirectory = ?self.mountpoint_cache_path, "removing the cache sub-directory and any contents");
-        if let Err(remove_dir_err) = fs::remove_dir_all(&self.mountpoint_cache_path) {
-            match remove_dir_err.kind() {
-                io::ErrorKind::NotFound => (),
-                _kind => return Err(ManagedCacheDirError::CleanupFailure(remove_dir_err)),
-            }
-        }
+        remove_dir_all_ignore_not_found(&self.mountpoint_cache_path).map_err(ManagedCacheDirError::CleanupFailure)?;
         tracing::trace!(cache_subdirectory = ?self.mountpoint_cache_path, "cache sub-directory removal complete");
         Ok(())
     }
@@ -94,11 +91,8 @@ impl ManagedCacheDir {
     /// Remove the cache sub-directory in a background thread.
     /// This method first renames `<parent_path>/mountpoint-cache` into `<parent_path>/old-mountpoint-cache.<EPOCH_NS>` in the current thread,
     /// and then spawns a detached background thread to clean up the old cache folder.
-    fn remove_in_background(&self) -> Result<(), ManagedCacheDirError> {
-        let exists = self
-            .mountpoint_cache_path
-            .try_exists()
-            .map_err(ManagedCacheDirError::CleanupFailure)?;
+    fn remove_in_background(&self) -> io::Result<()> {
+        let exists = self.mountpoint_cache_path.try_exists()?;
         if !exists {
             // Nothing to do
             return Ok(());
@@ -118,21 +112,17 @@ impl ManagedCacheDir {
             cache_subdirectory = ?self.mountpoint_cache_path,
             renamed_cache_subdirectory = ?renamed_cache_path,
             "renaming the cache sub-directory to clean up in a background thread");
-        fs::rename(&self.mountpoint_cache_path, &renamed_cache_path).map_err(ManagedCacheDirError::CleanupFailure)?;
+        fs::rename(&self.mountpoint_cache_path, &renamed_cache_path)?;
 
         std::thread::spawn(move || {
-            if let Err(remove_dir_err) = fs::remove_dir_all(&renamed_cache_path) {
-                match remove_dir_err.kind() {
-                    io::ErrorKind::NotFound => (),
-                    _ => {
-                        tracing::error!(
-                            renamed_cache_subdirectory = ?renamed_cache_path,
-                            error = ?remove_dir_err,
-                            "failed to remove cache sub-directory in background");
-                        return;
-                    }
-                }
+            if let Err(err) = remove_dir_all_ignore_not_found(&renamed_cache_path) {
+                tracing::error!(
+                    renamed_cache_subdirectory = ?renamed_cache_path,
+                    error = ?err,
+                    "failed to remove cache sub-directory in background");
+                return;
             }
+
             tracing::debug!(renamed_cache_subdirectory = ?renamed_cache_path, "cache sub-directory removal complete");
         });
 
@@ -180,6 +170,16 @@ impl Drop for ManagedCacheDir {
 fn hash_cache_key(cache_key: &[u8]) -> String {
     let hashed_key = Sha256::digest(cache_key);
     hex::encode(hashed_key)
+}
+
+/// Removes given directory after removing all its contents.
+/// This function is a wrapper around [fs::remove_dir_all] and just ignores "not found" errors.
+fn remove_dir_all_ignore_not_found(path: &Path) -> io::Result<()> {
+    match fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 #[cfg(test)]
