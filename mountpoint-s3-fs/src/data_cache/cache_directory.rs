@@ -40,8 +40,14 @@ pub enum ManagedCacheDirError {
 }
 
 impl ManagedCacheDir {
+    // This is the sub-directory where Mountpoint will store cache contents for the current Mountpoint instance.
     const MOUNTPOINT_CACHE_DIR_NAME: &str = "mountpoint-cache";
+    // This is the sub-directory prefix where Mountpoint will rename any leftover cache sub-directory from any previous Mountpoint instances
+    // and then will attempt to clean up in a background thread.
     const MOUNTPOINT_OLD_CACHE_DIR_PREFIX: &str = "old-mountpoint-cache.";
+    // This is the maximum number of retries Mountpoint will try to clean up the old cache folder in the background thread.
+    // Mountpoint will log any errors if clean up fails.
+    const MOUNTPOINT_OLD_CACHE_DIR_CLEANUP_MAX_RETRY: usize = 3;
 
     /// Create a new directory inside the provided parent path.
     ///
@@ -115,15 +121,24 @@ impl ManagedCacheDir {
         fs::rename(&self.mountpoint_cache_path, &renamed_cache_path)?;
 
         std::thread::spawn(move || {
-            if let Err(err) = remove_dir_all_ignore_not_found(&renamed_cache_path) {
-                tracing::error!(
-                    renamed_cache_subdirectory = ?renamed_cache_path,
-                    error = ?err,
-                    "failed to remove cache sub-directory in background");
-                return;
+            for attempt in 1..=ManagedCacheDir::MOUNTPOINT_OLD_CACHE_DIR_CLEANUP_MAX_RETRY {
+                match remove_dir_all_ignore_not_found(&renamed_cache_path) {
+                    Ok(()) => {
+                        tracing::debug!(
+                            attempt = attempt,
+                            renamed_cache_subdirectory = ?renamed_cache_path,
+                            "cache sub-directory removal complete");
+                        return;
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            attempt = attempt,
+                            renamed_cache_subdirectory = ?renamed_cache_path,
+                            error = ?err,
+                            "failed to remove cache sub-directory in background");
+                    }
+                }
             }
-
-            tracing::debug!(renamed_cache_subdirectory = ?renamed_cache_path, "cache sub-directory removal complete");
         });
 
         Ok(())
