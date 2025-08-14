@@ -18,7 +18,6 @@ class Command:
 
     args: List[str]
     env: Dict[str, str] = field(default_factory=dict)
-    capture_output: bool = False
 
     def __post_init__(self):
         """Merge command environment with current environment."""

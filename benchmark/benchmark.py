@@ -352,16 +352,13 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark.setup()
         command = benchmark.get_command()
 
-        if command.capture_output:
-            process = subprocess.Popen(
-                command.args,
-                env=command.env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        else:
-            process = subprocess.Popen(command.args, env=command.env, cwd=command.cwd)
+        process = subprocess.Popen(
+            command.args,
+            env=command.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
 
         target_pid = metadata.get("target_pid", process.pid)
         metadata["target_pid"] = target_pid
