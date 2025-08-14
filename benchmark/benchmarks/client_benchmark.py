@@ -1,9 +1,10 @@
 import logging
 import subprocess
-import os
 from typing import Dict, Any
 
 from benchmarks.base_benchmark import BaseBenchmark
+from benchmarks.command import Command, CommandResult
+from benchmarks.cargo_helper import build_example
 from omegaconf import DictConfig
 
 from benchmarks.benchmark_config_parser import BenchmarkConfigParser
@@ -20,17 +21,20 @@ class ClientBenchmark(BaseBenchmark):
         self.client_config = self.config_parser.get_client_config()
 
     def setup(self) -> Dict[str, Any]:
+        # Compile the client_benchmark example
+        features = None
+        if self.backpressure:
+            # Add any specific features needed for backpressure if required
+            features = []
+
+        log.info("Compiling client_benchmark example...")
+        self.executable_path = build_example("client_benchmark", features)
+        log.info(f"Client benchmark executable ready at: {self.executable_path}")
+
         return self.metadata
 
-    def run_benchmark(self) -> Dict[str, Any]:
-        subprocess_args = [
-            "cargo",
-            "run",
-            "--release",
-            "--example",
-            "client_benchmark",
-            "--",
-        ]
+    def get_command(self) -> Command:
+        subprocess_args = [self.executable_path]
 
         if self.backpressure:
             subprocess_args.append("--enable-backpressure")
@@ -75,12 +79,17 @@ class ClientBenchmark(BaseBenchmark):
         if not self.common_config['download_checksums']:
             client_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
 
-        subprocess_env = os.environ.copy() | client_env
-        log.debug("Subprocess env: %s", subprocess_env)
+        log.info("Client benchmark command prepared with args: %s", subprocess_args)
 
-        log.info("Running client benchmark with args: %s", subprocess_args)
-        subprocess.run(subprocess_args, check=True, capture_output=True, text=True, env=subprocess_env)
+        return Command(args=subprocess_args, env=client_env, capture_output=True)
+
+    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+        if result.returncode != 0:
+            log.error(f"Client benchmark failed with exit code {result.returncode}")
+            if result.stderr:
+                log.error(f"Error output: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, ["client_benchmark"])
+
         log.info("Client benchmark completed successfully.")
-
-    def post_process(self) -> Dict[str, Any]:
+        self.metadata["client_output_file"] = "client-output.json"
         return self.metadata

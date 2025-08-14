@@ -1,12 +1,11 @@
 import logging
-import os
-from subprocess import Popen, CalledProcessError
 import subprocess
 import tempfile
 from typing import Dict, Any
 from datetime import datetime, timezone
 
 from benchmarks.base_benchmark import BaseBenchmark
+from benchmarks.command import Command, CommandResult
 import hydra
 from omegaconf import DictConfig
 
@@ -24,7 +23,7 @@ class FioBenchmark(BaseBenchmark):
         self.common_config = self.config_parser.get_common_config()
         self.fio_config = self.config_parser.get_fio_config()
         self.mount_dir = None
-        self.target_pid = None
+        self.fio_output_filepath = None
 
     def _get_dev_id(self):
         with open('/proc/self/mountinfo', 'r') as f:
@@ -47,11 +46,10 @@ class FioBenchmark(BaseBenchmark):
     def setup(self) -> Dict[str, Any]:
         self.mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
         mount_metadata = mount_mp(self.cfg, self.mount_dir)
-        self.target_pid = mount_metadata["target_pid"]
         self.metadata.update(mount_metadata)
         return self.metadata
 
-    def run_benchmark(self) -> None:
+    def get_command(self) -> Command:
         FIO_BINARY = "fio"
         fio_job_name = self.fio_config['fio_benchmark']
         fio_job_filepath = hydra.utils.to_absolute_path(f"fio/{fio_job_name}.fio")
@@ -80,20 +78,15 @@ class FioBenchmark(BaseBenchmark):
         if not self.fio_config['direct_io'] and self.common_config['read_size'] > 256 * 1024:
             self._set_read_ahead(self.common_config['read_size'])
 
-        log.info("Running FIO with args: %s; env: %s", subprocess_args, fio_env)
-        subprocess_env = os.environ.copy()
-        subprocess_env.update(fio_env)
-        log.debug("Subproces env: %s; env: %s", subprocess_env)
+        log.info("FIO command prepared with args: %s; env: %s", subprocess_args, fio_env)
 
-        with Popen(subprocess_args, env=subprocess_env) as process:
-            exit_code = process.wait()
-            if exit_code != 0:
-                log.error(f"FIO process failed with exit code {exit_code}")
-                raise CalledProcessError(exit_code, subprocess_args)
+        return Command(args=subprocess_args, env=fio_env)
 
-        # Store benchmark results in metadata
-        self.metadata["fio_output_file"] = self.fio_output_filepath
-
-    def post_process(self) -> None:
+    def post_process(self, result: CommandResult) -> Dict[str, Any]:
         cleanup_mp(self.mount_dir)
+        if result.returncode != 0:
+            log.error(f"FIO process failed with exit code {result.returncode}")
+            raise subprocess.CalledProcessError(result.returncode, ["fio"])
+
+        self.metadata["fio_output_file"] = self.fio_output_filepath
         return self.metadata
