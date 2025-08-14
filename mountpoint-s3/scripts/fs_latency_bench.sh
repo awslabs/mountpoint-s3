@@ -132,12 +132,13 @@ run_file_system_benchmarks() {
   log_dir=logs/file_system_benchmarks
 
   # mount file system
-  cargo run --release ${S3_BUCKET_NAME} ${mount_dir} \
+  cargo run --release --features otlp_integration ${S3_BUCKET_NAME} ${mount_dir} \
     --allow-delete \
     --allow-overwrite \
     --log-directory=$log_dir \
     --prefix=${S3_BUCKET_TEST_PREFIX} \
     --log-metrics \
+    --otlp-endpoint http://localhost:4318 \
     ${optional_args}
   mount_status=$?
   if [ $mount_status -ne 0 ]; then

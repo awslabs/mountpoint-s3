@@ -166,7 +166,7 @@ cache_benchmark () {
 
     # mount file system
     set +e
-    cargo run --quiet --release -- \
+    cargo run --quiet --release --features otlp_integration -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
       --allow-overwrite \
@@ -175,6 +175,7 @@ cache_benchmark () {
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --part-size=16777216 \
       --log-metrics \
+      --otlp-endpoint http://localhost:4318 \
       ${optional_args}
     mount_status=$?
     set -e
