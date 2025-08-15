@@ -229,7 +229,7 @@ class ResourceMonitoring:
             # Step 3: ./flamegraph.pl --inverted stacks.txt > inverted-flamegraph.svg
             with open("stacks.txt", "r") as stacks_txt, open("inverted-flamegraph.svg", "w") as flamegraph_svg:
                 result = subprocess.run(
-                    [flamegraph_script, "--inverted", "--reverse"],
+                    [flamegraph_script, "--inverted", "--reverse", "--colors", "blue"],
                     stdin=stacks_txt,
                     stdout=flamegraph_svg,
                     stderr=subprocess.PIPE,
