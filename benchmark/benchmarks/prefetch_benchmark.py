@@ -78,7 +78,7 @@ class PrefetchBenchmark(BaseBenchmark):
 
         log.info("Prefetch benchmark command prepared with args: %s", subprocess_args)
 
-        return Command(args=subprocess_args, env=prefetch_env, capture_output=True)
+        return Command(args=subprocess_args, env=prefetch_env)
 
     def post_process(self, result: CommandResult) -> Dict[str, Any]:
         if result.returncode != 0:
