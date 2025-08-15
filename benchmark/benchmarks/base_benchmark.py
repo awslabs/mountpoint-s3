@@ -13,9 +13,12 @@ class BaseBenchmark(ABC):
     """
 
     @abstractmethod
-    def setup(self) -> Dict[str, Any]:
+    def setup(self, build_with_flamegraphs: bool = False) -> Dict[str, Any]:
         """
         Set up the environment for the benchmark.
+
+        Args:
+            build_with_flamegraphs: Whether to build with flamegraph-optimized compilation flags
 
         Returns:
             Dict containing setup metadata
