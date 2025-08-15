@@ -44,6 +44,7 @@ class BenchmarkConfigParser:
             'with_perf_stat': getattr(self.cfg.monitoring, 'with_perf_stat', False),
             'with_flamegraph': getattr(self.cfg.monitoring, 'with_flamegraph', False),
             'download_checksums': getattr(self.cfg, 'download_checksums', True),
+            'crt_eventloop_threads': getattr(self.cfg, 'crt_eventloop_threads', None),
         }
 
     def get_mountpoint_config(self) -> Dict[str, Any]:

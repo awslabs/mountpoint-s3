@@ -120,6 +120,9 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
     if not common_config['download_checksums']:
         mp_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
 
+    if (crt_eventloop_threads := common_config['crt_eventloop_threads']) is not None:
+        mp_env["UNSTABLE_CRT_EVENTLOOP_THREADS"] = str(crt_eventloop_threads)
+
     if stub_mode != "off" and mp_config["mountpoint_binary"] is not None:
         raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
 

@@ -155,6 +155,16 @@ impl CliArgs {
         if let Some(nics) = &self.bind {
             client_config = client_config.network_interface_names(nics.to_vec());
         }
+        const ENV_VAR_KEY_CRT_ELG_THREADS: &str = "UNSTABLE_CRT_EVENTLOOP_THREADS";
+        if let Some(crt_elg_threads) = std::env::var_os(ENV_VAR_KEY_CRT_ELG_THREADS) {
+            let crt_elg_threads = crt_elg_threads.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
+                panic!(
+                    "Invalid value for environment variable {ENV_VAR_KEY_CRT_ELG_THREADS}. Must be positive integer."
+                )
+            });
+            client_config = client_config.event_loop_threads(crt_elg_threads);
+        }
+
         client_config
     }
 }
