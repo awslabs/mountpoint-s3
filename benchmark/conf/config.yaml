@@ -3,6 +3,8 @@
 
 defaults:
   - _self_
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
 
 # ===== Common parameters for all benchmarks =====
 s3_bucket: ???
