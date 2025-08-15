@@ -21,6 +21,7 @@ object_size_in_gib: 100  # Size of the object to benchmark
 benchmark_type: "fio" # fio, prefetch, client, client-bp, crt
 s3_keys: !!null
 download_checksums: true
+crt_eventloop_threads: !!null # Number of ELG thread count
 
 # Network configuration
 network:
@@ -86,3 +87,4 @@ hydra:
       'benchmarks.fio.direct_io': false, true
       # 'benchmarks.prefetch.max_memory_target': !!null, 1073741824, 2147483648  # null, 1GB, 2GB
       #'benchmarks.client_backpressure.read_window_size': 8388608, 2147483648
+      'crt_eventloop_threads': !!null # 128 (default for Trn1), 256, 1024

@@ -249,6 +249,14 @@ fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S
         );
     }
 
+    const ENV_VAR_KEY_CRT_ELG_THREADS: &str = "UNSTABLE_CRT_EVENTLOOP_THREADS";
+    if let Some(crt_elg_threads) = std::env::var_os(ENV_VAR_KEY_CRT_ELG_THREADS) {
+        let crt_elg_threads = crt_elg_threads.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
+            panic!("Invalid value for environment variable {ENV_VAR_KEY_CRT_ELG_THREADS}. Must be positive integer.")
+        });
+        config = config.event_loop_threads(crt_elg_threads);
+    }
+
     config
 }
 
