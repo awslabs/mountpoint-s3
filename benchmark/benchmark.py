@@ -300,6 +300,19 @@ class ResourceMonitoring:
     def _start_flamegraph(self):
         """Produces a flamegraph"""
 
+        try:
+            with open('/proc/sys/kernel/kptr_restrict', 'r') as f:
+                kptr_restrict_value = f.read().strip()
+            if kptr_restrict_value != '0':
+                log.warning(
+                    f"kernel.kptr_restrict is set to {kptr_restrict_value}, not 0. "
+                    f"For comprehensive flamegraphs, consider running: sudo sysctl kernel.kptr_restrict=0"
+                )
+            else:
+                log.info("kernel.kptr_restrict=0 - good for comprehensive flamegraphs")
+        except (OSError, IOError) as e:
+            log.warning(f"Could not check kernel.kptr_restrict: {e}")
+
         flamegraph_args = ["flamegraph", "--pid", str(self.target_pid), "-o", "flamegraph.svg"]
 
         log.info("Starting flamegraph with args %s", " ".join(flamegraph_args))
@@ -349,7 +362,8 @@ def run_experiment(cfg: DictConfig) -> None:
 
     result = None
     try:
-        benchmark.setup()
+        with_flamegraph = cfg.monitoring.with_flamegraph
+        benchmark.setup(build_with_flamegraphs=with_flamegraph)
         command = benchmark.get_command()
 
         process = subprocess.Popen(

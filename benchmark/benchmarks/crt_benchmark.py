@@ -50,7 +50,7 @@ class CrtBenchmark(BaseBenchmark):
 
         return config
 
-    def setup(self) -> Dict[str, Any]:
+    def setup(self, build_with_flamegraphs: bool = False) -> Dict[str, Any]:
         # Setup the benchmark configuration files
         object_size_in_gib = self.common_config['object_size_in_gib']
         app_workers = self.common_config['application_workers']

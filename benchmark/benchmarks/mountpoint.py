@@ -23,7 +23,7 @@ def cleanup_mp(mount_dir):
         os.remove(f"{mount_dir}.pid")
 
 
-def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
+def mount_mp(cfg: DictConfig, mount_dir: str, flamegraph_enhancement: bool = False) -> Dict[str, Any]:
     """
     Mount an S3 bucket using Mountpoint,
     using the configuration to apply Mountpoint arguments.
@@ -52,7 +52,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
             binary_name = "mount-s3"
 
         log.info(f"Compiling {binary_name} with features: {features}")
-        mountpoint_binary = build_binary(binary_name, features, build_env)
+        mountpoint_binary = build_binary(binary_name, features, build_env, flamegraph_enhancement)
         mountpoint_args = [mountpoint_binary]
     else:
         mountpoint_args = [mp_config['mountpoint_binary']]

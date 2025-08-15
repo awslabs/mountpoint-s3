@@ -43,9 +43,9 @@ class FioBenchmark(BaseBenchmark):
         subprocess.run(['sudo', 'sh', '-c', cmd], check=True, capture_output=True)
         log.info(f"Set read_ahead_kb to {bytes} for device {dev_id}")
 
-    def setup(self) -> Dict[str, Any]:
+    def setup(self, build_with_flamegraphs: bool = False) -> Dict[str, Any]:
         self.mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
-        mount_metadata = mount_mp(self.cfg, self.mount_dir)
+        mount_metadata = mount_mp(self.cfg, self.mount_dir, build_with_flamegraphs)
         self.metadata.update(mount_metadata)
         return self.metadata
 
