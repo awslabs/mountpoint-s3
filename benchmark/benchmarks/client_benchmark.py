@@ -81,7 +81,7 @@ class ClientBenchmark(BaseBenchmark):
 
         log.info("Client benchmark command prepared with args: %s", subprocess_args)
 
-        return Command(args=subprocess_args, env=client_env, capture_output=True)
+        return Command(args=subprocess_args, env=client_env)
 
     def post_process(self, result: CommandResult) -> Dict[str, Any]:
         if result.returncode != 0:
