@@ -47,6 +47,7 @@ mountpoint:
   stub_mode: "off"  # Options: "off", "fs_handler", "s3_client"
   mountpoint_debug: false
   mountpoint_debug_crt: false
+  mountpoint_clone_fuse_fd: false
 
 # ===== Benchmark-specific configurations =====
 benchmarks:
@@ -83,6 +84,7 @@ hydra:
       'application_workers': 1, 4, 16, 64, 128
       'iteration': "range(${iterations})"
       'mountpoint.fuse_threads': 1, 16, 64
+      'mountpoint.mountpoint_clone_fuse_fd': false, true
       'benchmarks.fio.direct_io': false, true
       # 'benchmarks.prefetch.max_memory_target': !!null, 1073741824, 2147483648  # null, 1GB, 2GB
       #'benchmarks.client_backpressure.read_window_size': 8388608, 2147483648

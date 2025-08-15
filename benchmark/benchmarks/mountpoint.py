@@ -116,6 +116,11 @@ def mount_mp(cfg: DictConfig, mount_dir: str) -> Dict[str, Any]:
     if mp_config['mountpoint_congestion_threshold'] is not None:
         mp_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(mp_config["mountpoint_congestion_threshold"])
 
+    if mp_config['mountpoint_clone_fuse_fd'] is not None:
+        mp_env["UNSTABLE_MOUNTPOINT_CLONE_FUSE_FD"] = str(mp_config["mountpoint_clone_fuse_fd"]).lower()
+
+    mp_env['MOUNTPOINT_LOG'] = 'fuser=info'
+
     mp_env["UNSTABLE_MOUNTPOINT_PID_FILE"] = f"{mount_dir}.pid"
     if not common_config['download_checksums']:
         mp_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"

@@ -56,6 +56,7 @@ class BenchmarkConfigParser:
             'mountpoint_debug': getattr(mp_cfg, 'mountpoint_debug', False),
             'mountpoint_debug_crt': getattr(mp_cfg, 'mountpoint_debug_crt', False),
             'mountpoint_max_background': getattr(mp_cfg, 'mountpoint_max_background', None),
+            'mountpoint_clone_fuse_fd': getattr(mp_cfg, 'mountpoint_clone_fuse_fd', None),
             'prefix': getattr(mp_cfg, 'prefix', None),
             'stub_mode': getattr(mp_cfg, 'stub_mode', 'off'),
             'upload_checksums': getattr(mp_cfg, 'upload_checksums', None),

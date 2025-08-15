@@ -155,7 +155,8 @@ run_benchmarks() {
       unset part_size_option
     fi
     set +e
-    cargo run --quiet --release -- \
+    ### XXX Hack to get benchmark numbers with clone fd:
+    UNSTABLE_MOUNTPOINT_CLONE_FUSE_F=true cargo run --quiet --release -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
       --allow-overwrite \
