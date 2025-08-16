@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-10"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 9;
-#[cfg(all(feature = "abi-7-10", not(feature = "abi-7-11")))]
+#[cfg(not(feature = "abi-7-11"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 10;
 #[cfg(all(feature = "abi-7-11", not(feature = "abi-7-12")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 11;
@@ -165,7 +163,6 @@ pub mod consts {
     // Flags returned by the open request
     pub const FOPEN_DIRECT_IO: u32 = 1 << 0; // bypass page cache for this open file
     pub const FOPEN_KEEP_CACHE: u32 = 1 << 1; // don't invalidate the data cache on open
-    #[cfg(feature = "abi-7-10")]
     pub const FOPEN_NONSEEKABLE: u32 = 1 << 2; // the file is not seekable
     #[cfg(feature = "abi-7-28")]
     pub const FOPEN_CACHE_DIR: u32 = 1 << 3; // allow caching this directory
@@ -184,7 +181,6 @@ pub mod consts {
     pub const FUSE_POSIX_LOCKS: u64 = 1 << 1; // remote locking for POSIX file locks
     pub const FUSE_FILE_OPS: u64 = 1 << 2; // kernel sends file handle for fstat, etc...
     pub const FUSE_ATOMIC_O_TRUNC: u64 = 1 << 3; // handles the O_TRUNC open flag in the filesystem
-    #[cfg(feature = "abi-7-10")]
     pub const FUSE_EXPORT_SUPPORT: u64 = 1 << 4; // filesystem handles lookups of "." and ".."
     pub const FUSE_BIG_WRITES: u64 = 1 << 5; // filesystem can handle write size larger than 4kB
     #[cfg(feature = "abi-7-12")]

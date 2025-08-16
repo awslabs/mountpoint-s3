@@ -60,9 +60,7 @@ mod request;
 mod session;
 
 /// We generally support async reads
-#[cfg(all(not(target_os = "macos"), not(feature = "abi-7-10")))]
-const INIT_FLAGS: u64 = FUSE_ASYNC_READ;
-#[cfg(all(not(target_os = "macos"), feature = "abi-7-10"))]
+#[cfg(not(target_os = "macos"))]
 const INIT_FLAGS: u64 = FUSE_ASYNC_READ | FUSE_BIG_WRITES;
 // TODO: Add FUSE_EXPORT_SUPPORT
 
