@@ -330,12 +330,10 @@ mod op {
     pub struct GetAttr<'a> {
         header: &'a fuse_in_header,
 
-        #[cfg(feature = "abi-7-9")]
         arg: &'a fuse_getattr_in,
     }
     impl_request!(GetAttr<'_>);
 
-    #[cfg(feature = "abi-7-9")]
     impl GetAttr<'_> {
         pub fn file_handle(&self) -> Option<FileHandle> {
             if self.arg.getattr_flags & crate::FUSE_GETATTR_FH != 0 {
@@ -689,9 +687,6 @@ mod op {
         }
         /// Only supported with ABI >= 7.9
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(not(feature = "abi-7-9"))]
-            return None;
-            #[cfg(feature = "abi-7-9")]
             if self.arg.read_flags & FUSE_READ_LOCKOWNER != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
@@ -700,9 +695,6 @@ mod op {
         }
         /// The file flags, such as `O_SYNC`. Only supported with ABI >= 7.9
         pub fn flags(&self) -> i32 {
-            #[cfg(not(feature = "abi-7-9"))]
-            return 0;
-            #[cfg(feature = "abi-7-9")]
             self.arg.flags
         }
     }
@@ -741,22 +733,16 @@ mod op {
         }
         /// lock_owner: only supported with ABI >= 7.9
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(feature = "abi-7-9")]
             if self.arg.write_flags & FUSE_WRITE_LOCKOWNER != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
                 None
             }
-            #[cfg(not(feature = "abi-7-9"))]
-            None
         }
         /// flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9
         /// TODO: Make a Flags type specifying valid values
         pub fn flags(&self) -> i32 {
-            #[cfg(feature = "abi-7-9")]
-            return self.arg.flags;
-            #[cfg(not(feature = "abi-7-9"))]
-            0
+            self.arg.flags
         }
     }
 
@@ -1675,7 +1661,6 @@ mod op {
             fuse_opcode::FUSE_GETATTR => Operation::GetAttr(GetAttr {
                 header,
 
-                #[cfg(feature = "abi-7-9")]
                 arg: data.fetch()?,
             }),
             fuse_opcode::FUSE_SETATTR => Operation::SetAttr(SetAttr {

@@ -835,9 +835,7 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        }
+        expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         expected[0] = (expected.len()) as u8;
 
         let sender = AssertSender { expected };
@@ -892,9 +890,7 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        }
+        expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         expected[0] = expected.len() as u8;
 
         let sender = AssertSender { expected };
@@ -1011,13 +1007,11 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            let insert_at = expected.len() - 16;
-            expected.splice(
-                insert_at..insert_at,
-                vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            );
-        }
+        let insert_at = expected.len() - 16;
+        expected.splice(
+            insert_at..insert_at,
+            vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        );
         expected[0] = (expected.len()) as u8;
 
         let sender = AssertSender { expected };
