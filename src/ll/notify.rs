@@ -90,7 +90,6 @@ impl<'a> Notification<'a> {
         Ok(Self::from_struct_with_data(&r, data))
     }
 
-    #[cfg(feature = "abi-7-18")]
     pub(crate) fn new_delete(
         parent: u64,
         child: u64,
@@ -179,7 +178,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-18")]
     fn delete() {
         let n = Notification::new_inval_entry(0x42, OsStr::new("abc"))
             .unwrap()

@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-18"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 17;
-#[cfg(all(feature = "abi-7-18", not(feature = "abi-7-19")))]
+#[cfg(not(feature = "abi-7-19"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 18;
 #[cfg(all(feature = "abi-7-19", not(feature = "abi-7-20")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 19;
@@ -174,7 +172,6 @@ pub mod consts {
     pub const FUSE_SPLICE_MOVE: u64 = 1 << 8; // kernel supports splice move on the device
     pub const FUSE_SPLICE_READ: u64 = 1 << 9; // kernel supports splice read on the device
     pub const FUSE_FLOCK_LOCKS: u64 = 1 << 10; // remote locking for BSD style file locks
-    #[cfg(feature = "abi-7-18")]
     pub const FUSE_HAS_IOCTL_DIR: u64 = 1 << 11; // kernel supports ioctl on directories
     #[cfg(feature = "abi-7-20")]
     pub const FUSE_AUTO_INVAL_DATA: u64 = 1 << 12; // automatically invalidate cached pages
@@ -249,7 +246,6 @@ pub mod consts {
     pub const FUSE_IOCTL_UNRESTRICTED: u32 = 1 << 1; // not restricted to well-formed ioctls, retry allowed
     pub const FUSE_IOCTL_RETRY: u32 = 1 << 2; // retry with new iovecs
     pub const FUSE_IOCTL_32BIT: u32 = 1 << 3; // 32bit ioctl
-    #[cfg(feature = "abi-7-18")]
     pub const FUSE_IOCTL_DIR: u32 = 1 << 4; // is a directory
     #[cfg(feature = "abi-7-30")]
     pub const FUSE_IOCTL_COMPAT_X32: u32 = 1 << 5; // x32 compat ioctl on 64bit machine (64bit time_t)
@@ -417,7 +413,6 @@ pub enum fuse_notify_code {
     FUSE_NOTIFY_INVAL_ENTRY = 3,
     FUSE_NOTIFY_STORE = 4,
     FUSE_NOTIFY_RETRIEVE = 5,
-    #[cfg(feature = "abi-7-18")]
     FUSE_NOTIFY_DELETE = 6,
 }
 
@@ -431,7 +426,6 @@ impl TryFrom<u32> for fuse_notify_code {
             3 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY),
             4 => Ok(fuse_notify_code::FUSE_NOTIFY_STORE),
             5 => Ok(fuse_notify_code::FUSE_NOTIFY_RETRIEVE),
-            #[cfg(feature = "abi-7-18")]
             6 => Ok(fuse_notify_code::FUSE_NOTIFY_DELETE),
 
             _ => Err(InvalidNotifyCodeError),
@@ -975,7 +969,6 @@ pub struct fuse_notify_inval_entry_out {
     pub padding: u32,
 }
 
-#[cfg(feature = "abi-7-18")]
 #[repr(C)]
 #[derive(Debug, IntoBytes, KnownLayout, Immutable)]
 pub struct fuse_notify_delete_out {
