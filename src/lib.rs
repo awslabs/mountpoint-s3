@@ -43,7 +43,6 @@ pub use request::Request;
 pub use session::{BackgroundSession, Session, SessionACL, SessionUnmounter};
 #[cfg(feature = "abi-7-28")]
 use std::cmp::max;
-#[cfg(feature = "abi-7-13")]
 use std::cmp::min;
 
 mod channel;
@@ -146,9 +145,7 @@ pub struct KernelConfig {
     requested: u64,
     max_readahead: u32,
     max_max_readahead: u32,
-    #[cfg(feature = "abi-7-13")]
     max_background: u16,
-    #[cfg(feature = "abi-7-13")]
     congestion_threshold: Option<u16>,
     max_write: u32,
     #[cfg(feature = "abi-7-23")]
@@ -164,9 +161,7 @@ impl KernelConfig {
             requested: default_init_flags(capabilities),
             max_readahead,
             max_max_readahead: max_readahead,
-            #[cfg(feature = "abi-7-13")]
             max_background: 16,
-            #[cfg(feature = "abi-7-13")]
             congestion_threshold: None,
             // use a max write size that fits into the session's buffer
             max_write: MAX_WRITE_SIZE as u32,
@@ -274,7 +269,6 @@ impl KernelConfig {
     /// Set the maximum number of pending background requests. Such as readahead requests.
     ///
     /// On success returns the previous value. On error returns the nearest value which will succeed
-    #[cfg(feature = "abi-7-13")]
     pub fn set_max_background(&mut self, value: u16) -> Result<u16, u16> {
         if value == 0 {
             return Err(1);
@@ -288,7 +282,6 @@ impl KernelConfig {
     /// request queue congested. (it may then switch to sleeping instead of spin-waiting, for example)
     ///
     /// On success returns the previous value. On error returns the nearest value which will succeed
-    #[cfg(feature = "abi-7-13")]
     pub fn set_congestion_threshold(&mut self, value: u16) -> Result<u16, u16> {
         if value == 0 {
             return Err(1);
@@ -298,7 +291,6 @@ impl KernelConfig {
         Ok(previous)
     }
 
-    #[cfg(feature = "abi-7-13")]
     fn congestion_threshold(&self) -> u16 {
         match self.congestion_threshold {
             // Default to a threshold of 3/4 of the max background threads

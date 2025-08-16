@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-13"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 12;
-#[cfg(all(feature = "abi-7-13", not(feature = "abi-7-14")))]
+#[cfg(not(feature = "abi-7-14"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 13;
 #[cfg(all(feature = "abi-7-14", not(feature = "abi-7-15")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 14;
@@ -815,11 +813,7 @@ pub struct fuse_init_out {
     pub minor: u32,
     pub max_readahead: u32,
     pub flags: u32,
-    #[cfg(not(feature = "abi-7-13"))]
-    pub unused: u32,
-    #[cfg(feature = "abi-7-13")]
     pub max_background: u16,
-    #[cfg(feature = "abi-7-13")]
     pub congestion_threshold: u16,
     pub max_write: u32,
     #[cfg(feature = "abi-7-23")]

@@ -979,11 +979,7 @@ mod op {
                 flags: flags as u32,
                 #[cfg(feature = "abi-7-36")]
                 flags: (flags | FUSE_INIT_EXT) as u32,
-                #[cfg(not(feature = "abi-7-13"))]
-                unused: 0,
-                #[cfg(feature = "abi-7-13")]
                 max_background: config.max_background,
-                #[cfg(feature = "abi-7-13")]
                 congestion_threshold: config.congestion_threshold(),
                 max_write: config.max_write,
                 #[cfg(feature = "abi-7-23")]
