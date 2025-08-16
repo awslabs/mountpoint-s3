@@ -1306,16 +1306,13 @@ mod op {
     }
 
     /// Control device
-    #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
     pub struct IoCtl<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_ioctl_in,
         data: &'a [u8],
     }
-    #[cfg(feature = "abi-7-11")]
     impl_request!(IoCtl<'a>);
-    #[cfg(feature = "abi-7-11")]
     impl IoCtl<'_> {
         pub fn in_data(&self) -> &[u8] {
             &self.data[..self.arg.in_size as usize]
@@ -1341,15 +1338,12 @@ mod op {
     }
 
     /// Poll.
-    #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
     pub struct Poll<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_poll_in,
     }
-    #[cfg(feature = "abi-7-11")]
     impl_request!(Poll<'a>);
-    #[cfg(feature = "abi-7-11")]
     impl Poll<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
@@ -1805,13 +1799,11 @@ mod op {
                 arg: data.fetch()?,
             }),
             fuse_opcode::FUSE_DESTROY => Operation::Destroy(Destroy { header }),
-            #[cfg(feature = "abi-7-11")]
             fuse_opcode::FUSE_IOCTL => Operation::IoCtl(IoCtl {
                 header,
                 arg: data.fetch()?,
                 data: data.fetch_all(),
             }),
-            #[cfg(feature = "abi-7-11")]
             fuse_opcode::FUSE_POLL => Operation::Poll(Poll {
                 header,
                 arg: data.fetch()?,
@@ -1927,9 +1919,7 @@ pub enum Operation<'a> {
     Interrupt(Interrupt<'a>),
     BMap(BMap<'a>),
     Destroy(Destroy<'a>),
-    #[cfg(feature = "abi-7-11")]
     IoCtl(IoCtl<'a>),
-    #[cfg(feature = "abi-7-11")]
     Poll(Poll<'a>),
     #[cfg(feature = "abi-7-15")]
     #[allow(dead_code)]
@@ -2094,7 +2084,6 @@ impl fmt::Display for Operation<'_> {
             Operation::Interrupt(x) => write!(f, "INTERRUPT unique {:?}", x.unique()),
             Operation::BMap(x) => write!(f, "BMAP blocksize {}, ids {}", x.block_size(), x.block()),
             Operation::Destroy(_) => write!(f, "DESTROY"),
-            #[cfg(feature = "abi-7-11")]
             Operation::IoCtl(x) => write!(
                 f,
                 "IOCTL fh {:?}, cmd {}, data size {}, flags {:#x}",
@@ -2103,7 +2092,6 @@ impl fmt::Display for Operation<'_> {
                 x.in_data().len(),
                 x.flags()
             ),
-            #[cfg(feature = "abi-7-11")]
             Operation::Poll(x) => write!(f, "POLL fh {:?}", x.file_handle()),
             #[cfg(feature = "abi-7-15")]
             Operation::NotifyReply(_) => write!(f, "NOTIFYREPLY"),

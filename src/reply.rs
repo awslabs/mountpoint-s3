@@ -508,12 +508,10 @@ impl ReplyIoctl {
 /// Poll Reply
 ///
 #[derive(Debug)]
-#[cfg(feature = "abi-7-11")]
 pub struct ReplyPoll {
     reply: ReplyRaw,
 }
 
-#[cfg(feature = "abi-7-11")]
 impl Reply for ReplyPoll {
     fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyPoll {
         ReplyPoll {
@@ -522,7 +520,6 @@ impl Reply for ReplyPoll {
     }
 }
 
-#[cfg(feature = "abi-7-11")]
 impl ReplyPoll {
     /// Reply to a request with the given poll result
     pub fn poll(self, revents: u32) {

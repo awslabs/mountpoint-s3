@@ -20,7 +20,6 @@ use crate::MountOption;
 use crate::ll::fuse_abi as abi;
 use crate::request::Request;
 use crate::{channel::Channel, mnt::Mount};
-#[cfg(feature = "abi-7-11")]
 use crate::{channel::ChannelSender, notify::Notifier};
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
@@ -191,7 +190,6 @@ impl<FS: Filesystem> Session<FS> {
     }
 
     /// Returns an object that can be used to send notifications to the kernel
-    #[cfg(feature = "abi-7-11")]
     pub fn notifier(&self) -> Notifier {
         Notifier::new(self.ch.sender())
     }
@@ -245,7 +243,6 @@ pub struct BackgroundSession {
     /// Thread guard of the background session
     pub guard: JoinHandle<io::Result<()>>,
     /// Object for creating Notifiers for client use
-    #[cfg(feature = "abi-7-11")]
     sender: ChannelSender,
     /// Ensures the filesystem is unmounted when the session ends
     _mount: Option<Mount>,
@@ -256,7 +253,6 @@ impl BackgroundSession {
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
     pub fn new<FS: Filesystem + Send + 'static>(se: Session<FS>) -> io::Result<BackgroundSession> {
-        #[cfg(feature = "abi-7-11")]
         let sender = se.ch.sender();
         // Take the fuse_session, so that we can unmount it
         let mount = std::mem::take(&mut *se.mount.lock().unwrap()).map(|(_, mount)| mount);
@@ -266,7 +262,6 @@ impl BackgroundSession {
         });
         Ok(BackgroundSession {
             guard,
-            #[cfg(feature = "abi-7-11")]
             sender,
             _mount: mount,
         })
@@ -275,8 +270,7 @@ impl BackgroundSession {
     pub fn join(self) {
         let Self {
             guard,
-            #[cfg(feature = "abi-7-11")]
-                sender: _,
+            sender: _,
             _mount,
         } = self;
         drop(_mount);
@@ -284,7 +278,6 @@ impl BackgroundSession {
     }
 
     /// Returns an object that can be used to send notifications to the kernel
-    #[cfg(feature = "abi-7-11")]
     pub fn notifier(&self) -> Notifier {
         Notifier::new(self.sender.clone())
     }

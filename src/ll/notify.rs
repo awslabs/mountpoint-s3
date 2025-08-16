@@ -108,7 +108,6 @@ impl<'a> Notification<'a> {
         Ok(Self::from_struct_with_name(&r, name.as_bytes()))
     }
 
-    #[cfg(feature = "abi-7-11")]
     pub(crate) fn new_poll(kh: u64) -> Self {
         let r = abi::fuse_notify_poll_wakeup_out { kh };
         Self::from_struct(&r)
@@ -201,7 +200,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-11")]
     fn poll() {
         let n = Notification::new_poll(0x4321)
             .with_iovec(abi::fuse_notify_code::FUSE_POLL, ioslice_to_vec)

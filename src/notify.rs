@@ -57,7 +57,6 @@ impl Notifier {
     }
 
     /// Notify poll clients of I/O readiness
-    #[cfg(feature = "abi-7-11")]
     pub fn poll(&self, kh: u64) -> io::Result<()> {
         let notif = Notification::new_poll(kh);
         self.send(notify_code::FUSE_POLL, &notif)

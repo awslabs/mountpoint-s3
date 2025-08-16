@@ -27,11 +27,9 @@ use crate::session::MAX_WRITE_SIZE;
 #[cfg(feature = "abi-7-16")]
 pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
-#[cfg(feature = "abi-7-11")]
 pub use notify::{Notifier, PollHandle};
 #[cfg(feature = "abi-7-40")]
 pub use passthrough::BackingId;
-#[cfg(feature = "abi-7-11")]
 pub use reply::ReplyPoll;
 #[cfg(target_os = "macos")]
 pub use reply::ReplyXTimes;
@@ -51,7 +49,6 @@ use std::cmp::min;
 mod channel;
 mod ll;
 mod mnt;
-#[cfg(feature = "abi-7-11")]
 mod notify;
 #[cfg(feature = "abi-7-40")]
 mod passthrough;
@@ -910,7 +907,6 @@ pub trait Filesystem {
     }
 
     /// Poll for events
-    #[cfg(feature = "abi-7-11")]
     fn poll(
         &mut self,
         _req: &Request<'_>,

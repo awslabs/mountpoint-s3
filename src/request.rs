@@ -13,7 +13,6 @@ use std::convert::TryInto;
 use std::path::Path;
 
 use crate::Filesystem;
-#[cfg(feature = "abi-7-11")]
 use crate::PollHandle;
 use crate::channel::ChannelSender;
 use crate::ll::Request as _;
@@ -499,7 +498,6 @@ impl<'a> Request<'a> {
                 );
             }
 
-            #[cfg(feature = "abi-7-11")]
             ll::Operation::IoCtl(x) => {
                 if x.unrestricted() {
                     return Err(Errno::ENOSYS);
@@ -516,7 +514,6 @@ impl<'a> Request<'a> {
                     );
                 }
             }
-            #[cfg(feature = "abi-7-11")]
             ll::Operation::Poll(x) => {
                 let ph = PollHandle::new(se.ch.sender(), x.kernel_handle());
 

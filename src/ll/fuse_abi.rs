@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-11"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 10;
-#[cfg(all(feature = "abi-7-11", not(feature = "abi-7-12")))]
+#[cfg(not(feature = "abi-7-12"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 11;
 #[cfg(all(feature = "abi-7-12", not(feature = "abi-7-13")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 12;
@@ -267,11 +265,8 @@ pub mod consts {
     pub const FUSE_READ_LOCKOWNER: u32 = 1 << 1;
 
     // IOCTL flags
-    #[cfg(feature = "abi-7-11")]
     pub const FUSE_IOCTL_COMPAT: u32 = 1 << 0; // 32bit compat ioctl on 64bit machine
-    #[cfg(feature = "abi-7-11")]
     pub const FUSE_IOCTL_UNRESTRICTED: u32 = 1 << 1; // not restricted to well-formed ioctls, retry allowed
-    #[cfg(feature = "abi-7-11")]
     pub const FUSE_IOCTL_RETRY: u32 = 1 << 2; // retry with new iovecs
     #[cfg(feature = "abi-7-16")]
     pub const FUSE_IOCTL_32BIT: u32 = 1 << 3; // 32bit ioctl
@@ -279,7 +274,6 @@ pub mod consts {
     pub const FUSE_IOCTL_DIR: u32 = 1 << 4; // is a directory
     #[cfg(feature = "abi-7-30")]
     pub const FUSE_IOCTL_COMPAT_X32: u32 = 1 << 5; // x32 compat ioctl on 64bit machine (64bit time_t)
-    #[cfg(feature = "abi-7-11")]
     pub const FUSE_IOCTL_MAX_IOV: u32 = 256; // maximum of in_iovecs + out_iovecs
 
     // Poll flags
@@ -336,9 +330,7 @@ pub enum fuse_opcode {
     FUSE_INTERRUPT = 36,
     FUSE_BMAP = 37,
     FUSE_DESTROY = 38,
-    #[cfg(feature = "abi-7-11")]
     FUSE_IOCTL = 39,
-    #[cfg(feature = "abi-7-11")]
     FUSE_POLL = 40,
     #[cfg(feature = "abi-7-15")]
     FUSE_NOTIFY_REPLY = 41,
@@ -407,9 +399,7 @@ impl TryFrom<u32> for fuse_opcode {
             36 => Ok(fuse_opcode::FUSE_INTERRUPT),
             37 => Ok(fuse_opcode::FUSE_BMAP),
             38 => Ok(fuse_opcode::FUSE_DESTROY),
-            #[cfg(feature = "abi-7-11")]
             39 => Ok(fuse_opcode::FUSE_IOCTL),
-            #[cfg(feature = "abi-7-11")]
             40 => Ok(fuse_opcode::FUSE_POLL),
             #[cfg(feature = "abi-7-15")]
             41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
@@ -442,16 +432,13 @@ impl TryFrom<u32> for fuse_opcode {
 }
 
 /// Invalid notify code error.
-#[cfg(feature = "abi-7-11")]
 #[derive(Debug)]
 pub struct InvalidNotifyCodeError;
 
-#[cfg(feature = "abi-7-11")]
 #[repr(C)]
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub enum fuse_notify_code {
-    #[cfg(feature = "abi-7-11")]
     FUSE_POLL = 1,
     #[cfg(feature = "abi-7-12")]
     FUSE_NOTIFY_INVAL_INODE = 2,
@@ -465,13 +452,11 @@ pub enum fuse_notify_code {
     FUSE_NOTIFY_DELETE = 6,
 }
 
-#[cfg(feature = "abi-7-11")]
 impl TryFrom<u32> for fuse_notify_code {
     type Error = InvalidNotifyCodeError;
 
     fn try_from(n: u32) -> Result<Self, Self::Error> {
         match n {
-            #[cfg(feature = "abi-7-11")]
             1 => Ok(fuse_notify_code::FUSE_POLL),
             #[cfg(feature = "abi-7-12")]
             2 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_INODE),
@@ -919,7 +904,6 @@ pub struct fuse_bmap_out {
     pub block: u64,
 }
 
-#[cfg(feature = "abi-7-11")]
 #[repr(C)]
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct fuse_ioctl_in {
@@ -948,7 +932,6 @@ pub struct fuse_ioctl_out {
     pub out_iovs: u32,
 }
 
-#[cfg(feature = "abi-7-11")]
 #[repr(C)]
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct fuse_poll_in {
@@ -961,7 +944,6 @@ pub struct fuse_poll_in {
     pub events: u32,
 }
 
-#[cfg(feature = "abi-7-11")]
 #[repr(C)]
 #[derive(Debug, IntoBytes, KnownLayout, Immutable)]
 pub struct fuse_poll_out {
@@ -969,7 +951,6 @@ pub struct fuse_poll_out {
     pub padding: u32,
 }
 
-#[cfg(feature = "abi-7-11")]
 #[repr(C)]
 #[derive(Debug, IntoBytes, KnownLayout, Immutable)]
 pub struct fuse_notify_poll_wakeup_out {

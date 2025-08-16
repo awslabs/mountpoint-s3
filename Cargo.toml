@@ -40,8 +40,7 @@ default = []
 libfuse = ["pkg-config"]
 serializable = ["serde"]
 macfuse-4-compat = []
-abi-7-11 = []
-abi-7-12 = ["abi-7-11"]
+abi-7-12 = []
 abi-7-13 = ["abi-7-12"]
 abi-7-14 = ["abi-7-13"]
 abi-7-15 = ["abi-7-14"]
@@ -66,11 +65,9 @@ abi-7-40 = ["abi-7-36", "nix/ioctl"]
 
 [[example]]
 name = "poll"
-required-features = ["abi-7-11"]
 
 [[example]]
 name = "poll_client"
-required-features = ["abi-7-11"]
 
 [[example]]
 name = "notify_inval_entry"
@@ -82,7 +79,6 @@ required-features = ["abi-7-15"]
 
 [[example]]
 name = "ioctl"
-required-features = ["abi-7-11"]
 
 [[example]]
 name = "passthrough"
