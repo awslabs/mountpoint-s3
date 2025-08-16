@@ -1366,7 +1366,6 @@ mod op {
     impl_request!(NotifyReply<'a>);
 
     /// BatchForget: TODO: merge with Forget
-    #[cfg(feature = "abi-7-16")]
     #[derive(Debug)]
     pub struct BatchForget<'a> {
         header: &'a fuse_in_header,
@@ -1374,9 +1373,7 @@ mod op {
         arg: &'a fuse_batch_forget_in,
         nodes: &'a [fuse_forget_one],
     }
-    #[cfg(feature = "abi-7-16")]
     impl_request!(BatchForget<'a>);
-    #[cfg(feature = "abi-7-16")]
     impl<'a> BatchForget<'a> {
         /// TODO: Don't return fuse_forget_one, this should be private
         pub fn nodes(&self) -> &'a [fuse_forget_one] {
@@ -1795,7 +1792,6 @@ mod op {
                 header,
                 arg: data.fetch_all(),
             }),
-            #[cfg(feature = "abi-7-16")]
             fuse_opcode::FUSE_BATCH_FORGET => {
                 let arg = data.fetch()?;
                 Operation::BatchForget(BatchForget {
@@ -1904,7 +1900,6 @@ pub enum Operation<'a> {
     Poll(Poll<'a>),
     #[allow(dead_code)]
     NotifyReply(NotifyReply<'a>),
-    #[cfg(feature = "abi-7-16")]
     BatchForget(BatchForget<'a>),
     #[cfg(feature = "abi-7-19")]
     FAllocate(FAllocate<'a>),
@@ -2073,7 +2068,6 @@ impl fmt::Display for Operation<'_> {
             ),
             Operation::Poll(x) => write!(f, "POLL fh {:?}", x.file_handle()),
             Operation::NotifyReply(_) => write!(f, "NOTIFYREPLY"),
-            #[cfg(feature = "abi-7-16")]
             Operation::BatchForget(x) => write!(f, "BATCHFORGET nodes {:?}", x.nodes()),
             #[cfg(feature = "abi-7-19")]
             Operation::FAllocate(_) => write!(f, "FALLOCATE"),

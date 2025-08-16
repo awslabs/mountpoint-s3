@@ -24,7 +24,6 @@ use crate::ll::fuse_abi::consts::*;
 pub use crate::ll::{TimeOrNow, fuse_abi::consts};
 use crate::mnt::mount_options::check_option_conflicts;
 use crate::session::MAX_WRITE_SIZE;
-#[cfg(feature = "abi-7-16")]
 pub use ll::fuse_abi::fuse_forget_one;
 pub use mnt::mount_options::MountOption;
 pub use notify::{Notifier, PollHandle};
@@ -344,7 +343,6 @@ pub trait Filesystem {
 
     /// Like forget, but take multiple forget requests at once for performance. The default
     /// implementation will fallback to forget.
-    #[cfg(feature = "abi-7-16")]
     fn batch_forget(&mut self, req: &Request<'_>, nodes: &[fuse_forget_one]) {
         for node in nodes {
             self.forget(req, node.nodeid, node.nlookup);

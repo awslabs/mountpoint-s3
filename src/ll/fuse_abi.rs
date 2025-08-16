@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-16"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 15;
-#[cfg(all(feature = "abi-7-16", not(feature = "abi-7-17")))]
+#[cfg(not(feature = "abi-7-17"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 16;
 #[cfg(all(feature = "abi-7-17", not(feature = "abi-7-18")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 17;
@@ -254,7 +252,6 @@ pub mod consts {
     pub const FUSE_IOCTL_COMPAT: u32 = 1 << 0; // 32bit compat ioctl on 64bit machine
     pub const FUSE_IOCTL_UNRESTRICTED: u32 = 1 << 1; // not restricted to well-formed ioctls, retry allowed
     pub const FUSE_IOCTL_RETRY: u32 = 1 << 2; // retry with new iovecs
-    #[cfg(feature = "abi-7-16")]
     pub const FUSE_IOCTL_32BIT: u32 = 1 << 3; // 32bit ioctl
     #[cfg(feature = "abi-7-18")]
     pub const FUSE_IOCTL_DIR: u32 = 1 << 4; // is a directory
@@ -319,7 +316,6 @@ pub enum fuse_opcode {
     FUSE_IOCTL = 39,
     FUSE_POLL = 40,
     FUSE_NOTIFY_REPLY = 41,
-    #[cfg(feature = "abi-7-16")]
     FUSE_BATCH_FORGET = 42,
     #[cfg(feature = "abi-7-19")]
     FUSE_FALLOCATE = 43,
@@ -386,7 +382,6 @@ impl TryFrom<u32> for fuse_opcode {
             39 => Ok(fuse_opcode::FUSE_IOCTL),
             40 => Ok(fuse_opcode::FUSE_POLL),
             41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
-            #[cfg(feature = "abi-7-16")]
             42 => Ok(fuse_opcode::FUSE_BATCH_FORGET),
             #[cfg(feature = "abi-7-19")]
             43 => Ok(fuse_opcode::FUSE_FALLOCATE),
@@ -466,7 +461,6 @@ pub struct fuse_forget_in {
     pub nlookup: u64,
 }
 
-#[cfg(feature = "abi-7-16")]
 #[repr(C)]
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct fuse_forget_one {
@@ -474,7 +468,6 @@ pub struct fuse_forget_one {
     pub nlookup: u64,
 }
 
-#[cfg(feature = "abi-7-16")]
 #[repr(C)]
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct fuse_batch_forget_in {
@@ -876,7 +869,6 @@ pub struct fuse_ioctl_in {
     pub out_size: u32,
 }
 
-#[cfg(feature = "abi-7-16")]
 #[repr(C)]
 #[derive(Debug, KnownLayout, Immutable)]
 pub struct fuse_ioctl_iovec {

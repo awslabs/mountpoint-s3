@@ -99,7 +99,7 @@ impl<'a> Request<'a> {
                     }
                 }
             }
-            #[cfg(all(feature = "abi-7-16", not(feature = "abi-7-21")))]
+            #[cfg(not(feature = "abi-7-21"))]
             {
                 match op {
                     // Only allow operations that the kernel may issue without a uid set
@@ -108,25 +108,6 @@ impl<'a> Request<'a> {
                     | ll::Operation::Read(_)
                     | ll::Operation::ReadDir(_)
                     | ll::Operation::BatchForget(_)
-                    | ll::Operation::Forget(_)
-                    | ll::Operation::Write(_)
-                    | ll::Operation::FSync(_)
-                    | ll::Operation::FSyncDir(_)
-                    | ll::Operation::Release(_)
-                    | ll::Operation::ReleaseDir(_) => {}
-                    _ => {
-                        return Err(Errno::EACCES);
-                    }
-                }
-            }
-            #[cfg(not(feature = "abi-7-16"))]
-            {
-                match op {
-                    // Only allow operations that the kernel may issue without a uid set
-                    ll::Operation::Init(_)
-                    | ll::Operation::Destroy(_)
-                    | ll::Operation::Read(_)
-                    | ll::Operation::ReadDir(_)
                     | ll::Operation::Forget(_)
                     | ll::Operation::Write(_)
                     | ll::Operation::FSync(_)
@@ -531,7 +512,6 @@ impl<'a> Request<'a> {
                 // TODO: handle FUSE_NOTIFY_REPLY
                 return Err(Errno::ENOSYS);
             }
-            #[cfg(feature = "abi-7-16")]
             ll::Operation::BatchForget(x) => {
                 se.filesystem.batch_forget(self, x.nodes()); // no reply
             }
