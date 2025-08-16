@@ -623,7 +623,6 @@ impl<'a> Request<'a> {
                 );
             }
 
-            #[cfg(feature = "abi-7-12")]
             ll::Operation::CuseInit(_) => {
                 // TODO: handle CUSE_INIT
                 return Err(Errno::ENOSYS);

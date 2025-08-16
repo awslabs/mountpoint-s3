@@ -63,7 +63,6 @@ impl Notifier {
     }
 
     /// Invalidate the kernel cache for a given directory entry
-    #[cfg(feature = "abi-7-12")]
     pub fn inval_entry(&self, parent: u64, name: &OsStr) -> io::Result<()> {
         let notif = Notification::new_inval_entry(parent, name).map_err(Self::too_big_err)?;
         self.send_inval(notify_code::FUSE_NOTIFY_INVAL_ENTRY, &notif)
@@ -71,7 +70,6 @@ impl Notifier {
 
     /// Invalidate the kernel cache for a given inode (metadata and
     /// data in the given range)
-    #[cfg(feature = "abi-7-12")]
     pub fn inval_inode(&self, ino: u64, offset: i64, len: i64) -> io::Result<()> {
         let notif = Notification::new_inval_inode(ino, offset, len);
         self.send_inval(notify_code::FUSE_NOTIFY_INVAL_INODE, &notif)

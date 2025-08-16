@@ -535,9 +535,6 @@ mod op {
             self.arg.mode
         }
         pub fn umask(&self) -> u32 {
-            #[cfg(not(feature = "abi-7-12"))]
-            return 0;
-            #[cfg(feature = "abi-7-12")]
             self.arg.umask
         }
         pub fn rdev(&self) -> u32 {
@@ -561,9 +558,6 @@ mod op {
             self.arg.mode
         }
         pub fn umask(&self) -> u32 {
-            #[cfg(not(feature = "abi-7-12"))]
-            return 0;
-            #[cfg(feature = "abi-7-12")]
             self.arg.umask
         }
     }
@@ -1220,9 +1214,6 @@ mod op {
             self.arg.flags
         }
         pub fn umask(&self) -> u32 {
-            #[cfg(not(feature = "abi-7-12"))]
-            return 0;
-            #[cfg(feature = "abi-7-12")]
             self.arg.umask
         }
     }
@@ -1620,14 +1611,12 @@ mod op {
         }
     }
     /// TODO: Document
-    #[cfg(feature = "abi-7-12")]
     #[derive(Debug)]
     pub struct CuseInit<'a> {
         header: &'a fuse_in_header,
         #[allow(unused)]
         arg: &'a fuse_init_in,
     }
-    #[cfg(feature = "abi-7-12")]
     impl_request!(CuseInit<'a>);
 
     fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
@@ -1866,7 +1855,6 @@ mod op {
                 newname: data.fetch_str()?.as_ref(),
             }),
 
-            #[cfg(feature = "abi-7-12")]
             fuse_opcode::CUSE_INIT => Operation::CuseInit(CuseInit {
                 header,
                 arg: data.fetch()?,
@@ -1944,7 +1932,6 @@ pub enum Operation<'a> {
     #[cfg(target_os = "macos")]
     Exchange(Exchange<'a>),
 
-    #[cfg(feature = "abi-7-12")]
     #[allow(dead_code)]
     CuseInit(CuseInit<'a>),
 }
@@ -2139,7 +2126,6 @@ impl fmt::Display for Operation<'_> {
                 x.options()
             ),
 
-            #[cfg(feature = "abi-7-12")]
             Operation::CuseInit(_) => write!(f, "CUSE_INIT"),
         }
     }
@@ -2243,18 +2229,7 @@ mod tests {
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
     ];
 
-    #[cfg(all(target_endian = "little", not(feature = "abi-7-12")))]
-    const MKNOD_REQUEST: AlignedData<[u8; 56]> = AlignedData([
-        0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
-        0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
-        0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
-        0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
-        0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
-        0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
-        0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
-    ]);
-
-    #[cfg(all(target_endian = "little", feature = "abi-7-12"))]
+    #[cfg(target_endian = "little")]
     const MKNOD_REQUEST: AlignedData<[u8; 64]> = AlignedData([
         0x40, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
@@ -2304,9 +2279,6 @@ mod tests {
     #[test]
     fn mknod() {
         let req = AnyRequest::try_from(&MKNOD_REQUEST[..]).unwrap();
-        #[cfg(not(feature = "abi-7-12"))]
-        assert_eq!(req.header.len, 56);
-        #[cfg(feature = "abi-7-12")]
         assert_eq!(req.header.len, 64);
         assert_eq!(req.header.opcode, 8);
         assert_eq!(req.unique(), RequestId(0xdead_beef_baad_f00d));
@@ -2317,7 +2289,6 @@ mod tests {
         match req.operation().unwrap() {
             Operation::MkNod(x) => {
                 assert_eq!(x.mode(), 0o644);
-                #[cfg(feature = "abi-7-12")]
                 assert_eq!(x.umask(), 0o755);
                 assert_eq!(x.name(), OsStr::new("foo.txt"));
             }

@@ -58,7 +58,6 @@ impl<'a> Notification<'a> {
         Ok(f(&v))
     }
 
-    #[cfg(feature = "abi-7-12")]
     pub(crate) fn new_inval_entry(parent: u64, name: &'a OsStr) -> Result<Self, TryFromIntError> {
         let r = abi::fuse_notify_inval_entry_out {
             parent,
@@ -68,7 +67,6 @@ impl<'a> Notification<'a> {
         Ok(Self::from_struct_with_name(&r, name.as_bytes()))
     }
 
-    #[cfg(feature = "abi-7-12")]
     pub(crate) fn new_inval_inode(ino: u64, offset: i64, len: i64) -> Self {
         let r = abi::fuse_notify_inval_inode_out {
             ino,
@@ -134,7 +132,6 @@ mod test {
     use super::*;
 
     #[test]
-    #[cfg(feature = "abi-7-12")]
     fn inval_entry() {
         let n = Notification::new_inval_entry(0x42, OsStr::new("abc"))
             .unwrap()
@@ -152,7 +149,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-12")]
     fn inval_inode() {
         let n = Notification::new_inval_inode(0x42, 100, 200)
             .with_iovec(

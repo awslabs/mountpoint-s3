@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-12"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 11;
-#[cfg(all(feature = "abi-7-12", not(feature = "abi-7-13")))]
+#[cfg(not(feature = "abi-7-13"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 12;
 #[cfg(all(feature = "abi-7-13", not(feature = "abi-7-14")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 13;
@@ -181,7 +179,6 @@ pub mod consts {
     pub const FUSE_ATOMIC_O_TRUNC: u64 = 1 << 3; // handles the O_TRUNC open flag in the filesystem
     pub const FUSE_EXPORT_SUPPORT: u64 = 1 << 4; // filesystem handles lookups of "." and ".."
     pub const FUSE_BIG_WRITES: u64 = 1 << 5; // filesystem can handle write size larger than 4kB
-    #[cfg(feature = "abi-7-12")]
     pub const FUSE_DONT_MASK: u64 = 1 << 6; // don't apply umask to file mode on create operations
     #[cfg(all(feature = "abi-7-14", not(target_os = "macos")))]
     pub const FUSE_SPLICE_WRITE: u64 = 1 << 7; // kernel supports splice write on the device
@@ -241,7 +238,6 @@ pub mod consts {
     pub const FUSE_XTIMES: u64 = 1 << 31;
 
     // CUSE init request/reply flags
-    #[cfg(feature = "abi-7-12")]
     pub const CUSE_UNRESTRICTED_IOCTL: u32 = 1 << 0; // use unrestricted ioctl
 
     // Release flags
@@ -354,7 +350,6 @@ pub enum fuse_opcode {
     #[cfg(target_os = "macos")]
     FUSE_EXCHANGE = 63,
 
-    #[cfg(feature = "abi-7-12")]
     CUSE_INIT = 4096,
 }
 
@@ -423,7 +418,6 @@ impl TryFrom<u32> for fuse_opcode {
             #[cfg(target_os = "macos")]
             63 => Ok(fuse_opcode::FUSE_EXCHANGE),
 
-            #[cfg(feature = "abi-7-12")]
             4096 => Ok(fuse_opcode::CUSE_INIT),
 
             _ => Err(InvalidOpcodeError),
@@ -440,9 +434,7 @@ pub struct InvalidNotifyCodeError;
 #[allow(non_camel_case_types)]
 pub enum fuse_notify_code {
     FUSE_POLL = 1,
-    #[cfg(feature = "abi-7-12")]
     FUSE_NOTIFY_INVAL_INODE = 2,
-    #[cfg(feature = "abi-7-12")]
     FUSE_NOTIFY_INVAL_ENTRY = 3,
     #[cfg(feature = "abi-7-15")]
     FUSE_NOTIFY_STORE = 4,
@@ -458,9 +450,7 @@ impl TryFrom<u32> for fuse_notify_code {
     fn try_from(n: u32) -> Result<Self, Self::Error> {
         match n {
             1 => Ok(fuse_notify_code::FUSE_POLL),
-            #[cfg(feature = "abi-7-12")]
             2 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_INODE),
-            #[cfg(feature = "abi-7-12")]
             3 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY),
             #[cfg(feature = "abi-7-15")]
             4 => Ok(fuse_notify_code::FUSE_NOTIFY_STORE),
@@ -540,9 +530,7 @@ pub struct fuse_getxtimes_out {
 pub struct fuse_mknod_in {
     pub mode: u32,
     pub rdev: u32,
-    #[cfg(feature = "abi-7-12")]
     pub umask: u32,
-    #[cfg(feature = "abi-7-12")]
     pub padding: u32,
 }
 
@@ -550,9 +538,6 @@ pub struct fuse_mknod_in {
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct fuse_mkdir_in {
     pub mode: u32,
-    #[cfg(not(feature = "abi-7-12"))]
-    pub padding: u32,
-    #[cfg(feature = "abi-7-12")]
     pub umask: u32,
 }
 
@@ -662,9 +647,7 @@ pub struct fuse_create_in {
     // to an i32 when invoking the filesystem's create method and this matches the open() syscall
     pub flags: i32,
     pub mode: u32,
-    #[cfg(feature = "abi-7-12")]
     pub umask: u32,
-    #[cfg(feature = "abi-7-12")]
     pub padding: u32,
 }
 
@@ -859,7 +842,6 @@ pub struct fuse_init_out {
     pub reserved: [u32; 6],
 }
 
-#[cfg(feature = "abi-7-12")]
 #[repr(C)]
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct cuse_init_in {
@@ -869,7 +851,6 @@ pub struct cuse_init_in {
     pub flags: u32,
 }
 
-#[cfg(feature = "abi-7-12")]
 #[repr(C)]
 #[derive(Debug, KnownLayout, Immutable)]
 pub struct cuse_init_out {
@@ -1010,7 +991,6 @@ pub struct fuse_direntplus {
     pub dirent: fuse_dirent,
 }
 
-#[cfg(feature = "abi-7-12")]
 #[repr(C)]
 #[derive(Debug, IntoBytes, KnownLayout, Immutable)]
 pub struct fuse_notify_inval_inode_out {
@@ -1019,7 +999,6 @@ pub struct fuse_notify_inval_inode_out {
     pub len: i64,
 }
 
-#[cfg(feature = "abi-7-12")]
 #[repr(C)]
 #[derive(Debug, IntoBytes, KnownLayout, Immutable)]
 pub struct fuse_notify_inval_entry_out {

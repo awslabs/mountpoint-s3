@@ -40,8 +40,7 @@ default = []
 libfuse = ["pkg-config"]
 serializable = ["serde"]
 macfuse-4-compat = []
-abi-7-12 = []
-abi-7-13 = ["abi-7-12"]
+abi-7-13 = []
 abi-7-14 = ["abi-7-13"]
 abi-7-15 = ["abi-7-14"]
 abi-7-16 = ["abi-7-15"]
@@ -71,7 +70,6 @@ name = "poll_client"
 
 [[example]]
 name = "notify_inval_entry"
-required-features = ["abi-7-12"]
 
 [[example]]
 name = "notify_inval_inode"
