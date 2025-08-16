@@ -155,13 +155,14 @@ run_benchmarks() {
       unset part_size_option
     fi
     set +e
-    cargo run --quiet --release -- \
+    cargo run --quiet --release --features otlp_integration -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
       --allow-overwrite \
       --log-directory=${log_dir} \
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --log-metrics \
+      --otlp-endpoint http://localhost:4318 \
       $part_size_option \
       ${optional_args}
     mount_status=$?
