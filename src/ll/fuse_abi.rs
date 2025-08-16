@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-14"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 13;
-#[cfg(all(feature = "abi-7-14", not(feature = "abi-7-15")))]
+#[cfg(not(feature = "abi-7-15"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 14;
 #[cfg(all(feature = "abi-7-15", not(feature = "abi-7-16")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 15;
@@ -178,12 +176,8 @@ pub mod consts {
     pub const FUSE_EXPORT_SUPPORT: u64 = 1 << 4; // filesystem handles lookups of "." and ".."
     pub const FUSE_BIG_WRITES: u64 = 1 << 5; // filesystem can handle write size larger than 4kB
     pub const FUSE_DONT_MASK: u64 = 1 << 6; // don't apply umask to file mode on create operations
-    #[cfg(all(feature = "abi-7-14", not(target_os = "macos")))]
     pub const FUSE_SPLICE_WRITE: u64 = 1 << 7; // kernel supports splice write on the device
-    #[cfg(all(feature = "abi-7-14", not(target_os = "macos")))]
     pub const FUSE_SPLICE_MOVE: u64 = 1 << 8; // kernel supports splice move on the device
-    #[cfg(not(target_os = "macos"))]
-    #[cfg(feature = "abi-7-14")]
     pub const FUSE_SPLICE_READ: u64 = 1 << 9; // kernel supports splice read on the device
     #[cfg(feature = "abi-7-17")]
     pub const FUSE_FLOCK_LOCKS: u64 = 1 << 10; // remote locking for BSD style file locks
