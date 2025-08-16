@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-17"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 16;
-#[cfg(all(feature = "abi-7-17", not(feature = "abi-7-18")))]
+#[cfg(not(feature = "abi-7-18"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 17;
 #[cfg(all(feature = "abi-7-18", not(feature = "abi-7-19")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 18;
@@ -175,7 +173,6 @@ pub mod consts {
     pub const FUSE_SPLICE_WRITE: u64 = 1 << 7; // kernel supports splice write on the device
     pub const FUSE_SPLICE_MOVE: u64 = 1 << 8; // kernel supports splice move on the device
     pub const FUSE_SPLICE_READ: u64 = 1 << 9; // kernel supports splice read on the device
-    #[cfg(feature = "abi-7-17")]
     pub const FUSE_FLOCK_LOCKS: u64 = 1 << 10; // remote locking for BSD style file locks
     #[cfg(feature = "abi-7-18")]
     pub const FUSE_HAS_IOCTL_DIR: u64 = 1 << 11; // kernel supports ioctl on directories
@@ -230,7 +227,6 @@ pub mod consts {
 
     // Release flags
     pub const FUSE_RELEASE_FLUSH: u32 = 1 << 0;
-    #[cfg(feature = "abi-7-17")]
     pub const FUSE_RELEASE_FLOCK_UNLOCK: u32 = 1 << 1;
 
     // Getattr flags

@@ -774,9 +774,6 @@ mod op {
             self.arg.flags
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(not(feature = "abi-7-17"))]
-            return Some(LockOwner(self.arg.lock_owner));
-            #[cfg(feature = "abi-7-17")]
             if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
@@ -1066,9 +1063,6 @@ mod op {
             self.arg.release_flags & consts::FUSE_RELEASE_FLUSH != 0
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(not(feature = "abi-7-17"))]
-            return Some(LockOwner(self.arg.lock_owner));
-            #[cfg(feature = "abi-7-17")]
             if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
