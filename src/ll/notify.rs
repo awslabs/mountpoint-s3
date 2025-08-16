@@ -76,7 +76,6 @@ impl<'a> Notification<'a> {
         Self::from_struct(&r)
     }
 
-    #[cfg(feature = "abi-7-15")]
     pub(crate) fn new_store(
         ino: u64,
         offset: u64,
@@ -165,7 +164,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-15")]
     fn store() {
         let n = Notification::new_store(0x42, 50, &[0xde, 0xad, 0xbe, 0xef])
             .unwrap()

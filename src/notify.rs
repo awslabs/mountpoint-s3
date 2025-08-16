@@ -76,7 +76,6 @@ impl Notifier {
     }
 
     /// Update the kernel's cached copy of a given inode's data
-    #[cfg(feature = "abi-7-15")]
     pub fn store(&self, ino: u64, offset: u64, data: &[u8]) -> io::Result<()> {
         let notif = Notification::new_store(ino, offset, data).map_err(Self::too_big_err)?;
         // Not strictly an invalidate, but the inode we're operating

@@ -1357,14 +1357,12 @@ mod op {
     }
 
     /// NotifyReply.  TODO: currently unsupported by fuser
-    #[cfg(feature = "abi-7-15")]
     #[derive(Debug)]
     pub struct NotifyReply<'a> {
         header: &'a fuse_in_header,
         #[allow(unused)]
         arg: &'a [u8],
     }
-    #[cfg(feature = "abi-7-15")]
     impl_request!(NotifyReply<'a>);
 
     /// BatchForget: TODO: merge with Forget
@@ -1793,7 +1791,6 @@ mod op {
                 header,
                 arg: data.fetch()?,
             }),
-            #[cfg(feature = "abi-7-15")]
             fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply(NotifyReply {
                 header,
                 arg: data.fetch_all(),
@@ -1905,7 +1902,6 @@ pub enum Operation<'a> {
     Destroy(Destroy<'a>),
     IoCtl(IoCtl<'a>),
     Poll(Poll<'a>),
-    #[cfg(feature = "abi-7-15")]
     #[allow(dead_code)]
     NotifyReply(NotifyReply<'a>),
     #[cfg(feature = "abi-7-16")]
@@ -2076,7 +2072,6 @@ impl fmt::Display for Operation<'_> {
                 x.flags()
             ),
             Operation::Poll(x) => write!(f, "POLL fh {:?}", x.file_handle()),
-            #[cfg(feature = "abi-7-15")]
             Operation::NotifyReply(_) => write!(f, "NOTIFYREPLY"),
             #[cfg(feature = "abi-7-16")]
             Operation::BatchForget(x) => write!(f, "BATCHFORGET nodes {:?}", x.nodes()),

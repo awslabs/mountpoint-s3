@@ -27,9 +27,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const FUSE_KERNEL_VERSION: u32 = 7;
 
-#[cfg(not(feature = "abi-7-15"))]
-pub const FUSE_KERNEL_MINOR_VERSION: u32 = 14;
-#[cfg(all(feature = "abi-7-15", not(feature = "abi-7-16")))]
+#[cfg(not(feature = "abi-7-16"))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 15;
 #[cfg(all(feature = "abi-7-16", not(feature = "abi-7-17")))]
 pub const FUSE_KERNEL_MINOR_VERSION: u32 = 16;
@@ -320,7 +318,6 @@ pub enum fuse_opcode {
     FUSE_DESTROY = 38,
     FUSE_IOCTL = 39,
     FUSE_POLL = 40,
-    #[cfg(feature = "abi-7-15")]
     FUSE_NOTIFY_REPLY = 41,
     #[cfg(feature = "abi-7-16")]
     FUSE_BATCH_FORGET = 42,
@@ -388,7 +385,6 @@ impl TryFrom<u32> for fuse_opcode {
             38 => Ok(fuse_opcode::FUSE_DESTROY),
             39 => Ok(fuse_opcode::FUSE_IOCTL),
             40 => Ok(fuse_opcode::FUSE_POLL),
-            #[cfg(feature = "abi-7-15")]
             41 => Ok(fuse_opcode::FUSE_NOTIFY_REPLY),
             #[cfg(feature = "abi-7-16")]
             42 => Ok(fuse_opcode::FUSE_BATCH_FORGET),
@@ -428,9 +424,7 @@ pub enum fuse_notify_code {
     FUSE_POLL = 1,
     FUSE_NOTIFY_INVAL_INODE = 2,
     FUSE_NOTIFY_INVAL_ENTRY = 3,
-    #[cfg(feature = "abi-7-15")]
     FUSE_NOTIFY_STORE = 4,
-    #[cfg(feature = "abi-7-15")]
     FUSE_NOTIFY_RETRIEVE = 5,
     #[cfg(feature = "abi-7-18")]
     FUSE_NOTIFY_DELETE = 6,
@@ -444,9 +438,7 @@ impl TryFrom<u32> for fuse_notify_code {
             1 => Ok(fuse_notify_code::FUSE_POLL),
             2 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_INODE),
             3 => Ok(fuse_notify_code::FUSE_NOTIFY_INVAL_ENTRY),
-            #[cfg(feature = "abi-7-15")]
             4 => Ok(fuse_notify_code::FUSE_NOTIFY_STORE),
-            #[cfg(feature = "abi-7-15")]
             5 => Ok(fuse_notify_code::FUSE_NOTIFY_RETRIEVE),
             #[cfg(feature = "abi-7-18")]
             6 => Ok(fuse_notify_code::FUSE_NOTIFY_DELETE),
@@ -1005,7 +997,6 @@ pub struct fuse_notify_delete_out {
     pub padding: u32,
 }
 
-#[cfg(feature = "abi-7-15")]
 #[repr(C)]
 #[derive(Debug, IntoBytes, KnownLayout, Immutable)]
 pub struct fuse_notify_store_out {
@@ -1015,7 +1006,6 @@ pub struct fuse_notify_store_out {
     pub padding: u32,
 }
 
-#[cfg(feature = "abi-7-15")]
 #[repr(C)]
 #[derive(Debug, KnownLayout, Immutable)]
 pub struct fuse_notify_retrieve_out {
@@ -1026,7 +1016,6 @@ pub struct fuse_notify_retrieve_out {
     pub padding: u32,
 }
 
-#[cfg(feature = "abi-7-15")]
 #[repr(C)]
 #[derive(Debug, FromBytes, KnownLayout, Immutable)]
 pub struct fuse_notify_retrieve_in {

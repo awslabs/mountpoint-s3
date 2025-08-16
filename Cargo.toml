@@ -40,8 +40,7 @@ default = []
 libfuse = ["pkg-config"]
 serializable = ["serde"]
 macfuse-4-compat = []
-abi-7-15 = []
-abi-7-16 = ["abi-7-15"]
+abi-7-16 = []
 abi-7-17 = ["abi-7-16"]
 abi-7-18 = ["abi-7-17"]
 abi-7-19 = ["abi-7-18"]
@@ -71,7 +70,6 @@ name = "notify_inval_entry"
 
 [[example]]
 name = "notify_inval_inode"
-required-features = ["abi-7-15"]
 
 [[example]]
 name = "ioctl"

@@ -527,7 +527,6 @@ impl<'a> Request<'a> {
                     self.reply(),
                 );
             }
-            #[cfg(feature = "abi-7-15")]
             ll::Operation::NotifyReply(_) => {
                 // TODO: handle FUSE_NOTIFY_REPLY
                 return Err(Errno::ENOSYS);
