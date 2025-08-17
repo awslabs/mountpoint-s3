@@ -3,6 +3,7 @@ use super::fuse3_sys::{
     fuse_session_unmount,
 };
 use super::{MountOption, with_fuse_args};
+use log::warn;
 use std::{
     ffi::{CString, c_void},
     fs::File,
@@ -25,6 +26,7 @@ fn ensure_last_os_error() -> io::Error {
 #[derive(Debug)]
 pub struct Mount {
     fuse_session: *mut c_void,
+    mountpoint: CString,
 }
 impl Mount {
     pub fn new(mnt: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
@@ -34,7 +36,10 @@ impl Mount {
             if fuse_session.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            let mount = Mount { fuse_session };
+            let mount = Mount {
+                fuse_session,
+                mountpoint: mnt.clone(),
+            };
             let result = unsafe { fuse_session_mount(mount.fuse_session, mnt.as_ptr()) };
             if result != 0 {
                 return Err(ensure_last_os_error());
@@ -53,9 +58,20 @@ impl Mount {
 }
 impl Drop for Mount {
     fn drop(&mut self) {
-        unsafe {
-            fuse_session_unmount(self.fuse_session);
-            fuse_session_destroy(self.fuse_session);
+        use std::io::ErrorKind::PermissionDenied;
+
+        if let Err(err) = super::libc_umount(&self.mountpoint) {
+            // Linux always returns EPERM for non-root users.  We have to let the
+            // library go through the setuid-root "fusermount -u" to unmount.
+            if err.kind() == PermissionDenied {
+                #[cfg(target_os = "linux")]
+                unsafe {
+                    fuse_session_unmount(self.fuse_session);
+                    fuse_session_destroy(self.fuse_session);
+                    return;
+                }
+            }
+            warn!("umount failed with {:?}", err);
         }
     }
 }

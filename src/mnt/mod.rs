@@ -19,7 +19,6 @@ pub mod mount_options;
 use fuse2_sys::fuse_args;
 #[cfg(any(test, not(feature = "libfuse")))]
 use std::fs::File;
-#[cfg(any(test, fuser_mount_impl = "pure-rust", fuser_mount_impl = "libfuse2"))]
 use std::io;
 
 #[cfg(any(feature = "libfuse", test))]
@@ -53,10 +52,8 @@ pub use fuse_pure::Mount;
 pub use fuse2::Mount;
 #[cfg(fuser_mount_impl = "libfuse3")]
 pub use fuse3::Mount;
-#[cfg(not(fuser_mount_impl = "libfuse3"))]
 use std::ffi::CStr;
 
-#[cfg(not(fuser_mount_impl = "libfuse3"))]
 #[inline]
 fn libc_umount(mnt: &CStr) -> io::Result<()> {
     #[cfg(any(
