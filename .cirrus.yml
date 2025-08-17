@@ -4,7 +4,8 @@ freebsd_instance:
 task:
   name: FreeBSD
   setup_script:
-    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust
+    - kldload fusefs
+    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust bash
   build_script:
     - cargo build --all --all-targets --features=libfuse
   doc_script:
@@ -12,3 +13,4 @@ task:
   test_script:
     - cargo test --all --all-targets --features=libfuse -- --skip=mnt::test::mount_unmount
     - cargo test --all --all-targets --features=libfuse,abi-7-21 -- --skip=mnt::test::mount_unmount
+    - ./bsd_mount_tests.sh
