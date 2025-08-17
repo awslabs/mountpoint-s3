@@ -62,7 +62,7 @@ function test_no_user_allow_other {
   DIR=$(su fusertestnoallow -c "mktemp --directory")
   DATA_DIR=$(su fusertestnoallow -c "mktemp --directory")
   cargo build --example simple $1 > /dev/null 2>&1
-  su fusertestnoallow -c "target/debug/examples/simple -vvv --data-dir $DATA_DIR --mount-point $DIR"
+  su fusertestnoallow -c "target/debug/examples/simple --auto-unmount -vvv --data-dir $DATA_DIR --mount-point $DIR"
   exitCode=$?
   if [[ $exitCode -eq 2 ]]; then
       echo -e "$GREEN OK Detected lack of user_allow_other: $2 $NC"

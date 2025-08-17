@@ -1998,6 +1998,12 @@ fn main() {
                 .help("Mount FUSE with direct IO"),
         )
         .arg(
+            Arg::new("auto-unmount")
+                .long("auto-unmount")
+                .action(ArgAction::SetTrue)
+                .help("Automatically unmount FUSE when process exits"),
+        )
+        .arg(
             Arg::new("fsck")
                 .long("fsck")
                 .action(ArgAction::SetTrue)
@@ -2037,12 +2043,9 @@ fn main() {
         if matches.get_flag("suid") {
             info!("setuid bit support enabled");
             options.push(MountOption::Suid);
-        } else {
-            options.push(MountOption::AutoUnmount);
         }
     }
-    #[cfg(not(feature = "abi-7-26"))]
-    {
+    if matches.get_flag("auto-unmount") {
         options.push(MountOption::AutoUnmount);
     }
     if let Ok(enabled) = fuse_allow_other_enabled() {
