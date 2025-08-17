@@ -106,7 +106,7 @@ class CrtBenchmark(BaseBenchmark):
             subprocess_args.extend(["--nic", ",".join(network_interfaces)])
 
         log.info(f"CRT benchmark command prepared with args: {subprocess_args}")
-        return Command(args=subprocess_args, capture_output=True)
+        return Command(args=subprocess_args)
 
     def parse_benchmark_output(self, output):
         """Parse the CRT benchmark output and extract metrics."""
