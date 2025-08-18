@@ -1981,7 +1981,7 @@ fn as_file_kind(mut mode: u32) -> FileKind {
 }
 
 fn get_groups(pid: u32) -> Vec<u32> {
-    if cfg!(not(target_os = "macos")) {
+    if cfg!(target_os = "linux") {
         let path = format!("/proc/{pid}/task/{pid}/status");
         let file = File::open(path).unwrap();
         for line in BufReader::new(file).lines() {
