@@ -569,6 +569,17 @@ impl Filesystem for SimpleFS {
 
         if let Some(mode) = mode {
             debug!("chmod() called with {:?}, {:o}", inode, mode);
+            #[cfg(target_os = "freebsd")]
+            {
+                // FreeBSD: sticky bit only valid on directories; otherwise EFTYPE
+                if req.uid() != 0
+                    && (mode as u16 & libc::S_ISVTX as u16) != 0
+                    && attrs.kind != FileKind::Directory
+                {
+                    reply.error(libc::EFTYPE);
+                    return;
+                }
+            }
             if req.uid() != 0 && req.uid() != attrs.uid {
                 reply.error(libc::EPERM);
                 return;
@@ -794,6 +805,19 @@ impl Filesystem for SimpleFS {
 
         if req.uid() != 0 {
             mode &= !(libc::S_ISUID | libc::S_ISGID) as u32;
+        }
+
+        #[cfg(target_os = "freebsd")]
+        {
+            let kind = as_file_kind(mode);
+            // FreeBSD: sticky bit only valid on directories; otherwise EFTYPE
+            if req.uid() != 0
+                && (mode as u16 & libc::S_ISVTX as u16) != 0
+                && kind != FileKind::Directory
+            {
+                reply.error(libc::EFTYPE);
+                return;
+            }
         }
 
         let inode = self.allocate_next_inode();
@@ -1755,6 +1779,19 @@ impl Filesystem for SimpleFS {
 
         if req.uid() != 0 {
             mode &= !(libc::S_ISUID | libc::S_ISGID) as u32;
+        }
+
+        #[cfg(target_os = "freebsd")]
+        {
+            let kind = as_file_kind(mode);
+            // FreeBSD: sticky bit only valid on directories; otherwise EFTYPE
+            if req.uid() != 0
+                && (mode as u16 & libc::S_ISVTX as u16) != 0
+                && kind != FileKind::Directory
+            {
+                reply.error(libc::EFTYPE);
+                return;
+            }
         }
 
         let inode = self.allocate_next_inode();
