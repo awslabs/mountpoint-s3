@@ -236,11 +236,10 @@ fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S
         .memory_pool(pool.clone());
 
     if args.enable_backpressure {
-        config = config.read_backpressure(true)
-            .initial_read_window(
-                args.initial_window_size
-                    .expect("read window size is required when backpressure is enabled"), 
-            );
+        config = config.read_backpressure(true).initial_read_window(
+            args.initial_window_size
+                .expect("read window size is required when backpressure is enabled"),
+        );
     }
     config
 }
