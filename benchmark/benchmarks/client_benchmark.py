@@ -78,6 +78,8 @@ class ClientBenchmark(BaseBenchmark):
         client_env = {}
         if not self.common_config['download_checksums']:
             client_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
+        if (crt_eventloop_threads := self.common_config['crt_eventloop_threads']) is not None:
+            client_env["UNSTABLE_CRT_EVENTLOOP_THREADS"] = str(crt_eventloop_threads)
 
         log.info("Client benchmark command prepared with args: %s", subprocess_args)
 
