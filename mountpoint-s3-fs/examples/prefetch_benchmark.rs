@@ -69,9 +69,6 @@ pub struct CliArgs {
     )]
     pub maximum_throughput_gbps: Option<u64>,
 
-    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
-    pub crt_memory_limit_gib: Option<u64>,
-
     #[clap(
         long,
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
@@ -145,9 +142,6 @@ impl CliArgs {
             .endpoint_config(EndpointConfig::new(self.region.as_str()));
         if let Some(throughput_target_gbps) = self.maximum_throughput_gbps {
             client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
-        }
-        if let Some(limit_gib) = self.crt_memory_limit_gib {
-            client_config = client_config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
         }
         if let Some(part_size) = self.part_size {
             client_config = client_config.part_size(part_size as usize);

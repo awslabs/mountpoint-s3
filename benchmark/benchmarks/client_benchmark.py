@@ -50,9 +50,6 @@ class ClientBenchmark(BaseBenchmark):
         if (read_part_size := self.common_config['read_part_size']) is not None:
             subprocess_args.extend(["--part-size", read_part_size])
 
-        if (crt_mem_limit_gib := self.common_config.get('crt_mem_limit_gib')) is not None:
-            subprocess_args.extend(["--crt-memory-limit-gb", crt_mem_limit_gib])
-
         subprocess_args.extend(["--output-file", "client-output.json"])
         subprocess_args.append("real")
         region = self.common_config['region']
