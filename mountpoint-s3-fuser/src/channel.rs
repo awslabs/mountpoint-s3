@@ -1,5 +1,8 @@
 use std::{
-    fs::File,
+    fs::{
+        OpenOptions,
+        File,
+    },
     io,
     os::{
         fd::{AsFd, BorrowedFd},
@@ -9,7 +12,8 @@ use std::{
 };
 
 use libc::{c_int, c_void, size_t};
-
+use nix::ioctl_read;
+use nix::Result as NixResult;
 use crate::reply::ReplySender;
 
 /// A raw communication channel to the FUSE kernel driver
@@ -28,6 +32,29 @@ impl Channel {
     /// the given path to the channel.
     pub(crate) fn new(device: Arc<File>) -> Self {
         Self(device)
+    }
+
+    /// Create a worker channel by opening a new /dev/fuse file descriptor and
+    /// associating it with the session using FUSE_DEV_IOC_CLONE ioctl.
+    pub fn clone_channel(&self) -> io::Result<Self> {
+        let worker_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/fuse")?;
+        let worker_fd = worker_file.as_raw_fd();
+        let mut session_fd = self.0.as_raw_fd();
+
+        // Associate the worker fd with the session fd using FUSE_DEV_IOC_CLONE
+        ioctl_read!(fuse_dev_ioc_clone, 229, 0, libc::c_int);
+        let result: NixResult<libc::c_int> = unsafe {
+            let val = &mut session_fd as *mut libc::c_int;
+            fuse_dev_ioc_clone(worker_fd, val)
+        };
+
+        if let Err(err) = result {
+            return Err(io::Error::new(io::ErrorKind::Other, err));
+        }
+        Ok(Self(Arc::new(worker_file)))
     }
 
     /// Receives data up to the capacity of the given buffer (can block).
