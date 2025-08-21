@@ -1,0 +1,4 @@
+# @package hydra.sweeper
+params:
+  'benchmarks.fio.direct_io': false, true
+  'benchmarks.fio.fuse_threads': 16 #1, 64

@@ -9,3 +9,7 @@ dependencies = [
     "hydra-core>=1.3.2",
     "psutil>=7.0.0",
 ]
+[dependency-groups]
+dev = [
+    "pytest",
+]
