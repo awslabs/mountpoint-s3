@@ -211,6 +211,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     // Set up a paged memory pool
     let pool = PagedPool::new_with_candidate_sizes([
         args.cache_block_size_in_bytes() as usize,
+        mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE,
         client_config.part_config.read_size_bytes,
         client_config.part_config.write_size_bytes,
     ]);
