@@ -1,0 +1,8 @@
+# Base sweeper configuration with common parameters for all benchmark types
+_target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
+max_batch_size: null
+params:
+  'application_workers': 1, 16 # 4, 64
+  'iteration': "range(${iterations})"
+  'network.maximum_throughput_gbps': 400
+  # 'crt_eventloop_threads': 128, 256, 1024

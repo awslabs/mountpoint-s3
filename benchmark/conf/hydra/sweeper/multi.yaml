@@ -1,0 +1,10 @@
+# @package hydra.sweeper
+defaults:
+  - base
+  - fio
+  - prefetch
+  - client_bp
+  - client
+  - crt
+
+_target_: hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper

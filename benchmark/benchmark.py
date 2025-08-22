@@ -342,7 +342,7 @@ def run_experiment(cfg: DictConfig) -> None:
         benchmark = CrtBenchmark(cfg, metadata)
     elif benchmark_type == "client":
         benchmark = ClientBenchmark(cfg, metadata)
-    elif benchmark_type == "client-bp":
+    elif benchmark_type == "client_bp":
         benchmark = ClientBenchmark(cfg, metadata, backpressure=True)
     else:
         raise ValueError(f"Unsupported benchmark type: {benchmark_type}")
