@@ -309,9 +309,24 @@ class ResourceMonitoring:
                     f"For comprehensive flamegraphs, consider running: sudo sysctl kernel.kptr_restrict=0"
                 )
             else:
-                log.info("kernel.kptr_restrict=0 - good for comprehensive flamegraphs")
+                log.info("verified that kernel.kptr_restrict=0 (for flamegraphing)")
         except (OSError, IOError) as e:
             log.warning(f"Could not check kernel.kptr_restrict: {e}")
+
+        # Check perf_event_paranoid for kernel tracing permissions
+        try:
+            with open('/proc/sys/kernel/perf_event_paranoid', 'r') as f:
+                paranoid_value = f.read().strip()
+            if paranoid_value not in ['-1', '0']:
+                log.warning(
+                    f"kernel.perf_event_paranoid is set to {paranoid_value}. "
+                    f"For comprehensive kernel tracing, consider running: sudo sysctl kernel.perf_event_paranoid=-1"
+                )
+            else:
+                log.info(f"verified that kernel.perf_event_paranoid={paranoid_value} for flamegraphing")
+        except (OSError, IOError) as e:
+            log.warning(f"Could not check kernel.perf_event_paranoid: {e}")
+
 
         flamegraph_args = ["flamegraph", "--pid", str(self.target_pid), "-o", "flamegraph.svg"]
 
