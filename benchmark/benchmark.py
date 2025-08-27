@@ -327,7 +327,6 @@ class ResourceMonitoring:
         except (OSError, IOError) as e:
             log.warning(f"Could not check kernel.perf_event_paranoid: {e}")
 
-
         flamegraph_args = ["flamegraph", "--pid", str(self.target_pid), "-o", "flamegraph.svg"]
 
         log.info("Starting flamegraph with args %s", " ".join(flamegraph_args))
