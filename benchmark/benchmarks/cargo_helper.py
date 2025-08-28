@@ -11,7 +11,7 @@ def build_example(
     name: str,
     features: Optional[List[str]] = None,
     build_env: Optional[Dict[str, str]] = None,
-    flamegraph_enhancement: bool = False,
+    with_flamegraph: bool = False,
 ) -> str:
     """
     Compile a Rust example and return the path to the executable.
@@ -20,13 +20,13 @@ def build_example(
         name: Name of the example
         features: Optional list of features to enable
         build_env: Optional environment variables for build
-        flamegraph_enhancement: Whether to build with flamegraph-optimized compilation flags
+        with_flamegraph: Whether to build with flamegraph-optimized compilation flags
 
     Returns:
         Path to the compiled executable
     """
     return _build_and_get_executable(
-        example_name=name, features=features, build_env=build_env, flamegraph_enhancement=flamegraph_enhancement
+        example_name=name, features=features, build_env=build_env, with_flamegraph=with_flamegraph
     )
 
 
@@ -34,7 +34,7 @@ def build_binary(
     name: str,
     features: Optional[List[str]] = None,
     build_env: Optional[Dict[str, str]] = None,
-    flamegraph_enhancement: bool = False,
+    with_flamegraph: bool = False,
 ) -> str:
     """
     Compile a Rust binary and return the path to the executable.
@@ -43,13 +43,13 @@ def build_binary(
         name: Name of the binary
         features: Optional list of features to enable
         build_env: Optional environment variables for build
-        flamegraph_enhancement: Whether to build with flamegraph-optimized compilation flags
+        with_flamegraph: Whether to build with flamegraph-optimized compilation flags
 
     Returns:
         Path to the compiled executable
     """
     return _build_and_get_executable(
-        binary_name=name, features=features, build_env=build_env, flamegraph_enhancement=flamegraph_enhancement
+        binary_name=name, features=features, build_env=build_env, with_flamegraph=with_flamegraph
     )
 
 
@@ -58,7 +58,7 @@ def _build_and_get_executable(
     example_name: Optional[str] = None,
     features: Optional[List[str]] = None,
     build_env: Optional[Dict[str, str]] = None,
-    flamegraph_enhancement: bool = False,
+    with_flamegraph: bool = False,
 ) -> str:
     """Build and get executable path."""
 
@@ -78,7 +78,7 @@ def _build_and_get_executable(
     if build_env:
         env.update(build_env)
 
-    if flamegraph_enhancement:
+    if with_flamegraph:
         log.info("Building with flamegraph-optimized compilation flags for comprehensive profiling")
 
         flamegraph_cflags = "-fno-omit-frame-pointer"
@@ -94,7 +94,7 @@ def _build_and_get_executable(
         else:
             env["RUSTFLAGS"] = flamegraph_rustflags
 
-    if build_env or flamegraph_enhancement:
+    if build_env or with_flamegraph:
         log.info(f"Build environment: CFLAGS='{env.get('CFLAGS', '')}' RUSTFLAGS='{env.get('RUSTFLAGS', '')}'")
 
     log.info(f"Compiling: {' '.join(cargo_args)}")
