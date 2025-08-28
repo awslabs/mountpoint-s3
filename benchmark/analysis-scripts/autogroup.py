@@ -13,11 +13,13 @@ import glob
 import csv
 import warnings
 import statistics
+import sys
 
 from tabulate import tabulate
 from collections import defaultdict
 from typing import Dict, Any, Optional, Tuple, List, Set, Union
 from omegaconf import OmegaConf
+from pathlib import Path
 
 
 def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
@@ -152,47 +154,22 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     return varying
 
 
-def find_multirun_dir(index: int = 0, sort_by_date: bool = True) -> str:
+def find_multirun_dir(index: int = 0) -> str:
     """Find the Nth latest directory in multirun (0=most recent, 1=previous, etc.)"""
-    multirun_path = 'multirun'
-    if not os.path.exists(multirun_path):
-        raise FileNotFoundError("multirun directory not found")
+    if not Path('multirun').exists():
+        warnings.warn("multirun directory not found")
+        sys.exit(1)
 
-    # Get all subdirectories and their sort keys
-    all_subdirs = []
-    for item in os.listdir(multirun_path):
-        item_path = os.path.join(multirun_path, item)
-        if os.path.isdir(item_path):
-            # Find all subdirectories within this date directory
-            for subitem in os.listdir(item_path):
-                subitem_path = os.path.join(item_path, subitem)
-                if os.path.isdir(subitem_path):
-                    if sort_by_date:
-                        # Parse the date and time from the path structure
-                        # Expected format: multirun/YYYY-MM-DD/HH-MM-SS
-                        try:
-                            date_str = item  # e.g., "2025-08-27"
-                            time_str = subitem  # e.g., "16-49-08"
-                            datetime_str = f"{date_str} {time_str.replace('-', ':')}"
-                            all_subdirs.append((datetime_str, subitem_path))
-                        except Exception:
-                            # Fall back to mtime if parsing fails
-                            mtime = os.path.getmtime(subitem_path)
-                            all_subdirs.append((mtime, subitem_path))
-                    else:
-                        # Use modification time
-                        mtime = os.path.getmtime(subitem_path)
-                        all_subdirs.append((mtime, subitem_path))
+    # This ensures that alphabetical sorting will correctly find latest
+    sorted_subdirs = sorted(
+        [(f"{p.parent.name} {p.name.replace('-', ':')}", str(p)) for p in Path('multirun').glob("*/*/")],
+        key=lambda x: x[0],
+        reverse=True,
+    )
 
-    if not all_subdirs:
-        raise FileNotFoundError("No experiment directories found in multirun")
-
-    # Sort by key (most recent first) and return the requested index
-    sorted_subdirs = sorted(all_subdirs, key=lambda x: x[0], reverse=True)
-
-    if index >= len(sorted_subdirs):
-        raise IndexError(f"Index {index} out of range, only {len(sorted_subdirs)} directories found")
-
+    if not sorted_subdirs:
+        warnings.warn("No experiment directories found in multirun")
+        sys.exit(1)
     return sorted_subdirs[index][1]
 
 
@@ -208,14 +185,9 @@ def main() -> None:
         type=int,
         nargs='?',
         const=0,
+        default=0,
         metavar='N',
         help='Use the Nth latest multirun directory (0=most recent, 1=previous, etc.)',
-    )
-    parser.add_argument(
-        '--latest-order',
-        choices=['date', 'mod_time'],
-        default='date',
-        help='Sort latest directories by date in path or modification time',
     )
 
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
@@ -224,23 +196,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Validate conflicting arguments
-    if args.base_dir and args.latest is not None:
-        parser.error("Cannot specify both a base directory and --latest option")
-
     # Determine the base directory to use
-    # Priority: positional arg > --latest > default to latest=0
     if args.base_dir:
         base_dir = args.base_dir
     else:
-        latest_index = args.latest if args.latest is not None else 0
+        latest_index = args.latest
         try:
-            base_dir = find_multirun_dir(index=latest_index, sort_by_date=(args.latest_order == 'date'))
-            ordinal = ["latest", "2nd latest", "3rd latest"]
-            index_desc = ordinal[latest_index] if latest_index < len(ordinal) else f"{latest_index + 1}th latest"
-            print(f"Using {index_desc} multirun directory (sorted by {args.latest_order}): {base_dir}")
-        except (FileNotFoundError, IndexError) as e:
-            print(f"Error: {e}")
+            base_dir = find_multirun_dir(index=latest_index)
+            print(f"Using inferred base directory: {base_dir}")
+        except IndexError:
+            print("Invalid argument, cannot find latest directory")
             return
 
     # List to store all results
@@ -272,23 +237,11 @@ def main() -> None:
         grouped_results[key].append((throughput, iter_num))
 
     # Generate aggregated results table with optional Run Numbers column
-    if args.runs:
-        results_headers = varying_params + [
-            "Run Numbers",
-            "Count",
-            "Max (Gbps)",
-            "Median (Gbps)",
-            "Min (Gbps)",
-            "Std Dev (Gbps)",
-        ]
-    else:
-        results_headers = varying_params + [
-            "Count",
-            "Max (Gbps)",
-            "Median (Gbps)",
-            "Min (Gbps)",
-            "Std Dev (Gbps)",
-        ]
+    results_headers = (
+        varying_params
+        + (["Run Numbers"] if args.runs else [])
+        + ["Count", "Max (Gbps)", "Median (Gbps)", "Min (Gbps)", "Std Dev (Gbps)"]
+    )
 
     results_rows = []
     for config_key, throughput_data in grouped_results.items():
