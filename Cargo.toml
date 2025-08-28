@@ -3,7 +3,7 @@ name = "mountpoint-s3-fuser"
 description = "A fork of fuser - Filesystem in Userspace (FUSE) for Rust - only for use in Mountpoint for Amazon S3"
 license = "MIT"
 homepage = "https://github.com/awslabs/mountpoint-s3/tree/fuser/fork"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
@@ -21,7 +21,7 @@ page_size = "0.6.0"
 serde = { version = "1.0.102", features = ["std", "derive"], optional = true }
 smallvec = "1.6.1"
 zerocopy = { version = "0.8", features = ["derive"] }
-nix = { version = "0.29.0", features = ["fs", "user"] }
+nix = { version = "0.29.0", features = ["fs", "user", "ioctl"] }
 
 [dev-dependencies]
 env_logger = "0.11.3"
