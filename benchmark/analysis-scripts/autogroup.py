@@ -152,17 +152,102 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     return varying
 
 
+def find_multirun_dir(index: int = 0, sort_by_date: bool = True) -> str:
+    """Find the Nth latest directory in multirun (0=most recent, 1=previous, etc.)"""
+    multirun_path = 'multirun'
+    if not os.path.exists(multirun_path):
+        raise FileNotFoundError("multirun directory not found")
+
+    # Get all subdirectories and their sort keys
+    all_subdirs = []
+    for item in os.listdir(multirun_path):
+        item_path = os.path.join(multirun_path, item)
+        if os.path.isdir(item_path):
+            # Find all subdirectories within this date directory
+            for subitem in os.listdir(item_path):
+                subitem_path = os.path.join(item_path, subitem)
+                if os.path.isdir(subitem_path):
+                    if sort_by_date:
+                        # Parse the date and time from the path structure
+                        # Expected format: multirun/YYYY-MM-DD/HH-MM-SS
+                        try:
+                            date_str = item  # e.g., "2025-08-27"
+                            time_str = subitem  # e.g., "16-49-08"
+                            datetime_str = f"{date_str} {time_str.replace('-', ':')}"
+                            all_subdirs.append((datetime_str, subitem_path))
+                        except Exception:
+                            # Fall back to mtime if parsing fails
+                            mtime = os.path.getmtime(subitem_path)
+                            all_subdirs.append((mtime, subitem_path))
+                    else:
+                        # Use modification time
+                        mtime = os.path.getmtime(subitem_path)
+                        all_subdirs.append((mtime, subitem_path))
+
+    if not all_subdirs:
+        raise FileNotFoundError("No experiment directories found in multirun")
+
+    # Sort by key (most recent first) and return the requested index
+    sorted_subdirs = sorted(all_subdirs, key=lambda x: x[0], reverse=True)
+
+    if index >= len(sorted_subdirs):
+        raise IndexError(f"Index {index} out of range, only {len(sorted_subdirs)} directories found")
+
+    return sorted_subdirs[index][1]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Print benchmark throughput data automatically grouped')
-    parser.add_argument('--base-dir', required=True, help='Base directory containing benchmark results')
+
+    # Positional argument for base directory (optional)
+    parser.add_argument('base_dir', nargs='?', help='Base directory containing benchmark results')
+
+    # Options for automatic latest directory selection
+    parser.add_argument(
+        '--latest',
+        type=int,
+        nargs='?',
+        const=0,
+        metavar='N',
+        help='Use the Nth latest multirun directory (0=most recent, 1=previous, etc.)',
+    )
+    parser.add_argument(
+        '--latest-order',
+        choices=['date', 'mod_time'],
+        default='date',
+        help='Sort latest directories by date in path or modification time',
+    )
+
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
+    parser.add_argument(
+        '--runs', choices=['tri', 'all'], help='Show run numbers in results (tri=min/median/max, all=all runs)'
+    )
     args = parser.parse_args()
+
+    # Validate conflicting arguments
+    if args.base_dir and args.latest is not None:
+        parser.error("Cannot specify both a base directory and --latest option")
+
+    # Determine the base directory to use
+    # Priority: positional arg > --latest > default to latest=0
+    if args.base_dir:
+        base_dir = args.base_dir
+    else:
+        latest_index = args.latest if args.latest is not None else 0
+        try:
+            base_dir = find_multirun_dir(index=latest_index, sort_by_date=(args.latest_order == 'date'))
+            ordinal = ["latest", "2nd latest", "3rd latest"]
+            index_desc = ordinal[latest_index] if latest_index < len(ordinal) else f"{latest_index + 1}th latest"
+            print(f"Using {index_desc} multirun directory (sorted by {args.latest_order}): {base_dir}")
+        except (FileNotFoundError, IndexError) as e:
+            print(f"Error: {e}")
+            return
 
     # List to store all results
     all_results = []
 
     # Process all iteration directories
-    for root, dirs, files in os.walk(args.base_dir):
+    for root, dirs, files in os.walk(base_dir):
         for dir_name in dirs:
             if dir_name.isdigit():
                 iteration_path = os.path.join(root, dir_name)
@@ -184,30 +269,68 @@ def main() -> None:
     grouped_results = defaultdict(list)
     for config, throughput, iter_num in all_results:
         key = tuple((param, str(config.get(param, 'N/A'))) for param in sorted(varying_params))
-        grouped_results[key].append(throughput)
+        grouped_results[key].append((throughput, iter_num))
 
-    # Aggregated results table
-    aggregated_headers = varying_params + [
-        "Count",
-        "Median (Gbps)",
-        "Std Dev (Gbps)",
-        "Min (Gbps)",
-        "Max (Gbps)",
-    ]
-    aggregated_rows = []
-    for config_key, throughputs in grouped_results.items():
+    # Generate aggregated results table with optional Run Numbers column
+    if args.runs:
+        results_headers = varying_params + [
+            "Run Numbers",
+            "Count",
+            "Max (Gbps)",
+            "Median (Gbps)",
+            "Min (Gbps)",
+            "Std Dev (Gbps)",
+        ]
+    else:
+        results_headers = varying_params + [
+            "Count",
+            "Max (Gbps)",
+            "Median (Gbps)",
+            "Min (Gbps)",
+            "Std Dev (Gbps)",
+        ]
+
+    results_rows = []
+    for config_key, throughput_data in grouped_results.items():
+        throughputs = [t for t, _ in throughput_data]
+        run_numbers = [r for _, r in throughput_data]
+
         row = []
         for _, value in config_key:
             row.append(value)
+
+        # Add run numbers column if requested
+        if args.runs:
+            if args.runs == "tri":
+                # Find min, max, and median run numbers based on throughput
+                sorted_by_throughput = sorted(zip(throughputs, run_numbers))
+                min_run = sorted_by_throughput[0][1]
+                max_run = sorted_by_throughput[-1][1]
+                median_idx = len(sorted_by_throughput) // 2
+                median_run = sorted_by_throughput[median_idx][1]
+
+                selected_runs = [max_run, median_run, min_run]
+                # Remove duplicates while preserving order
+                unique_runs = []
+                for run in selected_runs:
+                    if run not in unique_runs:
+                        unique_runs.append(run)
+
+                row.append(",".join(unique_runs))
+            else:
+                sorted_by_throughput = sorted(zip(throughputs, run_numbers), reverse=True)
+                all_runs = [r for _, r in sorted_by_throughput]
+                row.append(",".join(all_runs))
+
         row.append(len(throughputs))
+        row.append(f"{max(throughputs):.2f}")
         row.append(f"{statistics.median(throughputs):.2f}")
+        row.append(f"{min(throughputs):.2f}")
         if len(throughputs) > 1:
             row.append(f"{statistics.stdev(throughputs):.2f}")
         else:
             row.append("N/A")
-        row.append(f"{min(throughputs):.2f}")
-        row.append(f"{max(throughputs):.2f}")
-        aggregated_rows.append(row)
+        results_rows.append(row)
 
     # Custom sorting function for benchmark types
     def benchmark_type_sort_key(value: str) -> int:
@@ -217,7 +340,7 @@ def main() -> None:
     # Sort rows by all columns
     def sort_key(row: List[str]) -> List[Union[int, float, str]]:
         key_parts = []
-        for value, header in zip(row, aggregated_headers):
+        for value, header in zip(row, results_headers):
             if header == 'benchmark_type':
                 # Use custom ordering for benchmark type
                 key_parts.append(benchmark_type_sort_key(value))
@@ -231,17 +354,24 @@ def main() -> None:
                     key_parts.append(str(value))
         return key_parts
 
-    aggregated_rows.sort(key=sort_key)
+    results_rows.sort(key=sort_key)
 
-    print("\nResults Summary:")
-    print(tabulate(aggregated_rows, headers=aggregated_headers, tablefmt="grid"))
+    # Display results
+    if args.runs == "all":
+        print("\nResults Summary (with all run numbers):")
+    elif args.runs == "tri":
+        print("\nResults Summary (with representative run numbers):")
+    else:
+        print("\nResults Summary:")
+
+    print(tabulate(results_rows, headers=results_headers, tablefmt="grid"))
 
     # Write to CSV if requested
     if args.csv_output:
         with open(args.csv_output, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(aggregated_headers)
-            writer.writerows(aggregated_rows)
+            writer.writerow(results_headers)
+            writer.writerows(results_rows)
         print(f"\nResults written to CSV: {args.csv_output}")
 
 
