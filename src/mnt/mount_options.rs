@@ -55,6 +55,11 @@ pub enum MountOption {
     Sync,
     /// All I/O will be done asynchronously
     Async,
+    /// Use the FUSE_DEV_IOC_CLONE ioctl.
+    /// This will be used to create a fresh FD for each fuse worker thread.
+    /// This is also a libfuse option, we mimic the functionality in fuser.
+    CloneFd,
+
     /* libfuse library options, such as "direct_io", are not included since they are specific
     to libfuse, and not part of the kernel ABI */
 }
@@ -79,6 +84,7 @@ impl MountOption {
             "dirsync" => MountOption::DirSync,
             "sync" => MountOption::Sync,
             "async" => MountOption::Async,
+            "clonefd" => MountOption::CloneFd,
             x if x.starts_with("fsname=") => MountOption::FSName(x[7..].into()),
             x if x.starts_with("subtype=") => MountOption::Subtype(x[8..].into()),
             x => MountOption::CUSTOM(x.into()),
@@ -123,6 +129,7 @@ fn conflicts_with(option: &MountOption) -> Vec<MountOption> {
         MountOption::DirSync => vec![],
         MountOption::Sync => vec![MountOption::Async],
         MountOption::Async => vec![MountOption::Sync],
+        MountOption::CloneFd => vec![],
     }
 }
 
@@ -151,6 +158,7 @@ pub fn option_to_string(option: &MountOption) -> String {
         MountOption::DirSync => "dirsync".to_string(),
         MountOption::Sync => "sync".to_string(),
         MountOption::Async => "async".to_string(),
+        MountOption::CloneFd => "clonefd".to_string(),
     }
 }
 
@@ -214,6 +222,7 @@ mod test {
             DirSync,
             Sync,
             Async,
+            CloneFd,
         ]
         .iter()
         {
@@ -227,12 +236,12 @@ mod test {
 
         assert_eq!(parse_options_from_args(&[]).unwrap(), &[]);
 
-        let o: Vec<_> = "-o suid -o ro,nodev,noexec -osync"
+        let o: Vec<_> = "-o suid -o ro,nodev,noexec,clonefd -osync"
             .split(' ')
             .map(OsStr::new)
             .collect();
         let out = parse_options_from_args(o.as_ref()).unwrap();
-        assert_eq!(out, [Suid, RO, NoDev, NoExec, Sync]);
+        assert_eq!(out, [Suid, RO, NoDev, NoExec, Sync, CloneFd]);
 
         assert!(parse_options_from_args(&[OsStr::new("-o")]).is_err());
         assert!(parse_options_from_args(&[OsStr::new("not o")]).is_err());

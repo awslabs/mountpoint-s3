@@ -67,6 +67,8 @@ pub struct Session<FS: Filesystem> {
     pub(crate) initialized: AtomicBool,
     /// True if the filesystem was destroyed (destroy operation done)
     pub(crate) destroyed: AtomicBool,
+    /// Whether to use FUSE_DEV_IOC_CLONE ioctl for channel cloning
+    pub(crate) clone_fuse_fd: AtomicBool,
 }
 
 impl<FS: Filesystem> AsFd for Session<FS> {
@@ -108,6 +110,8 @@ impl<FS: Filesystem> Session<FS> {
             SessionACL::Owner
         };
 
+        let clone_fuse_fd = options.contains(&MountOption::CloneFd);
+
         Ok(Session {
             filesystem,
             ch,
@@ -118,6 +122,7 @@ impl<FS: Filesystem> Session<FS> {
             proto_minor: AtomicU32::new(0),
             initialized: AtomicBool::new(false),
             destroyed: AtomicBool::new(false),
+            clone_fuse_fd: AtomicBool::new(clone_fuse_fd),
         })
     }
 
@@ -135,6 +140,7 @@ impl<FS: Filesystem> Session<FS> {
             proto_minor: AtomicU32::new(0),
             initialized: AtomicBool::new(false),
             destroyed: AtomicBool::new(false),
+            clone_fuse_fd: AtomicBool::new(false),
         }
     }
 
@@ -148,8 +154,32 @@ impl<FS: Filesystem> Session<FS> {
     /// calls into the filesystem.
     /// This version also notifies callers of kernel requests before and after they
     /// are dispatched to the filesystem.
-    pub fn run_with_callbacks<FA, FB>(&self, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()> 
-    where 
+    pub fn run_with_callbacks<FA, FB>(&self, before_dispatch: FB, after_dispatch: FA) -> io::Result<()>
+    where
+        FB: FnMut(&Request<'_>),
+        FA: FnMut(&Request<'_>),
+    {
+        // Use the clone_fuse_fd setting from the session configuration
+        let clone_fd = self.clone_fuse_fd.load(Ordering::SeqCst);
+
+        info!("FUSE channel cloning: {}", if clone_fd { "enabled" } else { "disabled" });
+
+        // Create a worker channel for this thread if cloning is enabled
+        // Otherwise use the original channel directly
+        if clone_fd {
+            // Create a worker channel for this thread using FUSE_DEV_IOC_CLONE
+            // This allows multiple threads to read from the FUSE device without contention
+            let worker_channel = self.ch.clone_channel()?;
+            self.process_requests(&worker_channel, before_dispatch, after_dispatch)
+        } else {
+            // Use the original channel without cloning
+            self.process_requests(&self.ch, before_dispatch, after_dispatch)
+        }
+    }
+
+    /// Process requests using the given channel
+    fn process_requests<FA, FB>(&self, channel: &Channel, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()>
+    where
         FB: FnMut(&Request<'_>),
         FA: FnMut(&Request<'_>),
     {
@@ -161,10 +191,9 @@ impl<FS: Filesystem> Session<FS> {
             std::mem::align_of::<abi::fuse_in_header>(),
         );
         loop {
-            // Read the next request from the given channel to kernel driver
-            // The kernel driver makes sure that we get exactly one request per read
-            match self.ch.receive(buf) {
-                Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
+            // Read the next request from the channel
+            match channel.receive(buf) {
+                Ok(size) => match Request::new(channel.sender(), &buf[..size]) {
                     // Dispatch request
                     Some(req) => {
                         before_dispatch(&req);
