@@ -179,17 +179,6 @@ def main() -> None:
     # Positional argument for base directory (optional)
     parser.add_argument('base_dir', nargs='?', help='Base directory containing benchmark results')
 
-    # Options for automatic latest directory selection
-    parser.add_argument(
-        '--latest',
-        type=int,
-        nargs='?',
-        const=0,
-        default=0,
-        metavar='N',
-        help='Use the Nth latest multirun directory (0=most recent, 1=previous, etc.)',
-    )
-
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
     parser.add_argument(
         '--runs', choices=['tri', 'all'], help='Show run numbers in results (tri=min/median/max, all=all runs)'
@@ -200,9 +189,8 @@ def main() -> None:
     if args.base_dir:
         base_dir = args.base_dir
     else:
-        latest_index = args.latest
         try:
-            base_dir = find_multirun_dir(index=latest_index)
+            base_dir = find_multirun_dir()
             print(f"Using inferred base directory: {base_dir}")
         except IndexError:
             print("Invalid argument, cannot find latest directory")
