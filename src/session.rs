@@ -142,7 +142,7 @@ impl<FS: Filesystem> Session<FS> {
     /// Run the session loop that receives kernel requests and dispatches them to method
     /// calls into the filesystem.
     pub fn run(&self) -> io::Result<()> {
-        self.run_with_callbacks(|_| {}, |_| {})
+        self.run_with_callbacks(|_| {}, |_| {}, false)
     }
 
     /// Run the session loop that receives kernel requests and dispatches them to method
@@ -151,6 +151,34 @@ impl<FS: Filesystem> Session<FS> {
     /// are dispatched to the filesystem.
     pub fn run_with_callbacks<FA, FB>(
         &self,
+        before_dispatch: FB,
+        after_dispatch: FA,
+        clone_fuse_fd: bool,
+    ) -> io::Result<()>
+    where
+        FB: FnMut(&Request<'_>),
+        FA: FnMut(&Request<'_>),
+    {
+        info!(
+            "FUSE channel cloning: {}",
+            if clone_fuse_fd { "enabled" } else { "disabled" }
+        );
+
+        if clone_fuse_fd {
+            // Create a worker channel for this thread using FUSE_DEV_IOC_CLONE
+            // This allows multiple threads to read from the FUSE device without contention
+            let worker_channel = self.ch.clone_channel()?;
+            self.process_requests(&worker_channel, before_dispatch, after_dispatch)
+        } else {
+            // Use the original channel without cloning
+            self.process_requests(&self.ch, before_dispatch, after_dispatch)
+        }
+    }
+
+    /// Process requests using the given channel
+    fn process_requests<FA, FB>(
+        &self,
+        channel: &Channel,
         mut before_dispatch: FB,
         mut after_dispatch: FA,
     ) -> io::Result<()>
@@ -168,8 +196,8 @@ impl<FS: Filesystem> Session<FS> {
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
-            match self.ch.receive(buf) {
-                Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
+            match channel.receive(buf) {
+                Ok(size) => match Request::new(channel.sender(), &buf[..size]) {
                     // Dispatch request
                     Some(req) => {
                         before_dispatch(&req);
