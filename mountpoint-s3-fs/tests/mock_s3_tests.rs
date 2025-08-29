@@ -33,8 +33,8 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
     </Error>
     "#
     .to_string();
-    let head_object_503_headers = [];
-    let head_object_ok_headers = [
+    let head_object_503_headers = vec![];
+    let head_object_ok_headers = vec![
         ("ETag", "71a5b8dcb22444f1b2b899dedc1e4122"),
         ("Date", "Thu, 12 Jan 2023 00:04:21 GMT"),
         ("Last-Modified", "Tue, 10 Jan 2023 23:39:32 GMT"),
@@ -53,10 +53,10 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
     } else {
         (200, list_empty_response(bucket, key))
     };
-    let (head_object_http_code, head_object_headers): (u16, &[(&str, &str)]) = if head_object_throttled {
-        (503, &head_object_503_headers)
+    let (head_object_http_code, head_object_headers) = if head_object_throttled {
+        (503, head_object_503_headers)
     } else {
-        (200, &head_object_ok_headers)
+        (200, head_object_ok_headers)
     };
     Mock::given(method("GET"))
         .and(path(format!("/{bucket}/")))
@@ -66,10 +66,7 @@ async fn test_lookup_throttled_mock(head_object_throttled: bool, list_object_thr
         .mount(&server)
         .await;
 
-    let mut head_response = ResponseTemplate::new(head_object_http_code);
-    for (key, value) in head_object_headers {
-        head_response = head_response.insert_header(*key, *value);
-    }
+    let head_response = ResponseTemplate::new(head_object_http_code).append_headers(head_object_headers);
     Mock::given(method("HEAD"))
         .and(path(format!("/{bucket}/{key}")))
         .respond_with(head_response)
@@ -167,10 +164,7 @@ async fn test_read_unhandled_error_mock() {
         .mount(&server)
         .await;
 
-    let mut head_response = ResponseTemplate::new(200);
-    for (key, value) in &head_object_ok_headers {
-        head_response = head_response.insert_header(*key, *value);
-    }
+    let head_response = ResponseTemplate::new(200).append_headers(head_object_ok_headers);
     Mock::given(method("HEAD"))
         .and(path(format!("/{bucket}/{key}")))
         .respond_with(head_response)
