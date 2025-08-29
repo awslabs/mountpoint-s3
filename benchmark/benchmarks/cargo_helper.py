@@ -7,32 +7,50 @@ import os
 log = logging.getLogger(__name__)
 
 
-def build_example(name: str, features: Optional[List[str]] = None, build_env: Optional[Dict[str, str]] = None) -> str:
+def build_example(
+    name: str,
+    features: Optional[List[str]] = None,
+    build_env: Optional[Dict[str, str]] = None,
+    with_flamegraph: bool = False,
+) -> str:
     """
     Compile a Rust example and return the path to the executable.
 
     Args:
         name: Name of the example
         features: Optional list of features to enable
+        build_env: Optional environment variables for build
+        with_flamegraph: Whether to build with flamegraph-optimized compilation flags
 
     Returns:
         Path to the compiled executable
     """
-    return _build_and_get_executable(example_name=name, features=features, build_env=build_env)
+    return _build_and_get_executable(
+        example_name=name, features=features, build_env=build_env, with_flamegraph=with_flamegraph
+    )
 
 
-def build_binary(name: str, features: Optional[List[str]] = None, build_env: Optional[Dict[str, str]] = None) -> str:
+def build_binary(
+    name: str,
+    features: Optional[List[str]] = None,
+    build_env: Optional[Dict[str, str]] = None,
+    with_flamegraph: bool = False,
+) -> str:
     """
     Compile a Rust binary and return the path to the executable.
 
     Args:
         name: Name of the binary
         features: Optional list of features to enable
+        build_env: Optional environment variables for build
+        with_flamegraph: Whether to build with flamegraph-optimized compilation flags
 
     Returns:
         Path to the compiled executable
     """
-    return _build_and_get_executable(binary_name=name, features=features, build_env=build_env)
+    return _build_and_get_executable(
+        binary_name=name, features=features, build_env=build_env, with_flamegraph=with_flamegraph
+    )
 
 
 def _build_and_get_executable(
@@ -40,10 +58,10 @@ def _build_and_get_executable(
     example_name: Optional[str] = None,
     features: Optional[List[str]] = None,
     build_env: Optional[Dict[str, str]] = None,
+    with_flamegraph: bool = False,
 ) -> str:
     """Build and get executable path."""
 
-    # Build the cargo command
     cargo_args = ["cargo", "build", "--release", "--message-format=json-render-diagnostics"]
 
     if binary_name:
@@ -56,11 +74,28 @@ def _build_and_get_executable(
     if features:
         cargo_args.extend(["--features", ",".join(features)])
 
-    # Prepare environment for compilation
     env = os.environ.copy()
     if build_env:
         env.update(build_env)
-        log.info(f"Build environment: {build_env}")
+
+    if with_flamegraph:
+        log.info("Building with flamegraph-optimized compilation flags for comprehensive profiling")
+
+        flamegraph_cflags = "-fno-omit-frame-pointer"
+        flamegraph_rustflags = "-C force-frame-pointers=yes"
+
+        if "CFLAGS" in env:
+            env["CFLAGS"] = f"{env['CFLAGS']} {flamegraph_cflags}"
+        else:
+            env["CFLAGS"] = flamegraph_cflags
+
+        if "RUSTFLAGS" in env:
+            env["RUSTFLAGS"] = f"{env['RUSTFLAGS']} {flamegraph_rustflags}"
+        else:
+            env["RUSTFLAGS"] = flamegraph_rustflags
+
+    if build_env or with_flamegraph:
+        log.info(f"Build environment: CFLAGS='{env.get('CFLAGS', '')}' RUSTFLAGS='{env.get('RUSTFLAGS', '')}'")
 
     log.info(f"Compiling: {' '.join(cargo_args)}")
 
@@ -91,5 +126,4 @@ def _extract_executable_path(cargo_output: str) -> str:
     if not executables:
         raise RuntimeError("No executable found in cargo build output")
 
-    # Return the last executable (most recent)
     return executables[-1]

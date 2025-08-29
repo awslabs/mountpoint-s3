@@ -19,9 +19,9 @@ class PrefetchBenchmark(BaseBenchmark):
         self.common_config = self.config_parser.get_common_config()
         self.prefetch_config = self.config_parser.get_prefetch_config()
 
-    def setup(self) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
         log.info("Compiling prefetch_benchmark example...")
-        self.executable_path = build_example("prefetch_benchmark")
+        self.executable_path = build_example("prefetch_benchmark", with_flamegraph=with_flamegraph)
         log.info(f"Prefetch benchmark executable ready at: {self.executable_path}")
 
         return self.metadata
