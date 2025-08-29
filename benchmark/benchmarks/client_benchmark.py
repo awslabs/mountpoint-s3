@@ -20,7 +20,7 @@ class ClientBenchmark(BaseBenchmark):
         self.common_config = self.config_parser.get_common_config()
         self.client_config = self.config_parser.get_client_config()
 
-    def setup(self, build_with_flamegraphs: bool = False) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
         # Compile the client_benchmark example
         features = None
         if self.backpressure:
@@ -28,9 +28,7 @@ class ClientBenchmark(BaseBenchmark):
             features = []
 
         log.info("Compiling client_benchmark example...")
-        self.executable_path = build_example(
-            "client_benchmark", features, flamegraph_enhancement=build_with_flamegraphs
-        )
+        self.executable_path = build_example("client_benchmark", features, with_flamegraph=with_flamegraph)
         log.info(f"Client benchmark executable ready at: {self.executable_path}")
 
         return self.metadata
