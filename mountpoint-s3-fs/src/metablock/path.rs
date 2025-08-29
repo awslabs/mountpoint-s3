@@ -84,6 +84,14 @@ impl ValidKey {
         }
     }
 
+    /// The name for this key, i.e. the last path component.
+    ///
+    /// This returns a [ValidName] or [None] if name is empty.
+    pub fn valid_name(&self) -> Option<ValidName> {
+        let name = self.name();
+        if name.is_empty() { None } else { Some(ValidName(name)) }
+    }
+
     /// The kind of [Inode](super::Inode) associated with this key.
     pub fn kind(&self) -> InodeKind {
         match self.key.as_bytes().last() {
