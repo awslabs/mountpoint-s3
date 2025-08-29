@@ -13,7 +13,7 @@ import glob
 import csv
 import warnings
 import statistics
-import sys
+
 
 from tabulate import tabulate
 from collections import defaultdict
@@ -157,8 +157,7 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
 def find_multirun_dir(index: int = 0) -> str:
     """Find the Nth latest directory in multirun (0=most recent, 1=previous, etc.)"""
     if not Path('multirun').exists():
-        warnings.warn("multirun directory not found")
-        sys.exit(1)
+        raise FileNotFoundError("multirun directory not found")
 
     # This ensures that alphabetical sorting will correctly find latest
     sorted_subdirs = sorted(
@@ -168,9 +167,12 @@ def find_multirun_dir(index: int = 0) -> str:
     )
 
     if not sorted_subdirs:
-        warnings.warn("No experiment directories found in multirun")
-        sys.exit(1)
-    return sorted_subdirs[index][1]
+        raise FileNotFoundError("No experiment directories found in multirun")
+
+    try:
+        return sorted_subdirs[index][1]
+    except IndexError:
+        raise IndexError(f"Index {index} is out of range. Only {len(sorted_subdirs)} experiment directories found.")
 
 
 def main() -> None:
@@ -181,7 +183,9 @@ def main() -> None:
 
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
     parser.add_argument(
-        '--runs', choices=['tri', 'all'], help='Show run numbers in results (tri=min/median/max, all=all runs)'
+        '--runs',
+        choices=['rep', 'all'],
+        help='Show run numbers in results (rep(resentative)=min/median/max, all=all runs)',
     )
     args = parser.parse_args()
 
@@ -192,8 +196,8 @@ def main() -> None:
         try:
             base_dir = find_multirun_dir()
             print(f"Using inferred base directory: {base_dir}")
-        except IndexError:
-            print("Invalid argument, cannot find latest directory")
+        except (IndexError, FileNotFoundError) as e:
+            print(f"Error: {e}")
             return
 
     # List to store all results
@@ -233,8 +237,7 @@ def main() -> None:
 
     results_rows = []
     for config_key, throughput_data in grouped_results.items():
-        throughputs = [t for t, _ in throughput_data]
-        run_numbers = [r for _, r in throughput_data]
+        throughputs, run_numbers = zip(*throughput_data)
 
         row = []
         for _, value in config_key:
@@ -242,24 +245,21 @@ def main() -> None:
 
         # Add run numbers column if requested
         if args.runs:
-            if args.runs == "tri":
+            sorted_by_throughput = sorted(zip(throughputs, run_numbers), reverse=True)
+            if args.runs == "rep":
                 # Find min, max, and median run numbers based on throughput
-                sorted_by_throughput = sorted(zip(throughputs, run_numbers))
-                min_run = sorted_by_throughput[0][1]
-                max_run = sorted_by_throughput[-1][1]
+                min_run = sorted_by_throughput[-1][1]
+                max_run = sorted_by_throughput[0][1]
                 median_idx = len(sorted_by_throughput) // 2
                 median_run = sorted_by_throughput[median_idx][1]
 
                 selected_runs = [max_run, median_run, min_run]
-                # Remove duplicates while preserving order
-                unique_runs = []
-                for run in selected_runs:
-                    if run not in unique_runs:
-                        unique_runs.append(run)
+                # Remove duplicates while preserving order using dict.fromkeys()
+                # (works in python > 3.7)
+                unique_runs = list(dict.fromkeys(selected_runs))
 
                 row.append(",".join(unique_runs))
             else:
-                sorted_by_throughput = sorted(zip(throughputs, run_numbers), reverse=True)
                 all_runs = [r for _, r in sorted_by_throughput]
                 row.append(",".join(all_runs))
 
@@ -300,7 +300,7 @@ def main() -> None:
     # Display results
     if args.runs == "all":
         print("\nResults Summary (with all run numbers):")
-    elif args.runs == "tri":
+    elif args.runs == "rep":
         print("\nResults Summary (with representative run numbers):")
     else:
         print("\nResults Summary:")
