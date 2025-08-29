@@ -377,7 +377,7 @@ def run_experiment(cfg: DictConfig) -> None:
     result = None
     try:
         with_flamegraph = cfg.monitoring.with_flamegraph
-        benchmark.setup(build_with_flamegraphs=with_flamegraph)
+        benchmark.setup(with_flamegraph=with_flamegraph)
         command = benchmark.get_command()
 
         process = subprocess.Popen(
