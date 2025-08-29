@@ -296,8 +296,13 @@ where
     ) -> Result<bool, Error> {
         match self {
             UploadState::AppendInProgress {
-                request, initial_etag, ..
+                request, initial_etag, written_bytes
             } => {
+                // No data upload should be pending completion as part of the release, because we commit on flush
+                if written_bytes == 0 && request.current_offset() == 0 {
+                    Self::finish(fs, ino, initial_etag).await;
+                    return Ok(false);
+                }
                 Self::complete_append(fs, ino, key, request, initial_etag).await?;
                 Ok(true)
             }
