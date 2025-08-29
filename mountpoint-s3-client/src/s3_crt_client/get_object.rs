@@ -77,7 +77,16 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             let mut options = message.into_options(S3Operation::GetObject);
-            options.part_size(self.inner.read_part_size as u64);
+
+            // Use the client read part size, or the requested range if smaller.
+            let part_size = (self.inner.read_part_size as u64).min(
+                params
+                    .range
+                    .as_ref()
+                    .map(|range| range.end - range.start)
+                    .unwrap_or(u64::MAX),
+            );
+            options.part_size(part_size);
 
             let mut headers_sender = Some(event_sender.clone());
             let part_sender = event_sender.clone();
