@@ -9,6 +9,9 @@ members = [
 ]
 resolver = "2"
 
+[patch.crates-io]
+httpmock = { git = "https://github.com/alexliesenfeld/httpmock.git"}
+
 [profile.release]
 debug = 2
 opt-level = 3
