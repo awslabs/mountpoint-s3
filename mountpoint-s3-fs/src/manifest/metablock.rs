@@ -5,15 +5,15 @@ use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use super::core::{Manifest, ManifestDirIter, ManifestError};
-
 use crate::metablock::{
-    AddDirEntry, AddDirEntryResult, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat,
-    Lookup, Metablock, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidName, WriteMode,
+    AddDirEntry, AddDirEntryResult, CompletionHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo,
+    InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidName, WriteMode,
 };
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
+
+use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 /// Implementation of the `Metablock` trait that provides a read-only view of the metadata store.
 ///
@@ -185,12 +185,12 @@ impl Metablock for ManifestMetablock {
         Ok(())
     }
 
-    async fn start_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+    async fn start_reading(&self, _ino: InodeNo, _fh: u64) -> Result<(), InodeError> {
         // Assume getattr was just called to check for inode existence, so this is a no-op
         Ok(())
     }
 
-    async fn finish_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+    async fn finish_reading(&self, _ino: InodeNo, _file_handle: u64) -> Result<(), InodeError> {
         // This is a no-op
         Ok(())
     }
@@ -208,7 +208,13 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn start_writing(&self, ino: InodeNo, _mode: &WriteMode, _is_truncate: bool) -> Result<(), InodeError> {
+    async fn start_writing(
+        &self,
+        ino: InodeNo,
+        _mode: &WriteMode,
+        _is_truncate: bool,
+        _handle_id: u64,
+    ) -> Result<(), InodeError> {
         // For a read-only view, don't allow writing
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
@@ -277,5 +283,23 @@ impl Metablock for ManifestMetablock {
             key: "".into(),
             bucket: None,
         }))
+    }
+
+    async fn validate_handle(&self, _ino: InodeNo, _fh: u64, _op: &str) -> Result<bool, InodeError> {
+        Ok(true)
+    }
+
+    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> {
+        Ok(true)
+    }
+
+    async fn flush_writer(
+        &self,
+        _ino: InodeNo,
+        _fh: u64,
+        _completion_handle: CompletionHook,
+        _release: bool,
+    ) -> Result<bool, InodeError> {
+        Ok(false)
     }
 }

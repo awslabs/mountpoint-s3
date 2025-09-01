@@ -1,11 +1,16 @@
-use super::InodeNo;
-use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-#[cfg(feature = "manifest")]
-use crate::manifest::ManifestError;
 use anyhow::anyhow;
 use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use std::ffi::OsString;
 use thiserror::Error;
+
+use crate::fs::{
+    CompletionError,
+    error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT},
+};
+#[cfg(feature = "manifest")]
+use crate::manifest::ManifestError;
+
+use super::InodeNo;
 
 #[derive(Debug, Error)]
 pub enum InodeError {
@@ -107,6 +112,17 @@ impl InodeError {
         match self {
             Self::ClientError { source: _, metadata } => (**metadata).clone(),
             _ => Default::default(),
+        }
+    }
+}
+
+impl From<CompletionError> for InodeError {
+    fn from(err: CompletionError) -> Self {
+        let metadata = err.metadata().into();
+        let context = err.to_string();
+        InodeError::ClientError {
+            source: anyhow!(err).context(context),
+            metadata,
         }
     }
 }
