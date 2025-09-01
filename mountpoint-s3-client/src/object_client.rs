@@ -210,6 +210,12 @@ impl ProvideErrorMetadata for RenameObjectError {
     }
 }
 
+impl ProvideErrorMetadata for PutObjectError {
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
+    }
+}
+
 /// Shorthand type for the result of an object client request
 pub type ObjectClientResult<T, S, C> = Result<T, ObjectClientError<S, C>>;
 

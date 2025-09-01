@@ -2,14 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
-};
-use crate::s3::Prefix;
-use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::debug;
+
+use crate::metablock::{
+    CompletionHook, InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO,
+    ValidKey,
+};
+use crate::s3::Prefix;
+use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug, Clone)]
 pub struct Inode {
@@ -157,6 +159,7 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
+                completion_hook: None,
             },
         )
     }
@@ -186,6 +189,7 @@ impl Inode {
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
+            completion_hook: None,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -240,6 +244,7 @@ pub struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
+    pub completion_hook: Option<CompletionHook>,
 }
 
 impl InodeState {
@@ -248,6 +253,7 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
+            completion_hook: None,
         }
     }
 
@@ -293,11 +299,13 @@ impl InodeKindData {
 pub enum WriteStatus {
     /// Local inode created but not yet opened
     LocalUnopened,
-    /// Local inode already opened
-    LocalOpen,
+    /// Local inode already opened for writing
+    LocalOpenForWriting,
+    /// Inode flushed (maybe released later)
+    LastFlushed,
     /// Remote inode
     Remote,
-    /// Pending rename for indoe
+    /// Pending rename for inode
     PendingRename,
 }
 
@@ -341,6 +349,7 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
+                completion_hook: None,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -483,6 +492,7 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
+                    completion_hook: None,
                 }),
             }),
         };
@@ -537,9 +547,10 @@ mod tests {
                     .unwrap(),
                 checksum,
                 sync: RwLock::new(InodeState {
-                    write_status: WriteStatus::LocalOpen,
+                    write_status: WriteStatus::LocalOpenForWriting,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
+                    completion_hook: None,
                 }),
             }),
         };
