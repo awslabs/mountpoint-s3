@@ -53,7 +53,7 @@ pub trait Metablock: Send + Sync {
     async fn forget(&self, ino: InodeNo, n: u64);
 
     /// Start writing to an inode.
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
+    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool, handle_id: u64) -> Result<(), InodeError>;
 
     /// Increase the size of a file open for writing.
     /// Parameter `len` refers to the additional
@@ -62,13 +62,16 @@ pub trait Metablock: Send + Sync {
 
     /// Called when the filesystem has finished writing to the inode refernced by `ino`.
     /// Allows the implementor to make necessary adjustments / update its internal structure.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<(), InodeError>;
 
     /// Prepare an inode (referenced by `ino`) to start reading.
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn start_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
     /// Finish reading from the inode (referenced by `ino`)
-    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
+
+    /// Updates status of the inode and of containing "local" directories.
+    async fn finish_flushing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64, flushed: &mut bool) -> Result<(), InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
@@ -106,6 +109,8 @@ pub trait Metablock: Send + Sync {
 
     /// Unlink the entry described by `parent_ino` and `name`.
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
+
+    async fn is_valid_handle(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
 }
 
 /// A callback function used to pass information to the filesystem.

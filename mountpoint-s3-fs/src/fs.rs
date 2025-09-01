@@ -4,6 +4,7 @@ use bytes::Bytes;
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -22,7 +23,6 @@ use crate::metablock::Metablock;
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
-use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{Uploader, UploaderConfig};
 
@@ -39,7 +39,7 @@ use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
-mod handles;
+pub(crate) mod handles;
 pub use handles::{FileHandle, FileHandleState};
 
 mod sse;
@@ -379,6 +379,8 @@ where
             InodeKind::File => (),
         }
 
+        let fh = self.next_handle();
+
         let state = if flags.contains(OpenFlags::O_RDWR) {
             if !lookup.is_remote()
                 || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
@@ -387,16 +389,16 @@ where
                 // If the file is new or if it was opened in truncate or in append mode,
                 // we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
+                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self, fh).await?
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
-                FileHandleState::new_read_handle(&lookup, self).await?
+                FileHandleState::new_read_handle(&lookup, self, fh).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
+            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self, fh).await?
         } else {
-            FileHandleState::new_read_handle(&lookup, self).await?
+            FileHandleState::new_read_handle(&lookup, self, fh).await?
         };
 
         let handle = FileHandle {
@@ -405,7 +407,6 @@ where
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
-        let fh = self.next_handle();
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
@@ -444,12 +445,19 @@ where
             }
         };
         logging::record_name(handle.file_name());
+
         let mut state = handle.state.lock().await;
-        let request = match &mut *state {
-            FileHandleState::Read(request) => request,
-            FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
+        let (request, flushed) = match &mut *state {
+            FileHandleState::Read { request, flushed } => (request, flushed),
+            FileHandleState::Write { .. } => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
+        if *flushed {
+            // todo mansi check if handle invalidated in InodeHandleMap
+            if !self.metablock.is_valid_handle(ino, fh).await? {
+                return Err(err!(libc::EBADF, "file handle has been invalidated by a newer handle opened"))
+            }
+        }
         request
             .read(offset as u64, size as usize)
             .await?
@@ -523,12 +531,19 @@ where
 
         let len = {
             let mut state = handle.state.lock().await;
-            let request = match &mut *state {
+            let (request, flushed) = match &mut *state {
                 FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-                FileHandleState::Write(request) => request,
+                FileHandleState::Write { state, flushed} => (state, flushed)
             };
 
-            request.write(self, &handle, offset, data).await?
+            if *flushed {
+                // todo mansi check if handle invalidated in InodeHandleMap
+                if !self.metablock.is_valid_handle(ino, fh).await? {
+                    return Err(err!(libc::EBADF, "file handle has been invalidated by a newer handle opened"))
+                }
+            }
+
+            request.write(self, &handle, offset, data, fh).await?
         };
         Ok(len)
     }
@@ -596,7 +611,7 @@ where
         Ok(())
     }
 
-    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
+    pub async fn fsync(&self, ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -606,11 +621,14 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let write_state = match &mut *state {
-            FileHandleState::Read { .. } => return Ok(()),
-            FileHandleState::Write(write_state) => write_state,
+        let (write_state, flushed) = match &mut *state {
+            FileHandleState::Read { request: _, flushed } => {
+                self.metablock.finish_flushing(ino, None, fh, flushed).await?;
+                return Ok(());
+            },
+            FileHandleState::Write { state, flushed } => (state, flushed)
         };
-        match write_state.commit(self, &file_handle).await {
+        match write_state.commit(self, &file_handle, fh, flushed).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -618,7 +636,7 @@ where
         }
     }
 
-    pub async fn flush(&self, _ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
+    pub async fn flush(&self, ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
         // We generally want to complete the upload when users close a file descriptor (and flush
         // is invoked), so that we can notify them of the outcome. However, since different file
         // descriptors can point to the same file handle, flush can be invoked multiple times on
@@ -642,10 +660,14 @@ where
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
-            FileHandleState::Read { .. } => Ok(()),
-            FileHandleState::Write(write_state) => {
-                write_state
-                    .complete(self, &file_handle, pid, file_handle.open_pid)
+            FileHandleState::Read { flushed, .. } => {
+                //*flushed = true;
+                self.metablock.finish_flushing(ino, None, fh, flushed).await?;
+                Ok(())
+            },
+            FileHandleState::Write { state, flushed } => {
+                state
+                    .complete(self, &file_handle, pid, file_handle.open_pid, fh, flushed)
                     .await
             }
         }
@@ -660,6 +682,7 @@ where
         _flush: bool,
     ) -> Result<(), Error> {
         trace!("fs:release with ino {:?} fh {:?}", ino, fh);
+
         let file_handle = {
             let mut file_handles = self.file_handles.write().await;
             file_handles
@@ -680,16 +703,16 @@ where
         };
 
         let write_state = match file_handle.state.into_inner() {
-            FileHandleState::Read(_) => {
+            FileHandleState::Read { .. } => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                self.metablock.finish_reading(file_handle.ino).await?;
+                self.metablock.finish_reading(file_handle.ino, fh).await?;
                 return Ok(());
             }
-            FileHandleState::Write(write_state) => write_state,
+            FileHandleState::Write { state, .. } => state,
         };
 
         let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.location)
+            .complete_if_in_progress(self, file_handle.ino, &file_handle.location, fh)
             .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 

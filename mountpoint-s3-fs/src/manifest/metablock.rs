@@ -183,12 +183,12 @@ impl Metablock for ManifestMetablock {
         Ok(())
     }
 
-    async fn start_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+    async fn start_reading(&self, _ino: InodeNo, _fh: u64) -> Result<(), InodeError> {
         // Assume getattr was just called to check for inode existence, so this is a no-op
         Ok(())
     }
 
-    async fn finish_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+    async fn finish_reading(&self, _ino: InodeNo, _file_handle: u64) -> Result<(), InodeError> {
         // This is a no-op
         Ok(())
     }
@@ -206,7 +206,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn start_writing(&self, ino: InodeNo, _mode: &WriteMode, _is_truncate: bool) -> Result<(), InodeError> {
+    async fn start_writing(&self, ino: InodeNo, _mode: &WriteMode, _is_truncate: bool, _handle_id: u64) -> Result<(), InodeError> {
         // For a read-only view, don't allow writing
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
@@ -223,13 +223,15 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>) -> Result<(), InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>, _fh: u64) -> Result<(), InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
             key: "".into(),
             bucket: None,
         }))
     }
+
+    async fn finish_flushing(&self, _ino: InodeNo, _etag: Option<ETag>, _fh: u64, _flushed: &mut bool) -> Result<(), InodeError> { Ok(()) }
 
     async fn rename(
         &self,
@@ -275,5 +277,9 @@ impl Metablock for ManifestMetablock {
             key: "".into(),
             bucket: None,
         }))
+    }
+
+    async fn is_valid_handle(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> {
+        Ok(true)
     }
 }
