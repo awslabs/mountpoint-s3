@@ -1,5 +1,4 @@
 use std::str::FromStr as _;
-
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::ETag;
 use tracing::{debug, error};
@@ -39,9 +38,15 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     /// The file handle has been assigned as a read handle
-    Read(PrefetchGetObject<Client>),
+    Read {
+        request: PrefetchGetObject<Client>,
+        flushed: bool,
+    },
     /// The file handle has been assigned as a write handle
-    Write(UploadState<Client>),
+    Write {
+        state: UploadState<Client>,
+        flushed: bool,
+    },
 }
 
 impl<Client> FileHandleState<Client>
@@ -53,10 +58,11 @@ where
         ino: InodeNo,
         flags: OpenFlags,
         fs: &S3Filesystem<Client>,
+        handle_id: u64,
     ) -> Result<FileHandleState<Client>, Error> {
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
-        fs.metablock.start_writing(ino, &write_mode, is_truncate).await?;
+        fs.metablock.start_writing(ino, &write_mode, is_truncate, handle_id).await?;
         let location = lookup.s3_location()?;
         let bucket = location.bucket_name();
         let key = location.full_key();
@@ -73,30 +79,36 @@ where
                 current_offset,
                 initial_etag.clone(),
             );
-            FileHandleState::Write(UploadState::AppendInProgress {
-                request,
-                initial_etag,
-                written_bytes: 0,
-            })
+            FileHandleState::Write {
+                state: UploadState::AppendInProgress {
+                    request,
+                    initial_etag,
+                    written_bytes: 0,
+                },
+                flushed: false,
+            }
         } else {
             let request = fs
                 .uploader
                 .start_atomic_upload(bucket.to_string(), key.into())
                 .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
-            FileHandleState::Write(UploadState::MPUInProgress { request })
+            FileHandleState::Write {
+                state: UploadState::MPUInProgress { request },
+                flushed: false,
+            }
         };
         metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
         Ok(handle)
     }
 
-    pub async fn new_read_handle(lookup: &Lookup, fs: &S3Filesystem<Client>) -> Result<FileHandleState<Client>, Error> {
+    pub async fn new_read_handle(lookup: &Lookup, fs: &S3Filesystem<Client>, handle_id: u64) -> Result<FileHandleState<Client>, Error> {
         if !lookup.stat().is_readable {
             return Err(err!(
                 libc::EACCES,
                 "objects in flexible retrieval storage classes are not accessible",
             ));
         }
-        fs.metablock.start_reading(lookup.ino()).await?;
+        fs.metablock.start_reading(lookup.ino(), handle_id).await?;
         let location = lookup.s3_location()?;
         let full_key = location.full_key();
         let bucket = location.bucket_name();
@@ -107,7 +119,10 @@ where
         };
         let object_id = ObjectId::new(full_key.into(), etag);
         let request = fs.prefetcher.prefetch(bucket.to_string(), object_id, object_size);
-        let handle = FileHandleState::Read(request);
+        let handle = FileHandleState::Read {
+            request,
+            flushed: false,
+        };
         metrics::gauge!("fs.current_handles", "type" => "read").increment(1.0);
         Ok(handle)
     }
@@ -138,6 +153,7 @@ where
         handle: &FileHandle<Client>,
         offset: i64,
         data: &[u8],
+        fh: u64
     ) -> Result<u32, Error> {
         let result: Result<_, Error> = match self {
             UploadState::AppendInProgress {
@@ -170,10 +186,7 @@ where
                 // Abort the request.
                 match std::mem::replace(self, UploadState::Failed(e.to_errno())) {
                     UploadState::MPUInProgress { .. } | UploadState::AppendInProgress { .. } => {
-                        if let Err(err) = fs.metablock.finish_writing(handle.ino, None).await {
-                            // Log the issue but still return the write error.
-                            error!(?err, key=?handle.location.full_key(), "error updating the inode status");
-                        }
+                        Self::finish(fs, handle.ino, &handle.location, None, fh).await
                     }
                     UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
                 };
@@ -182,7 +195,7 @@ where
         }
     }
 
-    pub async fn commit(&mut self, fs: &S3Filesystem<Client>, handle: &FileHandle<Client>) -> Result<(), Error> {
+    pub async fn commit(&mut self, fs: &S3Filesystem<Client>, handle: &FileHandle<Client>, fh: u64, flushed: &mut bool) -> Result<(), Error> {
         match &self {
             UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => {
@@ -210,9 +223,15 @@ where
                         );
                         *self = UploadState::AppendInProgress {
                             request,
-                            initial_etag,
+                            initial_etag: initial_etag.clone(),
                             written_bytes,
                         };
+                        Self::flush(self, fs, handle.ino, &handle.location, initial_etag, fh, flushed).await;
+                        let state = handle.state.lock().await;
+                        match *state {
+                            FileHandleState::Read { .. } => {unreachable!("checked above")}
+                            FileHandleState::Write { .. } => {}
+                        }
                         Ok(())
                     }
                     Err(e) => {
@@ -222,7 +241,7 @@ where
                 }
             }
             UploadState::MPUInProgress { request, .. } => {
-                let result = Self::complete_upload(fs, handle.ino, &handle.location, request).await;
+                let result = Self::complete_upload(fs, handle.ino, &handle.location, request, fh).await;
                 if let Err(e) = &result {
                     *self = UploadState::Failed(e.to_errno());
                 }
@@ -238,17 +257,20 @@ where
         handle: &FileHandle<Client>,
         pid: u32,
         open_pid: u32,
+        fh: u64,
+        flushed: &mut bool,
     ) -> Result<(), Error> {
         match self {
             UploadState::AppendInProgress { written_bytes, .. } => {
                 if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
                     // Commit current changes, but do not close the write handle.
-                    return self.commit(fs, handle).await;
+                    return self.commit(fs, handle, fh, flushed).await;
                 }
             }
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
                     debug!(key=%handle.location, "not completing upload because nothing was written yet");
+                    Self::flush(self, fs, handle.ino, &handle.location, None, fh, flushed).await;
                     return Ok(());
                 }
                 if !are_from_same_process(open_pid, pid) {
@@ -256,6 +278,7 @@ where
                         key=%handle.location,
                         pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
+                    Self::flush(self, fs, handle.ino, &handle.location, None, fh, flushed).await;
                     return Ok(());
                 }
             }
@@ -272,9 +295,9 @@ where
         let result = match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
-            } => Self::complete_append(fs, handle.ino, &handle.location, request, initial_etag).await,
+            } => Self::complete_append(fs, handle.ino, &handle.location, request, initial_etag, fh).await,
             UploadState::MPUInProgress { request, .. } => {
-                Self::complete_upload(fs, handle.ino, &handle.location, request).await
+                Self::complete_upload(fs, handle.ino, &handle.location, request, fh).await
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         };
@@ -293,16 +316,17 @@ where
         fs: &S3Filesystem<Client>,
         ino: InodeNo,
         key: &S3Location,
+        fh: u64
     ) -> Result<bool, Error> {
         match self {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
             } => {
-                Self::complete_append(fs, ino, key, request, initial_etag).await?;
+                Self::complete_append(fs, ino, key, request, initial_etag, fh).await?;
                 Ok(true)
             }
             UploadState::MPUInProgress { request, .. } => {
-                Self::complete_upload(fs, ino, key, request).await?;
+                Self::complete_upload(fs, ino, key, request, fh).await?;
                 Ok(true)
             }
             UploadState::Failed(_) | UploadState::Completed => Ok(false),
@@ -314,6 +338,7 @@ where
         ino: InodeNo,
         key: &S3Location,
         upload: UploadRequest<Client>,
+        fh: u64
     ) -> Result<(), Error> {
         let size = upload.size();
         let (put_result, etag) = match upload.complete().await {
@@ -323,10 +348,7 @@ where
             }
             Err(e) => (Err(err!(libc::EIO, source:e, "put failed")), None),
         };
-        if let Err(err) = fs.metablock.finish_writing(ino, etag).await {
-            // Log the issue but still return put_result.
-            error!(?err, %key, "error updating the inode status");
-        }
+        Self::finish(fs, ino, key, etag, fh).await;
         put_result
     }
 
@@ -336,14 +358,15 @@ where
         key: &S3Location,
         upload: AppendUploadRequest<Client>,
         initial_etag: Option<ETag>,
+        fh: u64
     ) -> Result<(), Error> {
         match Self::commit_append(upload, key).await {
             Ok(etag) => {
-                Self::finish(fs, ino, etag.or(initial_etag)).await;
+                Self::finish(fs, ino, key, etag.or(initial_etag), fh).await;
                 Ok(())
             }
             Err(err) => {
-                Self::finish(fs, ino, None).await;
+                Self::finish(fs, ino, key, None, fh).await;
                 Err(err)
             }
         }
@@ -363,10 +386,17 @@ where
         }
     }
 
-    async fn finish(fs: &S3Filesystem<Client>, ino: InodeNo, etag: Option<ETag>) {
-        if let Err(err) = fs.metablock.finish_writing(ino, etag).await {
+    async fn finish(fs: &S3Filesystem<Client>, ino: InodeNo, s3location: &S3Location, etag: Option<ETag>, fh: u64) {
+        if let Err(err) = fs.metablock.finish_writing(ino, etag, fh).await {
             // Log the issue but still return put_result.
-            error!(?err, "error updating the inode status");
+            error!(?err, key=?s3location.full_key(), "error updating the inode status");
+        }
+    }
+
+    async fn flush(upload_state: &mut UploadState<Client>, fs: &S3Filesystem<Client>, ino: InodeNo, s3location: &S3Location, etag: Option<ETag>, fh: u64, flushed: &mut bool) {
+        if let Err(err) = fs.metablock.finish_flushing(ino, etag, fh, flushed).await {
+            // Log the issue but still return put_result.
+            error!(?err, key=?s3location.full_key(), "error updating the inode status");
         }
     }
 }

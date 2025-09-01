@@ -294,11 +294,13 @@ impl InodeKindData {
 pub enum WriteStatus {
     /// Local inode created but not yet opened
     LocalUnopened,
-    /// Local inode already opened
-    LocalOpen,
+    /// Local inode already opened for writing
+    LocalOpenForWriting,
+    /// Inode flushed (maybe released later)
+    LastFlushed,
     /// Remote inode
     Remote,
-    /// Pending rename for indoe
+    /// Pending rename for inode
     PendingRename,
 }
 
@@ -538,7 +540,7 @@ mod tests {
                     .unwrap(),
                 checksum,
                 sync: RwLock::new(InodeState {
-                    write_status: WriteStatus::LocalOpen,
+                    write_status: WriteStatus::LocalOpenForWriting,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
                 }),
