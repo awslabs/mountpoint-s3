@@ -6,6 +6,7 @@ use std::ffi::{OsStr, OsString};
 use time::OffsetDateTime;
 
 // Import core types from submodules
+mod completion;
 mod error;
 mod expiry;
 mod lookup;
@@ -13,6 +14,7 @@ mod path;
 mod stat;
 
 // Re-export all the core types
+pub use completion::CompletionHook;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
@@ -53,7 +55,13 @@ pub trait Metablock: Send + Sync {
     async fn forget(&self, ino: InodeNo, n: u64);
 
     /// Start writing to an inode.
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
+    async fn start_writing(
+        &self,
+        ino: InodeNo,
+        mode: &WriteMode,
+        is_truncate: bool,
+        handle_id: u64,
+    ) -> Result<(), InodeError>;
 
     /// Increase the size of a file open for writing.
     /// Parameter `len` refers to the additional
@@ -65,10 +73,24 @@ pub trait Metablock: Send + Sync {
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
 
     /// Prepare an inode (referenced by `ino`) to start reading.
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn start_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
     /// Finish reading from the inode (referenced by `ino`)
-    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
+
+    /// Updates status of the inode and of containing "local" directories.
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
+
+    /// Updates status of the inode and of containing "local" directories.
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        completion_handle: CompletionHook,
+        release: bool,
+    ) -> Result<bool, InodeError>;
+
+    async fn validate_handle(&self, ino: InodeNo, fh: u64, op: &str) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
