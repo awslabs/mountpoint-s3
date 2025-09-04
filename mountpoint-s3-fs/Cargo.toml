@@ -49,7 +49,7 @@ thiserror = "2.0.12"
 time = { version = "0.3.41", features = ["macros", "formatting", "serde-well-known"] }
 tracing = { version = "0.1.41", features = ["log"] }
 tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 opentelemetry = { version = "0.30.0", features = ["metrics"], optional = true }
 opentelemetry_sdk = { version = "0.30.0", features = ["metrics", "rt-tokio"], optional = true }
 opentelemetry-otlp = { version = "0.30.0", features = ["metrics", "http-proto"], optional = true }
