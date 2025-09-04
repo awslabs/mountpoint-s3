@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::{Parser, value_parser};
-use fuser::{BackgroundSession, MountOption, Session};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
+use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
+use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE;
@@ -141,7 +142,7 @@ fn mount_file_system(
     bucket_name: &str,
     region: &str,
     throughput_target_gbps: Option<f64>,
-) -> BackgroundSession {
+) -> FuseSession {
     let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
     config = config
@@ -153,9 +154,6 @@ fn mount_file_system(
     }
     let client = S3CrtClient::new(config).expect("Failed to create S3 client");
     let runtime = Runtime::new(client.event_loop_group());
-
-    let mut options = vec![MountOption::RO, MountOption::FSName("mountpoint-s3".to_string())];
-    options.push(MountOption::AutoUnmount);
 
     let filesystem_config = S3FilesystemConfig::default();
 
@@ -178,8 +176,14 @@ fn mount_file_system(
         },
     );
     let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, filesystem_config);
-    let session = Session::new(S3FuseFilesystem::new(fs, None), mountpoint, &options)
-        .expect("Should have created FUSE session successfully");
 
-    BackgroundSession::new(session).expect("Should have started FUSE session successfully")
+    let options = FuseOptions {
+        read_only: true,
+        auto_unmount: true,
+        ..Default::default()
+    };
+    let max_threads = 1;
+    let config = FuseSessionConfig::new(MountPoint::Directory(mountpoint.to_path_buf()), options, max_threads)
+        .expect("should create session config");
+    FuseSession::new(S3FuseFilesystem::new(fs, None), config).expect("should have started FUSE session successfully")
 }
