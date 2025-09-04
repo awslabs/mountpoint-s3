@@ -1,13 +1,6 @@
-use opentelemetry::KeyValue;
 use opentelemetry::global;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
-use std::convert::TryFrom;
 use std::time::Duration;
-
-use crate::metrics::MetricValue;
-use metrics::Key;
-use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// Configuration for OpenTelemetry metrics export
 #[derive(Debug, Clone)]
@@ -23,7 +16,7 @@ impl OtlpConfig {
     pub fn new(endpoint: &str) -> Self {
         Self {
             endpoint: endpoint.to_string(),
-            interval_secs: 60, // Default to 60 seconds to align with the meter provider default interval
+            interval_secs: 60,
         }
     }
 
@@ -37,9 +30,6 @@ impl OtlpConfig {
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
     meter: opentelemetry::metrics::Meter,
-    counters: Mutex<HashMap<String, opentelemetry::metrics::Counter<u64>>>,
-    gauges: Mutex<HashMap<String, opentelemetry::metrics::Gauge<f64>>>,
-    histograms: Mutex<HashMap<String, opentelemetry::metrics::Histogram<f64>>>,
 }
 
 impl OtlpMetricsExporter {
@@ -57,7 +47,7 @@ impl OtlpMetricsExporter {
             config.endpoint.to_string()
         };
 
-        // Initialise OTLP exporter using HTTP binary protocol with the specified endpoint
+        // Limit to HTTP binary protocol for now
         let exporter = opentelemetry_otlp::MetricExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpBinary)
@@ -84,54 +74,19 @@ impl OtlpMetricsExporter {
         // The meter will be used to create specific metric instruments (counters, gauges, histograms) and record values to them
         let meter = global::meter("mountpoint-s3");
 
-        Ok(Self {
-            meter,
-            counters: Mutex::new(HashMap::new()),
-            gauges: Mutex::new(HashMap::new()),
-            histograms: Mutex::new(HashMap::new()),
-        })
+        Ok(Self { meter })
     }
 
-    /// Record a counter metric in OTel format
-    pub fn record_counter(&self, key: &Key, value: u64, attributes: &[KeyValue]) {
-        let name = format!("mountpoint.{}", key.name());
-        let mut counters = self.counters.lock().unwrap();
-        let counter = counters
-            .entry(name.clone())
-            .or_insert_with(|| self.meter.u64_counter(name).build());
-        counter.add(value, attributes);
+    pub fn create_counter_instrument(&self, name: String) -> opentelemetry::metrics::Counter<u64> {
+        self.meter.u64_counter(name).build()
     }
 
-    /// Record a gauge metric in OTel format
-    pub fn record_gauge(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let name = format!("mountpoint.{}", key.name());
-        let mut gauges = self.gauges.lock().unwrap();
-        let gauge = gauges
-            .entry(name.clone())
-            .or_insert_with(|| self.meter.f64_gauge(name).build());
-        gauge.record(value, attributes);
+    pub fn create_gauge_instrument(&self, name: String) -> opentelemetry::metrics::Gauge<f64> {
+        self.meter.f64_gauge(name).build()
     }
 
-    /// Record a histogram metric in OTel format
-    pub fn record_histogram(&self, key: &Key, value: f64, attributes: &[KeyValue]) {
-        let name = format!("mountpoint.{}", key.name());
-        let mut histograms = self.histograms.lock().unwrap();
-        let histogram = histograms
-            .entry(name.clone())
-            .or_insert_with(|| self.meter.f64_histogram(name).build());
-        histogram.record(value, attributes);
-    }
-
-    /// Record a metric using its MetricValue
-    pub fn record_metric(&self, key: &Key, value: &MetricValue, attributes: &[KeyValue]) {
-        match value {
-            MetricValue::Counter(count) => self.record_counter(key, *count, attributes),
-            MetricValue::Gauge(val) => self.record_gauge(key, *val, attributes),
-            MetricValue::Histogram(_mean) => {
-                // Do nothing for histograms for now
-                // TODO: Will be implemented later
-            }
-        }
+    pub fn create_histogram_instrument(&self, name: String) -> opentelemetry::metrics::Histogram<f64> {
+        self.meter.f64_histogram(name).build()
     }
 }
 
