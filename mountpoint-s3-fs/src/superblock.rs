@@ -1084,6 +1084,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 trace!(ino, "removing inode from superblock");
                 let parent_ino = removed_inode.parent();
 
+                // Remove from the parent. Nothing to do if the parent has already been removed,
+                // e.g. when FORGETs are handled out-of-order.
                 if let Some((parent, _)) = inodes.get_mut(&parent_ino) {
                     let mut parent_state = parent.get_mut_inode_state_no_check();
                     let InodeKindData::Directory {
@@ -1101,10 +1103,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                         }
                     }
                     writing_children.remove(&ino);
-                } else {
-                    // Should be impossible for this to fail (VFS inodes reference their parent, so
-                    // children need to be freed first), but let's not crash in a `forget` function...
-                    debug_assert!(false, "children should be forgotten before parents");
                 }
 
                 drop(inodes);
