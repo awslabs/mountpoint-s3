@@ -514,7 +514,7 @@ impl Default for MetaRequestOptions<'_> {
 
 /// What transformation to apply to a single [MetaRequest] to transform it into a collection of
 /// requests to S3.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MetaRequestType {
     /// Send the request as-is (no transformation)
     Default,
