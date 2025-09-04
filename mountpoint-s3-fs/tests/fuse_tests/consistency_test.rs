@@ -3,14 +3,20 @@ use std::os::unix::prelude::FileExt;
 
 use test_case::test_case;
 
-use crate::common::fuse::{self, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 
 fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     // Big enough to avoid readahead
     const OBJECT_SIZE: usize = 512 * 1024;
 
-    let test_session = creator_fn(prefix, Default::default());
+    let test_session = creator_fn(
+        prefix,
+        TestSessionConfig {
+            max_worker_threads: 1, // avoid stale inode issues. (FIXME)
+            ..Default::default()
+        },
+    );
 
     // Create the first version of the file
     let old_contents = vec![0xaau8; OBJECT_SIZE];
