@@ -1,6 +1,21 @@
 use opentelemetry::global;
 use opentelemetry_otlp::{Protocol, WithExportConfig};
+use opentelemetry_sdk::metrics::Temporality;
 use std::time::Duration;
+
+/// Get temporality preference from environment variable
+/// By default, we will use delta.
+fn get_temporality_from_env() -> Temporality {
+    let prefer_delta = std::env::var("EXPERIMENTAL_MOUNTPOINT_OTLP_METRICS_TEMPORALITY_PREFERENCE")
+        .map(|v| v.to_lowercase() != "cumulative")
+        .unwrap_or(true);
+
+    if prefer_delta {
+        Temporality::Delta
+    } else {
+        Temporality::Cumulative
+    }
+}
 
 /// Configuration for OpenTelemetry metrics export
 #[derive(Debug, Clone)]
@@ -52,6 +67,7 @@ impl OtlpMetricsExporter {
             .with_http()
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(&endpoint_url)
+            .with_temporality(get_temporality_from_env())
             .build()?;
 
         // Create a resource with no attributes to avoid default dimensions
