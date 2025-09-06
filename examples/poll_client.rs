@@ -25,7 +25,7 @@ fn make_nonblock(fd: RawFd) {
 fn main() -> std::io::Result<()> {
     let mut files = Vec::with_capacity(NUMFILES);
     for c in "0123456789ABCDEF".chars() {
-        let name = format!("{}", c);
+        let name = format!("{c}");
         let f = std::fs::File::open(name)?;
         make_nonblock(f.as_raw_fd());
         files.push(f);
@@ -46,10 +46,10 @@ fn main() -> std::io::Result<()> {
                 print!("_:   ");
                 continue;
             }
-            print!("{:X}:", i);
+            print!("{i:X}:");
             let fd = pfd.as_fd().as_raw_fd();
             let nbytes = nix::unistd::read(fd, readbuf.as_mut_slice())?;
-            print!("{:02} ", nbytes);
+            print!("{nbytes:02} ");
         }
         println!();
     }

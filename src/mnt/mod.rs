@@ -105,7 +105,7 @@ fn is_mounted(fuse_device: &File) -> bool {
                     // This should never happen. The fd is guaranteed good as `File` owns it.
                     // According to man poll ENOMEM is the only error code unhandled, so we panic
                     // consistent with rust's usual ENOMEM behaviour.
-                    panic!("Poll failed with error {}", err)
+                    panic!("Poll failed with error {err}")
                 }
             }
             _ => unreachable!(),

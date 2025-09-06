@@ -174,7 +174,7 @@ fn main() {
             if opts.only_expire {
                 // fuser::notify_expire_entry(_SOME_HANDLE_, FUSE_ROOT_ID, &oldname);
             } else if let Err(e) = notifier.inval_entry(FUSE_ROOT_ID, oldname.as_ref()) {
-                eprintln!("Warning: failed to invalidate entry '{}': {}", oldname, e);
+                eprintln!("Warning: failed to invalidate entry '{oldname}': {e}");
             }
         }
         thread::sleep(Duration::from_secs_f32(opts.update_interval));

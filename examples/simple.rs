@@ -568,7 +568,7 @@ impl Filesystem for SimpleFS {
         };
 
         if let Some(mode) = mode {
-            debug!("chmod() called with {:?}, {:o}", inode, mode);
+            debug!("chmod() called with {inode:?}, {mode:o}");
             #[cfg(target_os = "freebsd")]
             {
                 // FreeBSD: sticky bit only valid on directories; otherwise EFTYPE
@@ -601,7 +601,7 @@ impl Filesystem for SimpleFS {
         }
 
         if uid.is_some() || gid.is_some() {
-            debug!("chown() called with {:?} {:?} {:?}", inode, uid, gid);
+            debug!("chown() called with {inode:?} {uid:?} {gid:?}");
             if let Some(gid) = gid {
                 // Non-root users can only change gid to a group they're in
                 if req.uid() != 0 && !get_groups(req.pid()).contains(&gid) {
@@ -648,7 +648,7 @@ impl Filesystem for SimpleFS {
         }
 
         if let Some(size) = size {
-            debug!("truncate() called with {:?} {:?}", inode, size);
+            debug!("truncate() called with {inode:?} {size:?}");
             if let Some(handle) = fh {
                 // If the file handle is available, check access locally.
                 // This is important as it preserves the semantic that a file handle opened
@@ -671,7 +671,7 @@ impl Filesystem for SimpleFS {
 
         let now = time_now();
         if let Some(atime) = atime {
-            debug!("utimens() called with {:?}, atime={:?}", inode, atime);
+            debug!("utimens() called with {inode:?}, atime={atime:?}");
 
             if attrs.uid != req.uid() && req.uid() != 0 && atime != Now {
                 reply.error(libc::EPERM);
@@ -700,7 +700,7 @@ impl Filesystem for SimpleFS {
             self.write_inode(&attrs);
         }
         if let Some(mtime) = mtime {
-            debug!("utimens() called with {:?}, mtime={:?}", inode, mtime);
+            debug!("utimens() called with {inode:?}, mtime={mtime:?}");
 
             if attrs.uid != req.uid() && req.uid() != 0 && mtime != Now {
                 reply.error(libc::EPERM);
@@ -735,7 +735,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn readlink(&mut self, _req: &Request, inode: u64, reply: ReplyData) {
-        debug!("readlink() called on {:?}", inode);
+        debug!("readlink() called on {inode:?}");
         let path = self.content_path(inode);
         match File::open(path) {
             Ok(mut file) => {
@@ -768,8 +768,7 @@ impl Filesystem for SimpleFS {
         {
             // TODO
             warn!(
-                "mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {:o}",
-                mode
+                "mknod() implementation is incomplete. Only supports regular files, symlinks, and directories. Got {mode:o}"
             );
             reply.error(libc::EPERM);
             return;
@@ -862,7 +861,7 @@ impl Filesystem for SimpleFS {
         _umask: u32,
         reply: ReplyEntry,
     ) {
-        debug!("mkdir() called with {:?} {:?} {:o}", parent, name, mode);
+        debug!("mkdir() called with {parent:?} {name:?} {mode:o}");
         if self.lookup_name(parent, name).is_ok() {
             reply.error(libc::EEXIST);
             return;
@@ -928,7 +927,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        debug!("unlink() called with {:?} {:?}", parent, name);
+        debug!("unlink() called with {parent:?} {name:?}");
         let mut attrs = match self.lookup_name(parent, name) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -985,7 +984,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        debug!("rmdir() called with {:?} {:?}", parent, name);
+        debug!("rmdir() called with {parent:?} {name:?}");
         let mut attrs = match self.lookup_name(parent, name) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1053,10 +1052,7 @@ impl Filesystem for SimpleFS {
         target: &Path,
         reply: ReplyEntry,
     ) {
-        debug!(
-            "symlink() called with {:?} {:?} {:?}",
-            parent, link_name, target
-        );
+        debug!("symlink() called with {parent:?} {link_name:?} {target:?}");
         let mut parent_attrs = match self.get_inode(parent) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1334,10 +1330,7 @@ impl Filesystem for SimpleFS {
         new_name: &OsStr,
         reply: ReplyEntry,
     ) {
-        debug!(
-            "link() called for {}, {}, {:?}",
-            inode, new_parent, new_name
-        );
+        debug!("link() called for {inode}, {new_parent}, {new_name:?}");
         let mut attrs = match self.get_inode(inode) {
             Ok(attrs) => attrs,
             Err(error_code) => {
@@ -1356,7 +1349,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn open(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
-        debug!("open() called for {:?}", inode);
+        debug!("open() called for {inode:?}");
         let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
@@ -1414,10 +1407,7 @@ impl Filesystem for SimpleFS {
         _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
-        debug!(
-            "read() called on {:?} offset={:?} size={:?}",
-            inode, offset, size
-        );
+        debug!("read() called on {inode:?} offset={offset:?} size={size:?}");
         assert!(offset >= 0);
         if !self.check_file_handle_read(fh) {
             reply.error(libc::EACCES);
@@ -1506,7 +1496,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn opendir(&mut self, req: &Request, inode: u64, flags: i32, reply: ReplyOpen) {
-        debug!("opendir() called on {:?}", inode);
+        debug!("opendir() called on {inode:?}");
         let (access_mask, read, write) = match flags & libc::O_ACCMODE {
             libc::O_RDONLY => {
                 // Behavior is undefined, but most filesystems return EACCES
@@ -1556,7 +1546,7 @@ impl Filesystem for SimpleFS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        debug!("readdir() called with {:?}", inode);
+        debug!("readdir() called with {inode:?}");
         assert!(offset >= 0);
         let entries = match self.get_directory_content(inode) {
             Ok(entries) => entries,
@@ -1714,7 +1704,7 @@ impl Filesystem for SimpleFS {
     }
 
     fn access(&mut self, req: &Request, inode: u64, mask: i32, reply: ReplyEmpty) {
-        debug!("access() called with {:?} {:?}", inode, mask);
+        debug!("access() called with {inode:?} {mask:?}");
         match self.get_inode(inode) {
             Ok(attr) => {
                 if check_access(attr.uid, attr.gid, attr.mode, req.uid(), req.gid(), mask) {
@@ -1737,7 +1727,7 @@ impl Filesystem for SimpleFS {
         flags: i32,
         reply: ReplyCreate,
     ) {
-        debug!("create() called with {:?} {:?}", parent, name);
+        debug!("create() called with {parent:?} {name:?}");
         if self.lookup_name(parent, name).is_ok() {
             reply.error(libc::EEXIST);
             return;
@@ -1881,8 +1871,7 @@ impl Filesystem for SimpleFS {
         reply: ReplyWrite,
     ) {
         debug!(
-            "copy_file_range() called with src ({}, {}, {}) dest ({}, {}, {}) size={}",
-            src_fh, src_inode, src_offset, dest_fh, dest_inode, dest_offset, size
+            "copy_file_range() called with src=({src_fh}, {src_inode}, {src_offset}) dest=({dest_fh}, {dest_inode}, {dest_offset}) size={size}"
         );
         if !self.check_file_handle_read(src_fh) {
             reply.error(libc::EACCES);
@@ -1976,7 +1965,7 @@ fn as_file_kind(mut mode: u32) -> FileKind {
     } else if mode == libc::S_IFDIR as u32 {
         return FileKind::Directory;
     } else {
-        unimplemented!("{}", mode);
+        unimplemented!("{mode}");
     }
 }
 

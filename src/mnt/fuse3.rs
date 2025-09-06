@@ -71,7 +71,7 @@ impl Drop for Mount {
                     return;
                 }
             }
-            warn!("umount failed with {:?}", err);
+            warn!("umount failed with {err:?}");
         }
     }
 }

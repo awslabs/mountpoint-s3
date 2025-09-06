@@ -40,7 +40,7 @@ impl<'a> Request<'a> {
         let request = match ll::AnyRequest::try_from(data) {
             Ok(request) => request,
             Err(err) => {
-                error!("{}", err);
+                error!("{err}");
                 return None;
             }
         };
@@ -63,7 +63,7 @@ impl<'a> Request<'a> {
         .with_iovec(unique, |iov| self.ch.send(iov));
 
         if let Err(err) = res {
-            warn!("Request {:?}: Failed to send reply: {}", unique, err)
+            warn!("Request {unique:?}: Failed to send reply: {err}");
         }
     }
 
@@ -126,7 +126,7 @@ impl<'a> Request<'a> {
                 // We don't support ABI versions before 7.6
                 let v = x.version();
                 if v < ll::Version(7, 6) {
-                    error!("Unsupported FUSE ABI version {}", v);
+                    error!("Unsupported FUSE ABI version {v}");
                     return Err(Errno::EPROTO);
                 }
                 // Remember ABI version supported by kernel

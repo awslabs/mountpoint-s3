@@ -306,9 +306,9 @@ fn producer(data: &Mutex<FSelData>, notifier: &fuser::Notifier) {
                 if d.bytecnt[tidx] != MAXBYTES {
                     d.bytecnt[tidx] += 1;
                     if d.notify_mask & (1 << t) != 0 {
-                        println!("NOTIFY {:X}", t);
+                        println!("NOTIFY {t:X}");
                         if let Err(e) = notifier.poll(d.poll_handles[tidx]) {
-                            eprintln!("poll notification failed: {}", e);
+                            eprintln!("poll notification failed: {e}");
                         }
                         d.notify_mask &= !(1 << t);
                     }

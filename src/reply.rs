@@ -81,7 +81,7 @@ impl ReplyRaw {
         let sender = self.sender.take().unwrap();
         let res = response.with_iovec(self.unique, |iov| sender.send(iov));
         if let Err(err) = res {
-            error!("Failed to send FUSE reply: {}", err);
+            error!("Failed to send FUSE reply: {err}");
         }
     }
     fn send_ll(mut self, response: &ll::Response<'_>) {

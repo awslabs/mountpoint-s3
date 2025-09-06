@@ -18,7 +18,7 @@ fn main() {
             if pkg_config::Config::new()
                 .atleast_version("2.6.0")
                 .probe("fuse") // for macFUSE 4.x
-                .map_err(|e| eprintln!("{}", e))
+                .map_err(|e| eprintln!("{e}"))
                 .is_ok()
             {
                 println!("cargo:rustc-cfg=fuser_mount_impl=\"libfuse2\"");
@@ -27,7 +27,7 @@ fn main() {
                 pkg_config::Config::new()
                     .atleast_version("2.6.0")
                     .probe("osxfuse") // for osxfuse 3.x
-                    .map_err(|e| eprintln!("{}", e))
+                    .map_err(|e| eprintln!("{e}"))
                     .unwrap();
                 println!("cargo:rustc-cfg=fuser_mount_impl=\"libfuse2\"");
             }

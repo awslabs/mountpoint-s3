@@ -162,7 +162,7 @@ impl Filesystem for FiocFS {
                 reply.ioctl(0, &[]);
             }
             _ => {
-                debug!("unknown ioctl: {}", cmd);
+                debug!("unknown ioctl: {cmd}");
                 reply.error(EINVAL);
             }
         }

@@ -111,6 +111,6 @@ impl Notifier {
     /// would exceed the capacity that its length descriptor field is
     /// capable of encoding.
     fn too_big_err(tfie: std::num::TryFromIntError) -> io::Error {
-        io::Error::new(io::ErrorKind::Other, format!("Data too large: {}", tfie))
+        io::Error::new(io::ErrorKind::Other, format!("Data too large: {tfie:?}"))
     }
 }
