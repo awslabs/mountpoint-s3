@@ -52,6 +52,7 @@ mountpoint:
   otlp_metrics: false
   otlp_endpoint: !!null # Metrics collector/agent endpoint like "http://localhost:4318"
   otlp_export_interval: !!null  # Export interval in seconds (default: 60)
+  otlp_temporality_preference: !!null  # Options: "cumulative", "delta"
 
 # ===== Benchmark-specific configurations =====
 benchmarks:

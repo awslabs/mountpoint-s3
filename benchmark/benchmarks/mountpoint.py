@@ -126,6 +126,11 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
         if cfg.mountpoint.otlp_export_interval is not None:
             subprocess_args.append(f"--otlp-export-interval={cfg.mountpoint.otlp_export_interval}")
 
+        if cfg.mountpoint.otlp_temporality_preference:
+            mp_env["EXPERIMENTAL_MOUNTPOINT_OTLP_METRICS_TEMPORALITY_PREFERENCE"] = str(
+                cfg.mountpoint.otlp_temporality_preference
+            )
+
     if stub_mode != "off" and cfg.mountpoint.mountpoint_binary is not None:
         raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
 
