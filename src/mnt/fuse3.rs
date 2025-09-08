@@ -1,5 +1,5 @@
 use super::fuse3_sys::{
-    fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
+    fuse_lowlevel_ops, fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
 use super::{MountOption, with_fuse_args};
@@ -32,7 +32,16 @@ impl Mount {
     pub fn new(mnt: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mnt = CString::new(mnt.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
-            let fuse_session = unsafe { fuse_session_new(args, ptr::null(), 0, ptr::null_mut()) };
+            let ops = fuse_lowlevel_ops::default();
+
+            let fuse_session = unsafe {
+                fuse_session_new(
+                    args,
+                    &ops as *const _,
+                    std::mem::size_of::<fuse_lowlevel_ops>(),
+                    ptr::null_mut(),
+                )
+            };
             if fuse_session.is_null() {
                 return Err(io::Error::last_os_error());
             }
