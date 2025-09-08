@@ -323,7 +323,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version-file: "./benchmark/.python-version"
       - name: Format check
@@ -345,7 +345,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
       - name: Format check
         run: uvx ruff format --diff .
       - name: Lint check
