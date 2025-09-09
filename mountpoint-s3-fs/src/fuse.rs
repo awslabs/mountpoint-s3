@@ -520,7 +520,7 @@ where
         fuse_unsupported!("bmap", reply);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, cmd=cmd))]
+    #[instrument(level="debug", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, cmd=cmd))]
     fn ioctl(
         &self,
         _req: &Request<'_>,
@@ -532,7 +532,7 @@ where
         _out_size: u32,
         reply: ReplyIoctl,
     ) {
-        fuse_unsupported!("ioctl", reply);
+        fuse_unsupported!("ioctl", reply, libc::ENOSYS, tracing::Level::DEBUG);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=length))]
