@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757520814373,
+  "lastUpdate": 1757529879649,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "87494144+tadiwa-aizen@users.noreply.github.com",
-            "name": "Tadiwa Magwenzi",
-            "username": "tadiwa-aizen"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2a9a494442fe164e2119e3c020989c19ce198aae",
-          "message": "Automated Benchmark Result Upload (#1527)\n\n### What changed and why?\n\nThis PR adds functionality to automatically upload benchmark results to\nan S3 bucket when benchmarks complete. The implementation includes:\n\n1. A new `detect_result_folder()` function that determines the\nappropriate result folder path and source path based on Hydra's runtime\nconfiguration\n2. A new `upload_results_to_s3()` function that uses AWS CLI to sync\nlocal benchmark results to the specified S3 bucket\n\nThese changes enable automated collection of benchmark results in a\ncentralized S3 location, making it easier to analyze performance trends\nover time.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Tadiwa Magwenzi <tadiwaom@amazon.com>",
-          "timestamp": "2025-07-29T13:13:56Z",
-          "tree_id": "a81582905f9e86c18ed7af6a4bd2fb58fc16fe0b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/2a9a494442fe164e2119e3c020989c19ce198aae"
-        },
-        "date": 1753802661880,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 2837.62890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4907.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8294.3046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 25.54296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 50.58984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 41.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 51.078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 20.5546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 28.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 22.23046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 29.4453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8139.6171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 49.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8186.078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 51.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2091.44921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 22.9296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2105.29296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2086.171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 22.79296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 381.28515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 216.3515625,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 217.14453125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prikaru@amazon.com",
+            "name": "Priyankakarumuru1",
+            "username": "Priyankakarumuru1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "8862a35451dc573c7f123ceb9d53e72d57553e7d",
+          "message": "Change ioctl log level from warn to debug (#1598)\n\nReduces log noise in production environments by changing ioctl function\nlogging from WARN to DEBUG level. This change improves the\nsignal-to-noise ratio in logs without affecting functionality.\n\nDoes this change impact existing behavior? \nNo functional impact - only reduces log noise by moving expected ioctl\nfailures from WARN to DEBUG level.\n\nDoes this change need a changelog entry? Does it require a version\nchange?\nAdded entry to CHANGELOG.md. No version change required.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Priyanka Karumuru <prikaru@amazon.com>",
+          "timestamp": "2025-09-10T16:32:07Z",
+          "tree_id": "8c9045f859b1a6ea3e48303f61230942bc8cabd1",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8862a35451dc573c7f123ceb9d53e72d57553e7d"
+        },
+        "date": 1757529879594,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 2803.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4552.6484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8268.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 24.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 51.68359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 39.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 50.8984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 20.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 28.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 24.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 26.9375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8107.421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 47.890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8151.73828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 48.67578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2107.5859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 23.91796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2093.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2103.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 22.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 391.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 251.8984375,
             "unit": "MiB"
           }
         ]
