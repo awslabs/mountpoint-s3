@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.7.1)
+
+* Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
 
 ## v0.7.0 (July 28, 2025)
 

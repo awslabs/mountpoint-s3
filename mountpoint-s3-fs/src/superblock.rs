@@ -596,10 +596,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     /// Unlink the entry described by `parent_ino` and `name`.
     ///
     /// If the entry exists, delete it from S3 and the superblock.
-    ///
-    /// We know that the Linux Kernel's VFS will lock both the parent and child,
-    /// so we can safely ignore concurrent operations within the same Mountpoint process to the file and its parent.
-    /// See: https://www.kernel.org/doc/html/next/filesystems/directory-locking.html
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError> {
         let parent = self.inner.get(parent_ino)?;
         let LookedUpInode { inode, .. } = self
@@ -646,6 +642,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             }
         }
 
+        // Now that the entry was deleted from S3, we need to delete it from the superblock.
+        // The Linux Kernel's VFS should lock both the parent and child (https://www.kernel.org/doc/html/next/filesystems/directory-locking.html).
+        // However, the superblock is still subject to concurrent changes as we don't hold this lock over remote calls.
         let mut parent_state = parent.get_mut_inode_state()?;
         match &mut parent_state.kind_data {
             InodeKindData::File { .. } => {
@@ -654,14 +653,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             }
             InodeKindData::Directory { children, .. } => {
                 // We want to remove the original child.
-                // We don't hold this lock over remote calls as we don't want to move to async locks right now.
-                // If there is a mismatch in inode number between the existing inode and the deleted inode, we invalidate the existing inode's stat
+                // If there is a mismatch in inode number between the existing inode and the deleted inode, we invalidate the existing inode's stat.
                 // If for some reason the child with the specified name was already removed, we do nothing as this is the desired state.
                 if let Some(existing_inode) = children.get(inode.name()) {
                     if existing_inode.ino() == inode.ino() {
                         children.remove(inode.name());
                     } else {
-                        // Mistmatch in inode number, thus the existing inode might not be the same one we deleted
+                        // Mismatch in inode number, thus the existing inode might not be the same one we deleted
                         let mut state = existing_inode.get_mut_inode_state_no_check();
 
                         // Invalidate the inode's stats so we refresh them from S3 when next queried
