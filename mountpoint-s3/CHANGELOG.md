@@ -4,6 +4,7 @@
 * Log messages now include the thread ID that logged the message, like "ThreadId(01)", after the level. ([#1460](https://github.com/awslabs/mountpoint-s3/pull/1460))
 * Fix issue preventing incremental upload to handle very large write part sizes. ([#1538](https://github.com/awslabs/mountpoint-s3/pull/1538))
 * Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
+* Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
 
 ### Other changes
 

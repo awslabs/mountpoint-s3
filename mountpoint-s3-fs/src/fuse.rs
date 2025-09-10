@@ -532,7 +532,7 @@ where
         _out_size: u32,
         reply: ReplyIoctl,
     ) {
-        fuse_unsupported!("ioctl", reply);
+        fuse_unsupported!("ioctl", reply, libc::ENOSYS, tracing::Level::DEBUG);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=length))]
