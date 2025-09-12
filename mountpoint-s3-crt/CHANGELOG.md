@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v0.13.1 (September 15, 2025)
+
+* Update `tracing-subscriber` from `0.3.19` to `0.3.20`. ([#1590](https://github.com/awslabs/mountpoint-s3/pull/1590))
+
 ## v0.13.0 (July 23, 2025)
 
 * Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
