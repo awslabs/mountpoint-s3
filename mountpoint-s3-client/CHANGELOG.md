@@ -1,6 +1,6 @@
 ## Unreleased
 
-## v0.20.0 (September 12, 2025)
+## v0.19.1 (September 12, 2025)
 
 * Update `tracing-subscriber` from `0.3.19` to `0.3.20`. ([#1590](https://github.com/awslabs/mountpoint-s3/pull/1590))
 * Add environment variable `UNSTABLE_CRT_EVENTLOOP_THREADS` to configure EventLoopGroup thread count. ([#1579](https://github.com/awslabs/mountpoint-s3/pull/1579))
