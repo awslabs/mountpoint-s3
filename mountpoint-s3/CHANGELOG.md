@@ -5,6 +5,7 @@
 * Fix issue preventing incremental upload to handle very large write part sizes. ([#1538](https://github.com/awslabs/mountpoint-s3/pull/1538))
 * Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
 * Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
+* Add, under a compile time flag, a CLI option for publishing OTEL metrics to an endpoint. ([1552](https://github.com/awslabs/mountpoint-s3/pull/1552) and [1550](https://github.com/awslabs/mountpoint-s3/pull/1550))
 
 ### Other changes
 
