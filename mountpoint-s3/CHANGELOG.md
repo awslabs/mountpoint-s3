@@ -8,10 +8,6 @@
 * Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
 * Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
 
-### Other changes
-
-* Fix compatibility issue with S3-like services with `mountpoint-s3` benchmark scripts. They now use path-style addressing when `S3_ENDPOINT_URL` is set. ([#1560](https://github.com/awslabs/mountpoint-s3/pull/1560))
-
 ## v1.19.0 (Jun 19, 2025)
 
 * Add support for renaming files using the RenameObject API when mounting directory buckets in S3 Express One Zone. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
