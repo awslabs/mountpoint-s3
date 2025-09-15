@@ -1,7 +1,12 @@
-## Unreleased (v0.7.1)
+## Unreleased
+
+## v0.7.1 (September 15, 2025)
 
 * Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
 * Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
+* Introduce experimental support for publishing OTEL metrics to an endpoint, under the `otlp_integration` feature. ([1552](https://github.com/awslabs/mountpoint-s3/pull/1552) and [1550](https://github.com/awslabs/mountpoint-s3/pull/1550))
+* Add experimental environment variable `UNSTABLE_CRT_EVENTLOOP_THREADS` to configure EventLoopGroup thread count. ([#1579](https://github.com/awslabs/mountpoint-s3/pull/1579))
+* Replace `httpmock` dependency with `wiremock` which is more frequently updated. ([#1589](https://github.com/awslabs/mountpoint-s3/pull/1589))
 
 ## v0.7.0 (July 28, 2025)
 

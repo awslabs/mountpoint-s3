@@ -1,14 +1,12 @@
-## Unreleased (v1.20.0)
+## Unreleased
+
+## v1.20.0 (Sep 12, 2025)
 
 * Adopt a unified memory pool to reduce overall memory usage. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
 * Log messages now include the thread ID that logged the message, like "ThreadId(01)", after the level. ([#1460](https://github.com/awslabs/mountpoint-s3/pull/1460))
 * Fix issue preventing incremental upload to handle very large write part sizes. ([#1538](https://github.com/awslabs/mountpoint-s3/pull/1538))
 * Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
 * Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
-
-### Other changes
-
-* Fix compatibility issue with S3-like services with `mountpoint-s3` benchmark scripts. They now use path-style addressing when `S3_ENDPOINT_URL` is set. ([#1560](https://github.com/awslabs/mountpoint-s3/pull/1560))
 
 ## v1.19.0 (Jun 19, 2025)
 
