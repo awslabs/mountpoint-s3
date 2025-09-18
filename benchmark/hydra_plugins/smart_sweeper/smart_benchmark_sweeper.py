@@ -3,11 +3,10 @@ import itertools
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import re
 from hydra.types import HydraContext
 from hydra.core.config_store import ConfigStore
 from hydra.core.override_parser.overrides_parser import OverridesParser
-from hydra.core.override_parser.types import Glob, Override
+from hydra.core.override_parser.types import Override
 from hydra.core.plugins import Plugins
 from hydra.plugins.launcher import Launcher
 from hydra.plugins.sweeper import Sweeper
@@ -28,38 +27,12 @@ ConfigStore.instance().store(group="hydra/sweeper", name="smart_benchmark", node
 
 
 class SmartBenchmarkSweeper(Sweeper):
-    BENCHMARK_TYPE_REGEX = re.compile(r'^benchmarks\.([^.]+)\.')
-
     def __init__(self, max_batch_size: Optional[int] = None, params: Optional[Dict[str, str]] = None):
         self.max_batch_size = max_batch_size
         self.params = params or {}
         self.config: Optional[DictConfig] = None
         self.launcher: Optional[Launcher] = None
         self.hydra_context: Optional[HydraContext] = None
-
-    def _glob_match_parameter(
-        self, param_key: str, benchmark_type: str, exclude_patterns: Optional[List[str]] = None
-    ) -> bool:
-        """
-        Check if a parameter belongs to a specific benchmark type using Hydra's GLOB.
-        Only matches exact benchmark types: fio, prefetch, client, crt.
-        """
-        pattern = f"benchmarks.{benchmark_type}.*"
-        glob_filter = Glob(include=[pattern], exclude=exclude_patterns or [])
-        return len(glob_filter.filter([param_key])) > 0
-
-    def _process_overrides_to_sweep_lists(self, overrides: List[Override]) -> List[List[str]]:
-        lists = []
-        for override in overrides:
-            if override.is_sweep_override():
-                key = override.get_key_element()
-                sweep = [f"{key}={val}" for val in override.sweep_string_iterator()]
-                lists.append(sweep)
-            else:
-                key = override.get_key_element()
-                value = override.get_value_element_as_str()
-                lists.append([f"{key}={value}"])
-        return lists
 
     def setup(self, *, hydra_context: HydraContext, task_function: TaskFunction, config: DictConfig) -> None:
         self.config = config
@@ -96,7 +69,7 @@ class SmartBenchmarkSweeper(Sweeper):
 
         all_combinations = []
         # For a given benchmark type, this will load parameters defined in
-        # only the base and benchmark_type config files. 
+        # only the base and benchmark_type config files.
         for benchmark_type in benchmark_types:
             benchmark_params = self._load_benchmark_params(benchmark_type)
             params_conf = base_params_conf + benchmark_params
@@ -130,7 +103,6 @@ class SmartBenchmarkSweeper(Sweeper):
 
         for param_override in parsed_overrides:
             param_key = param_override.get_key_element()
-            # Skip benchmark_type parameter - we handle it separately
             if param_key == "benchmark_type":
                 continue
 
