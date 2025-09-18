@@ -68,6 +68,18 @@ class SmartBenchmarkSweeper(Sweeper):
         )
         self.hydra_context = hydra_context
 
+    def _load_benchmark_params(self, benchmark_type: str) -> List[str]:
+        try:
+            config_path = Path("conf") / "hydra" / "sweeper" / f"{benchmark_type}.yaml"
+            if config_path.exists():
+                benchmark_config = OmegaConf.load(config_path)
+                params = benchmark_config.get("params", {})
+                return [f"{key}={value}" for key, value in params.items()]
+            return []
+        except Exception as e:
+            log.error(f"Failed to load config for {benchmark_type}: {e}")
+            return []
+
     def sweep(self, arguments: List[str]) -> Any:
         benchmark_types = self._extract_benchmark_types(arguments)
         log.info(f"Running benchmark types: {benchmark_types}")
@@ -77,16 +89,21 @@ class SmartBenchmarkSweeper(Sweeper):
         sweep_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.config, sweep_dir / "multirun.yaml")
 
-        params_conf = []
+        base_params_conf = []
         for k, v in self.params.items():
-            params_conf.append(f"{k}={v}")
-        params_conf.extend(arguments)
-
-        parser = OverridesParser.create()
-        parsed = parser.parse_overrides(params_conf)
+            base_params_conf.append(f"{k}={v}")
+        base_params_conf.extend(arguments)
 
         all_combinations = []
+        # For a given benchmark type, this will load parameters defined in
+        # only the base and benchmark_type config files. 
         for benchmark_type in benchmark_types:
+            benchmark_params = self._load_benchmark_params(benchmark_type)
+            params_conf = base_params_conf + benchmark_params
+
+            parser = OverridesParser.create()
+            parsed = parser.parse_overrides(params_conf)
+
             type_combinations = self._generate_combinations_for_type(benchmark_type, parsed)
             all_combinations.extend(type_combinations)
 
@@ -109,9 +126,7 @@ class SmartBenchmarkSweeper(Sweeper):
         return ["fio"]
 
     def _generate_combinations_for_type(self, benchmark_type: str, parsed_overrides: List[Override]) -> List[List[str]]:
-        common_overrides = []
-        type_specific_overrides = []
-        other_type_nulls = set()
+        param_lists = [[f"benchmark_type={benchmark_type}"]]
 
         for param_override in parsed_overrides:
             param_key = param_override.get_key_element()
@@ -119,25 +134,12 @@ class SmartBenchmarkSweeper(Sweeper):
             if param_key == "benchmark_type":
                 continue
 
-            if param_key.startswith("benchmarks."):
-                if self._glob_match_parameter(param_key, benchmark_type):
-                    type_specific_overrides.append(param_override)
-                else:
-                    other_type_nulls.add(param_key)
+            if param_override.is_sweep_override():
+                sweep = [f"{param_key}={val}" for val in param_override.sweep_string_iterator()]
+                param_lists.append(sweep)
             else:
-                common_overrides.append(param_override)
-
-        param_lists = [[f"benchmark_type={benchmark_type}"]]
-
-        if common_overrides:
-            param_lists.extend(self._process_overrides_to_sweep_lists(common_overrides))
-
-        if type_specific_overrides:
-            param_lists.extend(self._process_overrides_to_sweep_lists(type_specific_overrides))
+                value = param_override.get_value_element_as_str()
+                param_lists.append([f"{param_key}={value}"])
 
         combinations = list(itertools.product(*param_lists))
-
-        null_assignments = [f"{param_key}=null" for param_key in sorted(other_type_nulls)]
-
-        result = [list(combination) + null_assignments for combination in combinations]
-        return result or [[f"benchmark_type={benchmark_type}"] + null_assignments]
+        return [list(combination) for combination in combinations]
