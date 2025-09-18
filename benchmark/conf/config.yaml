@@ -58,7 +58,6 @@ benchmarks:
       - sequential_read
     fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
     fio_io_engine: "psync"
-    fuse_threads: !!null
 
   prefetch:
     max_memory_target: !!null # memory upper-limit in MB
