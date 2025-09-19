@@ -51,7 +51,7 @@ pub struct ManifestEntry {
     /// Kind and associated metadata.
     kind: ManifestEntryKind,
     /// CRC32C checksum of this entry.
-    checksum: u32,
+    checksum: Crc32c,
 }
 
 impl ManifestEntry {
@@ -127,11 +127,11 @@ impl ManifestEntry {
         };
 
         // Validate checksum
-        if computed_checksum.value() != self.checksum {
+        if computed_checksum != self.checksum {
             return Err(ManifestError::InvalidChecksum(
                 self.name.clone(),
                 computed_checksum.value(),
-                self.checksum,
+                self.checksum.value(),
             ));
         }
 
@@ -181,7 +181,7 @@ impl TryFrom<DbEntry> for ManifestEntry {
             parent_partial_key,
             name: db_entry.name,
             kind,
-            checksum: db_entry.checksum,
+            checksum: Crc32c::new(db_entry.checksum),
         })
     }
 }
