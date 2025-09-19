@@ -5,7 +5,6 @@ from typing import Dict, Any
 
 from omegaconf import DictConfig
 
-from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 from benchmarks.cargo_helper import build_binary
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
@@ -28,14 +27,10 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
     Mount an S3 bucket using Mountpoint,
     using the configuration to apply Mountpoint arguments.
     """
-    config_parser = BenchmarkConfigParser(cfg)
-    common_config = config_parser.get_common_config()
-    mp_config = config_parser.get_mountpoint_config()
+    bucket = cfg.s3_bucket
+    stub_mode = cfg.mountpoint.stub_mode
 
-    bucket = common_config['s3_bucket']
-    stub_mode = mp_config['stub_mode']
-
-    if mp_config['mountpoint_binary'] is None:
+    if cfg.mountpoint.mountpoint_binary is None:
         # Compile the binary instead of using cargo run
         features = ["mock", "mem_limiter"]
         build_env = {}
@@ -55,7 +50,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
         mountpoint_binary = build_binary(binary_name, features, build_env, with_flamegraph)
         mountpoint_args = [mountpoint_binary]
     else:
-        mountpoint_args = [mp_config['mountpoint_binary']]
+        mountpoint_args = [cfg.mountpoint.mountpoint_binary]
 
     os.makedirs(MP_LOGS_DIRECTORY, exist_ok=True)
 
@@ -72,37 +67,37 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
         f"--log-directory={MP_LOGS_DIRECTORY}",
     ]
 
-    if mp_config['prefix'] is not None:
-        subprocess_args.append(f"--prefix={mp_config['prefix']}")
+    if cfg.mountpoint.prefix is not None:
+        subprocess_args.append(f"--prefix={cfg.mountpoint.prefix}")
 
-    if mp_config['mountpoint_debug']:
+    if cfg.mountpoint.mountpoint_debug:
         subprocess_args.append("--debug")
 
-    if mp_config['mountpoint_debug_crt']:
+    if cfg.mountpoint.mountpoint_debug_crt:
         subprocess_args.append("--debug-crt")
 
-    if read_part_size := common_config['read_part_size']:
+    if read_part_size := cfg.read_part_size:
         subprocess_args.append(f"--read-part-size={read_part_size}")
 
-    if write_part_size := common_config['write_part_size']:
+    if write_part_size := cfg.write_part_size:
         subprocess_args.append(f"--write-part-size={write_part_size}")
 
-    if mp_config['metadata_ttl'] is not None:
-        subprocess_args.append(f"--metadata-ttl={mp_config['metadata_ttl']}")
+    if cfg.mountpoint.metadata_ttl is not None:
+        subprocess_args.append(f"--metadata-ttl={cfg.mountpoint.metadata_ttl}")
 
-    if mp_config['upload_checksums'] is not None:
-        subprocess_args.append(f"--upload-checksums={mp_config['upload_checksums']}")
+    if cfg.mountpoint.upload_checksums is not None:
+        subprocess_args.append(f"--upload-checksums={cfg.mountpoint.upload_checksums}")
 
-    if (max_memory_target := mp_config['max_memory_target']) is not None:
+    if (max_memory_target := cfg.mountpoint.max_memory_target) is not None:
         subprocess_args.append(f"--max-memory-target={max_memory_target}")
 
-    if (fuse_threads := mp_config['fuse_threads']) is not None:
+    if (fuse_threads := cfg.mountpoint.fuse_threads) is not None:
         subprocess_args.append(f"--max-threads={fuse_threads}")
 
-    for network_interface in common_config['network_interfaces']:
+    for network_interface in cfg.network.interface_names:
         subprocess_args.append(f"--bind={network_interface}")
 
-    if (max_throughput := common_config['max_throughput_gbps']) is not None:
+    if (max_throughput := cfg.network.maximum_throughput_gbps) is not None:
         if stub_mode == "s3_client":
             raise ValueError(
                 "should not use `stub_mode=s3_client` with `maximum_throughput_gbps`, throughput will be limited"
@@ -110,20 +105,20 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
         subprocess_args.append(f"--maximum-throughput-gbps={max_throughput}")
 
     mp_env = {}
-    if mp_config['mountpoint_max_background'] is not None:
-        mp_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(mp_config['mountpoint_max_background'])
+    if cfg.mountpoint.mountpoint_max_background is not None:
+        mp_env["UNSTABLE_MOUNTPOINT_MAX_BACKGROUND"] = str(cfg.mountpoint.mountpoint_max_background)
 
-    if mp_config['mountpoint_congestion_threshold'] is not None:
-        mp_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(mp_config["mountpoint_congestion_threshold"])
+    if cfg.mountpoint.mountpoint_congestion_threshold is not None:
+        mp_env["UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD"] = str(cfg.mountpoint.mountpoint_congestion_threshold)
 
     mp_env["UNSTABLE_MOUNTPOINT_PID_FILE"] = f"{mount_dir}.pid"
-    if not common_config['download_checksums']:
+    if not cfg.download_checksums:
         mp_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
 
-    if (crt_eventloop_threads := common_config['crt_eventloop_threads']) is not None:
+    if (crt_eventloop_threads := cfg.crt_eventloop_threads) is not None:
         mp_env["UNSTABLE_CRT_EVENTLOOP_THREADS"] = str(crt_eventloop_threads)
 
-    if stub_mode != "off" and mp_config["mountpoint_binary"] is not None:
+    if stub_mode != "off" and cfg.mountpoint.mountpoint_binary is not None:
         raise ValueError("Cannot use `stub_mode` with `mountpoint_binary`, `stub_mode` requires recompilation")
 
     match stub_mode:
