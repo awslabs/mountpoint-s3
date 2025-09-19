@@ -15,7 +15,6 @@ from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 import urllib.request
 
-from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 from benchmarks.client_benchmark import ClientBenchmark
 from benchmarks.command import CommandResult
 from benchmarks.crt_benchmark import CrtBenchmark
@@ -352,9 +351,7 @@ def run_experiment(cfg: DictConfig) -> None:
     """
     log.debug("Experiment starting")
 
-    config_parser = BenchmarkConfigParser(cfg)
-    common_config = config_parser.get_common_config()
-    benchmark_type = common_config['benchmark_type']
+    benchmark_type = cfg.benchmark_type
     metadata = {
         "ec2_instance_id": get_ec2_instance_id(),
         "start_time": datetime.now(tz=timezone.utc),
@@ -396,7 +393,7 @@ def run_experiment(cfg: DictConfig) -> None:
             cfg.monitoring.with_bwm,
             cfg.monitoring.with_perf_stat,
             cfg.monitoring.with_flamegraph,
-            cfg.monitoring.get("flamegraph_scripts_path"),
+            cfg.monitoring.flamegraph_scripts_path,
         ):
             stdout, stderr = process.communicate()
 
@@ -419,9 +416,9 @@ def run_experiment(cfg: DictConfig) -> None:
         except Exception:
             log.error("Post-processing failed:", exc_info=True)
         finally:
-            result_bucket_name = common_config.get("s3_result_bucket")
+            result_bucket_name = cfg.s3_result_bucket
             # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
-            region = common_config.get("region", "us-east-1")
+            region = getattr(cfg, 'region', 'us-east-1')
             if result_bucket_name:
                 log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
                 upload_results_to_s3(result_bucket_name, region)

@@ -5,20 +5,17 @@ from typing import Dict, Any
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
 from benchmarks.cargo_helper import build_example
+from benchmarks.config_utils import parse_comma_separated_string_to_array, default_object_keys
 from omegaconf import DictConfig
-
-from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 
 log = logging.getLogger(__name__)
 
 
 class ClientBenchmark(BaseBenchmark):
     def __init__(self, cfg: DictConfig, metadata: Dict[str, Any], backpressure=False):
+        self.cfg = cfg
         self.metadata = metadata
         self.backpressure = backpressure
-        self.config_parser = BenchmarkConfigParser(cfg)
-        self.common_config = self.config_parser.get_common_config()
-        self.client_config = self.config_parser.get_client_config()
 
     def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
         # Compile the client_benchmark example
@@ -38,33 +35,33 @@ class ClientBenchmark(BaseBenchmark):
 
         if self.backpressure:
             subprocess_args.append("--enable-backpressure")
-            if (initial_window_size := self.client_config['read_window_size']) is not None:
+            if (initial_window_size := self.cfg.benchmarks.client.read_window_size) is not None:
                 subprocess_args.extend(["--initial-window-size", str(initial_window_size)])
 
-        if (run_time := self.common_config['run_time']) is not None:
+        if (run_time := self.cfg.run_time) is not None:
             subprocess_args.extend(["--max-duration", f"{run_time}"])
 
-        if (max_throughput := self.common_config.get('max_throughput_gbps')) is not None:
+        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
             subprocess_args.extend(["--throughput-target-gbps", str(max_throughput)])
 
-        if (read_part_size := self.common_config['read_part_size']) is not None:
+        if (read_part_size := self.cfg.read_part_size) is not None:
             subprocess_args.extend(["--part-size", read_part_size])
 
         subprocess_args.extend(["--output-file", "client-output.json"])
         subprocess_args.append("real")
-        region = self.common_config['region']
+        region = self.cfg.region
         subprocess_args.extend(["--region", region])
 
-        for interface in self.common_config['network_interfaces']:
+        for interface in self.cfg.network.interface_names:
             subprocess_args.extend(["--bind", interface])
 
-        subprocess_args.append(self.common_config['s3_bucket'])
+        subprocess_args.append(self.cfg.s3_bucket)
 
-        objects = self.common_config['s3_keys']
-        app_workers = self.common_config['application_workers']
-        object_size_in_gib = self.common_config['object_size_in_gib']
+        objects = parse_comma_separated_string_to_array(self.cfg.s3_keys or "")
+        app_workers = self.cfg.application_workers
+        object_size_in_gib = self.cfg.object_size_in_gib
         if not objects:
-            objects = self.config_parser.default_object_keys(app_workers, object_size_in_gib)
+            objects = default_object_keys(app_workers, object_size_in_gib)
 
         if len(objects) >= app_workers:
             for obj in objects:
@@ -73,9 +70,9 @@ class ClientBenchmark(BaseBenchmark):
             raise ValueError("Seeing fewer objects than app workers. So cannot proceed with the run.")
 
         client_env = {}
-        if not self.common_config['download_checksums']:
+        if not self.cfg.download_checksums:
             client_env["EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION"] = "ON"
-        if (crt_eventloop_threads := self.common_config['crt_eventloop_threads']) is not None:
+        if (crt_eventloop_threads := self.cfg.crt_eventloop_threads) is not None:
             client_env["UNSTABLE_CRT_EVENTLOOP_THREADS"] = str(crt_eventloop_threads)
 
         log.info("Client benchmark command prepared with args: %s", subprocess_args)

@@ -8,21 +8,18 @@ from typing import Dict, Any
 
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
+from benchmarks.config_utils import default_object_keys
 from omegaconf import DictConfig
-
-from benchmarks.benchmark_config_parser import BenchmarkConfigParser
 
 log = logging.getLogger(__name__)
 
 
 class CrtBenchmark(BaseBenchmark):
     def __init__(self, cfg: DictConfig, metadata: Dict[str, Any]):
+        self.cfg = cfg
         self.metadata = metadata
-        self.config_parser = BenchmarkConfigParser(cfg)
-        self.common_config = self.config_parser.get_common_config()
-        self.crt_config = self.config_parser.get_crt_config()
 
-        self.crt_benchmarks_path = self.crt_config['crt_benchmarks_path']
+        self.crt_benchmarks_path = cfg.benchmarks.crt.crt_benchmarks_path
         if self.crt_benchmarks_path is None:
             raise ValueError("crt_benchmarks_path is required. Please populate benchmarks.crt.crt_benchmarks_path")
 
@@ -52,14 +49,14 @@ class CrtBenchmark(BaseBenchmark):
 
     def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
         # Setup the benchmark configuration files
-        object_size_in_gib = self.common_config['object_size_in_gib']
-        app_workers = self.common_config['application_workers']
-        run_time = self.common_config['run_time']
-        s3_keys = self.common_config.get('s3_keys')
+        object_size_in_gib = self.cfg.object_size_in_gib
+        app_workers = self.cfg.application_workers
+        run_time = self.cfg.run_time
+        s3_keys = getattr(self.cfg, 's3_keys', None)
 
         # If no objects specified, use default object keys
         if not s3_keys:
-            s3_keys = self.config_parser.default_object_keys(app_workers, object_size_in_gib)
+            s3_keys = default_object_keys(app_workers, object_size_in_gib)
 
         config = self._generate_benchmark_config(s3_keys, object_size_in_gib, run_time)
 
@@ -89,20 +86,20 @@ class CrtBenchmark(BaseBenchmark):
         return self.metadata
 
     def get_command(self) -> Command:
-        region = self.common_config.get('region')
+        region = getattr(self.cfg, 'region', None)
 
         subprocess_args = [
             self.crt_benchmark_runner,
             "crt-c",
             self.crt_cfg_file,
-            self.common_config['s3_bucket'],
+            self.cfg.s3_bucket,
             region,
         ]
 
-        if (max_throughput := self.common_config['max_throughput_gbps']) is not None:
+        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
             subprocess_args.append(str(max_throughput))
 
-        if network_interfaces := self.common_config['network_interfaces']:
+        if network_interfaces := self.cfg.network.interface_names:
             subprocess_args.extend(["--nic", ",".join(network_interfaces)])
 
         log.info(f"CRT benchmark command prepared with args: {subprocess_args}")
