@@ -48,10 +48,10 @@ class PrefetchBenchmark(BaseBenchmark):
         region = self.cfg.region
         subprocess_args.extend(["--region", region])
 
-        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
+        if (max_throughput := self.cfg.network.maximum_throughput_gbps) is not None:
             subprocess_args.extend(["--maximum-throughput-gbps", str(max_throughput)])
 
-        if (max_memory_target := getattr(self.cfg.benchmarks.prefetch, 'max_memory_target', None)) is not None:
+        if (max_memory_target := self.cfg.benchmarks.prefetch.max_memory_target) is not None:
             subprocess_args.extend(["--max-memory-target", str(max_memory_target)])
 
         if (read_part_size := self.cfg.read_part_size) is not None:

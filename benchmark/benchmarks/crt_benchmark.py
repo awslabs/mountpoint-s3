@@ -52,7 +52,7 @@ class CrtBenchmark(BaseBenchmark):
         object_size_in_gib = self.cfg.object_size_in_gib
         app_workers = self.cfg.application_workers
         run_time = self.cfg.run_time
-        s3_keys = getattr(self.cfg, 's3_keys', None)
+        s3_keys = self.cfg.s3_keys
 
         # If no objects specified, use default object keys
         if not s3_keys:
@@ -86,7 +86,7 @@ class CrtBenchmark(BaseBenchmark):
         return self.metadata
 
     def get_command(self) -> Command:
-        region = getattr(self.cfg, 'region', None)
+        region = self.cfg.region
 
         subprocess_args = [
             self.crt_benchmark_runner,
@@ -96,7 +96,7 @@ class CrtBenchmark(BaseBenchmark):
             region,
         ]
 
-        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
+        if (max_throughput := self.cfg.network.maximum_throughput_gbps) is not None:
             subprocess_args.append(str(max_throughput))
 
         if network_interfaces := self.cfg.network.interface_names:

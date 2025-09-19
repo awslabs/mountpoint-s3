@@ -41,7 +41,7 @@ class ClientBenchmark(BaseBenchmark):
         if (run_time := self.cfg.run_time) is not None:
             subprocess_args.extend(["--max-duration", f"{run_time}"])
 
-        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
+        if (max_throughput := self.cfg.network.maximum_throughput_gbps) is not None:
             subprocess_args.extend(["--throughput-target-gbps", str(max_throughput)])
 
         if (read_part_size := self.cfg.read_part_size) is not None:
