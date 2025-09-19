@@ -234,7 +234,7 @@ pub fn compute_checksum(
         let size = size as u64;
         hasher.update(size.to_be_bytes().as_ref());
     }
-    let partial_checksum = hasher.current_value();
+    let partial_checksum = hasher.clone().finalize();
 
     hasher.update(id.to_be_bytes().as_ref());
     hasher.update(parent_id.to_be_bytes().as_ref());
