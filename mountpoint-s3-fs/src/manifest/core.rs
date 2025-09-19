@@ -188,11 +188,17 @@ impl TryFrom<DbEntry> for ManifestEntry {
 
 /// A helper to compute the checksum of the given set of fields.
 ///
-/// Computes (partial_key, full_checksum, partial_checksum), with full_checksum including all of the fields
-/// and partial_checksum including only (partial_key, etag, size).
+/// Computes two checksums:
+/// - **partial_checksum**: Only (partial_key, etag, size) - validates external manifest data
+/// - **full_checksum**: All fields including IDs and S3 path - validates complete DB entries
 ///
-/// Note: this function will reconstruct the s3 key from parent_partial_key and name, this may mean unnecessary
-/// copying parent_partial_key in certain cases, but intentionally done this way to improve readability.
+/// Both are needed: partial checksums verify input data integrity, full checksums verify storage integrity.
+///
+/// Returns (partial_key, full_checksum, partial_checksum).
+///
+/// Note: this function reconstructs the full S3 key by calling `parent_partial_key.new_child(name, kind)`,
+/// which copies the parent key string. This is wasteful when validating existing entries (where we could
+/// pass the pre-existing full key), but necessary when creating new entries. Done this way for code simplicity.
 pub fn compute_checksum(
     id: u64,
     parent_id: u64,
