@@ -121,7 +121,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
     if (crt_eventloop_threads := cfg.crt_eventloop_threads) is not None:
         mp_env["UNSTABLE_CRT_EVENTLOOP_THREADS"] = str(crt_eventloop_threads)
 
-    if cfg.mountpoint.otlp_metrics and cfg.mountpoint.otlp_endpoint is not None: 
+    if cfg.mountpoint.otlp_metrics and cfg.mountpoint.otlp_endpoint is not None:
         subprocess_args.append(f"--otlp-endpoint={cfg.mountpoint.otlp_endpoint}")
         if cfg.mountpoint.otlp_export_interval is not None:
             subprocess_args.append(f"--otlp-export-interval={cfg.mountpoint.otlp_export_interval}")
