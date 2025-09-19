@@ -417,8 +417,7 @@ def run_experiment(cfg: DictConfig) -> None:
             log.error("Post-processing failed:", exc_info=True)
         finally:
             result_bucket_name = cfg.s3_result_bucket
-            # If region is not specified, default to 'us-east-1' as that is the only region we can be relavtively assued that tranium instances are available
-            region = getattr(cfg, 'region', 'us-east-1')
+            region = cfg.region
             if result_bucket_name:
                 log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")
                 upload_results_to_s3(result_bucket_name, region)

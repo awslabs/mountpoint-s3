@@ -49,6 +49,9 @@ mountpoint:
   stub_mode: "off"  # Options: "off", "fs_handler", "s3_client"
   mountpoint_debug: false
   mountpoint_debug_crt: false
+  otlp_metrics: false
+  otlp_endpoint: !!null # Metrics collector/agent endpoint like "http://localhost:4318"
+  otlp_export_interval: !!null  # Export interval in seconds (default: 60)
 
 # ===== Benchmark-specific configurations =====
 benchmarks:

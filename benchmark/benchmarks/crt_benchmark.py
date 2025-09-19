@@ -8,7 +8,7 @@ from typing import Dict, Any
 
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
-from benchmarks.config_utils import default_object_keys
+from benchmarks.config_utils import get_s3_keys
 from omegaconf import DictConfig
 
 log = logging.getLogger(__name__)
@@ -52,11 +52,7 @@ class CrtBenchmark(BaseBenchmark):
         object_size_in_gib = self.cfg.object_size_in_gib
         app_workers = self.cfg.application_workers
         run_time = self.cfg.run_time
-        s3_keys = getattr(self.cfg, 's3_keys', None)
-
-        # If no objects specified, use default object keys
-        if not s3_keys:
-            s3_keys = default_object_keys(app_workers, object_size_in_gib)
+        s3_keys = get_s3_keys(self.cfg.s3_keys, app_workers, object_size_in_gib)
 
         config = self._generate_benchmark_config(s3_keys, object_size_in_gib, run_time)
 
@@ -86,7 +82,7 @@ class CrtBenchmark(BaseBenchmark):
         return self.metadata
 
     def get_command(self) -> Command:
-        region = getattr(self.cfg, 'region', None)
+        region = self.cfg.region
 
         subprocess_args = [
             self.crt_benchmark_runner,
@@ -96,7 +92,7 @@ class CrtBenchmark(BaseBenchmark):
             region,
         ]
 
-        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
+        if (max_throughput := self.cfg.network.maximum_throughput_gbps) is not None:
             subprocess_args.append(str(max_throughput))
 
         if network_interfaces := self.cfg.network.interface_names:
