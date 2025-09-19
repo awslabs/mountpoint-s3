@@ -417,7 +417,6 @@ def run_experiment(cfg: DictConfig) -> None:
             log.error("Post-processing failed:", exc_info=True)
         finally:
             result_bucket_name = cfg.s3_result_bucket
-            # Region is specified in config.yaml with default 'us-east-1'
             region = cfg.region
             if result_bucket_name:
                 log.info(f"Uploading benchmark results to S3 bucket '{result_bucket_name}'")

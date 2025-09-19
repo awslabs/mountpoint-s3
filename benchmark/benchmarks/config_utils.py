@@ -1,14 +1,12 @@
 """Shared configuration utilities for benchmarks."""
 
 
-def parse_comma_separated_string_to_array(comma_separated_string: str) -> list:
-    """Parse a comma-separated string into a list of strings."""
-    if not comma_separated_string:
-        return []
-    keys = [key.strip() for key in comma_separated_string.split(',')]
-    # Filter out any empty keys
-    keys = [key for key in keys if key]
-    return keys
+def get_s3_keys(s3_keys_config, app_workers: int, object_size_in_gib: int) -> list:
+    """Get S3 keys from config or generate defaults."""
+    if s3_keys_config:
+        keys = [key.strip() for key in s3_keys_config.split(',') if key.strip()]
+        return keys
+    return default_object_keys(app_workers, object_size_in_gib)
 
 
 def default_object_keys(app_workers, object_size_in_gib) -> list:

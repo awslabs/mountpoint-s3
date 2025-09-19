@@ -8,7 +8,7 @@ from typing import Dict, Any
 
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
-from benchmarks.config_utils import default_object_keys
+from benchmarks.config_utils import get_s3_keys
 from omegaconf import DictConfig
 
 log = logging.getLogger(__name__)
@@ -52,11 +52,7 @@ class CrtBenchmark(BaseBenchmark):
         object_size_in_gib = self.cfg.object_size_in_gib
         app_workers = self.cfg.application_workers
         run_time = self.cfg.run_time
-        s3_keys = self.cfg.s3_keys
-
-        # If no objects specified, use default object keys
-        if not s3_keys:
-            s3_keys = default_object_keys(app_workers, object_size_in_gib)
+        s3_keys = get_s3_keys(self.cfg.s3_keys, app_workers, object_size_in_gib)
 
         config = self._generate_benchmark_config(s3_keys, object_size_in_gib, run_time)
 
