@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757529054693,
+  "lastUpdate": 1758283041883,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dcbbcc1b83bcd28734cc9de828cc7cbcf26e306e",
-          "message": "Prepare for release of the fs crate v0.7.0 (#1544)\n\nUpdate changelogs of the `fs` and `client` crates to prepare for\nrelease.\n\nAlso include previously missing entry in `client` changelog for #1542,\nand increase the crate version number.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nSee above.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-07-28T11:01:31Z",
-          "tree_id": "13558d258862673afe79a1f9a4eb98ca18ce89ef",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/dcbbcc1b83bcd28734cc9de828cc7cbcf26e306e"
-        },
-        "date": 1753707723469,
-        "tool": "customBiggerIsBetter",
-        "benches": [
-          {
-            "name": "random_read_four_threads_direct_io",
-            "value": 1389.8947265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_direct_io_small_file",
-            "value": 2173.840234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads",
-            "value": 848.2736328125,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_four_threads_small_file",
-            "value": 1623.1275390625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io",
-            "value": 284.87724609375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_direct_io_small_file",
-            "value": 637.773046875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read",
-            "value": 182.344921875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "random_read_small_file",
-            "value": 263.87333984375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io",
-            "value": 4102.271875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_direct_io_small_file",
-            "value": 4264.83232421875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads",
-            "value": 1334.2234375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_four_threads_small_file",
-            "value": 1380.848046875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io",
-            "value": 852.09541015625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_direct_io_small_file",
-            "value": 1626.8162109375,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read",
-            "value": 1026.69697265625,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 1076.7138671875,
-            "unit": "MiB/s"
-          },
-          {
-            "name": "sequential_read_small_file",
-            "value": 1100.23515625,
-            "unit": "MiB/s"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_read_small_file",
             "value": 1388.12568359375,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sahityad@amazon.com",
+            "name": "Sahitya Damera",
+            "username": "sahityadg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7257c2dd0e1f04dff8bb55b9b01d9fc9816eeed",
+          "message": "Benchmark sweeper fix (#1608)\n\nUpdate benchmarks to load sweeper parameters only from benchmark\nspecific configuration files\n\nUntil this change, we load configuration parameters from all benchmark\nconfiguration files\nand pick only the relevant benchmark parameters using regex matching.\nWhile this works\nfor most cases, it doesn't work for mountpoint parameters that don't\nhave benchmark-type\nsubstring and those parameters are picked up by all benchmarks. This\nchange will restrict\nsweeping through config parameters defined in the benchmark specific\nfile.\n\nThis also includes a change to replace the unused fuse threads\nconfiguration with the correct parameter that gets used in benchmarks.\n\n### Does this change impact existing behavior?\n\nNo, benchmarks only\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, it only updates benchmarks. \n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Sahitya Damera <sahityad@amazon.com>",
+          "timestamp": "2025-09-19T09:57:35Z",
+          "tree_id": "65532a76286833542c0cc4e5e1070026199c0b49",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d7257c2dd0e1f04dff8bb55b9b01d9fc9816eeed"
+        },
+        "date": 1758283040888,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 1410.7416015625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 2376.4927734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 857.4908203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 1637.2646484375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 299.4130859375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 420.8658203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 192.6376953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 276.19365234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 4023.9763671875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 5084.74091796875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1515.5501953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 1351.99921875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 908.61171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 789.8373046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1335.45576171875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 1267.96494140625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 1167.47890625,
             "unit": "MiB/s"
           }
         ]
