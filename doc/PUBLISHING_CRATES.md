@@ -118,4 +118,10 @@ For each crate replacing the crate and version number where applicable:
    git push upstream mountpoint-s3-crt-sys-9.9.9
    ```
 
-Once these steps have been completed for all crates that need to be updated, you're done.
+Once these steps have been completed for all crates that need to be updated, you're done. You can check the new versions on crates.io:
+
+* [mountpoint-s3-crt-sys](https://crates.io/crates/mountpoint-s3-client)
+* [mountpoint-s3-crt](https://crates.io/crates/mountpoint-s3-crt)
+* [mountpoint-s3-client](https://crates.io/crates/mountpoint-s3-client)
+* [mountpoint-s3-fuser](https://crates.io/crates/mountpoint-s3-fuser)
+* [mountpoint-s3-fs](https://crates.io/crates/mountpoint-s3-fs)
