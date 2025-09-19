@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.7.2)
+
+* Downgrade setattr logging level from INFO to DEBUG to reduce log noise. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605))
 
 ## v0.7.1 (September 15, 2025)
 

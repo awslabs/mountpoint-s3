@@ -324,7 +324,7 @@ where
         size: Option<u64>,
         _flags: Option<u32>,
     ) -> Result<Attr, Error> {
-        tracing::info!(
+        tracing::debug!(
             "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?} size {:?}",
             ino,
             _flags,
