@@ -1,16 +1,25 @@
-use csv::{DeserializeRecordsIntoIter, ReaderBuilder};
-use mountpoint_s3_client::checksums::crc32c::Hasher;
-use serde::Deserialize;
 use std::io::Read;
+
+use crc32c::crc32c_combine;
+use csv::{DeserializeRecordsIntoIter, ReaderBuilder};
+use serde::{Deserialize, Serialize};
 
 use super::InputManifestError;
 use super::builder::InputManifestEntry;
 
+/// CsvReader implements a stream of parsed CSV entries.
+///
+/// Stream returns next validated [InputManifestEntry] or [InputManifestError].
+///
+/// Stream will compare the manifest checksum after the final CSV entry is processed.
+/// An error [InputManifestError::InvalidFileChecksum] will be returned as a last item in
+/// the stream if validation fails.
 pub struct CsvReader<R: Read> {
     reader: DeserializeRecordsIntoIter<R, CsvEntry>,
     file_path: String,
-    hasher: Option<Hasher>,
+    running_checksum: u32,
     expected_checksum: u32,
+    done: bool,
 }
 
 impl<R: Read> CsvReader<R> {
@@ -22,31 +31,21 @@ impl<R: Read> CsvReader<R> {
         Self {
             reader,
             file_path: file_path.to_string(),
-            hasher: Some(Hasher::new()),
+            running_checksum: 0,
             expected_checksum,
+            done: false,
         }
     }
 
     fn update_running_checksum(&mut self, csv_entry: &CsvEntry) {
-        // we re-compute checksum of each entry, because `Hasher` doesn't support combining pre-computed checksums
-        if let Some(hasher) = self.hasher.as_mut() {
-            hasher.update(csv_entry.partial_key.as_bytes());
-            hasher.update(csv_entry.etag.as_bytes());
-            // we encode size with big endian byte order and with a fixed width of 8 bytes (rust: u64, java: long)
-            let size = csv_entry.size as u64;
-            hasher.update(size.to_be_bytes().as_ref());
-        }
+        let entry_size = csv_entry.total_size();
+        self.running_checksum = crc32c_combine(self.running_checksum, csv_entry.checksum, entry_size);
     }
 }
 
 impl<R: Read> Iterator for CsvReader<R> {
     type Item = Result<InputManifestEntry, InputManifestError>;
 
-    /// Returns next validated [InputManifestEntry] or [InputManifestError].
-    ///
-    /// This method will compare the manifest checksum after the final CSV entry is processed.
-    /// An error [InputManifestError::InvalidFileChecksum] will be returned as a last item in
-    /// the stream if validation fails.
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.next() {
             Some(Ok(csv_entry)) => {
@@ -55,15 +54,13 @@ impl<R: Read> Iterator for CsvReader<R> {
             }
             Some(Err(err)) => Some(Err(InputManifestError::from(err))),
             None => {
-                if let Some(hasher) = self.hasher.take() {
-                    let computed_checksum = hasher.finalize().value();
-                    if computed_checksum != self.expected_checksum {
-                        return Some(Err(InputManifestError::InvalidFileChecksum(
-                            self.file_path.clone(),
-                            computed_checksum,
-                            self.expected_checksum,
-                        )));
-                    }
+                if !self.done && self.running_checksum != self.expected_checksum {
+                    self.done = true;
+                    return Some(Err(InputManifestError::InvalidFileChecksum(
+                        self.file_path.clone(),
+                        self.running_checksum,
+                        self.expected_checksum,
+                    )));
                 }
                 None
             }
@@ -75,20 +72,27 @@ impl<R: Read> Iterator for CsvReader<R> {
 ///
 /// Note that data in this struct is not yet validated.
 /// Specifically [partial_key] may contain forbidden symbols and be rejected later.
-#[derive(Deserialize)]
-struct CsvEntry {
+#[derive(Deserialize, Serialize)]
+pub struct CsvEntry {
     /// Partial key of the S3 object.
     ///
     /// Must not contain S3 prefix, when the prefix is mounted.
     /// May hold a directory marker (e.g. "dir1/dir2/"), which will be skipped
     /// and won't affect the file system structure.
-    partial_key: String,
+    pub partial_key: String,
     /// Etag of the S3 object.
-    etag: String,
+    pub etag: String,
     /// Size of the S3 object.
-    size: usize,
+    pub size: usize,
     /// CRC32C checksum of the fields.
-    checksum: u32,
+    pub checksum: u32,
+}
+
+impl CsvEntry {
+    pub fn total_size(&self) -> usize {
+        const SIZE_LEN: usize = 8; // size is always 8 bytes
+        self.partial_key.len() + self.etag.len() + SIZE_LEN
+    }
 }
 
 impl TryInto<InputManifestEntry> for CsvEntry {
