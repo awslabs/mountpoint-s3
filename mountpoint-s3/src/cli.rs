@@ -669,12 +669,14 @@ impl CliArgs {
             let mut filter = if self.debug {
                 String::from("debug")
             } else {
-                String::from("warn")
+                String::from("info")
             };
             let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
             filter.push_str(&format!(",{AWSCRT_LOG_TARGET}={crt_verbosity}"));
-            if self.log_metrics {
-                filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
+            if self.log_metrics || self.debug {
+                filter.push_str(&format!(",{}", metrics::TARGET_NAME)); // Will use default INFO level
+            } else {
+                filter.push_str(&format!(",{}=off", metrics::TARGET_NAME)); // Explicitly turn off metrics when neither condition is met
             }
             filter
         };
