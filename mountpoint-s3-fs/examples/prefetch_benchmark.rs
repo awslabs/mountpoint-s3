@@ -69,9 +69,6 @@ pub struct CliArgs {
     )]
     pub maximum_throughput_gbps: Option<u64>,
 
-    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
-    pub crt_memory_limit_gib: Option<u64>,
-
     #[clap(
         long,
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
@@ -146,22 +143,29 @@ impl CliArgs {
         if let Some(throughput_target_gbps) = self.maximum_throughput_gbps {
             client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
         }
-        if let Some(limit_gib) = self.crt_memory_limit_gib {
-            client_config = client_config.memory_limit_in_bytes(limit_gib * 1024 * 1024 * 1024);
-        }
         if let Some(part_size) = self.part_size {
             client_config = client_config.part_size(part_size as usize);
         }
         if let Some(nics) = &self.bind {
             client_config = client_config.network_interface_names(nics.to_vec());
         }
+        const ENV_VAR_KEY_CRT_ELG_THREADS: &str = "UNSTABLE_CRT_EVENTLOOP_THREADS";
+        if let Some(crt_elg_threads) = std::env::var_os(ENV_VAR_KEY_CRT_ELG_THREADS) {
+            let crt_elg_threads = crt_elg_threads.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
+                panic!(
+                    "Invalid value for environment variable {ENV_VAR_KEY_CRT_ELG_THREADS}. Must be positive integer."
+                )
+            });
+            client_config = client_config.event_loop_threads(crt_elg_threads);
+        }
+
         client_config
     }
 }
 
 fn main() -> anyhow::Result<()> {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install();
+    let _metrics_handle = mountpoint_s3_fs::metrics::install(None);
 
     let args = CliArgs::parse();
 

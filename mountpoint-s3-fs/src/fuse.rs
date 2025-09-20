@@ -189,7 +189,7 @@ where
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdir.entries").increment(count as u64);
+                metrics::histogram!("fuse.readdir.entries").record(count as f64);
             }
             Err(e) => fuse_error!("readdir", reply, e, self, req),
         }
@@ -235,7 +235,7 @@ where
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdirplus.entries").increment(count as u64);
+                metrics::histogram!("fuse.readdirplus.entries").record(count as f64);
             }
             Err(e) => fuse_error!("readdirplus", reply, e, self, req),
         }
@@ -532,7 +532,7 @@ where
         _out_size: u32,
         reply: ReplyIoctl,
     ) {
-        fuse_unsupported!("ioctl", reply);
+        fuse_unsupported!("ioctl", reply, libc::ENOSYS, tracing::Level::DEBUG);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=length))]

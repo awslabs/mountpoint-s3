@@ -57,9 +57,6 @@ struct UploadBenchmarkArgs {
     #[clap(long, help = "Size of each write in bytes", default_value = "131072")]
     pub write_size: usize,
 
-    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
-    pub crt_memory_limit_gib: Option<u64>,
-
     #[clap(
         long,
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
@@ -91,9 +88,8 @@ struct UploadBenchmarkArgs {
 
 fn main() {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install();
-
     let args = UploadBenchmarkArgs::parse();
+
     println!("starting upload benchmark with {:?}", &args);
 
     let mut endpoint_config = EndpointConfig::new(&args.region);
@@ -102,14 +98,12 @@ fn main() {
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
     let pool = PagedPool::new_with_candidate_sizes([args.write_part_size]);
-    let mut config = S3ClientConfig::new()
+    let config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)
         .write_part_size(args.write_part_size)
         .memory_pool(pool.clone());
-    if let Some(crt_mem_limit_gib) = args.crt_memory_limit_gib {
-        config = config.memory_limit_in_bytes(crt_mem_limit_gib * 1024 * 1024 * 1024);
-    }
+
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
     let runtime = Runtime::new(client.event_loop_group());
 

@@ -3,21 +3,26 @@
 
 defaults:
   - _self_
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+  - override hydra/sweeper: multi
 
 # ===== Common parameters for all benchmarks =====
 s3_bucket: ???
 s3_result_bucket: !!null
 application_workers: 1
 iteration: 0
-iterations: 1
+iterations: 10
 run_time: 30  # Default run time in seconds
 read_size: 262144 # Defaults to 256KiB, can go up to 1MiB.
 read_part_size: !!null
 region: "us-east-1"
 write_part_size: 16777216  # 16 MiB, to allow for uploads of large files
 object_size_in_gib: 100  # Size of the object to benchmark
-benchmark_type: "fio" # fio, prefetch, client, client-bp, crt
+benchmark_type: "fio" # fio, prefetch, client, client_bp, crt
 s3_keys: !!null
+download_checksums: true
+crt_eventloop_threads: !!null # Number of ELG thread count
 
 # Network configuration
 network:
@@ -28,6 +33,8 @@ network:
 monitoring:
   with_bwm: false
   with_perf_stat: false
+  with_flamegraph: false
+  flamegraph_scripts_path: !!null        # Path to directory containing stackcollapse-perf.pl and flamegraph.pl from https://github.com/brendangregg/FlameGraph
 
 # ===== Mountpoint configuration =====
 mountpoint:
@@ -38,6 +45,7 @@ mountpoint:
   mountpoint_congestion_threshold: !!null
   mountpoint_binary: !!null
   upload_checksums: !!null
+  max_memory_target: !!null # memory upper-limit in MB
   stub_mode: "off"  # Options: "off", "fs_handler", "s3_client"
   mountpoint_debug: false
   mountpoint_debug_crt: false
@@ -50,18 +58,19 @@ benchmarks:
       - sequential_read
     fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
     fio_io_engine: "psync"
-  
+
   prefetch:
-    max_memory_target: !!null
-  
+    max_memory_target: !!null # memory upper-limit in MB
+
   crt:
     crt_benchmarks_path: !!null
 
-  client:  
-    # None 
+  client:
+    # None
 
-  client_backpressure:
-    read_window_size: !!null #2147483648 
+  client_bp:
+    read_window_size: !!null #2147483648
+
 
 hydra:
   help:
@@ -69,13 +78,3 @@ hydra:
   mode: MULTIRUN
   job:
     chdir: true
-  sweeper:
-    # Global sweeper params - use this for common parameters across all benchmarks
-    # For specific parameter use sweep params under the specific benchmark type config
-    params:
-      'application_workers': 1, 4, 16, 64, 128
-      'iteration': "range(${iterations})"
-      'mountpoint.fuse_threads': 1, 16, 64
-      'benchmarks.fio.direct_io': false, true
-      # 'benchmarks.prefetch.max_memory_target': !!null, 1073741824, 2147483648  # null, 1GB, 2GB
-      #'benchmarks.client_backpressure.read_window_size': 8388608, 2147483648

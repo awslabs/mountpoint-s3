@@ -7,8 +7,8 @@ publish = false
 default-run = "mount-s3"
 
 [dependencies]
-mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.7.0" }
-mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.0" }
+mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.7.1" }
+mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.1" }
 
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 clap = { version = "4.5.40", features = ["derive"] }
@@ -51,6 +51,7 @@ built = { version = "0.8.0", features = ["git2"] }
 block_size = ["mountpoint-s3-fs/block_size"]
 event_log = ["mountpoint-s3-fs/event_log"]
 mem_limiter = ["mountpoint-s3-fs/mem_limiter"]
+otlp_integration = ["mountpoint-s3-fs/otlp_integration"]
 # Features for choosing tests
 s3_tests = ["mountpoint-s3-fs/s3_tests"]
 fuse_tests = ["mountpoint-s3-fs/fuse_tests"]

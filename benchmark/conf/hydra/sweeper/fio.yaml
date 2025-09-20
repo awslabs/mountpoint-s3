@@ -1,0 +1,4 @@
+# @package hydra.sweeper
+params:
+  'benchmarks.fio.direct_io': false, true
+  'mountpoint.fuse_threads': 16 #1, 64

@@ -5,6 +5,11 @@ use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 
 use thiserror::Error;
 
+/// Check if integrity validation is disabled via environment variable
+fn is_integrity_validation_disabled() -> bool {
+    std::env::var("EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION").is_ok()
+}
+
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that integrity will be validated before the data can be accessed.
 /// Data transformations will either fail returning an [IntegrityError], or propagate the checksum
@@ -34,7 +39,11 @@ impl ChecksummedBytes {
 
     /// Create [ChecksummedBytes] from [Bytes], calculating its checksum.
     pub fn new(bytes: Bytes) -> Self {
-        let checksum = crc32c::checksum(&bytes);
+        let checksum = if is_integrity_validation_disabled() {
+            Crc32c::new(0) // Dummy checksum when validation is disabled
+        } else {
+            crc32c::checksum(&bytes)
+        };
         Self::new_from_inner_data(bytes, checksum)
     }
 
@@ -193,6 +202,10 @@ impl ChecksummedBytes {
     ///
     /// Return [IntegrityError] on data corruption.
     pub fn validate(&self) -> Result<(), IntegrityError> {
+        if is_integrity_validation_disabled() {
+            return Ok(()); // Skip validation when disabled
+        }
+
         let checksum = crc32c::checksum(&self.buffer);
         if self.checksum != checksum {
             return Err(IntegrityError::ChecksumMismatch(self.checksum, checksum));
@@ -245,6 +258,10 @@ impl TryFrom<ChecksummedBytes> for Bytes {
 /// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
 /// `suffix_crc` is the checksum for `B`, and `suffix_len` is the length of `B`.
 pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
+    if is_integrity_validation_disabled() {
+        return Crc32c::new(0); // Dummy checksum when validation is disabled
+    }
+
     let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
     Crc32c::new(combined)
 }
