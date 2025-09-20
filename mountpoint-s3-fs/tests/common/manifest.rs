@@ -20,7 +20,7 @@ pub fn insert_entries(manifest_db_path: &Path, entries: &[DbEntry]) -> rusqlite:
     let mut conn = Connection::open(manifest_db_path).expect("must connect to a db");
     let tx = conn.transaction()?;
     let mut stmt = tx.prepare(
-        "INSERT INTO s3_objects (id, parent_id, channel_id, parent_partial_key, name, etag, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO s3_objects (id, parent_id, channel_id, parent_partial_key, name, etag, size, checksum) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
     for entry in entries {
         stmt.execute((
@@ -31,6 +31,7 @@ pub fn insert_entries(manifest_db_path: &Path, entries: &[DbEntry]) -> rusqlite:
             &entry.name,
             &entry.etag,
             entry.size,
+            entry.checksum,
         ))?;
     }
     drop(stmt);
@@ -47,7 +48,7 @@ pub fn create_dummy_manifest<T: AsRef<str>>(
 ) -> Result<(TempDir, PathBuf), InputManifestError> {
     let entries = s3_keys
         .iter()
-        .map(|key| Ok(InputManifestEntry::new(key.as_ref(), DUMMY_ETAG, file_size).unwrap()));
+        .map(|key| Ok(InputManifestEntry::new_without_checksum(key.as_ref(), DUMMY_ETAG, file_size).unwrap()));
 
     let channel_manifests = vec![ChannelManifest {
         directory_name: channel_dir_name.to_string(),

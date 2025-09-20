@@ -3,6 +3,7 @@ use crate::common::manifest::{DUMMY_ETAG, create_dummy_manifest, create_manifest
 #[cfg(feature = "s3_tests")]
 use crate::common::s3::{get_second_standard_test_bucket, get_test_prefix, get_test_region, get_test_sdk_client};
 use mountpoint_s3_fs::manifest::{ChannelManifest, DbEntry, InputManifestEntry, Manifest};
+use mountpoint_s3_fs::metablock::ValidKey;
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use std::fs::{self, metadata};
 use std::io::ErrorKind;
@@ -68,7 +69,7 @@ fn test_readdir_manifest_multiple_buckets() {
     let bucket2_files = vec!["dir5/f.txt", "dir6/dir7/g.txt", "dir6/dir7/h.txt", "i.txt"];
     let bucket3_files = vec!["j.txt", "dir8/k.txt"];
 
-    let create_entry = |key: &&str| Ok(InputManifestEntry::new(*key, DUMMY_ETAG, 1024).unwrap());
+    let create_entry = |key: &&str| Ok(InputManifestEntry::new_without_checksum(*key, DUMMY_ETAG, 1024).unwrap());
     // Create manifest with 3 channels pointing to different buckets
     let bucket_files = [&bucket1_files, &bucket2_files, &bucket3_files];
     let channel_manifests: Vec<_> = bucket_files
@@ -145,20 +146,23 @@ fn test_readdir_manifest_20k_keys() {
 #[test_case(None, Some(1); "missing etag")]
 fn test_readdir_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
     let key = "key";
+    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
-        create_dummy_manifest::<&str>(&[], 0, "", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
+        create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path));
     insert_entries(
         &db_path,
-        &[DbEntry {
-            id: 3,
-            parent_id: 1,
-            channel_id: 0,
-            parent_partial_key: Some("".to_string()),
-            name: key.to_string(),
-            etag: etag.map(String::from),
+        &[DbEntry::new(
+            3,
+            1,
+            0,
+            Some(ValidKey::root()),
+            key.try_into().unwrap(),
+            etag.map(String::from),
             size,
-        }],
+            &s3_path,
+        )
+        .expect("db entry must be valid")],
     )
     .expect("insert invalid row must succeed");
 
@@ -199,25 +203,72 @@ fn test_lookup_unicode_keys_manifest() {
 #[test_case(None, Some(1); "missing etag")]
 fn test_lookup_manifest_missing_metadata(etag: Option<&str>, size: Option<usize>) {
     let key = "key";
+    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
     let (_tmp_dir, db_path) =
-        create_dummy_manifest::<&str>(&[], 0, "", "test_bucket").expect("manifest must be created");
-    let test_session = fuse::mock_session::new("", manifest_test_session_config(&db_path));
+        create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path));
     insert_entries(
         &db_path,
-        &[DbEntry {
-            id: 3,
-            parent_id: 1,
-            channel_id: 0,
-            parent_partial_key: Some("".to_string()),
-            name: key.to_string(),
-            etag: etag.map(String::from),
+        &[DbEntry::new(
+            3,
+            1,
+            0,
+            Some(ValidKey::root()),
+            key.try_into().unwrap(),
+            etag.map(String::from),
             size,
-        }],
+            &s3_path,
+        )
+        .expect("must be a valid db entry")],
     )
     .expect("insert invalid row must succeed");
 
     let e = metadata(test_session.mount_path().join(key)).expect_err("lookup must fail");
     assert_eq!(e.raw_os_error().expect("lookup must fail"), libc::EIO);
+}
+
+#[test_case(false; "lookup")]
+#[test_case(true; "readdir")]
+fn test_manifest_wrong_checksum(test_readdir: bool) {
+    let key = "key";
+    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
+    let (_tmp_dir, db_path) =
+        create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), manifest_test_session_config(&db_path));
+
+    // Create a valid DbEntry
+    let mut entry = DbEntry::new(
+        3,
+        1,
+        0,
+        Some(ValidKey::root()),
+        key.try_into().unwrap(),
+        Some(String::from("dummy_etag")),
+        Some(1024),
+        &s3_path,
+    )
+    .expect("db entry must be valid");
+
+    // Corrupt the entry by changing the name field without updating the checksum
+    entry.name = String::from("corrupted_key");
+
+    // Insert the corrupted entry
+    insert_entries(&db_path, &[entry]).expect("insert corrupted entry must succeed");
+
+    if test_readdir {
+        // Test readdir - should fail with EIO due to checksum mismatch
+        let mut read_dir_iter = fs::read_dir(test_session.mount_path()).unwrap();
+        let e = read_dir_iter
+            .next()
+            .expect("iterator not empty")
+            .expect_err("first item is an error");
+        assert_eq!(e.raw_os_error().expect("readdir must fail"), libc::EIO);
+        assert!(read_dir_iter.next().is_none(), "no more items in the iterator");
+    } else {
+        // Test lookup - should fail with EIO due to checksum mismatch
+        let e = metadata(test_session.mount_path().join("corrupted_key")).expect_err("lookup must fail");
+        assert_eq!(e.raw_os_error().expect("lookup must fail"), libc::EIO);
+    }
 }
 
 #[cfg(feature = "s3_tests")]
@@ -251,7 +302,7 @@ async fn test_basic_read_manifest_s3(readdir_before_read: bool, stat_before_read
     )
     .await;
 
-    let entries = [Ok(InputManifestEntry::new(
+    let entries = [Ok(InputManifestEntry::new_without_checksum(
         visible_object.0, // key does not contain the prefix
         &visible_object_etag,
         visible_object.1.len(),
@@ -331,7 +382,7 @@ async fn test_read_manifest_wrong_metadata(wrong_etag: bool, wrong_size: bool, e
     )
     .await;
 
-    let entries = [Ok(InputManifestEntry::new(
+    let entries = [Ok(InputManifestEntry::new_without_checksum(
         object.0, // key does not contain the prefix
         if wrong_etag { "wrong_etag" } else { &object_etag },
         if wrong_size { 2048 } else { object.1.len() }, // size smaller than actual will result in incomplete response
@@ -391,7 +442,13 @@ async fn test_basic_read_manifest_multiple_buckets() {
         |directory_name: &str, s3_path: &S3Path, object: &(&str, Vec<u8>), etag: &str| ChannelManifest {
             directory_name: directory_name.to_string(),
             s3_path: s3_path.clone(),
-            entries: [Ok(InputManifestEntry::new(object.0, etag, object.1.len()).unwrap())].into_iter(),
+            entries: [Ok(InputManifestEntry::new_without_checksum(
+                object.0,
+                etag,
+                object.1.len(),
+            )
+            .unwrap())]
+            .into_iter(),
         };
     let channel_manifests = vec![
         create_channel_manifest("channel_1", &s3_path1, &object1, &object1_etag),
