@@ -110,6 +110,8 @@ pub struct S3ClientConfig {
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
     event_loop_threads: Option<u16>,
     buffer_pool_factory: Option<CrtBufferPoolFactory>,
+    /// Insecure: disable TLS by using HTTP instead of HTTPS. For debugging only.
+    insecure_no_tls: bool,
 }
 
 impl Default for S3ClientConfig {
@@ -132,6 +134,7 @@ impl Default for S3ClientConfig {
             telemetry_callback: None,
             event_loop_threads: None,
             buffer_pool_factory: None,
+            insecure_no_tls: false,
         }
     }
 }
@@ -188,6 +191,13 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn endpoint_config(mut self, endpoint_config: EndpointConfig) -> Self {
         self.endpoint_config = endpoint_config;
+        self
+    }
+
+    /// Insecure: disable TLS by using HTTP instead of HTTPS. For debugging only.
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn insecure_no_tls(mut self, insecure: bool) -> Self {
+        self.insecure_no_tls = insecure;
         self
     }
 
@@ -336,6 +346,7 @@ struct S3CrtClientInner {
     credentials_provider: Option<CredentialsProvider>,
     host_resolver: HostResolver,
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
+    insecure_no_tls: bool,
 }
 
 impl S3CrtClientInner {
@@ -476,6 +487,7 @@ impl S3CrtClientInner {
             credentials_provider: Some(credentials_provider),
             host_resolver,
             telemetry_callback: config.telemetry_callback,
+            insecure_no_tls: config.insecure_no_tls,
         })
     }
 
@@ -485,7 +497,19 @@ impl S3CrtClientInner {
     /// object data.
     fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
         let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
-        let uri = endpoint.uri()?;
+        let mut uri = endpoint.uri()?;
+        // Insecure mode: force HTTP scheme to avoid TLS negotiation/certificate verification
+        if self.insecure_no_tls {
+            let original = uri.as_os_str().to_string_lossy().into_owned();
+            // Only rewrite https:// to http://; leave custom http endpoints untouched
+            let rewritten = if let Some(rest) = original.strip_prefix("https://") {
+                format!("http://{}", rest)
+            } else {
+                original
+            };
+            uri = Uri::new_from_str(&self.allocator, &rewritten)
+                .map_err(|e| EndpointError::InvalidUri(endpoint_config::InvalidUriError::CouldNotParse(e)))?;
+        }
         trace!(?uri, "resolved endpoint");
 
         let signing_config = if let Some(credentials_provider) = &self.credentials_provider {

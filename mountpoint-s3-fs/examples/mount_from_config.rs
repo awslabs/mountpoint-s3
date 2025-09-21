@@ -130,6 +130,7 @@ impl ConfigOptions {
             bind: None,
             part_config: PartConfig::with_part_size(self.part_size.unwrap_or(8388608)),
             user_agent: UserAgent::new(Some(user_agent_string)),
+            insecure_no_tls: false,
         })
     }
 

@@ -51,6 +51,9 @@ pub struct ClientConfig {
 
     /// Value for the user-agent header
     pub user_agent: UserAgent,
+
+    /// Insecure: disable TLS by using HTTP instead of HTTPS. For debugging only.
+    pub insecure_no_tls: bool,
 }
 
 #[derive(Debug)]
@@ -202,7 +205,12 @@ impl ClientConfig {
             endpoint_config = endpoint_config.endpoint(endpoint_uri);
         }
 
-        let client = S3CrtClient::new(client_config.clone().endpoint_config(endpoint_config.clone()))?;
+        let client = S3CrtClient::new(
+            client_config
+                .clone()
+                .endpoint_config(endpoint_config.clone())
+                .insecure_no_tls(self.insecure_no_tls),
+        )?;
 
         if let Some(s3_path) = validate_on_s3_path {
             validate_client_for_bucket(client, s3_path, self.region, endpoint_config, client_config)

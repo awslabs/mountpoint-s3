@@ -378,6 +378,13 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
+        help = "Disable TLS certificate verification by using HTTP instead of HTTPS (INSECURE; for debugging only)",
+        help_heading = ADVANCED_OPTIONS_HEADER,
+    )]
+    pub insecure_no_verify_ssl: bool,
+
+    #[clap(
+        long,
         help = "Server-side encryption algorithm to use when uploading new objects",
         help_heading = BUCKET_OPTIONS_HEADER,
         value_parser = clap::builder::PossibleValuesParser::new(["aws:kms", "aws:kms:dsse", "AES256"]))]
@@ -798,6 +805,7 @@ impl CliArgs {
             bind: self.bind.clone(),
             part_config: self.part_config(),
             user_agent,
+            insecure_no_tls: self.insecure_no_verify_ssl,
         }
     }
 }
