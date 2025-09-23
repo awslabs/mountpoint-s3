@@ -7,6 +7,7 @@ use mountpoint_s3_client::checksums::Crc32c;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::checksums::Crc32cBase64;
 use crate::fs::InodeKind;
 use crate::metablock::{ROOT_INODE_NO, ValidKey, ValidKeyError, ValidName};
 use crate::s3::{Bucket, Prefix, PrefixError, S3Path, S3PathError};
@@ -45,6 +46,8 @@ pub enum InputManifestError {
     InvalidFileChecksum(String, u32, u32),
     #[error("invalid etag {0} for the entry with key {1}")]
     InvalidEtag(String, String),
+    #[error("provided size {0} is too large")]
+    SizeTooLarge(u64),
 }
 
 /// ChannelConfig represents per-channel configuration, when multiple buckets are mounted.
@@ -55,7 +58,7 @@ pub struct ChannelConfig {
     #[serde(default)]
     pub prefix: String,
     pub manifest_path: PathBuf,
-    pub manifest_checksum: u32,
+    pub manifest_checksum: Crc32cBase64,
 }
 
 /// ChannelManifest is a helper struct, primarily exposed for usage in tests.
@@ -88,7 +91,7 @@ impl InputManifestEntry {
         partial_key: impl Into<String>,
         etag: impl Into<String>,
         size: usize,
-        checksum: u32,
+        checksum: Crc32c,
     ) -> Result<Self, InputManifestError> {
         let partial_key = ValidKey::try_from(partial_key.into())?;
         if partial_key.is_empty() {
@@ -107,13 +110,14 @@ impl InputManifestEntry {
             partial_key,
             etag,
             size,
-            checksum: Crc32c::new(checksum),
+            checksum,
         })
     }
 
     /// Creates an InputManifestEntry and computes the checksum.
     ///
     /// This is only useful in tests.
+    #[cfg(any(test, feature = "fuse_tests"))]
     pub fn new_without_checksum(
         partial_key: impl Into<String>,
         etag: impl Into<String>,
@@ -129,7 +133,7 @@ impl InputManifestEntry {
         hasher.update((size as u64).to_be_bytes().as_ref());
         let checksum = hasher.finalize();
 
-        Self::new(partial_key, etag, size, checksum.value())
+        Self::new(partial_key, etag, size, checksum)
     }
 
     /// Creates a [DbEntry] from self. The checksum is validated here.
@@ -187,7 +191,7 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
         let csv_reader = CsvReader::new(
             BufReader::new(file),
             csv_path.to_string_lossy().as_ref(),
-            config.manifest_checksum,
+            config.manifest_checksum.value(),
         );
         channel_manifest_readers.push(ChannelManifest {
             directory_name: config.directory_name.clone(),
@@ -443,7 +447,7 @@ mod tests {
                 bucket_name: "bucket".to_string(),
                 prefix: "".to_string(),
                 manifest_path: PathBuf::new(),
-                manifest_checksum: 0,
+                manifest_checksum: Crc32cBase64::new(0),
             })
             .collect();
         let err = ingest_manifest(&configs, &db_path).expect_err("must be an error");
