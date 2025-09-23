@@ -153,14 +153,8 @@ impl metrics::CounterFn for ValueAndCount {
         }
     }
 
-    fn absolute(&self, value: u64) {
-        self.sum.store(value, Ordering::SeqCst);
-        self.n.store(1, Ordering::SeqCst);
-
-        #[cfg(feature = "otlp_integration")]
-        if let Some(otlp_data) = &self.otlp_data {
-            otlp_data.instrument.add(value, &otlp_data.attributes);
-        }
+    fn absolute(&self, _value: u64) {
+        // OpenTelemetry doesn't support absolute values for counters, so use gauges or histograms when absolute values are needed
     }
 }
 
