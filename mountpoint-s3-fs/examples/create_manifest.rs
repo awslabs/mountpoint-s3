@@ -121,7 +121,7 @@ async fn list_objects(client: &Client, bucket: &str, prefix: &str, output_file: 
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
