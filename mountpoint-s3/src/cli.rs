@@ -673,7 +673,9 @@ impl CliArgs {
             };
             let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
             filter.push_str(&format!(",{AWSCRT_LOG_TARGET}={crt_verbosity}"));
-            if !self.log_metrics {
+            // Only turn off metrics if neither --log-metrics nor --debug is set.
+            // In debug mode, we want to see all available information including metrics.
+            if !self.log_metrics && !self.debug {
                 filter.push_str(&format!(",{}=off", metrics::TARGET_NAME));
             }
             filter
