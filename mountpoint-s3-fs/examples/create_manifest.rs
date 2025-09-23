@@ -113,7 +113,10 @@ async fn list_objects(client: &Client, bucket: &str, prefix: &str, output_file: 
     writer.flush()?;
 
     // Print the final running checksum to stdout
-    println!("Running checksum of all entries: {}", crc32c_to_base64(&running_checksum));
+    println!(
+        "Running checksum of all entries: {}",
+        crc32c_to_base64(&running_checksum)
+    );
 
     Ok(())
 }
