@@ -8,7 +8,6 @@ use aws_sdk_s3::primitives::ByteStream;
 use fuser::MountOption;
 use predicates::prelude::*;
 use std::fs::{self, File};
-#[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
 use std::io::{self, BufRead, BufReader, Cursor, Write};
 use std::os::fd::AsRawFd;
@@ -190,6 +189,34 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
 
     unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn test_info_level_logging() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_info_logging");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--foreground")
+        .arg(format!("--region={region}"))
+        .env("RUST_LOG", "info")
+        .stdout(Stdio::piped());
+
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().unwrap();
+
+    let expected_log_pattern = regex::Regex::new(r"INFO").unwrap();
+
+    unmount_and_check_log(child, mount_point.path(), &expected_log_pattern);
 
     Ok(())
 }
@@ -1200,7 +1227,6 @@ fn unmount(mount_point: &Path) {
     panic!("failed to unmount");
 }
 
-#[cfg(not(feature = "s3express_tests"))]
 fn unmount_and_check_log(mut process: Child, mount_path: &Path, expected_log_line: &regex::Regex) {
     unmount(mount_path);
     let mut stdout = process
