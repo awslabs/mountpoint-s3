@@ -5,7 +5,7 @@ from typing import Dict, Any
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
 from benchmarks.cargo_helper import build_example
-from benchmarks.config_utils import parse_comma_separated_string_to_array, default_object_keys
+from benchmarks.config_utils import get_s3_keys
 from omegaconf import DictConfig
 
 log = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class ClientBenchmark(BaseBenchmark):
         if (run_time := self.cfg.run_time) is not None:
             subprocess_args.extend(["--max-duration", f"{run_time}"])
 
-        if (max_throughput := getattr(self.cfg.network, 'maximum_throughput_gbps', None)) is not None:
+        if (max_throughput := self.cfg.network.maximum_throughput_gbps) is not None:
             subprocess_args.extend(["--throughput-target-gbps", str(max_throughput)])
 
         if (read_part_size := self.cfg.read_part_size) is not None:
@@ -57,13 +57,9 @@ class ClientBenchmark(BaseBenchmark):
 
         subprocess_args.append(self.cfg.s3_bucket)
 
-        objects = parse_comma_separated_string_to_array(self.cfg.s3_keys or "")
-        app_workers = self.cfg.application_workers
-        object_size_in_gib = self.cfg.object_size_in_gib
-        if not objects:
-            objects = default_object_keys(app_workers, object_size_in_gib)
+        objects = get_s3_keys(self.cfg.s3_keys, self.cfg.application_workers, self.cfg.object_size_in_gib)
 
-        if len(objects) >= app_workers:
+        if len(objects) >= self.cfg.application_workers:
             for obj in objects:
                 subprocess_args.append(obj)
         else:
