@@ -16,5 +16,7 @@
     "throughput_config": {
         "type": "IMDSAutoConfigure"
     },
-    "memory_limit_bytes": 2147483648
+    "memory_limit_bytes": 2147483648,
+    "cache": "./cache_dir",
+    "max_cache_size_mib": 10240
 }
