@@ -17,6 +17,7 @@ pub struct FuseSessionConfig {
 }
 
 /// Mount options to be passed to FUSE.
+#[derive(Debug, Default)]
 pub struct FuseOptions {
     /// Mount file system in read-only mode
     pub read_only: bool,

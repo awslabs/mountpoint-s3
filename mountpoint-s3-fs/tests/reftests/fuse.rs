@@ -65,6 +65,7 @@ impl MountpointFileSystem {
     fn new(config: S3FilesystemConfig) -> anyhow::Result<Self> {
         let test_config = TestSessionConfig {
             filesystem_config: config,
+            max_worker_threads: 1,
             ..Default::default()
         };
         let session = mock_session::new("", test_config);

@@ -6,12 +6,12 @@ use crate::common::s3::{get_test_prefix, get_test_s3_path};
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
+use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::S3Path;
 
-use fuser::BackgroundSession;
 use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use std::fs;
@@ -409,12 +409,7 @@ fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
     format!("{last_key_part}{padding}")
 }
 
-fn mount_bucket<Cache>(
-    client: S3CrtClient,
-    cache: Cache,
-    pool: PagedPool,
-    s3_path: S3Path,
-) -> (TempDir, BackgroundSession)
+fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, pool: PagedPool, s3_path: S3Path) -> (TempDir, FuseSession)
 where
     Cache: DataCache + Send + Sync + 'static,
 {

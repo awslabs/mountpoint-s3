@@ -79,6 +79,7 @@ fn prefetch_test_etag(
         TestSessionConfig {
             part_size,
             initial_read_window_size,
+            max_worker_threads: 1, // avoid stale inode issues. (FIXME)
             ..Default::default()
         },
     );
