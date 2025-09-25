@@ -50,6 +50,9 @@ pub struct BackpressureController {
     read_window_end_offset: u64,
     /// Next offset of the data to be read, relative to the start of the S3 object.
     next_read_offset: u64,
+    /// Start offset of the second "main" request to S3. This helps in aligning window ends of the
+    /// request with part boundaries.
+    second_request_start: u64,
     /// End offset within the S3 object for the request.
     ///
     /// The request can return data up to this offset *exclusively*.
@@ -100,6 +103,7 @@ pub fn new_backpressure_controller(
         read_window_size_multiplier: config.read_window_size_multiplier.max(MIN_WINDOW_SIZE_MULTIPLIER),
         read_window_end_offset,
         next_read_offset: config.request_range.start,
+        second_request_start: config.request_range.start + config.initial_read_window_size as u64,
         request_end_offset: config.request_range.end,
         mem_limiter,
     };
@@ -136,8 +140,16 @@ impl BackpressureController {
                 {
                     let new_read_window_end_offset = self
                         .next_read_offset
-                        .saturating_add(self.preferred_read_window_size as u64)
-                        .min(self.request_end_offset);
+                        .saturating_add(self.preferred_read_window_size as u64);
+                    let new_read_window_end_offset = Self::round_up_to_part_boundary(
+                        new_read_window_end_offset,
+                        self.second_request_start,
+                        self.min_read_window_size as u64,
+                    );
+                    // NOTE: in the end of the request we still have up to "part_size" of unaccounted memory.
+                    // For more accurate memory limiting we could reserve in "full parts", but that would make
+                    // release more complicated. So accept this inaccuracy, and reserve only till `request_end_offset`.
+                    let new_read_window_end_offset = new_read_window_end_offset.min(self.request_end_offset);
                     // We can skip if the new `read_window_end_offset` is less than or equal to the current one, this
                     // could happen after the read window is scaled down.
                     if new_read_window_end_offset <= self.read_window_end_offset {
@@ -229,6 +241,26 @@ impl BackpressureController {
             self.preferred_read_window_size = new_read_window_size;
             metrics::histogram!("prefetch.window_after_decrease_mib")
                 .record((self.preferred_read_window_size / 1024 / 1024) as f64);
+        }
+    }
+
+    /// Round up `offset` to next part boundary (relative to request start).
+    ///
+    /// This function ensures that read window end offsets are aligned to part boundaries for the second request,
+    /// which helps optimize memory usage.
+    ///
+    /// If the offset is before the second request start, it returns the offset unchanged.
+    fn round_up_to_part_boundary(offset: u64, second_req_start: u64, part_size: u64) -> u64 {
+        if offset > second_req_start {
+            let relative_end_offset = offset - second_req_start;
+            if relative_end_offset % part_size != 0 {
+                let aligned_relative_offset = part_size * (relative_end_offset / part_size + 1);
+                second_req_start + aligned_relative_offset
+            } else {
+                offset
+            }
+        } else {
+            offset
         }
     }
 }
@@ -432,6 +464,17 @@ mod tests {
                 "expected offset did not match offset reported by limiter",
             );
         });
+    }
+
+    #[test_case(500, 1000, 100, 500; "offset before second request start")]
+    #[test_case(1500, 1000, 512, 1512; "offset after second request start, needs rounding up")]
+    #[test_case(2024, 1000, 512, 2024; "offset after second request start, already aligned")]
+    #[test_case(1001, 1000, 512, 1512; "offset just after second request start, needs rounding up")]
+    #[test_case(1512, 1000, 512, 1512; "offset exactly at part boundary")]
+    #[test_case(1513, 1000, 512, 2024; "offset just past part boundary")]
+    fn test_round_up_to_part_boundary(offset: u64, second_req_start: u64, part_size: u64, expected: u64) {
+        let result = BackpressureController::round_up_to_part_boundary(offset, second_req_start, part_size);
+        assert_eq!(result, expected);
     }
 
     fn new_backpressure_controller_for_test(
