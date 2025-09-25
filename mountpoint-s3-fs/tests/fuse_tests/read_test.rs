@@ -43,15 +43,21 @@ fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<Fil
     options.read(true).open(path)
 }
 
-fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only: bool, pass_fuse_fd: bool) {
+fn basic_read_test(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    read_only: bool,
+    pass_fuse_fd: bool,
+    size_mb: usize,
+) {
     let mut rng = SmallRng::seed_from_u64(0x87654321);
 
     let test_session = creator_fn(prefix, TestSessionConfig::default().with_pass_fuse_fd(pass_fuse_fd));
 
     test_session.client().put_object("hello.txt", b"hello world").unwrap();
-    let mut two_mib_body = vec![0; 2 * 1024 * 1024];
-    rng.fill_bytes(&mut two_mib_body);
-    test_session.client().put_object("test2MiB.bin", &two_mib_body).unwrap();
+    let mut test_body = vec![0; size_mb * 1024 * 1024];
+    rng.fill_bytes(&mut test_body);
+    test_session.client().put_object("test2MiB.bin", &test_body).unwrap();
 
     let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
@@ -74,7 +80,7 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
     // so we can make it weird.
     let mut bin = open_for_read(test_session.mount_path().join("test2MiB.bin"), read_only).unwrap();
-    let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
+    let mut test_read = Vec::with_capacity(size_mb * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
     loop {
@@ -82,12 +88,12 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
         if read == 0 {
             break;
         }
-        two_mib_read.extend_from_slice(&buf[..read]);
+        test_read.extend_from_slice(&buf[..read]);
         bytes_read += read;
     }
     drop(bin);
-    assert_eq!(bytes_read, 2 * 1024 * 1024);
-    assert_eq!(two_mib_body, two_mib_read);
+    assert_eq!(bytes_read, size_mb * 1024 * 1024);
+    assert_eq!(test_body, test_read);
 
     let mut hello = File::open(test_session.mount_path().join("hello.txt")).unwrap();
     hello.seek(SeekFrom::Start(50)).unwrap();
@@ -101,7 +107,7 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
 fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::s3_session::new, "basic_read_test", read_only, pass_fuse_fd);
+    basic_read_test(fuse::s3_session::new, "basic_read_test", read_only, pass_fuse_fd, 2);
 }
 
 #[cfg(feature = "s3_tests")]
@@ -115,6 +121,7 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
         "basic_read_test_with_cache",
         read_only,
         pass_fuse_fd,
+        2,
     );
 }
 
@@ -124,7 +131,7 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
 fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::mock_session::new, &prefix.to_string(), read_only, pass_fuse_fd);
+    basic_read_test(fuse::mock_session::new, &prefix.to_string(), read_only, pass_fuse_fd, 2);
 }
 
 #[test_matrix(
@@ -138,7 +145,13 @@ fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_f
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,
+        2,
     );
+}
+
+#[test]
+fn basic_read_test_mock_large() {
+    basic_read_test(fuse::mock_session::new, "basic_read_test_mock_large", true, false, 101);
 }
 
 #[cfg(not(feature = "s3express_tests"))]
