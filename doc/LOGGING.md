@@ -1,6 +1,6 @@
 # Logging
 
-By default, Mountpoint for Amazon S3 emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
+By default, Mountpoint for Amazon S3 emits INFO level and higher severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
 
     journalctl -e SYSLOG_IDENTIFIER=mount-s3
 
@@ -33,7 +33,7 @@ no effect on messages sent to the standard output. If no output is desired, cons
 
 ## Verbose logging
 
-By default, Mountpoint only logs high-severity events. For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
+By default, Mountpoint logs INFO and higher severity events. For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
 You can enable more verbose logging with the `--debug` command-line argument. We recommend logging to a file (the `-l, --log-directory` argument above) when using this option.
 
 ### Advanced logging verbosity options
@@ -65,6 +65,8 @@ Note that increasing logging verbosity might affect runtime performance and caus
 
 Mountpoint optionally collects metrics measuring various values across different components.
 For example, Mountpoint records the durations of FUSE operations and the number of S3 responses grouped by HTTP status code.
+
+Note: Metrics logging is controlled by the --log-metrics flag. When neither --log-metrics nor --debug is set, metrics logging will be turned off. In debug mode or when --log-metrics is set, metrics will be logged at the INFO level.
 
 To opt-in, use the `--log-metrics` command-line argument.
 Metrics will be collected by Mountpoint and flushed to the logs every five seconds.
