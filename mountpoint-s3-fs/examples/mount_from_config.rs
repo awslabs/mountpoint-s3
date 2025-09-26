@@ -5,7 +5,7 @@ use clap::Parser;
 use mountpoint_s3_client::{config::AddressingStyle, instance_info::InstanceInfo, user_agent::UserAgent};
 use mountpoint_s3_fs::{
     MountpointConfig, Runtime, S3FilesystemConfig, autoconfigure,
-    data_cache::DataCacheConfig,
+    data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ManagedCacheDir},
     fs::CacheConfig,
     fuse::{
         ErrorLogger,
@@ -32,6 +32,16 @@ enum ThroughputConfig {
     IMDSAutoConfigure,
     IMDSLookUp { ec2_instance_type: String },
     Explicit { throughput: f64 },
+}
+
+/// Configuration for disk cache
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiskCacheConfig {
+    /// Directory path for the cache
+    path: String,
+    /// Maximum size of the cache in bytes
+    limit_bytes: Option<u64>,
 }
 
 /// Configuration options for a Mountpoint instance
@@ -72,6 +82,9 @@ struct ConfigOptions {
     file_mode: Option<u16>,
     uid: Option<u32>,
     gid: Option<u32>,
+
+    /// Disk cache configuration
+    disk_cache: Option<DiskCacheConfig>,
 }
 
 impl ConfigOptions {
@@ -141,8 +154,39 @@ impl ConfigOptions {
         }
     }
 
-    fn build_data_cache_config(&self) -> DataCacheConfig {
-        DataCacheConfig::default()
+    fn disk_data_cache_config(&self) -> Result<Option<DiskDataCacheConfig>> {
+        let Some(disk_cache) = self.disk_cache.as_ref() else {
+            return Ok(None);
+        };
+        let cache_limit = match disk_cache.limit_bytes {
+            Some(0) => return Err(anyhow!("Cache limit cannot be zero")),
+            Some(max_size_bytes) => CacheLimit::TotalSize {
+                max_size: max_size_bytes as usize,
+            },
+            None => CacheLimit::default(),
+        };
+        let cache_config = DiskDataCacheConfig {
+            cache_directory: disk_cache.path.clone().into(),
+            block_size: 1024 * 1024, // 1 MiB block size - default
+            limit: cache_limit,
+        };
+        Ok(Some(cache_config))
+    }
+
+    fn build_data_cache_config(&self) -> Result<DataCacheConfig> {
+        let disk_cache_config = self.disk_data_cache_config()?;
+        match &disk_cache_config {
+            Some(_) => {
+                tracing::trace!("using local disk as a cache for object content");
+            }
+            None => {
+                tracing::trace!("using no cache");
+            }
+        }
+        Ok(DataCacheConfig {
+            disk_cache_config,
+            express_cache_config: None,
+        })
     }
 
     fn determine_throughput(&self) -> Result<TargetThroughputSetting> {
@@ -229,6 +273,17 @@ fn setup_logging(config: &ConfigOptions) -> Result<(LoggingHandle, MetricsSinkHa
     Ok((logging, metrics))
 }
 
+fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Result<Option<ManagedCacheDir>> {
+    let Some(disk_cache_config) = &mut cache_config.disk_cache_config else {
+        return Ok(None);
+    };
+    let managed_cache_dir =
+        ManagedCacheDir::new_from_parent_with_cache_key(&disk_cache_config.cache_directory, None, true)
+            .context("failed to create cache directory")?;
+    disk_cache_config.cache_directory = managed_cache_dir.as_path_buf();
+    Ok(Some(managed_cache_dir))
+}
+
 fn mount_filesystem(
     config: &ConfigOptions,
     manifest: Manifest,
@@ -236,12 +291,10 @@ fn mount_filesystem(
 ) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let fs_config = config.build_filesystem_config()?;
-    let mp_config = MountpointConfig::new(
-        config.build_fuse_session_config()?,
-        fs_config,
-        config.build_data_cache_config(),
-    )
-    .error_logger(error_logger);
+    let mut data_cache_config = config.build_data_cache_config()?;
+    let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
+    let mp_config = MountpointConfig::new(config.build_fuse_session_config()?, fs_config, data_cache_config)
+        .error_logger(error_logger);
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
@@ -254,10 +307,15 @@ fn mount_filesystem(
     let metablock = ManifestMetablock::new(manifest)?;
 
     // Create and run the FUSE session
-    let fuse_session = mp_config
+    let mut fuse_session = mp_config
         .create_fuse_session(metablock, client, runtime, pool)
         .context("Failed to create FUSE session")?;
 
+    if let Some(managed_cache_dir) = managed_cache_dir {
+        fuse_session.run_on_close(Box::new(move || {
+            drop(managed_cache_dir);
+        }));
+    }
     Ok(fuse_session)
 }
 
