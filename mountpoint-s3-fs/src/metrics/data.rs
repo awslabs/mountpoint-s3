@@ -213,8 +213,7 @@ impl metrics::GaugeFn for AtomicGauge {
 impl AtomicGauge {
     fn update(&self, f: impl Fn(f64) -> f64) {
         let mut new_value = 0.0;
-        let _old_value = self
-            .bits
+        self.bits
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old_bits| {
                 let old_val = f64::from_bits(old_bits);
                 new_value = f(old_val);
