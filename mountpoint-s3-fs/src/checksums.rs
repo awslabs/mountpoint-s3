@@ -282,9 +282,9 @@ pub enum IntegrityError {
     ChecksumMismatch(Crc32c, Crc32c),
 }
 
-// A Crc32c checksum which can be (de)serialized to a base64 encoded string.
-//
-// TODO: there should be a single Crc32c type implementing serialization.
+/// A Crc32c checksum which can be (de)serialized to a base64 encoded string.
+///
+/// TODO: there should be a single Crc32c type implementing serialization.
 #[derive(Debug)]
 pub struct Crc32cBase64(Crc32c);
 
