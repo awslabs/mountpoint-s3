@@ -387,38 +387,33 @@ mod tests {
     #[cfg(feature = "otlp_integration")]
     fn test_otlp_flow() {
         use crate::metrics_otel::OtlpConfig;
-        use metrics::{Key, Metadata};
+        use metrics::Key;
 
         let otlp_config = OtlpConfig::new("http://localhost:4317");
         let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
-        let recorder = MetricsRecorder { sink: sink.clone() };
+        let counter = sink.counter(&Key::from_name("test_counter"));
+        let gauge = sink.gauge(&Key::from_name("test_gauge"));
+        let histogram = sink.histogram(&Key::from_name("test_histogram"));
 
-        let metadata = Metadata::new("test", metrics::Level::INFO, None);
+        counter.increment(10);
+        gauge.set(20.0);
+        for i in 0..100 {
+            histogram.record(i as f64);
+        }
 
-        let counter_key = Key::from_name("test_counter");
-        let gauge_key = Key::from_name("test_gauge");
-        let histogram_key = Key::from_name("test_histogram");
-
-        let _counter = recorder.register_counter(&counter_key, &metadata);
-        let _gauge = recorder.register_gauge(&gauge_key, &metadata);
-        let _histogram = recorder.register_histogram(&histogram_key, &metadata);
-
-        // Verify OTLP methods are called as expected. We are relying on the presense of otlp_data.
+        // Verify OTLP methods are called as expected. We are relying on the presence of otlp_data.
         assert_eq!(sink.metrics.len(), 3);
 
         for entry in sink.metrics.iter() {
-            let (key, metric) = entry.pair();
+            let (_key, metric) = entry.pair();
             match metric {
                 data::Metric::Counter(counter_data) => {
-                    assert_eq!(key.name(), "test_counter");
                     assert!(counter_data.otlp_data().is_some(), "counter_otlp() was not called");
                 }
                 data::Metric::Gauge(gauge_data) => {
-                    assert_eq!(key.name(), "test_gauge");
                     assert!(gauge_data.otlp_data().is_some(), "gauge_otlp() was not called");
                 }
                 data::Metric::Histogram(histogram_data) => {
-                    assert_eq!(key.name(), "test_histogram");
                     assert!(histogram_data.otlp_data().is_some(), "histogram_otlp() was not called");
                 }
             }

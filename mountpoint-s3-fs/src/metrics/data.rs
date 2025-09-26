@@ -155,6 +155,7 @@ impl metrics::CounterFn for ValueAndCount {
 
     fn absolute(&self, _value: u64) {
         // OpenTelemetry doesn't support absolute values for counters, so use gauges or histograms when absolute values are needed
+        debug_assert!(false, "absolute() is not supported for counters");
     }
 }
 
@@ -324,11 +325,12 @@ impl Histogram {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use metrics::{Key, Label};
 
     #[test]
     #[cfg(feature = "otlp_integration")]
     fn test_labels_to_attributes() {
+        use metrics::{Key, Label};
+
         let key = Key::from_parts(
             "test_metric",
             vec![Label::new("op", "read"), Label::new("status", "success")],
