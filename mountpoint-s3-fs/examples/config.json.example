@@ -17,6 +17,8 @@
         "type": "IMDSAutoConfigure"
     },
     "memory_limit_bytes": 2147483648,
-    "cache": "./cache_dir",
-    "max_cache_size_mib": 10240
+    "disk_cache": {
+        "path": "./cache_dir",
+        "limit_bytes": 1073741824
+    }
 }

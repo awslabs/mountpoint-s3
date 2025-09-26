@@ -34,6 +34,16 @@ enum ThroughputConfig {
     Explicit { throughput: f64 },
 }
 
+/// Configuration for disk cache
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiskCacheConfig {
+    /// Directory path for the cache
+    path: String,
+    /// Maximum size of the cache in bytes
+    limit_bytes: Option<u64>,
+}
+
 /// Configuration options for a Mountpoint instance
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,11 +83,8 @@ struct ConfigOptions {
     uid: Option<u32>,
     gid: Option<u32>,
 
-    // Cache options
-    /// Directory to use for caching object content
-    cache: Option<String>,
-    /// Maximum size of the cache directory in MiB
-    max_cache_size_mib: Option<u64>,
+    /// Disk cache configuration
+    disk_cache: Option<DiskCacheConfig>,
 }
 
 impl ConfigOptions {
@@ -147,26 +154,27 @@ impl ConfigOptions {
         }
     }
 
-    fn disk_data_cache_config(&self) -> Option<DiskDataCacheConfig> {
-        let path = self.cache.as_ref()?;
-        let cache_limit = match self.max_cache_size_mib {
-            // Fallback to no data cache.
-            Some(0) => return None,
-            Some(max_size_in_mib) => CacheLimit::TotalSize {
-                max_size: (max_size_in_mib * 1024 * 1024) as usize,
+    fn disk_data_cache_config(&self) -> Result<Option<DiskDataCacheConfig>> {
+        let Some(disk_cache) = self.disk_cache.as_ref() else {
+            return Ok(None);
+        };
+        let cache_limit = match disk_cache.limit_bytes {
+            Some(0) => return Err(anyhow!("Cache limit cannot be zero")),
+            Some(max_size_bytes) => CacheLimit::TotalSize {
+                max_size: max_size_bytes as usize,
             },
             None => CacheLimit::default(),
         };
         let cache_config = DiskDataCacheConfig {
-            cache_directory: path.clone().into(),
+            cache_directory: disk_cache.path.clone().into(),
             block_size: 1024 * 1024, // 1 MiB block size - default
             limit: cache_limit,
         };
-        Some(cache_config)
+        Ok(Some(cache_config))
     }
 
-    fn build_data_cache_config(&self) -> DataCacheConfig {
-        let disk_cache_config = self.disk_data_cache_config();
+    fn build_data_cache_config(&self) -> Result<DataCacheConfig> {
+        let disk_cache_config = self.disk_data_cache_config()?;
         match &disk_cache_config {
             Some(_) => {
                 tracing::trace!("using local disk as a cache for object content");
@@ -175,10 +183,10 @@ impl ConfigOptions {
                 tracing::trace!("using no cache");
             }
         }
-        DataCacheConfig {
+        Ok(DataCacheConfig {
             disk_cache_config,
             express_cache_config: None,
-        }
+        })
     }
 
     fn determine_throughput(&self) -> Result<TargetThroughputSetting> {
@@ -283,7 +291,7 @@ fn mount_filesystem(
 ) -> Result<FuseSession> {
     // Create the Mountpoint configuration
     let fs_config = config.build_filesystem_config()?;
-    let mut data_cache_config = config.build_data_cache_config();
+    let mut data_cache_config = config.build_data_cache_config()?;
     let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
     let mp_config = MountpointConfig::new(config.build_fuse_session_config()?, fs_config, data_cache_config)
         .error_logger(error_logger);
