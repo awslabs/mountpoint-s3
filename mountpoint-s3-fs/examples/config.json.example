@@ -9,7 +9,8 @@
         {
             "directory_name": "example_dir",
             "bucket_name": "amzn-s3-demo-bucket",
-            "manifest_path": "../output.csv"
+            "manifest_path": "../output.csv",
+            "manifest_checksum": "NHslfQ=="
         }
     ],
     "loglevel": "debug,awscrt=off",

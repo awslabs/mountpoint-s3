@@ -3,11 +3,13 @@ use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, fs::File};
 
+use mountpoint_s3_client::checksums::Crc32c;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::checksums::Crc32cBase64;
 use crate::fs::InodeKind;
-use crate::metablock::{ROOT_INODE_NO, ValidKey, ValidKeyError};
+use crate::metablock::{ROOT_INODE_NO, ValidKey, ValidKeyError, ValidName};
 use crate::s3::{Bucket, Prefix, PrefixError, S3Path, S3PathError};
 
 use super::{
@@ -38,6 +40,14 @@ pub enum InputManifestError {
     DbError(#[from] rusqlite::Error),
     #[error("s3 key provided in the csv manifest is invalid")]
     InvalidKey(#[from] ValidKeyError),
+    #[error("invalid checksum for the entry with key {0}, computed {1}, received {2}")]
+    InvalidChecksum(String, u32, u32),
+    #[error("invalid checksum for the manifest file for channel {0}, computed {1}, received {2}")]
+    InvalidFileChecksum(String, u32, u32),
+    #[error("invalid etag {0} for the entry with key {1}")]
+    InvalidEtag(String, String),
+    #[error("provided size {0} is too large")]
+    SizeTooLarge(u64),
 }
 
 /// ChannelConfig represents per-channel configuration, when multiple buckets are mounted.
@@ -48,6 +58,7 @@ pub struct ChannelConfig {
     #[serde(default)]
     pub prefix: String,
     pub manifest_path: PathBuf,
+    pub manifest_checksum: Crc32cBase64,
 }
 
 /// ChannelManifest is a helper struct, primarily exposed for usage in tests.
@@ -70,13 +81,17 @@ pub struct InputManifestEntry {
     partial_key: ValidKey,
     etag: String,
     size: usize,
+    // Checksum as computed by the creator of the manifest; we will validate it before storing to DB.
+    checksum: Crc32c,
 }
 
 impl InputManifestEntry {
+    /// Creates an InputManifestEntry and stores the expected checksum for later validation.
     pub fn new(
         partial_key: impl Into<String>,
         etag: impl Into<String>,
         size: usize,
+        checksum: Crc32c,
     ) -> Result<Self, InputManifestError> {
         let partial_key = ValidKey::try_from(partial_key.into())?;
         if partial_key.is_empty() {
@@ -87,25 +102,64 @@ impl InputManifestEntry {
         if partial_key.kind() != InodeKind::File {
             return Err(InputManifestError::DirectoryMarker(partial_key.to_string()));
         }
+        let etag = etag.into();
+        if etag.is_empty() {
+            return Err(InputManifestError::InvalidEtag(partial_key.to_string(), etag));
+        }
         Ok(Self {
             partial_key,
-            etag: etag.into(),
+            etag,
             size,
+            checksum,
         })
     }
 
-    fn into_db_entry(self, id: u64, parent_id: u64, channel_id: usize, parent_partial_key: ValidKey) -> DbEntry {
+    /// Creates an InputManifestEntry and computes the checksum.
+    ///
+    /// This is only useful in tests.
+    #[cfg(any(test, feature = "fuse_tests"))]
+    pub fn new_without_checksum(
+        partial_key: impl Into<String>,
+        etag: impl Into<String>,
+        size: usize,
+    ) -> Result<Self, InputManifestError> {
+        let mut hasher = mountpoint_s3_client::checksums::crc32c::Hasher::new();
+
+        let partial_key: String = partial_key.into();
+        hasher.update(partial_key.as_bytes());
+        let etag: String = etag.into();
+        hasher.update(etag.as_bytes());
+        // we encode size with big endian byte order and with a fixed width of 8 bytes (rust: u64, java: long)
+        hasher.update((size as u64).to_be_bytes().as_ref());
+        let checksum = hasher.finalize();
+
+        Self::new(partial_key, etag, size, checksum)
+    }
+
+    /// Creates a [DbEntry] from self. The checksum is validated here.
+    fn into_db_entry(
+        self,
+        id: u64,
+        parent_id: u64,
+        channel_id: usize,
+        parent_partial_key: ValidKey,
+        s3_path: &S3Path,
+    ) -> Result<DbEntry, InputManifestError> {
         debug_assert_eq!(self.partial_key.kind(), InodeKind::File);
 
-        DbEntry {
+        DbEntry::new_with_partial_checksum(
             id,
             parent_id,
             channel_id,
-            parent_partial_key: Some(parent_partial_key.to_string()),
-            name: self.partial_key.name().to_string(),
-            etag: Some(self.etag),
-            size: Some(self.size),
-        }
+            Some(parent_partial_key),
+            self.partial_key
+                .valid_name()
+                .expect("files guaranteed to have a valid name"),
+            Some(self.etag),
+            Some(self.size),
+            s3_path,
+            self.checksum,
+        )
     }
 }
 
@@ -113,9 +167,10 @@ impl InputManifestEntry {
 ///
 /// Accepts a slice of [ChannelConfig], with each channel having a dedicated CSV manifest.
 ///
-/// For each manifest, the expected file format is CSV with no header and 3 columns: partial_key, etag, size.
+/// For each manifest, the expected file format is CSV with no header and 4 columns: partial_key, etag, size, checksum.
 /// The field `partial_key` must not contain S3 prefix, when the prefix is mounted.
 /// The field `etag` may contain enclosing quotes, just as it is returned by S3 ListObjectsV2 API.
+/// The fields `checksum` must contain the CRC32C checksum of the other 3 fields of the entry.
 /// All fields must be properly escaped.
 pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Result<(), InputManifestError> {
     if db_path.exists() {
@@ -133,7 +188,11 @@ pub fn ingest_manifest(channel_configs: &[ChannelConfig], db_path: &Path) -> Res
     for config in channel_configs {
         let csv_path = &config.manifest_path;
         let file = File::open(csv_path).map_err(|err| InputManifestError::CsvOpenError(csv_path.to_path_buf(), err))?;
-        let csv_reader = CsvReader::new(BufReader::new(file));
+        let csv_reader = CsvReader::new(
+            BufReader::new(file),
+            csv_path.to_string_lossy().as_ref(),
+            config.manifest_checksum.value(),
+        );
         channel_manifest_readers.push(ChannelManifest {
             directory_name: config.directory_name.clone(),
             s3_path: S3Path::new(Bucket::new(&config.bucket_name)?, Prefix::new(&config.prefix)?),
@@ -216,15 +275,18 @@ impl ManifestBuilder {
         for (channel_id, channel_manifest) in channel_manifests.into_iter().enumerate() {
             // insert synthetic channel dir
             let channel_root_id = self.next_id;
-            self.insert_buffer.push(DbEntry {
-                id: channel_root_id,
-                parent_id: ROOT_INODE_NO,
+            let channel_directory_name = ValidName::try_from(channel_manifest.directory_name.as_str())
+                .map_err(|_| InputManifestError::InvalidChannel(channel_manifest.directory_name.clone()))?;
+            self.insert_buffer.push(DbEntry::new(
+                channel_root_id,
+                ROOT_INODE_NO,
                 channel_id,
-                parent_partial_key: None,
-                name: channel_manifest.directory_name.clone(),
-                etag: None,
-                size: None,
-            });
+                None,
+                channel_directory_name,
+                None,
+                None,
+                &channel_manifest.s3_path,
+            )?);
             self.next_id += 1;
 
             // insert keys from the manifest (and corresponding dirs)
@@ -240,11 +302,21 @@ impl ManifestBuilder {
                 let entry = entry?;
 
                 // insert the parent directories
-                let (parent_id, parent_partial_key) =
-                    self.ensure_dirs_inserted(&entry.partial_key, channel_id, channel_root_id)?;
+                let (parent_id, parent_partial_key) = self.ensure_dirs_inserted(
+                    &entry.partial_key,
+                    channel_id,
+                    channel_root_id,
+                    &channel_manifest.s3_path,
+                )?;
 
                 // push new file entry to the insert_buffer
-                let db_entry = entry.into_db_entry(self.next_id, parent_id, channel_id, parent_partial_key);
+                let db_entry = entry.into_db_entry(
+                    self.next_id,
+                    parent_id,
+                    channel_id,
+                    parent_partial_key,
+                    &channel_manifest.s3_path,
+                )?;
                 self.insert_buffer.push(db_entry);
                 self.next_id += 1;
 
@@ -270,6 +342,7 @@ impl ManifestBuilder {
         object_key: &ValidKey,
         channel_id: usize,
         channel_root_id: u64,
+        s3_path: &S3Path,
     ) -> Result<(u64, ValidKey), InputManifestError> {
         debug_assert_eq!(object_key.kind(), InodeKind::File);
 
@@ -283,15 +356,16 @@ impl ManifestBuilder {
                 *dir_id
             } else {
                 let id = self.next_id;
-                self.insert_buffer.push(DbEntry {
+                self.insert_buffer.push(DbEntry::new(
                     id,
                     parent_id,
                     channel_id,
-                    parent_partial_key: Some(parent_partial_key.to_string()),
-                    name: component.to_string(),
-                    etag: None,
-                    size: None,
-                });
+                    Some(parent_partial_key.clone()),
+                    *component,
+                    None,
+                    None,
+                    s3_path,
+                )?);
                 self.dir_ids.insert(partial_key.to_string(), id);
                 self.next_id += 1;
                 id
@@ -339,7 +413,7 @@ mod tests {
         let db_path = db_dir.path().join("s3_keys.db3");
         let entries = manifest_keys
             .iter()
-            .map(|key| Ok(InputManifestEntry::new(*key, DUMMY_ETAG, DUMMY_SIZE).unwrap()));
+            .map(|key| Ok(InputManifestEntry::new_without_checksum(*key, DUMMY_ETAG, DUMMY_SIZE).unwrap()));
         let err = create_db(
             &db_path,
             vec![ChannelManifest {
@@ -373,6 +447,7 @@ mod tests {
                 bucket_name: "bucket".to_string(),
                 prefix: "".to_string(),
                 manifest_path: PathBuf::new(),
+                manifest_checksum: Crc32cBase64::new(0),
             })
             .collect();
         let err = ingest_manifest(&configs, &db_path).expect_err("must be an error");
@@ -398,5 +473,28 @@ mod tests {
             1000,
         )
         .expect("db creation must succeed");
+    }
+
+    #[test]
+    fn test_invalid_file_checksum() {
+        let db_dir = tempfile::tempdir().unwrap();
+        let db_path = db_dir.path().join("s3_keys.db3");
+        let entries = [Err(InputManifestError::InvalidFileChecksum(
+            "manifest1.csv".to_string(),
+            0,
+            0,
+        ))]
+        .into_iter();
+        let err = create_db(
+            &db_path,
+            vec![ChannelManifest {
+                directory_name: "channel_0".to_string(),
+                s3_path: S3Path::new(Bucket::new("bucket").unwrap(), Default::default()),
+                entries,
+            }],
+            1000,
+        )
+        .expect_err("must be an error");
+        assert!(matches!(err, InputManifestError::InvalidFileChecksum(_, _, _)));
     }
 }
