@@ -66,6 +66,22 @@ impl OtlpMetricsExporter {
                     .build(),
             )
             .with_resource(resource)
+            .with_view(|instrument: &opentelemetry_sdk::metrics::Instrument| {
+                if matches!(instrument.kind(), opentelemetry_sdk::metrics::InstrumentKind::Histogram) {
+                    Some(
+                        opentelemetry_sdk::metrics::Stream::builder()
+                            .with_aggregation(opentelemetry_sdk::metrics::Aggregation::Base2ExponentialHistogram {
+                                max_size: 160,
+                                max_scale: 20,
+                                record_min_max: true,
+                            })
+                            .build()
+                            .unwrap(),
+                    )
+                } else {
+                    None
+                }
+            })
             .build();
         // Set the configured SdkMeterProvider as the global meter provider making it the default provider that will be used throughout for all OpenTelemetry metrics
         global::set_meter_provider(meter_provider);
