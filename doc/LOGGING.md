@@ -68,7 +68,6 @@ For example, Mountpoint records the durations of FUSE operations and the number 
 
 Note: Metrics logging is controlled by the --log-metrics flag. When neither --log-metrics nor --debug is set, metrics logging will be turned off. In debug mode or when --log-metrics is set, metrics will be logged at the INFO level.
 
-To opt-in, use the `--log-metrics` command-line argument.
 Metrics will be collected by Mountpoint and flushed to the logs every five seconds.
 See below an example of what the emitted metrics may look like in the logs.
 
