@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use super::core::{Manifest, ManifestDirIter, ManifestEntry, ManifestError};
+use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
@@ -47,15 +47,6 @@ impl ManifestMetablock {
         })
     }
 
-    fn manifest_entry_to_lookup(&self, manifest_entry: ManifestEntry) -> Result<Lookup, ManifestError> {
-        let channel_id = manifest_entry.channel_id();
-        if channel_id >= self.channels.len() {
-            return Err(ManifestError::InvalidRow(manifest_entry.id()));
-        }
-        let channel = self.channels[channel_id].clone();
-        manifest_entry.into_lookup(channel, self.mount_time)
-    }
-
     fn get_parent_id(&self, ino: InodeNo) -> Result<InodeNo, InodeError> {
         if ino == ROOT_INODE_NO {
             return Ok(ROOT_INODE_NO);
@@ -88,7 +79,7 @@ impl Metablock for ManifestMetablock {
             ));
         };
 
-        let lookup = self.manifest_entry_to_lookup(manifest_entry)?;
+        let lookup = manifest_entry.into_lookup(&self.channels, self.mount_time)?;
         Ok(lookup)
     }
 
@@ -107,7 +98,7 @@ impl Metablock for ManifestMetablock {
             return Err(InodeError::InodeDoesNotExist(ino));
         };
 
-        let lookup = self.manifest_entry_to_lookup(manifest_entry)?;
+        let lookup = manifest_entry.into_lookup(&self.channels, self.mount_time)?;
         Ok(lookup)
     }
 
@@ -174,7 +165,9 @@ impl Metablock for ManifestMetablock {
         let shifted_offset = (offset - 2) as usize; // shift offset accounting for '.' and '..'
         readdir_handle.seek(shifted_offset)?; // typically no-op, but required for out-of-order requests
         while let Some(manifest_entry) = readdir_handle.next_entry()? {
-            let (inode_info, name) = manifest_entry.clone().into_inode_information(self.mount_time)?;
+            let (inode_info, name) = manifest_entry
+                .clone()
+                .into_inode_information(&self.channels, self.mount_time)?;
             if replier(inode_info, OsString::from(name), offset + 1, 0) {
                 readdir_handle.readd(manifest_entry);
                 break;
