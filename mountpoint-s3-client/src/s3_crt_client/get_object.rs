@@ -250,12 +250,11 @@ impl Stream for S3GetObjectResponse {
                 // the next chunk we want to return error instead of keeping the request blocked.
                 // This prevents a risk of deadlock from using the [S3CrtClient], users must implement
                 // their own logic to block the request if they really want to block a [S3GetObjectResponse].
-                if let Some(handle) = &this.backpressure_handle {
-                    if *this.next_offset >= handle.read_window_end_offset() {
-                        return Poll::Ready(Some(Err(ObjectClientError::ClientError(
-                            S3RequestError::EmptyReadWindow,
-                        ))));
-                    }
+                if let Some(handle) = &this.backpressure_handle
+                    && *this.next_offset >= handle.read_window_end_offset()
+                {
+                    let err = ObjectClientError::from(S3RequestError::EmptyReadWindow);
+                    return Poll::Ready(Some(Err(err)));
                 }
                 Poll::Pending
             }

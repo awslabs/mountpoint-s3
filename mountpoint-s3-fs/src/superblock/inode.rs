@@ -107,7 +107,7 @@ impl Inode {
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
-    pub fn get_inode_state(&self) -> Result<InodeLockedForReading, InodeError> {
+    pub fn get_inode_state(&self) -> Result<InodeLockedForReading<'_>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
@@ -119,7 +119,7 @@ impl Inode {
     }
 
     /// return Inode State with write lock after checking whether the directory inode is deleted or not.
-    pub fn get_mut_inode_state(&self) -> Result<InodeLockedForWriting, InodeError> {
+    pub fn get_mut_inode_state(&self) -> Result<InodeLockedForWriting<'_>, InodeError> {
         let inode_state = self.inner.sync.write().unwrap();
         match &inode_state.kind_data {
             InodeKindData::Directory { deleted, .. } if *deleted => Err(InodeError::InodeDoesNotExist(self.ino())),
@@ -131,7 +131,7 @@ impl Inode {
     }
 
     /// return Inode State with write lock without checking whether the directory inode is deleted or not.
-    pub fn get_mut_inode_state_no_check(&self) -> RwLockWriteGuard<InodeState> {
+    pub fn get_mut_inode_state_no_check(&self) -> RwLockWriteGuard<'_, InodeState> {
         self.inner.sync.write().unwrap()
     }
 

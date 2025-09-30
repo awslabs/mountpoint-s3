@@ -81,6 +81,7 @@ impl S3CrtClient {
                 span,
                 move |metrics| {
                     if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
+                        // Send signal on a successful CreateMultipartUpload request
                         if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
                             _ = sender.send(Ok(()));
                         }
