@@ -1,4 +1,4 @@
-## Unreleased (v0.9.0)
+## Unreleased
 
 ## v0.8.0 (September 30, 2025)
 
