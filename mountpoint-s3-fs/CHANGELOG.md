@@ -1,6 +1,9 @@
-## Unreleased (v0.7.2)
+## Unreleased
+
+## v0.8.0 (September 30, 2025)
 
 * Downgrade setattr logging level from INFO to DEBUG to reduce log noise. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605))
+* Add integrity checks for the  `ManifestMetablock` under the `manifest` feature flag. ([#1563](https://github.com/awslabs/mountpoint-s3/pull/1563))
 
 ## v0.7.1 (September 15, 2025)
 
