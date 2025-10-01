@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import subprocess
-import re
 import os
-from datetime import datetime
 
 script_dir = os.path.dirname(__file__)
 project_root = os.path.dirname(script_dir)
@@ -84,7 +82,7 @@ ExclusiveArch: x86_64 aarch64
     for lib_name, lib_version in submodule_versions.items():
         spec_content += f"\nProvides: bundled({lib_name}) = {lib_version}"
 
-    spec_content += f"""
+    spec_content += """
 
 Requires:       ca-certificates
 Requires:       fuse >= 2.9.0
@@ -104,7 +102,7 @@ interface.
 %cargo_prep -v vendor
 
 %build
-export CFLAGS="${{CFLAGS:-%{{optflags}}}} -O2 -Wno-error=cpp"
+export CFLAGS="${CFLAGS:-%{optflags}} -O2 -Wno-error=cpp"
 export CMAKE_C_FLAGS="$CFLAGS"
 export MOUNTPOINT_S3_AWS_RELEASE="true"
 export MOUNTPOINT_S3_AL2023_BUILD="true"
@@ -114,18 +112,18 @@ cargo build --release
 %cargo_vendor_manifest
 
 %install
-mkdir -p %{{buildroot}}/opt/aws/mountpoint-s3/bin
-mkdir -p %{{buildroot}}/%{{_prefix}}/sbin
-mkdir -p %{{buildroot}}/%{{_bindir}}
-mkdir -p %{{buildroot}}/%{{_bindir}}
-cp target/release/mount-s3 %{{buildroot}}/opt/aws/mountpoint-s3/bin/mount-s3
-cp NOTICE %{{buildroot}}/opt/aws/mountpoint-s3/
-cp LICENSE %{{buildroot}}/opt/aws/mountpoint-s3/
-cp THIRD_PARTY_LICENSES %{{buildroot}}/opt/aws/mountpoint-s3/
-cp cargo-vendor.txt %{{buildroot}}/opt/aws/mountpoint-s3/
-echo "%{{version}}" > %{{buildroot}}/opt/aws/mountpoint-s3/VERSION
-ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{{buildroot}}/%{{_bindir}}/mount-s3
-ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{{buildroot}}/%{{_prefix}}/sbin/mount.mount-s3
+mkdir -p %{buildroot}/opt/aws/mountpoint-s3/bin
+mkdir -p %{buildroot}/%{_prefix}/sbin
+mkdir -p %{buildroot}/%{_bindir}
+mkdir -p %{buildroot}/%{_bindir}
+cp target/release/mount-s3 %{buildroot}/opt/aws/mountpoint-s3/bin/mount-s3
+cp NOTICE %{buildroot}/opt/aws/mountpoint-s3/
+cp LICENSE %{buildroot}/opt/aws/mountpoint-s3/
+cp THIRD_PARTY_LICENSES %{buildroot}/opt/aws/mountpoint-s3/
+cp cargo-vendor.txt %{buildroot}/opt/aws/mountpoint-s3/
+echo "%{version}" > %{buildroot}/opt/aws/mountpoint-s3/VERSION
+ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3
+ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
 %files
 %dir /opt/aws/mountpoint-s3
@@ -136,8 +134,8 @@ ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{{buildroot}}/%{{_prefix}}/sbin/moun
 %license /opt/aws/mountpoint-s3/cargo-vendor.txt
 /opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
 /opt/aws/mountpoint-s3/VERSION
-%{{_bindir}}/mount-s3
-%{{_prefix}}/sbin/mount.mount-s3
+%{_bindir}/mount-s3
+%{_prefix}/sbin/mount.mount-s3
 
 %changelog
 * Wed Sep 24 2025 Tadiwa Magwenzi <tadiwaom@amazon.com> - 1.20.0
@@ -147,7 +145,7 @@ ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{{buildroot}}/%{{_prefix}}/sbin/moun
     with open("amazon-linux-2023-packaging.spec", "w") as f:
         f.write(spec_content)
 
-    print(f"Generated amazon-linux-2023-packaging.spec")
+    print("Generated amazon-linux-2023-packaging.spec")
 
 
 if __name__ == "__main__":
