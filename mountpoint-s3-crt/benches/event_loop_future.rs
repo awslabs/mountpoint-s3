@@ -12,7 +12,7 @@ use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::futures::FutureSpawner;
 
-async fn yield_now() {
+fn yield_now() -> impl Future {
     struct YieldNow(bool);
 
     impl Future for YieldNow {
@@ -28,6 +28,8 @@ async fn yield_now() {
             Poll::Pending
         }
     }
+
+    YieldNow(false)
 }
 
 async fn work() -> usize {
