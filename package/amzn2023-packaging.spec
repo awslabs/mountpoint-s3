@@ -1,73 +1,21 @@
-#!/usr/bin/env python3
-import subprocess
-import os
-import sys
-from datetime import datetime
-
-script_dir = os.path.dirname(__file__)
-project_root = os.path.dirname(script_dir)
-
-
-def get_version():
-    cargo_path = os.path.join(project_root, "mountpoint-s3", "Cargo.toml")
-    with open(cargo_path, "r") as f:
-        for line in f:
-            if "version" in line and "=" in line:
-                return line.split('"')[1]
-
-
-def get_rust_version():
-    rust_path = os.path.join(project_root, "rust-toolchain.toml")
-    with open(rust_path, "r") as f:
-        for line in f:
-            if "channel" in line and "=" in line:
-                return line.split('"')[1]
-
-
-def get_submodule_versions():
-    result = subprocess.run(
-        'git submodule foreach -q \'echo $name `git describe --tags`\'', capture_output=True, text=True, shell=True
-    )
-    versions = {}
-    for line in result.stdout.strip().split('\n'):
-        if line.strip():
-            parts = line.strip().split(' ', 1)
-            if len(parts) == 2:
-                name, version = parts
-                versions[name] = version.lstrip('v')
-    return versions
-
-
-def main():
-    if len(sys.argv) != 2:
-        print("Usage: generate_spec.py <build_target>")
-        print("Example: generate_spec.py amzn2023")
-        sys.exit(1)
-
-    build_target = sys.argv[1]
-    version = get_version()
-    rust_version = get_rust_version()
-    submodule_versions = get_submodule_versions()
-    current_date = datetime.now().strftime("%a %b %d %Y")
-
-    spec_content = f"""%bcond_without check
+%bcond_without check
 
 Name:           mount-s3
-Version:        {version}
-Release:        {build_target}
+Version:        1.21.0
+Release:        amzn2023
 Summary:        Mountpoint for Amazon S3
 
 License:        Apache-2.0
 URL:            https://github.com/awslabs/mountpoint-s3 
-Source0:        mountpoint-s3-%{{version}}.tar.gz
+Source0:        mountpoint-s3-%{version}.tar.gz
 Source1:        LICENSE
 Source2:        NOTICE
 Source3:        THIRD_PARTY_LICENSES
 
 BuildRequires:  clang
 BuildRequires:  clang-devel
-BuildRequires:  rust >= {rust_version}
-BuildRequires:  cargo >= {rust_version}
+BuildRequires:  rust >= 1.88
+BuildRequires:  cargo >= 1.88
 BuildRequires:  cmake
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -86,12 +34,18 @@ BuildRequires:  rust-toolset
 
 ExclusiveArch: x86_64 aarch64
 
-# BUNDLED C/C++ LIBRARIES - Required virtual provides for security tracking"""
-
-    for lib_name, lib_version in submodule_versions.items():
-        spec_content += f"\nProvides: bundled({lib_name}) = {lib_version}"
-
-    spec_content += """
+# BUNDLED C/C++ LIBRARIES - Required virtual provides for security tracking
+Provides: bundled(aws-c-auth) = 0.9.0
+Provides: bundled(aws-c-cal) = 0.9.2
+Provides: bundled(aws-c-common) = 0.12.4
+Provides: bundled(aws-c-compression) = 0.3.1
+Provides: bundled(aws-c-http) = 0.10.3
+Provides: bundled(aws-c-io) = 0.21.1
+Provides: bundled(aws-c-s3) = 0.8.5
+Provides: bundled(aws-c-sdkutils) = 0.2.4
+Provides: bundled(aws-checksums) = 0.2.6
+Provides: bundled(aws-lc) = 1.53.1
+Provides: bundled(s2n-tls) = 1.5.18
 
 Requires:       ca-certificates
 Requires:       fuse >= 2.9.0
@@ -113,11 +67,9 @@ interface.
 %build
 export CFLAGS="${CFLAGS:-%{optflags}} -O2 -Wno-error=cpp"
 export CMAKE_C_FLAGS="$CFLAGS"
-"""
-    spec_content += f"""
-export MOUNTPOINT_S3_AWS_RELEASE="{build_target}"
-"""
-    spec_content += """
+
+export MOUNTPOINT_S3_AWS_RELEASE="amzn2023"
+
 cargo build --release
 %cargo_vendor_manifest
 
@@ -146,19 +98,8 @@ ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mo
 %attr(644,root,root) /opt/aws/mountpoint-s3/VERSION
 %attr(755,root,root) %{_bindir}/mount-s3
 %attr(755,root,root) %{_prefix}/sbin/mount.mount-s3
-"""
-    spec_content += f"""
+
 %changelog
-* {current_date} Mountpoint-S3 Team <s3-opensource@amazon.com> - {version}.{build_target}
-- {version} {build_target} Release
+* Thu Oct 02 2025 Mountpoint-S3 Team <s3-opensource@amazon.com> - 1.21.0.amzn2023
+- 1.21.0 amzn2023 Release
 - Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
-"""
-
-    with open(f"{build_target}-packaging.spec", "w") as f:
-        f.write(spec_content)
-
-    print(f"Generated {build_target}-packaging.spec")
-
-
-if __name__ == "__main__":
-    main()
