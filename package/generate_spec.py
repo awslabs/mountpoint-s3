@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 import os
+from datetime import datetime
 
 script_dir = os.path.dirname(__file__)
 project_root = os.path.dirname(script_dir)
@@ -40,6 +41,7 @@ def main():
     version = get_version()
     rust_version = get_rust_version()
     submodule_versions = get_submodule_versions()
+    current_date = datetime.now().strftime("%a %b %d %Y")
 
     spec_content = f"""%bcond_without check
 
@@ -57,8 +59,8 @@ Source3:        THIRD_PARTY_LICENSES
 
 BuildRequires:  clang
 BuildRequires:  clang-devel
-BuildRequires:  rust >= {rust_version}
-BuildRequires:  cargo >= {rust_version}
+BuildRequires:  rust = {rust_version}
+BuildRequires:  cargo = {rust_version}
 BuildRequires:  cmake
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -137,9 +139,12 @@ ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mo
 %{_bindir}/mount-s3
 %{_prefix}/sbin/mount.mount-s3
 
+"""
+    spec_content += f"""
+
 %changelog
-* Wed Sep 24 2025 Tadiwa Magwenzi <tadiwaom@amazon.com> - 1.20.0
-- Initial packaging for AL submission
+* {current_date} Mountpoint-S3 Team <s3-opensource@amazon.com> - {version}.amzn2023
+- Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
 """
 
     with open("amazon-linux-2023-packaging.spec", "w") as f:
