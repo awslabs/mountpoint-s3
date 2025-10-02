@@ -44,7 +44,7 @@ pub const RAMP_MODULUS: usize = 251; // Largest prime under 256
 static_assertions::const_assert!((RAMP_MODULUS > 0) && (RAMP_MODULUS <= 256));
 
 const RAMP_BUFFER_SIZE: usize = 4 * 1024 * RAMP_MODULUS; // around 1 MiB
-static_assertions::const_assert!(RAMP_BUFFER_SIZE % RAMP_MODULUS == 0);
+static_assertions::const_assert!(RAMP_BUFFER_SIZE.is_multiple_of(RAMP_MODULUS));
 
 // Return a ramping pattern of bytes modulo RAMP_MODULUS.  The seed is the first byte.
 pub fn ramp_bytes(seed: usize, size: usize) -> Vec<u8> {
@@ -447,10 +447,10 @@ impl MockClient {
                 objects.get_mut(key).unwrap()
             }
             Some(object) => {
-                if let Some(etag) = &params.if_match {
-                    if object.etag != *etag {
-                        return Err(ObjectClientError::ServiceError(PutObjectError::PreconditionFailed));
-                    }
+                if let Some(etag) = &params.if_match
+                    && object.etag != *etag
+                {
+                    return Err(ObjectClientError::ServiceError(PutObjectError::PreconditionFailed));
                 }
 
                 // Append empty contents to non-empty object is not allowed
@@ -790,12 +790,10 @@ impl Stream for MockGetObjectResponse {
         let next_read_size = self.part_size.min(self.length);
 
         // Simulate backpressure mechanism
-        if let Some(handle) = &self.backpressure_handle {
-            if self.next_offset >= handle.read_window_end_offset() {
-                return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
-                    "empty read window".into(),
-                )))));
-            }
+        if let Some(handle) = &self.backpressure_handle
+            && self.next_offset >= handle.read_window_end_offset()
+        {
+            return Poll::Ready(Some(mock_client_error("empty read window")));
         }
         let next_part = self.object.read(self.next_offset, next_read_size);
 

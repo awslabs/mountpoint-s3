@@ -483,7 +483,7 @@ impl S3CrtClientInner {
     /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
-    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
+    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message<'_>, ConstructionError> {
         let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
         let uri = endpoint.uri()?;
         trace!(?uri, "resolved endpoint");

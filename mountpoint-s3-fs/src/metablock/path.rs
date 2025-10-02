@@ -87,7 +87,7 @@ impl ValidKey {
     /// The name for this key, i.e. the last path component.
     ///
     /// This returns a [ValidName] or [None] if name is empty.
-    pub fn valid_name(&self) -> Option<ValidName> {
+    pub fn valid_name(&self) -> Option<ValidName<'_>> {
         let name = self.name();
         if name.is_empty() { None } else { Some(ValidName(name)) }
     }
@@ -103,7 +103,7 @@ impl ValidKey {
     /// Path components for this key.
     ///
     /// For directories, this does not include empty component after the terminal '/'.
-    pub fn components(&self) -> Vec<ValidName> {
+    pub fn components(&self) -> Vec<ValidName<'_>> {
         if self.key.is_empty() {
             Default::default()
         } else {
