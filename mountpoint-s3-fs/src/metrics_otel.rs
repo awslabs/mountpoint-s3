@@ -1,6 +1,23 @@
-use opentelemetry::global;
-use opentelemetry_otlp::{Protocol, WithExportConfig};
+use opentelemetry::{global, metrics};
+use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
+use opentelemetry_sdk::metrics::{
+    Aggregation, Instrument, InstrumentKind, PeriodicReader, SdkMeterProvider, Stream, Temporality,
+};
 use std::time::Duration;
+
+/// Get temporality preference from environment variable
+/// By default, we will use delta.
+fn get_temporality_from_env() -> Temporality {
+    let prefer_delta = std::env::var("EXPERIMENTAL_MOUNTPOINT_OTLP_METRICS_TEMPORALITY_PREFERENCE")
+        .map(|v| v.to_lowercase() != "cumulative")
+        .unwrap_or(true);
+
+    if prefer_delta {
+        Temporality::Delta
+    } else {
+        Temporality::Cumulative
+    }
+}
 
 /// Configuration for OpenTelemetry metrics export
 #[derive(Debug, Clone)]
@@ -29,7 +46,7 @@ impl OtlpConfig {
 
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
-    meter: opentelemetry::metrics::Meter,
+    meter: metrics::Meter,
 }
 
 impl OtlpMetricsExporter {
@@ -48,29 +65,30 @@ impl OtlpMetricsExporter {
         };
 
         // Limit to HTTP binary protocol for now
-        let exporter = opentelemetry_otlp::MetricExporter::builder()
+        let exporter = MetricExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(&endpoint_url)
+            .with_temporality(get_temporality_from_env())
             .build()?;
 
         // Create a resource with no attributes to avoid default dimensions
         let resource = opentelemetry_sdk::resource::Resource::builder_empty().build();
 
         // Create a meter provider with the OTLP Metric Exporter that will collect and export metrics at regular intervals
-        let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+        let meter_provider = SdkMeterProvider::builder()
             // The default interval is 60 seconds so we use a PeriodicReader to allow us to specify a custom interval duration
             .with_reader(
-                opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
+                PeriodicReader::builder(exporter)
                     .with_interval(Duration::from_secs(config.interval_secs))
                     .build(),
             )
             .with_resource(resource)
-            .with_view(|instrument: &opentelemetry_sdk::metrics::Instrument| {
-                if matches!(instrument.kind(), opentelemetry_sdk::metrics::InstrumentKind::Histogram) {
+            .with_view(|instrument: &Instrument| {
+                if matches!(instrument.kind(), InstrumentKind::Histogram) {
                     Some(
-                        opentelemetry_sdk::metrics::Stream::builder()
-                            .with_aggregation(opentelemetry_sdk::metrics::Aggregation::Base2ExponentialHistogram {
+                        Stream::builder()
+                            .with_aggregation(Aggregation::Base2ExponentialHistogram {
                                 max_size: 160,
                                 max_scale: 20,
                                 record_min_max: true,
@@ -170,7 +188,7 @@ mod tests {
         let config = OtlpConfig::new(&endpoint).with_interval_secs(1);
 
         // Initialize the OpenTelemetry SDK directly
-        let exporter = opentelemetry_otlp::MetricExporter::builder()
+        let exporter = MetricExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(&config.endpoint)
@@ -180,15 +198,13 @@ mod tests {
 
         info!("Created exporter");
 
-        let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
+        let reader = PeriodicReader::builder(exporter)
             .with_interval(Duration::from_secs(1))
             .build();
 
         info!("Created reader");
 
-        let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-            .with_reader(reader)
-            .build();
+        let provider = SdkMeterProvider::builder().with_reader(reader).build();
 
         info!("Created provider");
 
