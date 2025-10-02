@@ -116,10 +116,10 @@ impl ManagedCacheDir {
 
 impl Drop for ManagedCacheDir {
     fn drop(&mut self) {
-        if self.should_cleanup {
-            if let Err(err) = self.remove() {
-                tracing::error!(cache_subdirectory = ?self.mountpoint_cache_path, "failed to remove cache sub-directory: {err}");
-            }
+        if self.should_cleanup
+            && let Err(err) = self.remove()
+        {
+            tracing::error!(cache_subdirectory = ?self.mountpoint_cache_path, "failed to remove cache sub-directory: {err}");
         }
     }
 }
