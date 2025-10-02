@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759263446101,
+  "lastUpdate": 1759421839427,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "mansipandey97@gmail.com",
-            "name": "Mansi Pandey",
-            "username": "mansi153"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "f88972304d227b03273118ccad077bd8abf97eec",
-          "message": "Update readdir and readdirplus metrics to use histogram instead of counter (#1254)\n\nUpdate readdir and readdirplus APIs' `fuse.readdir[plus].entries` metric\nto use histogram instead of counter, as it would make more sense to\nrecord statistics on how many entries were returned in a readdir[plus]\nrequest when there was more than one in a given interval, than recording\nthe total readdir[plus] entries per interval.\n\nAddresses https://github.com/awslabs/mountpoint-s3/issues/1236.\n\n### Does this change impact existing behavior?\n\nYes, the `fuse.readdir[plus].entries` metric type has been changed.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, it is only updating a metric. Since metric names and availability\nare considered unstable, this does not need a changelog entry or version\nchange.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Mansi Pandey <mansipnd@amazon.co.uk>",
-          "timestamp": "2025-08-14T15:59:37Z",
-          "tree_id": "da313bd426f5f02de72ad31d2c2d43cdcc9a6d9f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/f88972304d227b03273118ccad077bd8abf97eec"
-        },
-        "date": 1755194255880,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 2217.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 30.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 2224.5703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 33.1015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 2194.76953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 45.12890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 2164.0234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 29.36328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 2177.125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 33.92578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 2178.37109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 42.640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2177.04296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 25.3359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2187.33984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2188.80078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 24.92578125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 37.28125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "sahityad@amazon.com",
+            "name": "Sahitya Damera",
+            "username": "sahityadg"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18bfb9da77cd131ea38a27b8336d918c9e1376a0",
+          "message": "Use delta temporality as default for exporting OTLP metrics (#1625)\n\nBy default, we will use Delta temporality instead of Cumulative\ntemporality to minimise the network payload size while exporting\nmetrics. However, cutomers can switch to Cumulative temporality if their\nbackends don't support Delta temporality\n\n### Does this change impact existing behavior?\n\nNo, the changes are under a feature flag\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, the changes are under a feature flag\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Sahitya Damera <sahityad@amazon.com>",
+          "timestamp": "2025-10-02T14:19:01Z",
+          "tree_id": "951fa54b689dd4e3456a600b7caed5a584a479a8",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/18bfb9da77cd131ea38a27b8336d918c9e1376a0"
+        },
+        "date": 1759421839369,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 2380.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 31.9921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 2299.3203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 33.16015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 2187.08203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 37.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 2198.109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 35.77734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 2314.7890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 32.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 2280.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 36.8046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2187.06640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 23.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2186.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2195.046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 25.03125,
             "unit": "MiB"
           }
         ]
