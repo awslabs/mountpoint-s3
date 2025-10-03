@@ -91,7 +91,7 @@ pub struct DirectoryReply {
 
 impl DirectoryReplier for &mut DirectoryReply {
     fn add(&mut self, entry: DirectoryEntry) -> bool {
-        if self.readdir_limit > 0 && !self.entries.is_empty() && self.entries.len() % self.readdir_limit == 0 {
+        if self.readdir_limit > 0 && !self.entries.is_empty() && self.entries.len().is_multiple_of(self.readdir_limit) {
             true
         } else {
             self.entries.push_back(entry);

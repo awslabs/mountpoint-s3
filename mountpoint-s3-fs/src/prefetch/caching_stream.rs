@@ -239,7 +239,7 @@ where
         let block_size = self.cache.block_size();
         let start_block = range.start() / block_size;
         let mut end_block = range.end() / block_size;
-        if !range.is_empty() && range.end() % block_size != 0 {
+        if !range.is_empty() && !range.end().is_multiple_of(block_size) {
             end_block += 1;
         }
 
