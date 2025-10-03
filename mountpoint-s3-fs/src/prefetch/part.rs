@@ -10,6 +10,7 @@ pub struct Part {
     id: ObjectId,
     offset: u64,
     checksummed_bytes: ChecksummedBytes,
+    is_backwards_window: bool,
 }
 
 impl Part {
@@ -18,6 +19,7 @@ impl Part {
             id,
             offset,
             checksummed_bytes,
+            is_backwards_window: false,
         }
     }
 
@@ -41,6 +43,7 @@ impl Part {
             id: self.id.clone(),
             offset: self.offset + at as u64,
             checksummed_bytes: new_bytes,
+            is_backwards_window: self.is_backwards_window,
         }
     }
 
@@ -54,6 +57,16 @@ impl Part {
 
     pub(super) fn is_empty(&self) -> bool {
         self.checksummed_bytes.is_empty()
+    }
+
+    /// Mark part as a backwards window.
+    pub(super) fn mark_as_backwards_window(&mut self) {
+        self.is_backwards_window = true;
+    }
+
+    /// Whether this part belongs to a backwards seek window.
+    pub(super) fn is_backwards_window(&self) -> bool {
+        self.is_backwards_window
     }
 
     fn check(&self, id: &ObjectId, offset: u64) -> Result<(), PartOperationError> {

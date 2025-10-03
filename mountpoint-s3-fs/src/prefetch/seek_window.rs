@@ -24,7 +24,7 @@ impl SeekWindow {
 
     /// Add a new part to the front of the window, and drop any parts necessary to fit the new part
     /// within the maximum size.
-    pub fn push(&mut self, part: Part) {
+    pub fn push(&mut self, mut part: Part) {
         if part.len() > self.max_size {
             self.clear();
             return;
@@ -39,6 +39,7 @@ impl SeekWindow {
         }
 
         self.current_size += part.len();
+        part.mark_as_backwards_window();
         self.parts.push_back(part);
     }
 
@@ -74,5 +75,10 @@ impl SeekWindow {
     pub fn clear(&mut self) {
         self.parts.drain(..);
         self.current_size = 0;
+    }
+
+    /// Return the maximum size of this window
+    pub fn max_size(&self) -> usize {
+        self.max_size
     }
 }
