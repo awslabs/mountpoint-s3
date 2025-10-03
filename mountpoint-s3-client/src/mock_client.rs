@@ -68,6 +68,7 @@ pub struct MockClientConfig {
     enable_backpressure: bool,
     initial_read_window_size: usize,
     enable_rename: bool,
+    fail_on_non_aligned_read_window: bool,
 }
 
 impl MockClientConfig {
@@ -104,6 +105,12 @@ impl MockClientConfig {
     /// Enable or disable rename support
     pub fn enable_rename(mut self, enable: bool) -> Self {
         self.enable_rename = enable;
+        self
+    }
+
+    /// Enable a check to ensure all read window increments are aligned with part boundaries
+    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
+        self.fail_on_non_aligned_read_window = enable;
         self
     }
 
@@ -735,11 +742,11 @@ impl ClientBackpressureHandle for MockBackpressureHandle {
         let read_window_end_offset = prev_read_window_end_offset + len as u64;
         let relative_read_window_end = read_window_end_offset - self.request_range.start;
         if read_window_end_offset < self.request_range.end && (relative_read_window_end % self.part_size != 0) {
-            tracing::error!(
-                "read window must be aligned with part boundaries, relative_read_window_end={}, part_size={}, request_end={}",
+            tracing::warn!(
                 relative_read_window_end,
                 self.part_size,
                 self.request_range.end,
+                "read window is not aligned with part boundaries",
             );
             self.read_window_increment_failed.store(true, Ordering::SeqCst);
         }
@@ -763,6 +770,7 @@ pub struct MockGetObjectResponse {
     part_size: usize,
     backpressure_handle: Option<MockBackpressureHandle>,
     read_window_increment_failed: Arc<AtomicBool>,
+    fail_on_non_aligned_read_window: bool,
 }
 
 impl MockGetObjectResponse {
@@ -802,7 +810,7 @@ impl Stream for MockGetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.read_window_increment_failed.load(Ordering::SeqCst) {
+        if self.fail_on_non_aligned_read_window && self.read_window_increment_failed.load(Ordering::SeqCst) {
             // Return an error for this and all future requests made by this client.
             // This ensures the error is observed by the user, since errors that occur
             // during readahead are not propagated to userspace and may otherwise be missed.
@@ -974,6 +982,7 @@ impl ObjectClient for MockClient {
                 part_size: self.config.part_size,
                 backpressure_handle,
                 read_window_increment_failed: self.read_window_increment_failed.clone(),
+                fail_on_non_aligned_read_window: self.config.fail_on_non_aligned_read_window,
             })
         } else {
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(
