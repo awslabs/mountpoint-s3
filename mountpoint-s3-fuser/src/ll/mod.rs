@@ -2,7 +2,6 @@
 
 mod argument;
 pub mod fuse_abi;
-#[cfg(feature = "abi-7-11")]
 pub(crate) mod notify;
 pub(crate) mod reply;
 mod request;
@@ -23,7 +22,7 @@ pub enum TimeOrNow {
 }
 
 macro_rules! errno {
-    ($x: expr) => {
+    ($x: expr_2021) => {
         Errno(unsafe {
             // This is a static assertion that the constant $x is > 0
             const _X: [(); 0 - !{
@@ -236,6 +235,12 @@ impl From<std::io::Error> for Errno {
             Ok(i) => Errno(i),
             Err(_) => Errno::EIO,
         }
+    }
+}
+impl From<nix::errno::Errno> for Errno {
+    fn from(x: nix::errno::Errno) -> Self {
+        let err: std::io::Error = x.into();
+        err.into()
     }
 }
 impl From<std::io::ErrorKind> for Errno {

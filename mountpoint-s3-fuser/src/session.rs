@@ -11,17 +11,16 @@ use nix::unistd::geteuid;
 use std::fmt;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{io, ops::DerefMut};
 
-use crate::ll::fuse_abi as abi;
-use crate::request::Request;
 use crate::Filesystem;
 use crate::MountOption;
+use crate::ll::fuse_abi as abi;
+use crate::request::Request;
 use crate::{channel::Channel, mnt::Mount};
-#[cfg(feature = "abi-7-11")]
 use crate::{channel::ChannelSender, notify::Notifier};
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
@@ -91,7 +90,9 @@ impl<FS: Filesystem> Session<FS> {
             && !(options.contains(&MountOption::AllowRoot)
                 || options.contains(&MountOption::AllowOther))
         {
-            warn!("Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling");
+            warn!(
+                "Given auto_unmount without allow_root or allow_other; adding allow_other, with userspace permission handling"
+            );
             let mut modified_options = options.to_vec();
             modified_options.push(MountOption::AllowOther);
             Mount::new(mountpoint, &modified_options)?
@@ -141,15 +142,47 @@ impl<FS: Filesystem> Session<FS> {
     /// Run the session loop that receives kernel requests and dispatches them to method
     /// calls into the filesystem.
     pub fn run(&self) -> io::Result<()> {
-        self.run_with_callbacks(|_| {}, |_| {})
+        self.run_with_callbacks(|_| {}, |_| {}, false)
     }
 
     /// Run the session loop that receives kernel requests and dispatches them to method
     /// calls into the filesystem.
     /// This version also notifies callers of kernel requests before and after they
     /// are dispatched to the filesystem.
-    pub fn run_with_callbacks<FA, FB>(&self, mut before_dispatch: FB, mut after_dispatch: FA) -> io::Result<()> 
-    where 
+    pub fn run_with_callbacks<FA, FB>(
+        &self,
+        before_dispatch: FB,
+        after_dispatch: FA,
+        clone_fuse_fd: bool,
+    ) -> io::Result<()>
+    where
+        FB: FnMut(&Request<'_>),
+        FA: FnMut(&Request<'_>),
+    {
+        info!(
+            "FUSE channel cloning: {}",
+            if clone_fuse_fd { "enabled" } else { "disabled" }
+        );
+
+        if clone_fuse_fd {
+            // Create a worker channel for this thread using FUSE_DEV_IOC_CLONE
+            // This allows multiple threads to read from the FUSE device without contention
+            let worker_channel = self.ch.clone_channel()?;
+            self.process_requests(&worker_channel, before_dispatch, after_dispatch)
+        } else {
+            // Use the original channel without cloning
+            self.process_requests(&self.ch, before_dispatch, after_dispatch)
+        }
+    }
+
+    /// Process requests using the given channel
+    fn process_requests<FA, FB>(
+        &self,
+        channel: &Channel,
+        mut before_dispatch: FB,
+        mut after_dispatch: FA,
+    ) -> io::Result<()>
+    where
         FB: FnMut(&Request<'_>),
         FA: FnMut(&Request<'_>),
     {
@@ -163,14 +196,14 @@ impl<FS: Filesystem> Session<FS> {
         loop {
             // Read the next request from the given channel to kernel driver
             // The kernel driver makes sure that we get exactly one request per read
-            match self.ch.receive(buf) {
-                Ok(size) => match Request::new(self.ch.sender(), &buf[..size]) {
+            match channel.receive(buf) {
+                Ok(size) => match Request::new(channel.sender(), &buf[..size]) {
                     // Dispatch request
                     Some(req) => {
                         before_dispatch(&req);
                         req.dispatch(self);
                         after_dispatch(&req);
-                    },
+                    }
                     // Quit loop on illegal request
                     None => break,
                 },
@@ -204,7 +237,6 @@ impl<FS: Filesystem> Session<FS> {
     }
 
     /// Returns an object that can be used to send notifications to the kernel
-    #[cfg(feature = "abi-7-11")]
     pub fn notifier(&self) -> Notifier {
         Notifier::new(self.ch.sender())
     }
@@ -257,7 +289,6 @@ pub struct BackgroundSession {
     /// Thread guard of the background session
     pub guard: JoinHandle<io::Result<()>>,
     /// Object for creating Notifiers for client use
-    #[cfg(feature = "abi-7-11")]
     sender: ChannelSender,
     /// Ensures the filesystem is unmounted when the session ends
     _mount: Option<Mount>,
@@ -268,16 +299,12 @@ impl BackgroundSession {
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
     pub fn new<FS: Filesystem + Send + 'static>(se: Session<FS>) -> io::Result<BackgroundSession> {
-        #[cfg(feature = "abi-7-11")]
         let sender = se.ch.sender();
         // Take the fuse_session, so that we can unmount it
         let mount = std::mem::take(&mut *se.mount.lock().unwrap()).map(|(_, mount)| mount);
-        let guard = thread::spawn(move || {
-            se.run()
-        });
+        let guard = thread::spawn(move || se.run());
         Ok(BackgroundSession {
             guard,
-            #[cfg(feature = "abi-7-11")]
             sender,
             _mount: mount,
         })
@@ -286,8 +313,7 @@ impl BackgroundSession {
     pub fn join(self) {
         let Self {
             guard,
-            #[cfg(feature = "abi-7-11")]
-                sender: _,
+            sender: _,
             _mount,
         } = self;
         drop(_mount);
@@ -295,7 +321,6 @@ impl BackgroundSession {
     }
 
     /// Returns an object that can be used to send notifications to the kernel
-    #[cfg(feature = "abi-7-11")]
     pub fn notifier(&self) -> Notifier {
         Notifier::new(self.sender.clone())
     }
