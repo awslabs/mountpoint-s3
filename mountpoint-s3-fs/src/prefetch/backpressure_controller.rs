@@ -28,6 +28,8 @@ pub struct BackpressureConfig {
     pub read_window_size_multiplier: usize,
     /// Request range to apply backpressure
     pub request_range: Range<u64>,
+    /// Enable alignment of read window end to part boundary
+    pub align_read_window: bool,
 }
 
 /// A [BackpressureController] should be given to consumers of a byte stream.
@@ -61,6 +63,8 @@ pub struct BackpressureController {
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter>,
+    /// Enable alignment of read window end to part boundary
+    align_read_window: bool,
 }
 
 /// The [BackpressureLimiter] is used on producer side of a stream, for example,
@@ -106,6 +110,7 @@ pub fn new_backpressure_controller(
         second_request_start: config.request_range.start + config.initial_read_window_size as u64,
         request_end_offset: config.request_range.end,
         mem_limiter,
+        align_read_window: config.align_read_window,
     };
 
     let limiter = BackpressureLimiter {
@@ -145,8 +150,9 @@ impl BackpressureController {
                         new_read_window_end_offset,
                         self.second_request_start,
                         self.min_read_window_size as u64,
+                        self.align_read_window,
                     );
-                    // NOTE: in the end of the request we still have up to "part_size" of unaccounted memory.
+                    // NOTE: in the end of the object we still have up to "part_size" of unaccounted memory.
                     // For more accurate memory limiting we could reserve in "full parts", but that would make
                     // release more complicated. So accept this inaccuracy, and reserve only till `request_end_offset`.
                     let new_read_window_end_offset = new_read_window_end_offset.min(self.request_end_offset);
@@ -244,23 +250,30 @@ impl BackpressureController {
         }
     }
 
-    /// Round up `offset` to next part boundary (relative to request start).
+    /// Round up `read_window_end` to next part boundary (relative to request start).
     ///
     /// This function ensures that read window end offsets are aligned to part boundaries for the second request,
     /// which helps optimize memory usage.
     ///
-    /// If the offset is before the second request start, it returns the offset unchanged.
-    fn round_up_to_part_boundary(offset: u64, second_req_start: u64, part_size: u64) -> u64 {
-        if offset > second_req_start {
-            let relative_end_offset = offset - second_req_start;
+    /// If the `read_window_end` is before the second request start or `align_read_window` is false, it returns the `read_window_end` unchanged.
+    ///
+    /// Note: window excludes the last byte, denoted by `read_window_end`.
+    fn round_up_to_part_boundary(
+        read_window_end: u64,
+        second_req_start: u64,
+        part_size: u64,
+        align_read_window: bool,
+    ) -> u64 {
+        if align_read_window && read_window_end > second_req_start {
+            let relative_end_offset = read_window_end - second_req_start;
             if relative_end_offset % part_size != 0 {
                 let aligned_relative_offset = part_size * (relative_end_offset / part_size + 1);
                 second_req_start + aligned_relative_offset
             } else {
-                offset
+                read_window_end
             }
         } else {
-            offset
+            read_window_end
         }
     }
 }
@@ -378,6 +391,7 @@ mod tests {
             max_read_window_size: 2 * 1024 * 1024 * 1024,
             read_window_size_multiplier,
             request_range,
+            align_read_window: true,
         };
 
         let (mut backpressure_controller, _backpressure_limiter) =
@@ -405,6 +419,7 @@ mod tests {
             max_read_window_size: 2 * 1024 * 1024 * 1024,
             read_window_size_multiplier,
             request_range,
+            align_read_window: true,
         };
 
         let (mut backpressure_controller, _backpressure_limiter) =
@@ -434,6 +449,7 @@ mod tests {
             max_read_window_size: 2 * GIB,
             read_window_size_multiplier: 2,
             request_range: 0..(5 * GIB as u64),
+            align_read_window: true,
         };
 
         let (mut backpressure_controller, mut backpressure_limiter) =
@@ -467,13 +483,14 @@ mod tests {
     }
 
     #[test_case(500, 1000, 100, 500; "offset before second request start")]
+    #[test_case(1000, 1000, 512, 1000; "offset at second request start")]
     #[test_case(1500, 1000, 512, 1512; "offset after second request start, needs rounding up")]
     #[test_case(2024, 1000, 512, 2024; "offset after second request start, already aligned")]
     #[test_case(1001, 1000, 512, 1512; "offset just after second request start, needs rounding up")]
     #[test_case(1512, 1000, 512, 1512; "offset exactly at part boundary")]
     #[test_case(1513, 1000, 512, 2024; "offset just past part boundary")]
     fn test_round_up_to_part_boundary(offset: u64, second_req_start: u64, part_size: u64, expected: u64) {
-        let result = BackpressureController::round_up_to_part_boundary(offset, second_req_start, part_size);
+        let result = BackpressureController::round_up_to_part_boundary(offset, second_req_start, part_size, true);
         assert_eq!(result, expected);
     }
 
