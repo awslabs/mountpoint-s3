@@ -154,8 +154,11 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                let config = defs::lookup_config(key.name());
-                return Metric::counter_otlp(exporter, key, &config);
+                if let Some(config) = defs::lookup_config(key.name()) {
+                    if config.stability != MetricStability::Internal {
+                        return Metric::counter_otlp(exporter, key, &config);
+                    }
+                }
             }
             Metric::counter()
         });
@@ -166,8 +169,11 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                let config = defs::lookup_config(key.name());
-                return Metric::gauge_otlp(exporter, key, &config);
+                if let Some(config) = defs::lookup_config(key.name()) {
+                    if config.stability != MetricStability::Internal {
+                        return Metric::gauge_otlp(exporter, key, &config);
+                    }
+                }
             }
             Metric::gauge()
         });
@@ -178,8 +184,11 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                let config = defs::lookup_config(key.name());
-                return Metric::histogram_otlp(exporter, key, &config);
+                if let Some(config) = defs::lookup_config(key.name()) {
+                    if config.stability != MetricStability::Internal {
+                        return Metric::histogram_otlp(exporter, key, &config);
+                    }
+                }
             }
             Metric::histogram()
         });
