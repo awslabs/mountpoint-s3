@@ -1,9 +1,11 @@
-use opentelemetry::{global, metrics};
+use opentelemetry::{global, metrics as otel_metrics};
 use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
 use opentelemetry_sdk::metrics::{
     Aggregation, Instrument, InstrumentKind, PeriodicReader, SdkMeterProvider, Stream, Temporality,
 };
 use std::time::Duration;
+
+use crate::metrics::defs::MetricStability;
 
 /// Get temporality preference from environment variable
 /// By default, we will use delta.
@@ -46,10 +48,15 @@ impl OtlpConfig {
 
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
-    meter: metrics::Meter,
+    meter: otel_metrics::Meter,
 }
 
 impl OtlpMetricsExporter {
+    #[cfg(test)]
+    pub fn new_for_test(meter: otel_metrics::Meter) -> Self {
+        Self { meter }
+    }
+
     /// Create a new OtlpMetricsExporter with the specified configuration
     /// Returns a Result containing the new exporter or an error if initialisation failed
     pub fn new(config: &OtlpConfig) -> Result<Self, Box<dyn std::error::Error>> {
@@ -111,16 +118,58 @@ impl OtlpMetricsExporter {
         Ok(Self { meter })
     }
 
-    pub fn create_counter_instrument(&self, name: String) -> opentelemetry::metrics::Counter<u64> {
-        self.meter.u64_counter(name).build()
+    pub fn create_counter_instrument(
+        &self,
+        name: &str,
+        unit: &'static str,
+        stability: MetricStability,
+    ) -> otel_metrics::Counter<u64> {
+        let metric_name = match stability {
+            MetricStability::Experimental => format!("experimental.{name}"),
+            _ => name.to_string(),
+        };
+
+        let mut builder = self.meter.u64_counter(metric_name);
+        if !unit.is_empty() {
+            builder = builder.with_unit(unit);
+        }
+        builder.build()
     }
 
-    pub fn create_gauge_instrument(&self, name: String) -> opentelemetry::metrics::Gauge<f64> {
-        self.meter.f64_gauge(name).build()
+    pub fn create_gauge_instrument(
+        &self,
+        name: &str,
+        unit: &'static str,
+        stability: MetricStability,
+    ) -> otel_metrics::Gauge<f64> {
+        let metric_name = match stability {
+            MetricStability::Experimental => format!("experimental.{name}"),
+            _ => name.to_string(),
+        };
+
+        let mut builder = self.meter.f64_gauge(metric_name);
+        if !unit.is_empty() {
+            builder = builder.with_unit(unit);
+        }
+        builder.build()
     }
 
-    pub fn create_histogram_instrument(&self, name: String) -> opentelemetry::metrics::Histogram<f64> {
-        self.meter.f64_histogram(name).build()
+    pub fn create_histogram_instrument(
+        &self,
+        name: &str,
+        unit: &'static str,
+        stability: MetricStability,
+    ) -> otel_metrics::Histogram<f64> {
+        let metric_name = match stability {
+            MetricStability::Experimental => format!("experimental.{name}"),
+            _ => name.to_string(),
+        };
+
+        let mut builder = self.meter.f64_histogram(metric_name);
+        if !unit.is_empty() {
+            builder = builder.with_unit(unit);
+        }
+        builder.build()
     }
 }
 
