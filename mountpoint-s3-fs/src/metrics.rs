@@ -7,6 +7,8 @@
 pub use crate::metrics_otel::OtlpConfig;
 #[cfg(feature = "otlp_integration")]
 use crate::metrics_otel::OtlpMetricsExporter;
+#[cfg(feature = "otlp_integration")]
+use defs::MetricStability;
 
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -154,10 +156,9 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                if let Some(config) = defs::lookup_config(key.name()) {
-                    if config.stability != MetricStability::Internal {
-                        return Metric::counter_otlp(exporter, key, &config);
-                    }
+                let config = defs::lookup_config(key.name());
+                if config.stability != MetricStability::Internal {
+                    return Metric::counter_otlp(exporter, key, &config);
                 }
             }
             Metric::counter()
@@ -169,10 +170,9 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                if let Some(config) = defs::lookup_config(key.name()) {
-                    if config.stability != MetricStability::Internal {
-                        return Metric::gauge_otlp(exporter, key, &config);
-                    }
+                let config = defs::lookup_config(key.name());
+                if config.stability != MetricStability::Internal {
+                    return Metric::gauge_otlp(exporter, key, &config);
                 }
             }
             Metric::gauge()
@@ -184,10 +184,9 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                if let Some(config) = defs::lookup_config(key.name()) {
-                    if config.stability != MetricStability::Internal {
-                        return Metric::histogram_otlp(exporter, key, &config);
-                    }
+                let config = defs::lookup_config(key.name());
+                if config.stability != MetricStability::Internal {
+                    return Metric::histogram_otlp(exporter, key, &config);
                 }
             }
             Metric::histogram()
@@ -610,6 +609,20 @@ mod test_otlp_metrics {
         let ctx = TestContext::new();
         ctx.create_counter(defs::MetricStability::Stable);
         ctx.verify_metric_name("test_metric");
+    }
+
+    #[test]
+    fn test_internal_stability_no_metrics() {
+        let ctx = TestContext::new();
+        ctx.create_counter(defs::MetricStability::Internal);
+        ctx.verify_metric_name("test_metric");
+
+        ctx.provider.force_flush().unwrap();
+        let metrics = ctx.exporter.get_finished_metrics().unwrap();
+        let resource_metrics = &metrics[0];
+        let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
+        let metrics_vec: Vec<_> = scope_metrics[0].metrics().collect();
+        assert_eq!(metrics_vec.len(), 0);
     }
 
     #[test]
