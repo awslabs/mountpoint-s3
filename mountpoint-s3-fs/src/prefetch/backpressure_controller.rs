@@ -422,9 +422,22 @@ mod tests {
             );
 
             // Send more than one increment.
-            backpressure_controller.increment_read_window(7 * MIB).await;
-            backpressure_controller.increment_read_window(8 * MIB).await;
-            backpressure_controller.increment_read_window(8 * MIB).await;
+            let to_increase = 7 * MIB;
+            backpressure_controller
+                .mem_limiter
+                .reserve(BufferArea::Prefetch, to_increase as u64);
+            backpressure_controller.increment_read_window(to_increase).await;
+
+            let to_increase = 8 * MIB;
+            backpressure_controller
+                .mem_limiter
+                .reserve(BufferArea::Prefetch, to_increase as u64);
+            backpressure_controller.increment_read_window(to_increase).await;
+
+            backpressure_controller
+                .mem_limiter
+                .reserve(BufferArea::Prefetch, to_increase as u64);
+            backpressure_controller.increment_read_window(to_increase).await;
 
             let curr_offset = backpressure_limiter
                 .wait_for_read_window_increment::<MockClientError>(0)
