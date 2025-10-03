@@ -224,6 +224,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
+            align_read_window: true,
         };
         let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
