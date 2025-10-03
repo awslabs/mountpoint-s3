@@ -7,7 +7,7 @@ use std::os::fd::BorrowedFd;
 
 /// A newtype for `File` that represents the `/dev/fuse` device.
 #[derive(Debug)]
-pub(crate) struct DevFuse(pub(crate) File);
+pub struct DevFuse(pub(crate) File);
 
 impl AsRawFd for DevFuse {
     fn as_raw_fd(&self) -> std::os::unix::io::RawFd {

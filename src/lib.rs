@@ -47,6 +47,8 @@ pub use crate::ll::request::FileHandle;
 pub use crate::ll::request::INodeNo;
 pub use crate::ll::request::LockOwner;
 pub use crate::ll::request::Version;
+pub use crate::dev_fuse::DevFuse;
+pub use crate::mnt::Mount;
 pub use crate::mnt::mount_options::Config;
 pub use crate::mnt::mount_options::MountOption;
 use crate::mnt::mount_options::check_option_conflicts;
