@@ -20,8 +20,8 @@ echo 'user_allow_other' >> /etc/fuse.conf
 
 DATA_DIR=$(mktemp --directory)
 DIR=$(mktemp --directory)
-cargo build --example simple --no-default-features > /dev/null 2>&1
-cargo run --example simple --no-default-features -- -vvv --data-dir $DATA_DIR --mount-point $DIR 2>&1 &
+cargo build --example simple > /dev/null 2>&1
+cargo run --example simple -- -vvv --data-dir $DATA_DIR --mount-point $DIR 2>&1 &
 FUSE_PID=$!
 sleep 2
 

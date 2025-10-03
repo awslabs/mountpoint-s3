@@ -3,9 +3,9 @@
 //! A request represents information about a filesystem operation the kernel driver wants us to
 //! perform.
 
-use super::fuse_abi::{fuse_in_header, fuse_opcode, InvalidOpcodeError};
+use super::fuse_abi::{InvalidOpcodeError, fuse_in_header, fuse_opcode};
 
-use super::{fuse_abi as abi, Errno, Response};
+use super::{Errno, Response, fuse_abi as abi};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, fmt::Display, path::Path};
@@ -268,11 +268,11 @@ mod op {
     use crate::ll::Response;
 
     use super::{
-        super::{argument::ArgumentIterator, TimeOrNow},
+        super::{TimeOrNow, argument::ArgumentIterator},
         FilenameInDir, Request,
     };
     use super::{
-        abi::consts::*, abi::*, FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId,
+        FileHandle, INodeNo, Lock, LockOwner, Operation, RequestId, abi::consts::*, abi::*,
     };
     use std::{
         convert::TryInto,
@@ -318,7 +318,7 @@ mod op {
         arg: &'a fuse_forget_in,
     }
     impl_request!(Forget<'_>);
-    impl<'a> Forget<'a> {
+    impl Forget<'_> {
         /// The number of lookups previously performed on this inode
         pub fn nlookup(&self) -> u64 {
             self.arg.nlookup
@@ -330,13 +330,11 @@ mod op {
     pub struct GetAttr<'a> {
         header: &'a fuse_in_header,
 
-        #[cfg(feature = "abi-7-9")]
         arg: &'a fuse_getattr_in,
     }
     impl_request!(GetAttr<'_>);
 
-    #[cfg(feature = "abi-7-9")]
-    impl<'a> GetAttr<'a> {
+    impl GetAttr<'_> {
         pub fn file_handle(&self) -> Option<FileHandle> {
             if self.arg.getattr_flags & crate::FUSE_GETATTR_FH != 0 {
                 Some(FileHandle(self.arg.fh))
@@ -353,7 +351,7 @@ mod op {
         arg: &'a fuse_setattr_in,
     }
     impl_request!(SetAttr<'_>);
-    impl<'a> SetAttr<'a> {
+    impl SetAttr<'_> {
         pub fn mode(&self) -> Option<u32> {
             match self.arg.valid & FATTR_MODE {
                 0 => None,
@@ -473,7 +471,7 @@ mod op {
 
         // TODO: Why does *set*attr want to have an attr response?
     }
-    impl<'a> Display for SetAttr<'a> {
+    impl Display for SetAttr<'_> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(
                 f,
@@ -537,9 +535,6 @@ mod op {
             self.arg.mode
         }
         pub fn umask(&self) -> u32 {
-            #[cfg(not(feature = "abi-7-12"))]
-            return 0;
-            #[cfg(feature = "abi-7-12")]
             self.arg.umask
         }
         pub fn rdev(&self) -> u32 {
@@ -563,9 +558,6 @@ mod op {
             self.arg.mode
         }
         pub fn umask(&self) -> u32 {
-            #[cfg(not(feature = "abi-7-12"))]
-            return 0;
-            #[cfg(feature = "abi-7-12")]
             self.arg.umask
         }
     }
@@ -657,7 +649,7 @@ mod op {
         arg: &'a fuse_open_in,
     }
     impl_request!(Open<'_>);
-    impl<'a> Open<'a> {
+    impl Open<'_> {
         pub fn flags(&self) -> i32 {
             self.arg.flags
         }
@@ -676,7 +668,7 @@ mod op {
         arg: &'a fuse_read_in,
     }
     impl_request!(Read<'_>);
-    impl<'a> Read<'a> {
+    impl Read<'_> {
         /// The value set by the [Open] method.
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -689,9 +681,6 @@ mod op {
         }
         /// Only supported with ABI >= 7.9
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(not(feature = "abi-7-9"))]
-            return None;
-            #[cfg(feature = "abi-7-9")]
             if self.arg.read_flags & FUSE_READ_LOCKOWNER != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
@@ -700,9 +689,6 @@ mod op {
         }
         /// The file flags, such as `O_SYNC`. Only supported with ABI >= 7.9
         pub fn flags(&self) -> i32 {
-            #[cfg(not(feature = "abi-7-9"))]
-            return 0;
-            #[cfg(feature = "abi-7-9")]
             self.arg.flags
         }
     }
@@ -741,22 +727,16 @@ mod op {
         }
         /// lock_owner: only supported with ABI >= 7.9
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(feature = "abi-7-9")]
             if self.arg.write_flags & FUSE_WRITE_LOCKOWNER != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
                 None
             }
-            #[cfg(not(feature = "abi-7-9"))]
-            None
         }
         /// flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9
         /// TODO: Make a Flags type specifying valid values
         pub fn flags(&self) -> i32 {
-            #[cfg(feature = "abi-7-9")]
-            return self.arg.flags;
-            #[cfg(not(feature = "abi-7-9"))]
-            0
+            self.arg.flags
         }
     }
 
@@ -780,7 +760,7 @@ mod op {
         arg: &'a fuse_release_in,
     }
     impl_request!(Release<'_>);
-    impl<'a> Release<'a> {
+    impl Release<'_> {
         pub fn flush(&self) -> bool {
             self.arg.release_flags & FUSE_RELEASE_FLUSH != 0
         }
@@ -794,9 +774,6 @@ mod op {
             self.arg.flags
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(not(feature = "abi-7-17"))]
-            return Some(LockOwner(self.arg.lock_owner));
-            #[cfg(feature = "abi-7-17")]
             if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
@@ -812,7 +789,7 @@ mod op {
         arg: &'a fuse_fsync_in,
     }
     impl_request!(FSync<'a>);
-    impl<'a> FSync<'a> {
+    impl FSync<'_> {
         /// The value set by the [Open] method.
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -912,7 +889,7 @@ mod op {
         arg: &'a fuse_getxattr_in,
     }
     impl_request!(ListXAttr<'a>);
-    impl<'a> ListXAttr<'a> {
+    impl ListXAttr<'_> {
         /// The size of the buffer the caller has allocated to receive the list of
         /// XAttrs.  If this is 0 the user is just probing to find how much space is
         /// required to fit the whole list.
@@ -957,7 +934,7 @@ mod op {
         arg: &'a fuse_flush_in,
     }
     impl_request!(Flush<'a>);
-    impl<'a> Flush<'a> {
+    impl Flush<'_> {
         /// The value set by the open method
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -974,8 +951,12 @@ mod op {
     }
     impl_request!(Init<'a>);
     impl<'a> Init<'a> {
-        pub fn capabilities(&self) -> u32 {
-            self.arg.flags
+        pub fn capabilities(&self) -> u64 {
+            #[cfg(feature = "abi-7-36")]
+            if self.arg.flags & (FUSE_INIT_EXT as u32) != 0 {
+                return (self.arg.flags as u64) | ((self.arg.flags2 as u64) << 32);
+            }
+            self.arg.flags as u64
         }
         pub fn max_readahead(&self) -> u32 {
             self.arg.max_readahead
@@ -985,16 +966,17 @@ mod op {
         }
 
         pub fn reply(&self, config: &crate::KernelConfig) -> Response<'a> {
+            let flags = self.capabilities() & config.requested; // use requested features and reported as capable
+
             let init = fuse_init_out {
                 major: FUSE_KERNEL_VERSION,
                 minor: FUSE_KERNEL_MINOR_VERSION,
                 max_readahead: config.max_readahead,
-                flags: self.capabilities() & config.requested, // use requested features and reported as capable
-                #[cfg(not(feature = "abi-7-13"))]
-                unused: 0,
-                #[cfg(feature = "abi-7-13")]
+                #[cfg(not(feature = "abi-7-36"))]
+                flags: flags as u32,
+                #[cfg(feature = "abi-7-36")]
+                flags: (flags | FUSE_INIT_EXT) as u32,
                 max_background: config.max_background,
-                #[cfg(feature = "abi-7-13")]
                 congestion_threshold: config.congestion_threshold(),
                 max_write: config.max_write,
                 #[cfg(feature = "abi-7-23")]
@@ -1005,8 +987,16 @@ mod op {
                 max_pages: config.max_pages(),
                 #[cfg(feature = "abi-7-28")]
                 unused2: 0,
-                #[cfg(feature = "abi-7-28")]
+                #[cfg(all(feature = "abi-7-28", not(feature = "abi-7-36")))]
                 reserved: [0; 8],
+                #[cfg(feature = "abi-7-36")]
+                flags2: (flags >> 32) as u32,
+                #[cfg(all(feature = "abi-7-36", not(feature = "abi-7-40")))]
+                reserved: [0; 7],
+                #[cfg(feature = "abi-7-40")]
+                max_stack_depth: config.max_stack_depth,
+                #[cfg(feature = "abi-7-40")]
+                reserved: [0; 6],
             };
             Response::new_data(init.as_bytes())
         }
@@ -1028,7 +1018,7 @@ mod op {
         arg: &'a fuse_open_in,
     }
     impl_request!(OpenDir<'a>);
-    impl<'a> OpenDir<'a> {
+    impl OpenDir<'_> {
         /// Flags as passed to open
         pub fn flags(&self) -> i32 {
             self.arg.flags
@@ -1042,7 +1032,7 @@ mod op {
         arg: &'a fuse_read_in,
     }
     impl_request!(ReadDir<'a>);
-    impl<'a> ReadDir<'a> {
+    impl ReadDir<'_> {
         /// The value set by the [OpenDir] method.
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1064,7 +1054,7 @@ mod op {
         arg: &'a fuse_release_in,
     }
     impl_request!(ReleaseDir<'a>);
-    impl<'a> ReleaseDir<'a> {
+    impl ReleaseDir<'_> {
         /// The value set by the [OpenDir] method.
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1073,9 +1063,6 @@ mod op {
             self.arg.release_flags & consts::FUSE_RELEASE_FLUSH != 0
         }
         pub fn lock_owner(&self) -> Option<LockOwner> {
-            #[cfg(not(feature = "abi-7-17"))]
-            return Some(LockOwner(self.arg.lock_owner));
-            #[cfg(feature = "abi-7-17")]
             if self.arg.release_flags & FUSE_RELEASE_FLOCK_UNLOCK != 0 {
                 Some(LockOwner(self.arg.lock_owner))
             } else {
@@ -1095,7 +1082,7 @@ mod op {
         arg: &'a fuse_fsync_in,
     }
     impl_request!(FSyncDir<'a>);
-    impl<'a> FSyncDir<'a> {
+    impl FSyncDir<'_> {
         /// The value set by the [OpenDir] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1113,7 +1100,7 @@ mod op {
         arg: &'a fuse_lk_in,
     }
     impl_request!(GetLk<'a>);
-    impl<'a> GetLk<'a> {
+    impl GetLk<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1140,7 +1127,7 @@ mod op {
         arg: &'a fuse_lk_in,
     }
     impl_request!(SetLk<'a>);
-    impl<'a> SetLk<'a> {
+    impl SetLk<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1158,7 +1145,7 @@ mod op {
         arg: &'a fuse_lk_in,
     }
     impl_request!(SetLkW<'a>);
-    impl<'a> SetLkW<'a> {
+    impl SetLkW<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1181,7 +1168,7 @@ mod op {
         arg: &'a fuse_access_in,
     }
     impl_request!(Access<'a>);
-    impl<'a> Access<'a> {
+    impl Access<'_> {
         pub fn mask(&self) -> i32 {
             self.arg.mask
         }
@@ -1217,9 +1204,6 @@ mod op {
             self.arg.flags
         }
         pub fn umask(&self) -> u32 {
-            #[cfg(not(feature = "abi-7-12"))]
-            return 0;
-            #[cfg(feature = "abi-7-12")]
             self.arg.umask
         }
     }
@@ -1267,7 +1251,7 @@ mod op {
         arg: &'a fuse_interrupt_in,
     }
     impl_request!(Interrupt<'a>);
-    impl<'a> Interrupt<'a> {
+    impl Interrupt<'_> {
         pub fn unique(&self) -> RequestId {
             RequestId(self.arg.unique)
         }
@@ -1282,7 +1266,7 @@ mod op {
         arg: &'a fuse_bmap_in,
     }
     impl_request!(BMap<'a>);
-    impl<'a> BMap<'a> {
+    impl BMap<'_> {
         pub fn block_size(&self) -> u32 {
             self.arg.blocksize
         }
@@ -1303,17 +1287,14 @@ mod op {
     }
 
     /// Control device
-    #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
     pub struct IoCtl<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_ioctl_in,
         data: &'a [u8],
     }
-    #[cfg(feature = "abi-7-11")]
     impl_request!(IoCtl<'a>);
-    #[cfg(feature = "abi-7-11")]
-    impl<'a> IoCtl<'a> {
+    impl IoCtl<'_> {
         pub fn in_data(&self) -> &[u8] {
             &self.data[..self.arg.in_size as usize]
         }
@@ -1338,16 +1319,13 @@ mod op {
     }
 
     /// Poll.
-    #[cfg(feature = "abi-7-11")]
     #[derive(Debug)]
     pub struct Poll<'a> {
         header: &'a fuse_in_header,
         arg: &'a fuse_poll_in,
     }
-    #[cfg(feature = "abi-7-11")]
     impl_request!(Poll<'a>);
-    #[cfg(feature = "abi-7-11")]
-    impl<'a> Poll<'a> {
+    impl Poll<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1373,18 +1351,15 @@ mod op {
     }
 
     /// NotifyReply.  TODO: currently unsupported by fuser
-    #[cfg(feature = "abi-7-15")]
     #[derive(Debug)]
     pub struct NotifyReply<'a> {
         header: &'a fuse_in_header,
         #[allow(unused)]
         arg: &'a [u8],
     }
-    #[cfg(feature = "abi-7-15")]
     impl_request!(NotifyReply<'a>);
 
     /// BatchForget: TODO: merge with Forget
-    #[cfg(feature = "abi-7-16")]
     #[derive(Debug)]
     pub struct BatchForget<'a> {
         header: &'a fuse_in_header,
@@ -1392,9 +1367,7 @@ mod op {
         arg: &'a fuse_batch_forget_in,
         nodes: &'a [fuse_forget_one],
     }
-    #[cfg(feature = "abi-7-16")]
     impl_request!(BatchForget<'a>);
-    #[cfg(feature = "abi-7-16")]
     impl<'a> BatchForget<'a> {
         /// TODO: Don't return fuse_forget_one, this should be private
         pub fn nodes(&self) -> &'a [fuse_forget_one] {
@@ -1414,7 +1387,7 @@ mod op {
     #[cfg(feature = "abi-7-19")]
     impl_request!(FAllocate<'a>);
     #[cfg(feature = "abi-7-19")]
-    impl<'a> FAllocate<'a> {
+    impl FAllocate<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1443,7 +1416,7 @@ mod op {
     #[cfg(feature = "abi-7-21")]
     impl_request!(ReadDirPlus<'a>);
     #[cfg(feature = "abi-7-21")]
-    impl<'a> ReadDirPlus<'a> {
+    impl ReadDirPlus<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1507,7 +1480,7 @@ mod op {
     #[cfg(feature = "abi-7-24")]
     impl_request!(Lseek<'a>);
     #[cfg(feature = "abi-7-24")]
-    impl<'a> Lseek<'a> {
+    impl Lseek<'_> {
         /// The value set by the [Open] method. See [FileHandle].
         pub fn file_handle(&self) -> FileHandle {
             FileHandle(self.arg.fh)
@@ -1539,7 +1512,7 @@ mod op {
     #[cfg(feature = "abi-7-28")]
     impl_request!(CopyFileRange<'a>);
     #[cfg(feature = "abi-7-28")]
-    impl<'a> CopyFileRange<'a> {
+    impl CopyFileRange<'_> {
         /// File and offset to copy data from
         pub fn src(&self) -> CopyFileRangeFile {
             CopyFileRangeFile {
@@ -1623,14 +1596,12 @@ mod op {
         }
     }
     /// TODO: Document
-    #[cfg(feature = "abi-7-12")]
     #[derive(Debug)]
     pub struct CuseInit<'a> {
         header: &'a fuse_in_header,
         #[allow(unused)]
         arg: &'a fuse_init_in,
     }
-    #[cfg(feature = "abi-7-12")]
     impl_request!(CuseInit<'a>);
 
     fn system_time_from_time(secs: i64, nsecs: u32) -> SystemTime {
@@ -1658,7 +1629,6 @@ mod op {
             fuse_opcode::FUSE_GETATTR => Operation::GetAttr(GetAttr {
                 header,
 
-                #[cfg(feature = "abi-7-9")]
                 arg: data.fetch()?,
             }),
             fuse_opcode::FUSE_SETATTR => Operation::SetAttr(SetAttr {
@@ -1803,23 +1773,19 @@ mod op {
                 arg: data.fetch()?,
             }),
             fuse_opcode::FUSE_DESTROY => Operation::Destroy(Destroy { header }),
-            #[cfg(feature = "abi-7-11")]
             fuse_opcode::FUSE_IOCTL => Operation::IoCtl(IoCtl {
                 header,
                 arg: data.fetch()?,
                 data: data.fetch_all(),
             }),
-            #[cfg(feature = "abi-7-11")]
             fuse_opcode::FUSE_POLL => Operation::Poll(Poll {
                 header,
                 arg: data.fetch()?,
             }),
-            #[cfg(feature = "abi-7-15")]
             fuse_opcode::FUSE_NOTIFY_REPLY => Operation::NotifyReply(NotifyReply {
                 header,
                 arg: data.fetch_all(),
             }),
-            #[cfg(feature = "abi-7-16")]
             fuse_opcode::FUSE_BATCH_FORGET => {
                 let arg = data.fetch()?;
                 Operation::BatchForget(BatchForget {
@@ -1872,7 +1838,6 @@ mod op {
                 newname: data.fetch_str()?.as_ref(),
             }),
 
-            #[cfg(feature = "abi-7-12")]
             fuse_opcode::CUSE_INIT => Operation::CuseInit(CuseInit {
                 header,
                 arg: data.fetch()?,
@@ -1925,14 +1890,10 @@ pub enum Operation<'a> {
     Interrupt(Interrupt<'a>),
     BMap(BMap<'a>),
     Destroy(Destroy<'a>),
-    #[cfg(feature = "abi-7-11")]
     IoCtl(IoCtl<'a>),
-    #[cfg(feature = "abi-7-11")]
     Poll(Poll<'a>),
-    #[cfg(feature = "abi-7-15")]
     #[allow(dead_code)]
     NotifyReply(NotifyReply<'a>),
-    #[cfg(feature = "abi-7-16")]
     BatchForget(BatchForget<'a>),
     #[cfg(feature = "abi-7-19")]
     FAllocate(FAllocate<'a>),
@@ -1952,12 +1913,11 @@ pub enum Operation<'a> {
     #[cfg(target_os = "macos")]
     Exchange(Exchange<'a>),
 
-    #[cfg(feature = "abi-7-12")]
     #[allow(dead_code)]
     CuseInit(CuseInit<'a>),
 }
 
-impl<'a> fmt::Display for Operation<'a> {
+impl fmt::Display for Operation<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Operation::Lookup(x) => write!(f, "LOOKUP name {:?}", x.name()),
@@ -2092,7 +2052,6 @@ impl<'a> fmt::Display for Operation<'a> {
             Operation::Interrupt(x) => write!(f, "INTERRUPT unique {:?}", x.unique()),
             Operation::BMap(x) => write!(f, "BMAP blocksize {}, ids {}", x.block_size(), x.block()),
             Operation::Destroy(_) => write!(f, "DESTROY"),
-            #[cfg(feature = "abi-7-11")]
             Operation::IoCtl(x) => write!(
                 f,
                 "IOCTL fh {:?}, cmd {}, data size {}, flags {:#x}",
@@ -2101,11 +2060,8 @@ impl<'a> fmt::Display for Operation<'a> {
                 x.in_data().len(),
                 x.flags()
             ),
-            #[cfg(feature = "abi-7-11")]
             Operation::Poll(x) => write!(f, "POLL fh {:?}", x.file_handle()),
-            #[cfg(feature = "abi-7-15")]
             Operation::NotifyReply(_) => write!(f, "NOTIFYREPLY"),
-            #[cfg(feature = "abi-7-16")]
             Operation::BatchForget(x) => write!(f, "BATCHFORGET nodes {:?}", x.nodes()),
             #[cfg(feature = "abi-7-19")]
             Operation::FAllocate(_) => write!(f, "FALLOCATE"),
@@ -2149,7 +2105,6 @@ impl<'a> fmt::Display for Operation<'a> {
                 x.options()
             ),
 
-            #[cfg(feature = "abi-7-12")]
             Operation::CuseInit(_) => write!(f, "CUSE_INIT"),
         }
     }
@@ -2166,7 +2121,8 @@ impl_request!(AnyRequest<'_>);
 impl<'a> AnyRequest<'a> {
     pub fn operation(&self) -> Result<Operation<'a>, RequestError> {
         // Parse/check opcode
-        let opcode = self.opcode()
+        let opcode = self
+            .opcode()
             .map_err(|_: InvalidOpcodeError| RequestError::UnknownOperation(self.header.opcode))?;
         // Parse/check operation arguments
         op::parse(self.header, &opcode, self.data).ok_or(RequestError::InsufficientData)
@@ -2177,7 +2133,7 @@ impl<'a> AnyRequest<'a> {
     }
 }
 
-impl<'a> fmt::Display for AnyRequest<'a> {
+impl fmt::Display for AnyRequest<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Ok(op) = self.operation() {
             write!(
@@ -2257,18 +2213,7 @@ mod tests {
         0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
     ];
 
-    #[cfg(all(target_endian = "little", not(feature = "abi-7-12")))]
-    const MKNOD_REQUEST: AlignedData<[u8; 56]> = AlignedData([
-        0x38, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
-        0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
-        0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // nodeid
-        0x0d, 0xd0, 0x01, 0xc0, 0xfe, 0xca, 0x01, 0xc0, // uid, gid
-        0x5e, 0xba, 0xde, 0xc0, 0x00, 0x00, 0x00, 0x00, // pid, padding
-        0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mode, rdev
-        0x66, 0x6f, 0x6f, 0x2e, 0x74, 0x78, 0x74, 0x00, // name
-    ]);
-
-    #[cfg(all(target_endian = "little", feature = "abi-7-12"))]
+    #[cfg(target_endian = "little")]
     const MKNOD_REQUEST: AlignedData<[u8; 64]> = AlignedData([
         0x40, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, // len, opcode
         0x0d, 0xf0, 0xad, 0xba, 0xef, 0xbe, 0xad, 0xde, // unique
@@ -2318,9 +2263,6 @@ mod tests {
     #[test]
     fn mknod() {
         let req = AnyRequest::try_from(&MKNOD_REQUEST[..]).unwrap();
-        #[cfg(not(feature = "abi-7-12"))]
-        assert_eq!(req.header.len, 56);
-        #[cfg(feature = "abi-7-12")]
         assert_eq!(req.header.len, 64);
         assert_eq!(req.header.opcode, 8);
         assert_eq!(req.unique(), RequestId(0xdead_beef_baad_f00d));
@@ -2331,7 +2273,6 @@ mod tests {
         match req.operation().unwrap() {
             Operation::MkNod(x) => {
                 assert_eq!(x.mode(), 0o644);
-                #[cfg(feature = "abi-7-12")]
                 assert_eq!(x.umask(), 0o755);
                 assert_eq!(x.name(), OsStr::new("foo.txt"));
             }

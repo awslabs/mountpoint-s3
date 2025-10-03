@@ -7,7 +7,7 @@
 #![allow(missing_docs)]
 
 use super::is_mounted;
-use super::mount_options::{option_to_string, MountOption};
+use super::mount_options::{MountOption, option_to_string};
 use libc::c_int;
 use log::{debug, error};
 use std::ffi::{CStr, CString, OsStr};
@@ -85,11 +85,12 @@ fn fuse_mount_pure(
     }
 
     let res = fuse_mount_sys(mountpoint, options)?;
-    if let Some(file) = res {
-        Ok((file, None))
-    } else {
-        // Retry
-        fuse_mount_fusermount(mountpoint, options)
+    match res {
+        Some(file) => Ok((file, None)),
+        _ => {
+            // Retry
+            fuse_mount_fusermount(mountpoint, options)
+        }
     }
 }
 

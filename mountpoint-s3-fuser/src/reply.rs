@@ -7,20 +7,23 @@
 //! error() exactly once).
 
 use crate::ll::{
-    self,
+    self, Generation,
     reply::{DirEntPlusList, DirEntryPlus},
-    Generation,
 };
 use crate::ll::{
-    reply::{DirEntList, DirEntOffset, DirEntry},
     INodeNo,
+    reply::{DirEntList, DirEntOffset, DirEntry},
 };
+#[cfg(feature = "abi-7-40")]
+use crate::{consts::FOPEN_PASSTHROUGH, passthrough::BackingId};
 use libc::c_int;
 use log::{error, warn};
 use std::convert::AsRef;
 use std::ffi::OsStr;
 use std::fmt;
 use std::io::IoSlice;
+#[cfg(feature = "abi-7-40")]
+use std::os::fd::BorrowedFd;
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
@@ -32,6 +35,9 @@ use crate::{FileAttr, FileType};
 pub trait ReplySender: Send + Sync + Unpin + 'static {
     /// Send data.
     fn send(&self, data: &[IoSlice<'_>]) -> std::io::Result<()>;
+    /// Open a backing file
+    #[cfg(feature = "abi-7-40")]
+    fn open_backing(&self, fd: BorrowedFd<'_>) -> std::io::Result<BackingId>;
 }
 
 impl fmt::Debug for Box<dyn ReplySender> {
@@ -75,7 +81,7 @@ impl ReplyRaw {
         let sender = self.sender.take().unwrap();
         let res = response.with_iovec(self.unique, |iov| sender.send(iov));
         if let Err(err) = res {
-            error!("Failed to send FUSE reply: {}", err);
+            error!("Failed to send FUSE reply: {err}");
         }
     }
     fn send_ll(mut self, response: &ll::Response<'_>) {
@@ -271,8 +277,30 @@ impl Reply for ReplyOpen {
 impl ReplyOpen {
     /// Reply to a request with the given open result
     pub fn opened(self, fh: u64, flags: u32) {
+        #[cfg(feature = "abi-7-40")]
+        assert_eq!(flags & FOPEN_PASSTHROUGH, 0);
         self.reply
-            .send_ll(&ll::Response::new_open(ll::FileHandle(fh), flags))
+            .send_ll(&ll::Response::new_open(ll::FileHandle(fh), flags, 0))
+    }
+
+    /// Registers a fd for passthrough, returning a `BackingId`.  Once you have the backing ID,
+    /// you can pass it as the 3rd parameter of `OpenReply::opened_passthrough()`.  This is done in
+    /// two separate steps because it may make sense to reuse backing IDs (to avoid having to
+    /// repeatedly reopen the underlying file or potentially keep thousands of fds open).
+    #[cfg(feature = "abi-7-40")]
+    pub fn open_backing(&self, fd: impl std::os::fd::AsFd) -> std::io::Result<BackingId> {
+        self.reply.sender.as_ref().unwrap().open_backing(fd.as_fd())
+    }
+
+    /// Reply to a request with an opened backing id.  Call ReplyOpen::open_backing() to get one of
+    /// these.
+    #[cfg(feature = "abi-7-40")]
+    pub fn opened_passthrough(self, fh: u64, flags: u32, backing_id: &BackingId) {
+        self.reply.send_ll(&ll::Response::new_open(
+            ll::FileHandle(fh),
+            flags | FOPEN_PASSTHROUGH,
+            backing_id.backing_id,
+        ))
     }
 
     /// Reply to a request with the given error code
@@ -369,12 +397,15 @@ impl Reply for ReplyCreate {
 impl ReplyCreate {
     /// Reply to a request with the given entry
     pub fn created(self, ttl: &Duration, attr: &FileAttr, generation: u64, fh: u64, flags: u32) {
+        #[cfg(feature = "abi-7-40")]
+        assert_eq!(flags & FOPEN_PASSTHROUGH, 0);
         self.reply.send_ll(&ll::Response::new_create(
             ttl,
             &attr.into(),
             ll::Generation(generation),
             ll::FileHandle(fh),
             flags,
+            0,
         ))
     }
 
@@ -477,12 +508,10 @@ impl ReplyIoctl {
 /// Poll Reply
 ///
 #[derive(Debug)]
-#[cfg(feature = "abi-7-11")]
 pub struct ReplyPoll {
     reply: ReplyRaw,
 }
 
-#[cfg(feature = "abi-7-11")]
 impl Reply for ReplyPoll {
     fn new<S: ReplySender>(unique: u64, sender: S) -> ReplyPoll {
         ReplyPoll {
@@ -491,7 +520,6 @@ impl Reply for ReplyPoll {
     }
 }
 
-#[cfg(feature = "abi-7-11")]
 impl ReplyPoll {
     /// Reply to a request with the given poll result
     pub fn poll(self, revents: u32) {
@@ -624,7 +652,7 @@ impl ReplyXattr {
 
     /// Reply to a request with the data in the xattr.
     pub fn data(self, data: &[u8]) {
-        self.reply.send_ll(&ll::Response::new_data(data))
+        self.reply.send_ll(&ll::Response::new_slice(data))
     }
 
     /// Reply to a request with the given error code.
@@ -666,7 +694,7 @@ mod test {
     use super::*;
     use crate::{FileAttr, FileType};
     use std::io::IoSlice;
-    use std::sync::mpsc::{sync_channel, SyncSender};
+    use std::sync::mpsc::{SyncSender, sync_channel};
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
     use zerocopy::{Immutable, IntoBytes};
@@ -712,6 +740,11 @@ mod test {
             }
             assert_eq!(self.expected, v);
             Ok(())
+        }
+
+        #[cfg(feature = "abi-7-40")]
+        fn open_backing(&self, _fd: BorrowedFd<'_>) -> std::io::Result<BackingId> {
+            unreachable!()
         }
     }
 
@@ -799,9 +832,7 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        }
+        expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         expected[0] = (expected.len()) as u8;
 
         let sender = AssertSender { expected };
@@ -856,9 +887,7 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        }
+        expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         expected[0] = expected.len() as u8;
 
         let sender = AssertSender { expected };
@@ -975,13 +1004,11 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            let insert_at = expected.len() - 16;
-            expected.splice(
-                insert_at..insert_at,
-                vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            );
-        }
+        let insert_at = expected.len() - 16;
+        expected.splice(
+            insert_at..insert_at,
+            vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        );
         expected[0] = (expected.len()) as u8;
 
         let sender = AssertSender { expected };
@@ -1079,6 +1106,11 @@ mod test {
         fn send(&self, _: &[IoSlice<'_>]) -> std::io::Result<()> {
             self.send(()).unwrap();
             Ok(())
+        }
+
+        #[cfg(feature = "abi-7-40")]
+        fn open_backing(&self, _fd: BorrowedFd<'_>) -> std::io::Result<BackingId> {
+            unreachable!()
         }
     }
 

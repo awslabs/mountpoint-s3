@@ -3,7 +3,7 @@ use std::{convert::TryInto, io::IoSlice, mem::size_of, num::TryFromIntError};
 #[allow(unused)]
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use zerocopy::{Immutable, IntoBytes};
 
 use super::fuse_abi as abi;
@@ -58,7 +58,6 @@ impl<'a> Notification<'a> {
         Ok(f(&v))
     }
 
-    #[cfg(feature = "abi-7-12")]
     pub(crate) fn new_inval_entry(parent: u64, name: &'a OsStr) -> Result<Self, TryFromIntError> {
         let r = abi::fuse_notify_inval_entry_out {
             parent,
@@ -68,7 +67,6 @@ impl<'a> Notification<'a> {
         Ok(Self::from_struct_with_name(&r, name.as_bytes()))
     }
 
-    #[cfg(feature = "abi-7-12")]
     pub(crate) fn new_inval_inode(ino: u64, offset: i64, len: i64) -> Self {
         let r = abi::fuse_notify_inval_inode_out {
             ino,
@@ -78,7 +76,6 @@ impl<'a> Notification<'a> {
         Self::from_struct(&r)
     }
 
-    #[cfg(feature = "abi-7-15")]
     pub(crate) fn new_store(
         ino: u64,
         offset: u64,
@@ -93,7 +90,6 @@ impl<'a> Notification<'a> {
         Ok(Self::from_struct_with_data(&r, data))
     }
 
-    #[cfg(feature = "abi-7-18")]
     pub(crate) fn new_delete(
         parent: u64,
         child: u64,
@@ -108,7 +104,6 @@ impl<'a> Notification<'a> {
         Ok(Self::from_struct_with_name(&r, name.as_bytes()))
     }
 
-    #[cfg(feature = "abi-7-11")]
     pub(crate) fn new_poll(kh: u64) -> Self {
         let r = abi::fuse_notify_poll_wakeup_out { kh };
         Self::from_struct(&r)
@@ -135,7 +130,6 @@ mod test {
     use super::*;
 
     #[test]
-    #[cfg(feature = "abi-7-12")]
     fn inval_entry() {
         let n = Notification::new_inval_entry(0x42, OsStr::new("abc"))
             .unwrap()
@@ -153,7 +147,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-12")]
     fn inval_inode() {
         let n = Notification::new_inval_inode(0x42, 100, 200)
             .with_iovec(
@@ -170,7 +163,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-15")]
     fn store() {
         let n = Notification::new_store(0x42, 50, &[0xde, 0xad, 0xbe, 0xef])
             .unwrap()
@@ -186,7 +178,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-18")]
     fn delete() {
         let n = Notification::new_inval_entry(0x42, OsStr::new("abc"))
             .unwrap()
@@ -201,7 +192,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "abi-7-11")]
     fn poll() {
         let n = Notification::new_poll(0x4321)
             .with_iovec(abi::fuse_notify_code::FUSE_POLL, ioslice_to_vec)
