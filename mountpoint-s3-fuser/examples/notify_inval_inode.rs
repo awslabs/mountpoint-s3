@@ -10,8 +10,8 @@ use std::{
     convert::TryInto,
     ffi::OsStr,
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -22,8 +22,8 @@ use libc::{EACCES, EINVAL, EISDIR, ENOBUFS, ENOENT, ENOTDIR};
 use clap::Parser;
 
 use fuser::{
-    consts, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory,
-    ReplyEntry, ReplyOpen, Request, FUSE_ROOT_ID,
+    FUSE_ROOT_ID, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData,
+    ReplyDirectory, ReplyEntry, ReplyOpen, Request, consts,
 };
 
 struct ClockFS<'a> {
@@ -31,7 +31,7 @@ struct ClockFS<'a> {
     lookup_cnt: &'a AtomicU64,
 }
 
-impl<'a> ClockFS<'a> {
+impl ClockFS<'_> {
     const FILE_INO: u64 = 2;
     const FILE_NAME: &'static str = "current_time";
 
@@ -66,7 +66,7 @@ impl<'a> ClockFS<'a> {
     }
 }
 
-impl<'a> Filesystem for ClockFS<'a> {
+impl Filesystem for ClockFS<'_> {
     fn lookup(&self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent != FUSE_ROOT_ID || name != AsRef::<OsStr>::as_ref(&Self::FILE_NAME) {
             reply.error(ENOENT);
@@ -93,14 +93,7 @@ impl<'a> Filesystem for ClockFS<'a> {
         }
     }
 
-    fn readdir(
-        &self,
-        _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
+    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino != FUSE_ROOT_ID {
             reply.error(ENOTDIR);
             return;
@@ -126,7 +119,7 @@ impl<'a> Filesystem for ClockFS<'a> {
         } else if flags & libc::O_ACCMODE != libc::O_RDONLY {
             reply.error(EACCES);
         } else if ino != Self::FILE_INO {
-            eprintln!("Got open for nonexistent inode {}", ino);
+            eprintln!("Got open for nonexistent inode {ino}");
             reply.error(ENOENT);
         } else {
             reply.opened(ino, consts::FOPEN_KEEP_CACHE);
@@ -213,12 +206,12 @@ fn main() {
                 if let Err(e) =
                     notifier.store(ClockFS::FILE_INO, 0, fdata.lock().unwrap().as_bytes())
                 {
-                    eprintln!("Warning: failed to update kernel cache: {}", e);
+                    eprintln!("Warning: failed to update kernel cache: {e}");
                 }
             } else if let Err(e) =
                 notifier.inval_inode(ClockFS::FILE_INO, 0, olddata.len().try_into().unwrap())
             {
-                eprintln!("Warning: failed to invalidate inode: {}", e);
+                eprintln!("Warning: failed to invalidate inode: {e}");
             }
         }
         thread::sleep(Duration::from_secs_f32(opts.update_interval));

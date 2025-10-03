@@ -1,5 +1,14 @@
 # FUSE for Rust - Changelog
 
+## 0.16.0 - 2025-09-12
+* Add support for passthrough file descriptors
+* Change `KernelConfig` capabilities flags parameters to `u64`
+* Remove feature flags `abi-7-9` through `abi-7-18`
+* Improve macfuse compatibility (note that macfuse remains untested)
+* Fix unsound behavior when linking with libfuse3
+* Performance optimizations
+* Update documentation
+
 ## 0.15.1 - 2024-11-27
 * Fix crtime related panic that could occur on MacOS. See PR #322 for details.
 

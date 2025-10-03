@@ -9,9 +9,9 @@ use std::{
 
 use crate::FileType;
 
-use super::{fuse_abi as abi, Errno, FileHandle, Generation, INodeNo};
+use super::{Errno, FileHandle, Generation, INodeNo, fuse_abi as abi};
 use super::{Lock, RequestId};
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use zerocopy::{Immutable, IntoBytes};
 
 const INLINE_DATA_THRESHOLD: usize = size_of::<u64>() * 4;
@@ -119,11 +119,17 @@ impl<'a> Response<'a> {
     }
 
     // TODO: Could flags be more strongly typed?
-    pub(crate) fn new_open(fh: FileHandle, flags: u32) -> Self {
+    pub(crate) fn new_open(fh: FileHandle, flags: u32, backing_id: u32) -> Self {
+        #[cfg(not(feature = "abi-7-40"))]
+        let _ = backing_id;
+
         let r = abi::fuse_open_out {
             fh: fh.into(),
             open_flags: flags,
+            #[cfg(not(feature = "abi-7-40"))]
             padding: 0,
+            #[cfg(feature = "abi-7-40")]
+            backing_id,
         };
         Self::from_struct(&r)
     }
@@ -188,7 +194,11 @@ impl<'a> Response<'a> {
         generation: Generation,
         fh: FileHandle,
         flags: u32,
+        backing_id: u32,
     ) -> Self {
+        #[cfg(not(feature = "abi-7-40"))]
+        let _ = backing_id;
+
         let r = abi::fuse_create_out(
             abi::fuse_entry_out {
                 nodeid: attr.attr.ino,
@@ -202,7 +212,10 @@ impl<'a> Response<'a> {
             abi::fuse_open_out {
                 fh: fh.into(),
                 open_flags: flags,
+                #[cfg(not(feature = "abi-7-40"))]
                 padding: 0,
+                #[cfg(feature = "abi-7-40")]
+                backing_id,
             },
         );
         Self::from_struct(&r)
@@ -225,7 +238,6 @@ impl<'a> Response<'a> {
         Self::Data(v)
     }
 
-    #[cfg(feature = "abi-7-11")]
     pub(crate) fn new_poll(revents: u32) -> Self {
         let r = abi::fuse_poll_out {
             revents,
@@ -310,9 +322,7 @@ pub(crate) fn fuse_attr_from_attr(attr: &crate::FileAttr) -> abi::fuse_attr {
         rdev: attr.rdev,
         #[cfg(target_os = "macos")]
         flags: attr.flags,
-        #[cfg(feature = "abi-7-9")]
         blksize: attr.blksize,
-        #[cfg(feature = "abi-7-9")]
         padding: 0,
     }
 }
@@ -574,9 +584,7 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        }
+        expected.extend(vec![0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         expected[0] = (expected.len()) as u8;
 
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
@@ -633,9 +641,7 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-        }
+        expected.extend_from_slice(&[0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         expected[0] = expected.len() as u8;
 
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
@@ -687,7 +693,7 @@ mod test {
             0x00, 0x00, 0x22, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
         ];
-        let r = Response::new_open(FileHandle(0x1122), 0x33);
+        let r = Response::new_open(FileHandle(0x1122), 0x33, 0);
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
@@ -758,13 +764,11 @@ mod test {
             ]
         };
 
-        if cfg!(feature = "abi-7-9") {
-            let insert_at = expected.len() - 16;
-            expected.splice(
-                insert_at..insert_at,
-                vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            );
-        }
+        let insert_at = expected.len() - 16;
+        expected.splice(
+            insert_at..insert_at,
+            vec![0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        );
         expected[0] = (expected.len()) as u8;
 
         let time = UNIX_EPOCH + Duration::new(0x1234, 0x5678);
@@ -786,7 +790,14 @@ mod test {
             flags: 0x99,
             blksize: 0xdd,
         };
-        let r = Response::new_create(&ttl, &attr.into(), Generation(0xaa), FileHandle(0xbb), 0xcc);
+        let r = Response::new_create(
+            &ttl,
+            &attr.into(),
+            Generation(0xaa),
+            FileHandle(0xbb),
+            0xcc,
+            0,
+        );
         assert_eq!(
             r.with_iovec(RequestId(0xdeadbeef), ioslice_to_vec),
             expected
