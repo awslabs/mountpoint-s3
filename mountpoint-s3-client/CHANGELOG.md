@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.19.2)
+
+* Upgrade tooolchain to Rust 1.89. ([#1628](https://github.com/awslabs/mountpoint-s3/pull/1628))
 
 ## v0.19.1 (September 15, 2025)
 
