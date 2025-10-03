@@ -19,11 +19,13 @@ use crate::sync::Arc;
 use crate::sync::mpsc::{RecvTimeoutError, Sender, channel};
 
 mod data;
+use data::Metric;
 pub use data::MetricValue;
-use data::*;
 
 mod tracing_span;
 pub use tracing_span::metrics_tracing_span_layer;
+
+pub mod defs;
 
 /// How long between drains of each thread's local metrics into the global sink
 const AGGREGATION_PERIOD: Duration = Duration::from_secs(5);
@@ -149,34 +151,37 @@ impl MetricsSink {
     }
 
     fn counter(&self, key: &Key) -> metrics::Counter {
-        let metric = self.metrics.entry(key.clone()).or_insert_with(|| {
+        let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                return data::Metric::counter_otlp(exporter, key.name().to_string(), key);
+                let config = defs::lookup_config(key.name());
+                return Metric::counter_otlp(exporter, key, &config);
             }
-            data::Metric::counter()
+            Metric::counter()
         });
         metric.as_counter()
     }
 
     fn gauge(&self, key: &Key) -> metrics::Gauge {
-        let metric = self.metrics.entry(key.clone()).or_insert_with(|| {
+        let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                return data::Metric::gauge_otlp(exporter, key.name().to_string(), key);
+                let config = defs::lookup_config(key.name());
+                return Metric::gauge_otlp(exporter, key, &config);
             }
-            data::Metric::gauge()
+            Metric::gauge()
         });
         metric.as_gauge()
     }
 
     fn histogram(&self, key: &Key) -> metrics::Histogram {
-        let metric = self.metrics.entry(key.clone()).or_insert_with(|| {
+        let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                return data::Metric::histogram_otlp(exporter, key.name().to_string(), key);
+                let config = defs::lookup_config(key.name());
+                return Metric::histogram_otlp(exporter, key, &config);
             }
-            data::Metric::histogram()
+            Metric::histogram()
         });
         metric.as_histogram()
     }
@@ -207,7 +212,10 @@ impl MetricsSink {
                         .join(",")
                 )
             };
-            metrics.push(format!("{}{}: {}", key.name(), labels, metric_str));
+
+            let config = defs::lookup_config(key.name());
+
+            metrics.push(format!("{} {}{}: {}", key.name(), config.unit, labels, metric_str));
         }
 
         metrics.sort();
@@ -383,43 +391,6 @@ mod tests {
         });
     }
 
-    #[test]
-    #[cfg(feature = "otlp_integration")]
-    fn test_otlp_flow() {
-        use crate::metrics_otel::OtlpConfig;
-        use metrics::Key;
-
-        let otlp_config = OtlpConfig::new("http://localhost:4317");
-        let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
-        let counter = sink.counter(&Key::from_name("test_counter"));
-        let gauge = sink.gauge(&Key::from_name("test_gauge"));
-        let histogram = sink.histogram(&Key::from_name("test_histogram"));
-
-        counter.increment(10);
-        gauge.set(20.0);
-        for i in 0..100 {
-            histogram.record(i as f64);
-        }
-
-        // Verify OTLP methods are called as expected. We are relying on the presence of otlp_data.
-        assert_eq!(sink.metrics.len(), 3);
-
-        for entry in sink.metrics.iter() {
-            let (_key, metric) = entry.pair();
-            match metric {
-                data::Metric::Counter(counter_data) => {
-                    assert!(counter_data.otlp_data().is_some(), "counter_otlp() was not called");
-                }
-                data::Metric::Gauge(gauge_data) => {
-                    assert!(gauge_data.otlp_data().is_some(), "gauge_otlp() was not called");
-                }
-                data::Metric::Histogram(histogram_data) => {
-                    assert!(histogram_data.otlp_data().is_some(), "histogram_otlp() was not called");
-                }
-            }
-        }
-    }
-
     /// This is a manual test for verifying the integration of the metrics system with OpenTelemetry.
     /// It provides end-to-end verification of the metrics pipeline without needing to run the full mountpoint application.
     ///
@@ -551,5 +522,170 @@ mod tests {
         let otlp_config = OtlpConfig::new("http://example.com:4318/v1/metrics");
         let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
         assert!(result.is_ok());
+    }
+}
+
+#[cfg(all(test, feature = "otlp_integration"))]
+mod test_otlp_metrics {
+    use super::*;
+    use crate::metrics::data::Metric;
+    use crate::metrics_otel::OtlpMetricsExporter;
+    use opentelemetry::metrics::MeterProvider as _;
+    use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
+    use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
+    use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
+
+    struct TestContext {
+        exporter: InMemoryMetricExporter,
+        provider: SdkMeterProvider,
+        otlp_exporter: OtlpMetricsExporter,
+    }
+
+    impl TestContext {
+        fn new() -> Self {
+            let exporter = InMemoryMetricExporter::default();
+            let reader = PeriodicReader::builder(exporter.clone())
+                .with_interval(std::time::Duration::from_millis(100))
+                .build();
+            let provider = SdkMeterProvider::builder().with_reader(reader).build();
+            let meter = provider.meter("test-meter");
+            let otlp_exporter = OtlpMetricsExporter::new_for_test(meter);
+
+            TestContext {
+                exporter,
+                provider,
+                otlp_exporter,
+            }
+        }
+
+        fn get_metrics(&self) -> Vec<ResourceMetrics> {
+            self.provider.force_flush().unwrap();
+            self.exporter.get_finished_metrics().unwrap()
+        }
+
+        fn verify_metric_name(&self, expected_name: &str) {
+            self.provider.force_flush().unwrap();
+            let metrics = self.exporter.get_finished_metrics().unwrap();
+            let resource_metrics = &metrics[0];
+            let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
+            let metrics_vec: Vec<_> = scope_metrics[0].metrics().collect();
+            let metric = &metrics_vec[0];
+
+            assert_eq!(metric.name(), expected_name);
+        }
+
+        fn create_counter(&self, stability: defs::MetricStability) {
+            let config = defs::MetricConfig {
+                unit: "",
+                stability,
+                otlp_attributes: &[],
+            };
+            let counter = Metric::counter_otlp(&self.otlp_exporter, &Key::from_name("test_metric"), &config);
+
+            if let Metric::Counter(counter_impl) = counter {
+                let counter_handle = metrics::Counter::from_arc(counter_impl);
+                counter_handle.increment(1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_experimental_metric_prefixing() {
+        let ctx = TestContext::new();
+        ctx.create_counter(defs::MetricStability::Experimental);
+        ctx.verify_metric_name("experimental.test_metric");
+    }
+
+    #[test]
+    fn test_stable_metric_no_prefix() {
+        let ctx = TestContext::new();
+        ctx.create_counter(defs::MetricStability::Stable);
+        ctx.verify_metric_name("test_metric");
+    }
+
+    #[test]
+    fn test_attribute_filtering() {
+        let ctx = TestContext::new();
+
+        let key = Key::from_parts(
+            "s3.request_failure",
+            vec![
+                metrics::Label::new("s3.request", "GetObject"),
+                metrics::Label::new("s3.error", "NoSuchKey"),
+                metrics::Label::new("some-attribute", "some-value"),
+            ],
+        );
+
+        let config = defs::lookup_config("s3.request_failure");
+        let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
+
+        if let Metric::Counter(counter_impl) = counter {
+            let counter_handle = metrics::Counter::from_arc(counter_impl);
+            counter_handle.increment(1);
+        }
+
+        let metrics = ctx.get_metrics();
+        assert_eq!(metrics.len(), 1);
+
+        // Verify only allowed attributes are present
+        let resource_metrics = &metrics[0];
+        let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
+        let metric = scope_metrics[0]
+            .metrics()
+            .find(|m| m.name() == "s3.request_failure")
+            .unwrap();
+
+        match metric.data() {
+            AggregatedMetrics::U64(metric_data) => match metric_data {
+                MetricData::Sum(sum) => {
+                    let data_points: Vec<_> = sum.data_points().collect();
+                    let data_point = &data_points[0];
+                    let attributes: Vec<_> = data_point.attributes().collect();
+
+                    assert_eq!(attributes.len(), 2);
+                    let attr_keys: Vec<&str> = attributes.iter().map(|kv| kv.key.as_str()).collect();
+
+                    assert!(attr_keys.contains(&"s3.request"));
+                    assert!(attr_keys.contains(&"s3.error"));
+                    assert!(!attr_keys.contains(&"random-attribute"));
+                }
+                _ => panic!("Expected Sum data"),
+            },
+            _ => panic!("Expected U64 AggregatedMetrics"),
+        }
+    }
+
+    #[test]
+    fn test_otlp_flow() {
+        let otlp_config = OtlpConfig::new("http://localhost:4317");
+        let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
+
+        let counter = sink.counter(&Key::from_name("test_counter"));
+        let gauge = sink.gauge(&Key::from_name("test_gauge"));
+        let histogram = sink.histogram(&Key::from_name("test_histogram"));
+
+        counter.increment(10);
+        gauge.set(20.0);
+        for i in 0..100 {
+            histogram.record(i as f64);
+        }
+
+        // Verify OTLP methods are called as expected
+        assert_eq!(sink.metrics.len(), 3);
+
+        for entry in sink.metrics.iter() {
+            let (_key, metric) = entry.pair();
+            match metric {
+                Metric::Counter(counter_data) => {
+                    assert!(counter_data.otlp_data().is_some(), "counter_otlp() was not called");
+                }
+                Metric::Gauge(gauge_data) => {
+                    assert!(gauge_data.otlp_data().is_some(), "gauge_otlp() was not called");
+                }
+                Metric::Histogram(histogram_data) => {
+                    assert!(histogram_data.otlp_data().is_some(), "histogram_otlp() was not called");
+                }
+            }
+        }
     }
 }
