@@ -43,11 +43,19 @@ permissions:
   contents: read
 
 jobs:
+  approval:
+    name: Approval Gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Approval Gate
+        run: echo "Approved!"
+
   test:
     name: FS Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
     runs-on: ${{ matrix.runner.tags }}
 
-    environment: ${{ inputs.environment }}
+    needs: approval
     env:
       features: fuse_tests,s3_tests,fips_tests,event_log,second_account_tests,manifest,${{ matrix.bucket-type.feature }}
       packages: --package mountpoint-s3 --package mountpoint-s3-fs
@@ -107,7 +115,7 @@ jobs:
     name: Client Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, ${{ matrix.pool.name }})
     runs-on: ${{ matrix.runner.tags }}
 
-    environment: ${{ inputs.environment }}
+    needs: approval
     env:
       features: s3_tests,fips_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
       packages: --package mountpoint-s3-client --package mountpoint-s3-crt --package mountpoint-s3-crt-sys
@@ -168,7 +176,7 @@ jobs:
     name: fstab tests (${{ matrix.runner.name }}
     runs-on: ${{ matrix.runner.tags }}
 
-    environment: ${{ inputs.environment }}
+    needs: approval
 
     strategy:
       fail-fast: false
@@ -215,7 +223,7 @@ jobs:
     name: Address sanitizer
     runs-on: [self-hosted, linux, arm64]
 
-    environment: ${{ inputs.environment }}
+    needs: approval
 
     env:
       # We're using ASan to test our CRT bindings, so focus only on S3, not on FUSE
