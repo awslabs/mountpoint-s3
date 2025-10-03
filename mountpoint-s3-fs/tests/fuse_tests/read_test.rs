@@ -40,10 +40,16 @@ fn basic_read_test(
     read_only: bool,
     pass_fuse_fd: bool,
     size_mb: usize,
+    fail_on_non_aligned_read_window: bool,
 ) {
     let mut rng = SmallRng::seed_from_u64(0x87654321);
 
-    let test_session = creator_fn(prefix, TestSessionConfig::default().with_pass_fuse_fd(pass_fuse_fd));
+    let test_session = creator_fn(
+        prefix,
+        TestSessionConfig::default()
+            .with_pass_fuse_fd(pass_fuse_fd)
+            .fail_on_non_aligned_read_window(fail_on_non_aligned_read_window),
+    );
 
     test_session.client().put_object("hello.txt", b"hello world").unwrap();
     let mut test_body = vec![0; size_mb * 1024 * 1024];
@@ -103,7 +109,14 @@ fn basic_read_test(
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
 fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::s3_session::new, "basic_read_test", read_only, pass_fuse_fd, 2);
+    basic_read_test(
+        fuse::s3_session::new,
+        "basic_read_test",
+        read_only,
+        pass_fuse_fd,
+        2,
+        false,
+    );
 }
 
 #[cfg(feature = "s3_tests")]
@@ -118,6 +131,7 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
         read_only,
         pass_fuse_fd,
         2,
+        false,
     );
 }
 
@@ -127,7 +141,14 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
 fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::mock_session::new, &prefix.to_string(), read_only, pass_fuse_fd, 2);
+    basic_read_test(
+        fuse::mock_session::new,
+        &prefix.to_string(),
+        read_only,
+        pass_fuse_fd,
+        2,
+        false,
+    );
 }
 
 #[test_matrix(
@@ -142,12 +163,20 @@ fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_f
         read_only,
         pass_fuse_fd,
         2,
+        false,
     );
 }
 
 #[test]
 fn basic_read_test_mock_large() {
-    basic_read_test(fuse::mock_session::new, "basic_read_test_mock_large", true, false, 101);
+    basic_read_test(
+        fuse::mock_session::new,
+        "basic_read_test_mock_large",
+        true,
+        false,
+        20,
+        true,
+    );
 }
 
 #[cfg(not(feature = "s3express_tests"))]
