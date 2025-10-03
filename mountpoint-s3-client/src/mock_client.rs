@@ -909,12 +909,12 @@ impl ObjectClient for MockClient {
         let objects = self.objects.read().unwrap();
 
         if let Some(object) = objects.get(key) {
-            if let Some(etag_match) = params.if_match.as_ref() {
-                if etag_match != &object.etag {
-                    return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(
-                        Default::default(),
-                    )));
-                }
+            if let Some(etag_match) = params.if_match.as_ref()
+                && etag_match != &object.etag
+            {
+                return Err(ObjectClientError::ServiceError(GetObjectError::PreconditionFailed(
+                    Default::default(),
+                )));
             }
 
             let (next_offset, length) = if let Some(range) = params.range.as_ref() {
@@ -1132,38 +1132,32 @@ impl ObjectClient for MockClient {
         if bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(RenameObjectError::NoSuchBucket));
         }
-
         if dst_key.len() > 1024 {
             return Err(ObjectClientError::ServiceError(RenameObjectError::KeyTooLong));
         }
 
         let mut objects = self.objects.write().unwrap();
-
         if objects.contains_key(dst_key) && params.if_none_match == Some("*".to_string()) {
             return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
                 RenamePreconditionTypes::IfNoneMatch,
             )));
         }
-
         // First check if destination Etag matches
-        if let Some(dst_etag_to_match) = &params.if_match {
-            if let Some(destination_object) = objects.get(dst_key) {
-                if *dst_etag_to_match != destination_object.etag {
-                    return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
-                        RenamePreconditionTypes::IfMatch,
-                    )));
-                }
-            }
+        if let Some(dst_etag_to_match) = &params.if_match
+            && let Some(destination_object) = objects.get(dst_key)
+            && *dst_etag_to_match != destination_object.etag
+        {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfMatch,
+            )));
         }
-
-        if let Some(src_etag_to_match) = &params.if_source_match {
-            if let Some(src_object) = objects.get(src_key) {
-                if *src_etag_to_match != src_object.etag {
-                    return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
-                        RenamePreconditionTypes::IfMatch,
-                    )));
-                }
-            }
+        if let Some(src_etag_to_match) = &params.if_source_match
+            && let Some(src_object) = objects.get(src_key)
+            && *src_etag_to_match != src_object.etag
+        {
+            return Err(ObjectClientError::ServiceError(RenameObjectError::PreConditionFailed(
+                RenamePreconditionTypes::IfMatch,
+            )));
         }
         if !objects.contains_key(src_key) {
             return Err(ObjectClientError::ServiceError(RenameObjectError::KeyNotFound));

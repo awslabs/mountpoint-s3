@@ -21,10 +21,11 @@ struct MetricsTracingSpanLayer;
 
 impl MetricsTracingSpanLayer {
     fn should_instrument_request_time<'a, S: LookupSpan<'a>>(span: Option<SpanRef<'a, S>>) -> bool {
-        if let Some(data) = span {
-            if data.metadata().target() == FUSE_MODULE_NAME && data.parent().is_none() {
-                return true;
-            }
+        if let Some(data) = span
+            && data.metadata().target() == FUSE_MODULE_NAME
+            && data.parent().is_none()
+        {
+            return true;
         }
         false
     }

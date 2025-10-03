@@ -66,12 +66,11 @@ fn run_benchmark(
                             .await
                             .expect("couldn't create get request");
                         let mut backpressure_handle = request.backpressure_handle().cloned();
-                        if enable_backpressure {
-                            if let Some(backpressure_handle) = backpressure_handle.as_mut() {
+                        if enable_backpressure
+                            && let Some(backpressure_handle) = backpressure_handle.as_mut() {
                                 let initial_read_window_size = client.initial_read_window_size().expect("initial size always set when backpressure is enabled");
                                 backpressure_handle.ensure_read_window(initial_read_window_size as u64);
                             }
-                        }
 
                         let mut request = pin!(request);
                         while Instant::now() < timeout {
@@ -86,8 +85,8 @@ fn run_benchmark(
                                     );
                                     received_size_clone.fetch_add(part_len as u64, Ordering::SeqCst);
                                     received_obj_len += part_len as u64;
-                                    if enable_backpressure {
-                                        if let Some(backpressure_handle) = backpressure_handle.as_mut() {
+                                    if enable_backpressure
+                                        && let Some(backpressure_handle) = backpressure_handle.as_mut() {
                                             tracing::info!(
                                                 target: "benchmarking_instrumentation",
                                                 preferred_read_window_size = ?client.initial_read_window_size(),
@@ -99,7 +98,6 @@ fn run_benchmark(
 
                                             backpressure_handle.increment_read_window(part_len);
                                         }
-                                    }
                                 }
                                 Some(Err(e)) => {
                                     tracing::error!(error = ?e, "request failed");

@@ -424,10 +424,10 @@ impl DiskDataCache {
             };
             let path_to_remove = self.get_path_for_block_key(&to_remove);
             trace!("evicting block at {}", path_to_remove.display());
-            if let Err(remove_err) = fs::remove_file(&path_to_remove) {
-                if remove_err.kind() != ErrorKind::NotFound {
-                    warn!("unable to evict block: {:?}", remove_err);
-                }
+            if let Err(remove_err) = fs::remove_file(&path_to_remove)
+                && remove_err.kind() != ErrorKind::NotFound
+            {
+                warn!("unable to evict block: {:?}", remove_err);
             }
         }
         Ok(())

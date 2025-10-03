@@ -132,17 +132,17 @@ impl MaterializedReference {
                 // If both a local and a remote directory exist, don't overwrite the remote one's
                 // contents, as they will be visible even though the directory is local. But
                 // remember the directory is still local.
-                if typ == NodeType::Directory {
-                    if let Some(Node::Directory { is_local, .. }) = children.get_mut(name) {
-                        *is_local = true;
-                        break;
-                    }
+                if typ == NodeType::Directory
+                    && let Some(Node::Directory { is_local, .. }) = children.get_mut(name)
+                {
+                    *is_local = true;
+                    break;
                 }
                 // If a directory of this name exists, ignore any local file
-                if let Some(node) = children.get(name) {
-                    if node.node_type() == NodeType::Directory {
-                        return false;
-                    }
+                if let Some(node) = children.get(name)
+                    && node.node_type() == NodeType::Directory
+                {
+                    return false;
                 }
                 let new_node = match typ {
                     NodeType::Directory => Node::Directory {

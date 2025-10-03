@@ -69,10 +69,10 @@ impl<T, E> ResultSender<T, E> {
 
 impl<T, E> RemoteResult<T, E> {
     async fn receive(&mut self) -> Result<&mut Option<T>, E> {
-        if self.value.is_none() {
-            if let Ok(value) = self.receiver.recv().await {
-                self.value = Some(value?);
-            }
+        if self.value.is_none()
+            && let Ok(value) = self.receiver.recv().await
+        {
+            self.value = Some(value?);
         }
         Ok(&mut self.value)
     }
