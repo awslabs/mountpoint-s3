@@ -7,18 +7,25 @@ mod built {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
-/// Valid SemVer version constructed using declared Cargo version and short commit hash if needed.
+/// Valid SemVer version constructed using declared Cargo version, build target,and short commit hash if needed.
 pub const FULL_VERSION: &str = {
-    if is_official_aws_release() {
-        built::PKG_VERSION
+    const RELEASE_INFO: (bool, &str) = release_info();
+    if RELEASE_INFO.0 {  // is_official build
+        if RELEASE_INFO.1.is_empty() {  // no build targert specified
+            built::PKG_VERSION
+        } else {
+            const_format::concatcp!(built::PKG_VERSION, "+", RELEASE_INFO.1) // build targert specified
+        }
     } else {
-        const_format::concatcp!(built::PKG_VERSION, "-unofficial", git_commit_suffix())
+        const_format::concatcp!(built::PKG_VERSION, "-unofficial", git_commit_suffix()) // unofficial build
     }
 };
 
-/// Checks environment to see if this build is for an official Mountpoint for Amazon S3 release.
-const fn is_official_aws_release() -> bool {
-    option_env!("MOUNTPOINT_S3_AWS_RELEASE").is_some()
+const fn release_info() -> (bool, &'static str) {
+    match option_env!("MOUNTPOINT_S3_AWS_RELEASE_TARGET") {
+        Some(value) => (true, value),
+        None => (false, ""),
+    }
 }
 
 /// Formats the current git commit hash and dirty state as a version suffix.
