@@ -53,6 +53,7 @@ tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 opentelemetry = { version = "0.30.0", features = ["metrics"], optional = true }
 opentelemetry_sdk = { version = "0.30.0", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"], optional = true }
 opentelemetry-otlp = { version = "0.30.0", features = ["metrics", "http-proto"], optional = true }
+strum = { version = "0.27.2", features = ["derive"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.17.0", default-features = false }

@@ -1,4 +1,6 @@
 use ::metrics::Unit;
+use std::str::FromStr;
+use strum::{AsRefStr, EnumIter, EnumString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricStability {
@@ -14,108 +16,135 @@ pub struct MetricConfig {
     pub otlp_attributes: &'static [&'static str],
 }
 
-macro_rules! define_attributes {
-    ($(($name:ident, $namespace:expr, $attr:expr)),* $(,)?) => {
-        pub mod attributes {
-            $(
-                pub const $name: &str = {
-                    if $namespace.len() == 0 {
-                        $attr
-                    } else {
-                        const_format::concatcp!($namespace, "_", $attr)
-                    }
-                };
-            )*
+#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+#[strum(serialize_all = "snake_case")]
+#[strum(prefix = "fuse.")]
+pub enum FuseMetric {
+    IdleThreads,
+    IoSize,
+    RequestFailure,
+    RequestLatency,
+}
+
+#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+#[strum(serialize_all = "snake_case")]
+#[strum(prefix = "s3.")]
+pub enum S3Metric {
+    RequestCanceled,
+    RequestCount,
+    RequestFailure,
+    RequestFirstByteLatency,
+    RequestTotalLatency,
+}
+
+#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+#[strum(serialize_all = "snake_case")]
+#[strum(prefix = "process.")]
+pub enum ProcessMetric {
+    MemoryUsage,
+}
+
+#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum Attribute {
+    FuseRequest,
+    S3Error,
+    S3Request,
+    SeekDirection,
+}
+
+pub const FUSE_REQUEST: &str = "fuse.request";
+pub const S3_REQUEST: &str = "s3.request";
+pub const S3_ERROR: &str = "s3.error";
+
+#[derive(Debug, Clone, Copy)]
+pub enum MetricGroup {
+    Fuse(FuseMetric),
+    S3(S3Metric),
+    Process(ProcessMetric),
+}
+
+impl MetricGroup {
+    pub fn parse(s: &str) -> Result<Self, strum::ParseError> {
+        if let Ok(metric) = FuseMetric::from_str(s) {
+            return Ok(MetricGroup::Fuse(metric));
         }
-    };
-}
-
-macro_rules! define_metrics {
-    ($(($name:ident, $namespace:expr, $metric:expr)),* $(,)?) => {
-        // Ideally, we should also check all generated metric names are unique
-        pub mod metrics {
-            $(
-                pub const $name: &str = const_format::concatcp!($namespace, ".", $metric);
-            )*
+        if let Ok(metric) = S3Metric::from_str(s) {
+            return Ok(MetricGroup::S3(metric));
         }
-    };
+        if let Ok(metric) = ProcessMetric::from_str(s) {
+            return Ok(MetricGroup::Process(metric));
+        }
+        Err(strum::ParseError::VariantNotFound)
+    }
 }
 
-define_attributes! {
-    (FUSE_REQUEST, "fuse", "request"),
-    (S3_ERROR, "s3", "error"),
-    (S3_REQUEST, "s3", "request"),
-    (PROCESS_METRIC, "process", "metric"),
-    (SEEK_DIRECTION, "", "seek_dir"),
-}
+pub fn lookup_config(metric_str: &str) -> MetricConfig {
+    use MetricStability::*;
+    use Unit::*;
 
-define_metrics! {
-    (FUSE_IDLE_THREADS, "fuse", "idle_threads"),
-    (FUSE_IO_SIZE, "fuse", "io_size"),
-    (FUSE_REQUEST_FAILURE, "fuse", "request_failure"),
-    (FUSE_REQUEST_LATENCY, "fuse", "request_latency"),
-
-    (S3_REQUEST_COUNT, "s3", "request_count"),
-    (S3_REQUEST_FAILURE, "s3", "request_failure"),
-    (S3_REQUEST_FIRST_BYTE_LATENCY, "s3", "first_byte_latency"),
-    (S3_REQUEST_TOTAL_LATENCY, "s3", "request_total_latency"),
-
-    (PROCESS_MEMORY_USAGE, "process", "memory_usage"),
-}
-
-pub fn lookup_config(name: &str) -> MetricConfig {
-    match name {
-        metrics::FUSE_REQUEST_LATENCY => MetricConfig {
-            unit: Unit::Milliseconds,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::FUSE_REQUEST],
+    match MetricGroup::parse(metric_str) {
+        Ok(group) => match group {
+            MetricGroup::Fuse(metric) => match metric {
+                FuseMetric::RequestLatency => MetricConfig {
+                    unit: Microseconds,
+                    stability: Stable,
+                    otlp_attributes: &[FUSE_REQUEST],
+                },
+                FuseMetric::IoSize => MetricConfig {
+                    unit: Bytes,
+                    stability: Stable,
+                    otlp_attributes: &[FUSE_REQUEST],
+                },
+                FuseMetric::RequestFailure => MetricConfig {
+                    unit: Count,
+                    stability: Stable,
+                    otlp_attributes: &[FUSE_REQUEST],
+                },
+                FuseMetric::IdleThreads => MetricConfig {
+                    unit: Count,
+                    stability: Experimental,
+                    otlp_attributes: &[FUSE_REQUEST],
+                },
+            },
+            MetricGroup::S3(metric) => match metric {
+                S3Metric::RequestCount => MetricConfig {
+                    unit: Count,
+                    stability: Stable,
+                    otlp_attributes: &[S3_REQUEST],
+                },
+                S3Metric::RequestFailure => MetricConfig {
+                    unit: Count,
+                    stability: Stable,
+                    otlp_attributes: &[S3_REQUEST, S3_ERROR],
+                },
+                S3Metric::RequestCanceled => MetricConfig {
+                    unit: Count,
+                    stability: Experimental,
+                    otlp_attributes: &[S3_REQUEST],
+                },
+                S3Metric::RequestFirstByteLatency => MetricConfig {
+                    unit: Microseconds,
+                    stability: Experimental,
+                    otlp_attributes: &[S3_REQUEST],
+                },
+                S3Metric::RequestTotalLatency => MetricConfig {
+                    unit: Microseconds,
+                    stability: Stable,
+                    otlp_attributes: &[S3_REQUEST],
+                },
+            },
+            MetricGroup::Process(metric) => match metric {
+                ProcessMetric::MemoryUsage => MetricConfig {
+                    unit: Bytes,
+                    stability: Stable,
+                    otlp_attributes: &[],
+                },
+            },
         },
-        metrics::FUSE_IO_SIZE => MetricConfig {
-            unit: Unit::Bytes,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::FUSE_REQUEST],
-        },
-        metrics::FUSE_REQUEST_FAILURE => MetricConfig {
-            unit: Unit::Count,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::FUSE_REQUEST],
-        },
-        metrics::FUSE_IDLE_THREADS => MetricConfig {
-            unit: Unit::Count,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[],
-        },
-        metrics::S3_REQUEST_COUNT => MetricConfig {
-            unit: Unit::Count,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::S3_REQUEST],
-        },
-        metrics::S3_REQUEST_FAILURE => MetricConfig {
-            unit: Unit::Count,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::S3_REQUEST, attributes::S3_ERROR],
-        },
-        metrics::S3_REQUEST_TOTAL_LATENCY => MetricConfig {
-            unit: Unit::Milliseconds,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::S3_REQUEST],
-        },
-        metrics::S3_REQUEST_FIRST_BYTE_LATENCY => MetricConfig {
-            unit: Unit::Milliseconds,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[attributes::S3_REQUEST],
-        },
-        metrics::PROCESS_MEMORY_USAGE => MetricConfig {
-            unit: Unit::Bytes,
-            stability: MetricStability::Stable,
-            otlp_attributes: &[],
-        },
-
-        // Default to Internal metrics. Unless metrics have units or attributes,
-        // this is a safe default.
-        _ => MetricConfig {
-            unit: Unit::Count,
-            stability: MetricStability::Internal,
+        Err(_) => MetricConfig {
+            unit: Count,
+            stability: Internal,
             otlp_attributes: &[],
         },
     }
