@@ -221,9 +221,12 @@ impl MetricsSink {
                 )
             };
 
-            let config = defs::lookup_config(key.name());
+            let unit = match defs::lookup_config(key.name()).unit.as_canonical_label() {
+                "" => String::new(),
+                label => format!(" ({label})"),
+            };
 
-            metrics.push(format!("{} {}{}: {}", key.name(), config.unit, labels, metric_str));
+            metrics.push(format!("{} {}{}: {}", key.name(), unit, labels, metric_str));
         }
 
         metrics.sort();
@@ -538,6 +541,7 @@ mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
     use crate::metrics_otel::OtlpMetricsExporter;
+    use metrics::Unit;
     use opentelemetry::metrics::MeterProvider as _;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
@@ -584,7 +588,7 @@ mod test_otlp_metrics {
 
         fn create_counter(&self, stability: defs::MetricStability) {
             let config = defs::MetricConfig {
-                unit: "",
+                unit: Unit::Count,
                 stability,
                 otlp_attributes: &[],
             };
@@ -613,16 +617,39 @@ mod test_otlp_metrics {
 
     #[test]
     fn test_internal_stability_no_metrics() {
-        let ctx = TestContext::new();
-        ctx.create_counter(defs::MetricStability::Internal);
-        ctx.verify_metric_name("test_metric");
+        use crate::metrics_otel::OtlpConfig;
+        use metrics::Key;
 
-        ctx.provider.force_flush().unwrap();
-        let metrics = ctx.exporter.get_finished_metrics().unwrap();
-        let resource_metrics = &metrics[0];
-        let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
-        let metrics_vec: Vec<_> = scope_metrics[0].metrics().collect();
-        assert_eq!(metrics_vec.len(), 0);
+        let otlp_config = OtlpConfig::new("http://localhost:4317");
+        let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
+
+        let counter = sink.counter(&Key::from_name("test-counter"));
+        let gauge = sink.gauge(&Key::from_name("test-gauge"));
+        let histogram = sink.histogram(&Key::from_name("test-histogram"));
+
+        counter.increment(10);
+        gauge.set(20.0);
+        for i in 0..100 {
+            histogram.record(i as f64);
+        }
+
+        // Verify OTLP methods are called as expected. We are relying on the presence of otlp_data.
+        assert_eq!(sink.metrics.len(), 3);
+
+        for entry in sink.metrics.iter() {
+            let (_key, metric) = entry.pair();
+            match metric {
+                data::Metric::Counter(counter_data) => {
+                    assert!(counter_data.otlp_data().is_none(), "counter_otlp() was called");
+                }
+                data::Metric::Gauge(gauge_data) => {
+                    assert!(gauge_data.otlp_data().is_none(), "gauge_otlp() was called");
+                }
+                data::Metric::Histogram(histogram_data) => {
+                    assert!(histogram_data.otlp_data().is_none(), "histogram_otlp() was called");
+                }
+            }
+        }
     }
 
     #[test]
@@ -679,12 +706,16 @@ mod test_otlp_metrics {
 
     #[test]
     fn test_otlp_flow() {
+        use crate::metrics_otel::OtlpConfig;
+        use metrics::Key;
+
         let otlp_config = OtlpConfig::new("http://localhost:4317");
         let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
 
-        let counter = sink.counter(&Key::from_name("test_counter"));
-        let gauge = sink.gauge(&Key::from_name("test_gauge"));
-        let histogram = sink.histogram(&Key::from_name("test_histogram"));
+        // Use predefined stable metrics instead of test_ metrics
+        let counter = sink.counter(&Key::from_name(defs::S3_REQUEST_COUNT));
+        let gauge = sink.gauge(&Key::from_name(defs::FUSE_IDLE_THREADS));
+        let histogram = sink.histogram(&Key::from_name(defs::S3_REQUEST_TOTAL_LATENCY));
 
         counter.increment(10);
         gauge.set(20.0);
@@ -692,19 +723,19 @@ mod test_otlp_metrics {
             histogram.record(i as f64);
         }
 
-        // Verify OTLP methods are called as expected
+        // Verify OTLP methods are called as expected. We are relying on the presence of otlp_data.
         assert_eq!(sink.metrics.len(), 3);
 
         for entry in sink.metrics.iter() {
             let (_key, metric) = entry.pair();
             match metric {
-                Metric::Counter(counter_data) => {
+                data::Metric::Counter(counter_data) => {
                     assert!(counter_data.otlp_data().is_some(), "counter_otlp() was not called");
                 }
-                Metric::Gauge(gauge_data) => {
+                data::Metric::Gauge(gauge_data) => {
                     assert!(gauge_data.otlp_data().is_some(), "gauge_otlp() was not called");
                 }
-                Metric::Histogram(histogram_data) => {
+                data::Metric::Histogram(histogram_data) => {
                     assert!(histogram_data.otlp_data().is_some(), "histogram_otlp() was not called");
                 }
             }

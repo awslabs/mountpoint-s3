@@ -1,3 +1,5 @@
+use metrics::Unit;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricStability {
     Stable,
@@ -7,7 +9,7 @@ pub enum MetricStability {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MetricConfig {
-    pub unit: &'static str,
+    pub unit: Unit,
     pub stability: MetricStability,
     pub otlp_attributes: &'static [&'static str],
 }
@@ -33,54 +35,68 @@ pub const S3_ERROR: &str = "s3.error";
 pub fn lookup_config(name: &str) -> MetricConfig {
     match name {
         FUSE_REQUEST_LATENCY => MetricConfig {
-            unit: "us",
+            unit: Unit::Milliseconds,
             stability: MetricStability::Stable,
             otlp_attributes: &[FUSE_REQUEST],
         },
         FUSE_IO_SIZE => MetricConfig {
-            unit: "By",
+            unit: Unit::Bytes,
             stability: MetricStability::Stable,
             otlp_attributes: &[FUSE_REQUEST],
         },
         FUSE_REQUEST_FAILURE => MetricConfig {
-            unit: "",
+            unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[FUSE_REQUEST],
         },
         FUSE_IDLE_THREADS => MetricConfig {
-            unit: "",
+            unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[],
         },
         S3_REQUEST_COUNT => MetricConfig {
-            unit: "",
+            unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[S3_REQUEST],
         },
         S3_REQUEST_FAILURE => MetricConfig {
-            unit: "",
+            unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[S3_REQUEST, S3_ERROR],
         },
         S3_REQUEST_TOTAL_LATENCY => MetricConfig {
-            unit: "us",
+            unit: Unit::Microseconds,
             stability: MetricStability::Stable,
             otlp_attributes: &[S3_REQUEST],
         },
         S3_REQUEST_FIRST_BYTE_LATENCY => MetricConfig {
-            unit: "us",
+            unit: Unit::Microseconds,
             stability: MetricStability::Stable,
             otlp_attributes: &[S3_REQUEST],
         },
         PROCESS_MEMORY_USAGE => MetricConfig {
-            unit: "By",
+            unit: Unit::Bytes,
             stability: MetricStability::Stable,
             otlp_attributes: &[],
         },
+        // Treat everything else as count metrics
         _ => MetricConfig {
-            unit: "",
+            unit: Unit::Count,
             stability: MetricStability::Internal,
             otlp_attributes: &[],
         },
+    }
+}
+
+pub fn to_ucum(unit: Unit) -> &'static str {
+    match unit {
+        Unit::Nanoseconds => "ns",
+        Unit::Microseconds => "us",
+        Unit::Milliseconds => "ms",
+        Unit::Seconds => "s",
+        Unit::Bytes => "By",
+        Unit::Count => "1",
+        // Default everything else to Count
+        _ => "1",
     }
 }
