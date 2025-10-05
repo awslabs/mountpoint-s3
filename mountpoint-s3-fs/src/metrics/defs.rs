@@ -1,4 +1,4 @@
-use metrics::Unit;
+use ::metrics::Unit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricStability {
@@ -14,72 +14,105 @@ pub struct MetricConfig {
     pub otlp_attributes: &'static [&'static str],
 }
 
-// Metric name constants
-pub const FUSE_REQUEST_LATENCY: &str = "fuse.request_latency";
-pub const FUSE_IO_SIZE: &str = "fuse.io_size";
-pub const FUSE_REQUEST_FAILURE: &str = "fuse.request_failure";
-pub const FUSE_IDLE_THREADS: &str = "fuse.idle_threads";
+macro_rules! define_attributes {
+    ($(($name:ident, $namespace:expr, $attr:expr)),* $(,)?) => {
+        pub mod attributes {
+            $(
+                pub const $name: &str = {
+                    if $namespace.len() == 0 {
+                        $attr
+                    } else {
+                        const_format::concatcp!($namespace, "_", $attr)
+                    }
+                };
+            )*
+        }
+    };
+}
 
-pub const S3_REQUEST_COUNT: &str = "s3.request_count";
-pub const S3_REQUEST_FAILURE: &str = "s3.request_failure";
-pub const S3_REQUEST_TOTAL_LATENCY: &str = "s3.request_total_latency";
-pub const S3_REQUEST_FIRST_BYTE_LATENCY: &str = "s3.request_first_byte_latency";
+macro_rules! define_metrics {
+    ($(($name:ident, $namespace:expr, $metric:expr)),* $(,)?) => {
+        // Ideally, we should also check all generated metric names are unique
+        pub mod metrics {
+            $(
+                pub const $name: &str = const_format::concatcp!($namespace, ".", $metric);
+            )*
+        }
+    };
+}
 
-pub const PROCESS_MEMORY_USAGE: &str = "process.memory_usage";
+define_attributes! {
+    (FUSE_REQUEST, "fuse", "request"),
+    (S3_ERROR, "s3", "error"),
+    (S3_REQUEST, "s3", "request"),
+    (PROCESS_METRIC, "process", "metric"),
+    (SEEK_DIRECTION, "", "seek_dir"),
+}
 
-// Attribute constants
-pub const FUSE_REQUEST: &str = "fuse.request";
-pub const S3_REQUEST: &str = "s3.request";
-pub const S3_ERROR: &str = "s3.error";
+define_metrics! {
+    (FUSE_IDLE_THREADS, "fuse", "idle_threads"),
+    (FUSE_IO_SIZE, "fuse", "io_size"),
+    (FUSE_REQUEST_FAILURE, "fuse", "request_failure"),
+    (FUSE_REQUEST_LATENCY, "fuse", "request_latency"),
+
+    (S3_REQUEST_COUNT, "s3", "request_count"),
+    (S3_REQUEST_FAILURE, "s3", "request_failure"),
+    (S3_REQUEST_FIRST_BYTE_LATENCY, "s3", "first_byte_latency"),
+    (S3_REQUEST_TOTAL_LATENCY, "s3", "request_total_latency"),
+
+    (PROCESS_MEMORY_USAGE, "process", "memory_usage"),
+}
 
 pub fn lookup_config(name: &str) -> MetricConfig {
     match name {
-        FUSE_REQUEST_LATENCY => MetricConfig {
+        metrics::FUSE_REQUEST_LATENCY => MetricConfig {
             unit: Unit::Milliseconds,
             stability: MetricStability::Stable,
-            otlp_attributes: &[FUSE_REQUEST],
+            otlp_attributes: &[attributes::FUSE_REQUEST],
         },
-        FUSE_IO_SIZE => MetricConfig {
+        metrics::FUSE_IO_SIZE => MetricConfig {
             unit: Unit::Bytes,
             stability: MetricStability::Stable,
-            otlp_attributes: &[FUSE_REQUEST],
+            otlp_attributes: &[attributes::FUSE_REQUEST],
         },
-        FUSE_REQUEST_FAILURE => MetricConfig {
+        metrics::FUSE_REQUEST_FAILURE => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
-            otlp_attributes: &[FUSE_REQUEST],
+            otlp_attributes: &[attributes::FUSE_REQUEST],
         },
-        FUSE_IDLE_THREADS => MetricConfig {
+        metrics::FUSE_IDLE_THREADS => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[],
         },
-        S3_REQUEST_COUNT => MetricConfig {
+        metrics::S3_REQUEST_COUNT => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST],
+            otlp_attributes: &[attributes::S3_REQUEST],
         },
-        S3_REQUEST_FAILURE => MetricConfig {
+        metrics::S3_REQUEST_FAILURE => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST, S3_ERROR],
+            otlp_attributes: &[attributes::S3_REQUEST, attributes::S3_ERROR],
         },
-        S3_REQUEST_TOTAL_LATENCY => MetricConfig {
-            unit: Unit::Microseconds,
+        metrics::S3_REQUEST_TOTAL_LATENCY => MetricConfig {
+            unit: Unit::Milliseconds,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST],
+            otlp_attributes: &[attributes::S3_REQUEST],
         },
-        S3_REQUEST_FIRST_BYTE_LATENCY => MetricConfig {
-            unit: Unit::Microseconds,
+        metrics::S3_REQUEST_FIRST_BYTE_LATENCY => MetricConfig {
+            unit: Unit::Milliseconds,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST],
+            otlp_attributes: &[attributes::S3_REQUEST],
         },
-        PROCESS_MEMORY_USAGE => MetricConfig {
+        metrics::PROCESS_MEMORY_USAGE => MetricConfig {
             unit: Unit::Bytes,
             stability: MetricStability::Stable,
             otlp_attributes: &[],
         },
-        // Treat everything else as count metrics
+
+        // Default to Internal metrics. Unless metrics have units or attributes,
+        // this is a safe default.
         _ => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Internal,
@@ -96,7 +129,6 @@ pub fn to_ucum(unit: Unit) -> &'static str {
         Unit::Seconds => "s",
         Unit::Bytes => "By",
         Unit::Count => "1",
-        // Default everything else to Count
         _ => "1",
     }
 }

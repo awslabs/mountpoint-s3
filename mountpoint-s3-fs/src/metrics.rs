@@ -432,6 +432,7 @@ mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
     use crate::metrics_otel::OtlpMetricsExporter;
+    use defs::{attributes, metrics as mp_metrics};
     use metrics::Unit;
     use opentelemetry::metrics::MeterProvider as _;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
@@ -547,16 +548,18 @@ mod test_otlp_metrics {
     fn test_attribute_filtering() {
         let ctx = TestContext::new();
 
+        // Ideally, we should install a test configuration. For now, use actual
+        // metric names and attributest to test.
         let key = Key::from_parts(
             "s3.request_failure",
             vec![
-                metrics::Label::new("s3.request", "GetObject"),
-                metrics::Label::new("s3.error", "NoSuchKey"),
+                metrics::Label::new(attributes::S3_REQUEST, "GetObject"),
+                metrics::Label::new(attributes::S3_ERROR, "NoSuchKey"),
                 metrics::Label::new("some-attribute", "some-value"),
             ],
         );
 
-        let config = defs::lookup_config("s3.request_failure");
+        let config = defs::lookup_config(mp_metrics::S3_REQUEST_FAILURE);
         let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
 
         if let Metric::Counter(counter_impl) = counter {
@@ -572,7 +575,7 @@ mod test_otlp_metrics {
         let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
         let metric = scope_metrics[0]
             .metrics()
-            .find(|m| m.name() == "s3.request_failure")
+            .find(|m| m.name() == mp_metrics::S3_REQUEST_FAILURE)
             .unwrap();
 
         match metric.data() {
@@ -585,8 +588,8 @@ mod test_otlp_metrics {
                     assert_eq!(attributes.len(), 2);
                     let attr_keys: Vec<&str> = attributes.iter().map(|kv| kv.key.as_str()).collect();
 
-                    assert!(attr_keys.contains(&"s3.request"));
-                    assert!(attr_keys.contains(&"s3.error"));
+                    assert!(attr_keys.contains(&attributes::S3_REQUEST));
+                    assert!(attr_keys.contains(&attributes::S3_ERROR));
                     assert!(!attr_keys.contains(&"random-attribute"));
                 }
                 _ => panic!("Expected Sum data"),
@@ -604,9 +607,9 @@ mod test_otlp_metrics {
         let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
 
         // Use predefined stable metrics instead of test_ metrics
-        let counter = sink.counter(&Key::from_name(defs::S3_REQUEST_COUNT));
-        let gauge = sink.gauge(&Key::from_name(defs::FUSE_IDLE_THREADS));
-        let histogram = sink.histogram(&Key::from_name(defs::S3_REQUEST_TOTAL_LATENCY));
+        let counter = sink.counter(&Key::from_name(mp_metrics::S3_REQUEST_COUNT));
+        let gauge = sink.gauge(&Key::from_name(mp_metrics::FUSE_IDLE_THREADS));
+        let histogram = sink.histogram(&Key::from_name(mp_metrics::S3_REQUEST_TOTAL_LATENCY));
 
         counter.increment(10);
         gauge.set(20.0);
