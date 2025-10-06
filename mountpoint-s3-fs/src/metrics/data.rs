@@ -9,7 +9,7 @@ use crate::metrics_otel::OtlpMetricsExporter;
 use opentelemetry::KeyValue;
 
 #[cfg(feature = "otlp_integration")]
-fn filter_attributes(labels: &metrics::Key, allowed: &[&str]) -> Vec<KeyValue> {
+fn filter_attributes(labels: &metrics::Key, allowed: &Vec<&str>) -> Vec<KeyValue> {
     labels
         .labels()
         .filter(|label| allowed.contains(&label.key()))
@@ -50,7 +50,7 @@ impl Metric {
 
     #[cfg(feature = "otlp_integration")]
     pub fn counter_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
-        let filtered_attributes = filter_attributes(key, config.otlp_attributes);
+        let filtered_attributes = filter_attributes(key, &config.otlp_attributes);
         let instrument = exporter.create_counter_instrument(key.name(), config.unit, config.stability);
         Self::Counter(Arc::new(ValueAndCount::with_otlp(instrument, filtered_attributes)))
     }
@@ -68,7 +68,7 @@ impl Metric {
 
     #[cfg(feature = "otlp_integration")]
     pub fn gauge_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
-        let filtered_attributes = filter_attributes(key, config.otlp_attributes);
+        let filtered_attributes = filter_attributes(key, &config.otlp_attributes);
         let instrument = exporter.create_gauge_instrument(key.name(), config.unit, config.stability);
         Self::Gauge(Arc::new(AtomicGauge::with_otlp(instrument, filtered_attributes)))
     }
@@ -86,7 +86,7 @@ impl Metric {
 
     #[cfg(feature = "otlp_integration")]
     pub fn histogram_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
-        let filtered_attributes = filter_attributes(key, config.otlp_attributes);
+        let filtered_attributes = filter_attributes(key, &config.otlp_attributes);
         let instrument = exporter.create_histogram_instrument(key.name(), config.unit, config.stability);
         Self::Histogram(Arc::new(Histogram::with_otlp(instrument, filtered_attributes)))
     }
@@ -331,7 +331,7 @@ mod tests {
             vec![Label::new("op", "read"), Label::new("status", "success")],
         );
 
-        let attributes = filter_attributes(&key, &["op", "status"]);
+        let attributes = filter_attributes(&key, &["op", "status"].to_vec());
 
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0].key.as_str(), "op");

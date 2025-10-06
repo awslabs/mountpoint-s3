@@ -8,7 +8,7 @@ pub use crate::metrics_otel::OtlpConfig;
 #[cfg(feature = "otlp_integration")]
 use crate::metrics_otel::OtlpMetricsExporter;
 #[cfg(feature = "otlp_integration")]
-use defs::{MetricStability, lookup_config};
+use defs::{MetricStability, lookup_config, to_rust_unit};
 
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -221,9 +221,17 @@ impl MetricsSink {
                 )
             };
 
-            let unit = match defs::lookup_config(key.name()).unit.as_canonical_label() {
-                "" => String::new(),
-                label => format!(" ({label})"),
+            let unit = {
+                #[cfg(feature = "otlp_integration")]
+                {
+                    let config = defs::lookup_config(key.name());
+                    match to_rust_unit(config.unit).as_canonical_label() {
+                        "" => String::new(),
+                        label => format!(" ({label})"),
+                    }
+                }
+                #[cfg(not(feature = "otlp_integration"))]
+                String::new()
             };
 
             metrics.push(format!("{} {}{}: {}", key.name(), unit, labels, metric_str));
@@ -431,9 +439,9 @@ mod tests {
 mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
+    use crate::metrics::defs::metric_defs;
     use crate::metrics_otel::OtlpMetricsExporter;
-    use defs::{MetricAttribute, FuseMetric, S3Metric, lookup_config};
-    use metrics::Unit;
+    use defs::{FuseMetric, S3Metric, lookup_config};
     use opentelemetry::metrics::MeterProvider as _;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
@@ -480,9 +488,9 @@ mod test_otlp_metrics {
 
         fn create_counter(&self, stability: defs::MetricStability) {
             let config = defs::MetricConfig {
-                unit: Unit::Count,
+                unit: metric_defs::UNIT_COUNT,
                 stability,
-                otlp_attributes: &[],
+                otlp_attributes: [].into(),
             };
             let counter = Metric::counter_otlp(&self.otlp_exporter, &Key::from_name("test_metric"), &config);
 
@@ -553,8 +561,8 @@ mod test_otlp_metrics {
         let key = Key::from_parts(
             S3Metric::RequestFailure.as_ref(),
             vec![
-                metrics::Label::new(MetricAttribute::S3Request.as_ref(), "GetObject"),
-                metrics::Label::new(MetricAttribute::S3Error.as_ref(), "NoSuchKey"),
+                metrics::Label::new(metric_defs::ATTR_S3_REQUEST, "GetObject"),
+                metrics::Label::new(metric_defs::ATTR_S3_ERROR, "NoSuchKey"),
                 metrics::Label::new("some-attribute", "some-value"),
             ],
         );
