@@ -1,14 +1,14 @@
 use ::metrics::Unit;
 use std::str::FromStr;
-use strum::{AsRefStr, EnumIter, EnumString};
+use strum::{AsRefStr, Display, EnumIter, EnumString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum MetricStability {
     Stable,
     Experimental,
     Internal,
 }
-
 #[derive(Debug, Clone, Copy)]
 pub struct MetricConfig {
     pub unit: Unit,
@@ -16,7 +16,25 @@ pub struct MetricConfig {
     pub otlp_attributes: &'static [&'static str],
 }
 
-#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+#[derive(Debug, Clone, Copy, Display, AsRefStr, EnumIter, EnumString, PartialEq)]
+#[strum(serialize_all = "snake_case")]
+pub enum MetricAttribute {
+    FuseRequest,
+    S3Request,
+    S3Error,
+}
+
+impl MetricAttribute {
+    pub fn get_attributes(&self) -> &'static [&'static str] {
+        match self {
+            Self::FuseRequest => &["fuse_request"],
+            Self::S3Request => &["s3_request"],
+            Self::S3Error => &["s3_request", "s3_error"],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Display, AsRefStr, EnumIter, EnumString, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 #[strum(prefix = "fuse.")]
 pub enum FuseMetric {
@@ -26,7 +44,34 @@ pub enum FuseMetric {
     RequestLatency,
 }
 
-#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+impl FuseMetric {
+    fn get_config(&self) -> MetricConfig {
+        match self {
+            Self::IdleThreads => MetricConfig {
+                stability: MetricStability::Experimental,
+                unit: Unit::Count,
+                otlp_attributes: &["fuse_request"],
+            },
+            Self::IoSize => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Bytes,
+                otlp_attributes: &["fuse_request"],
+            },
+            Self::RequestFailure => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Count,
+                otlp_attributes: &["fuse_request"],
+            },
+            Self::RequestLatency => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Microseconds,
+                otlp_attributes: &["fuse_request"],
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Display, AsRefStr, EnumIter, EnumString, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 #[strum(prefix = "s3.")]
 pub enum S3Metric {
@@ -37,27 +82,58 @@ pub enum S3Metric {
     RequestTotalLatency,
 }
 
-#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
+impl S3Metric {
+    fn get_config(&self) -> MetricConfig {
+        match self {
+            Self::RequestCanceled => MetricConfig {
+                stability: MetricStability::Experimental,
+                unit: Unit::Count,
+                otlp_attributes: &["s3_request"],
+            },
+            Self::RequestCount => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Count,
+                otlp_attributes: &["s3_request"],
+            },
+            Self::RequestFailure => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Count,
+                otlp_attributes: &["s3_request", "s3_error"],
+            },
+            Self::RequestFirstByteLatency => MetricConfig {
+                stability: MetricStability::Experimental,
+                unit: Unit::Microseconds,
+                otlp_attributes: &["s3_request"],
+            },
+            Self::RequestTotalLatency => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Microseconds,
+                otlp_attributes: &["s3_request"],
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Display, AsRefStr, EnumIter, EnumString, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 #[strum(prefix = "process.")]
 pub enum ProcessMetric {
     MemoryUsage,
 }
 
-#[derive(Debug, Clone, Copy, AsRefStr, EnumIter, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum Attribute {
-    FuseRequest,
-    S3Error,
-    S3Request,
-    SeekDirection,
+impl ProcessMetric {
+    fn get_config(&self) -> MetricConfig {
+        match self {
+            Self::MemoryUsage => MetricConfig {
+                stability: MetricStability::Stable,
+                unit: Unit::Bytes,
+                otlp_attributes: &[],
+            },
+        }
+    }
 }
 
-pub const FUSE_REQUEST: &str = "fuse.request";
-pub const S3_REQUEST: &str = "s3.request";
-pub const S3_ERROR: &str = "s3.error";
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Display, Clone, Copy, PartialEq)]
 pub enum MetricGroup {
     Fuse(FuseMetric),
     S3(S3Metric),
@@ -66,85 +142,34 @@ pub enum MetricGroup {
 
 impl MetricGroup {
     pub fn parse(s: &str) -> Result<Self, strum::ParseError> {
-        if let Ok(metric) = FuseMetric::from_str(s) {
-            return Ok(MetricGroup::Fuse(metric));
+        match s {
+            s if s.starts_with("fuse.") => {
+                let without_prefix = s.strip_prefix("fuse.").unwrap();
+                FuseMetric::from_str(without_prefix).map(MetricGroup::Fuse)
+            }
+            s if s.starts_with("s3.") => {
+                let without_prefix = s.strip_prefix("s3.").unwrap();
+                S3Metric::from_str(without_prefix).map(MetricGroup::S3)
+            }
+            s if s.starts_with("process.") => {
+                let without_prefix = s.strip_prefix("process.").unwrap();
+                ProcessMetric::from_str(without_prefix).map(MetricGroup::Process)
+            }
+            _ => Err(strum::ParseError::VariantNotFound),
         }
-        if let Ok(metric) = S3Metric::from_str(s) {
-            return Ok(MetricGroup::S3(metric));
-        }
-        if let Ok(metric) = ProcessMetric::from_str(s) {
-            return Ok(MetricGroup::Process(metric));
-        }
-        Err(strum::ParseError::VariantNotFound)
     }
 }
 
 pub fn lookup_config(metric_str: &str) -> MetricConfig {
-    use MetricStability::*;
-    use Unit::*;
-
     match MetricGroup::parse(metric_str) {
         Ok(group) => match group {
-            MetricGroup::Fuse(metric) => match metric {
-                FuseMetric::RequestLatency => MetricConfig {
-                    unit: Microseconds,
-                    stability: Stable,
-                    otlp_attributes: &[FUSE_REQUEST],
-                },
-                FuseMetric::IoSize => MetricConfig {
-                    unit: Bytes,
-                    stability: Stable,
-                    otlp_attributes: &[FUSE_REQUEST],
-                },
-                FuseMetric::RequestFailure => MetricConfig {
-                    unit: Count,
-                    stability: Stable,
-                    otlp_attributes: &[FUSE_REQUEST],
-                },
-                FuseMetric::IdleThreads => MetricConfig {
-                    unit: Count,
-                    stability: Experimental,
-                    otlp_attributes: &[FUSE_REQUEST],
-                },
-            },
-            MetricGroup::S3(metric) => match metric {
-                S3Metric::RequestCount => MetricConfig {
-                    unit: Count,
-                    stability: Stable,
-                    otlp_attributes: &[S3_REQUEST],
-                },
-                S3Metric::RequestFailure => MetricConfig {
-                    unit: Count,
-                    stability: Stable,
-                    otlp_attributes: &[S3_REQUEST, S3_ERROR],
-                },
-                S3Metric::RequestCanceled => MetricConfig {
-                    unit: Count,
-                    stability: Experimental,
-                    otlp_attributes: &[S3_REQUEST],
-                },
-                S3Metric::RequestFirstByteLatency => MetricConfig {
-                    unit: Microseconds,
-                    stability: Experimental,
-                    otlp_attributes: &[S3_REQUEST],
-                },
-                S3Metric::RequestTotalLatency => MetricConfig {
-                    unit: Microseconds,
-                    stability: Stable,
-                    otlp_attributes: &[S3_REQUEST],
-                },
-            },
-            MetricGroup::Process(metric) => match metric {
-                ProcessMetric::MemoryUsage => MetricConfig {
-                    unit: Bytes,
-                    stability: Stable,
-                    otlp_attributes: &[],
-                },
-            },
+            MetricGroup::Fuse(metric) => metric.get_config(),
+            MetricGroup::S3(metric) => metric.get_config(),
+            MetricGroup::Process(metric) => metric.get_config(),
         },
         Err(_) => MetricConfig {
-            unit: Count,
-            stability: Internal,
+            unit: Unit::Count,
+            stability: MetricStability::Internal,
             otlp_attributes: &[],
         },
     }
@@ -159,5 +184,53 @@ pub fn to_ucum(unit: Unit) -> &'static str {
         Unit::Bytes => "By",
         Unit::Count => "1",
         _ => "1",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strum_strings() {
+        let metric = S3Metric::RequestCount;
+        assert_eq!(metric.to_string(), "s3.request_count");
+        
+        let parsed = MetricGroup::parse("s3.request_count");
+        assert!(parsed.is_ok());
+        if let Ok(MetricGroup::S3(metric)) = parsed {
+            assert_eq!(metric, S3Metric::RequestCount);
+        }
+    }
+
+    #[test]
+    fn test_metric_properties() {
+        let config = S3Metric::RequestCount.get_config();
+        assert_eq!(config.stability, MetricStability::Stable);
+        assert_eq!(config.unit, Unit::Count);
+        assert_eq!(config.otlp_attributes, &["s3_request"]);
+
+        let config = FuseMetric::RequestLatency.get_config();
+        assert_eq!(config.stability, MetricStability::Stable);
+        assert_eq!(config.unit, Unit::Microseconds);
+        assert_eq!(config.otlp_attributes, &["fuse_request"]);
+
+        let config = ProcessMetric::MemoryUsage.get_config();
+        assert_eq!(config.stability, MetricStability::Stable);
+        assert_eq!(config.unit, Unit::Bytes);
+        assert_eq!(config.otlp_attributes, &[] as &[&str]);
+    }
+
+    #[test]
+    fn test_lookup_config() {
+        let config = lookup_config("s3.request_count");
+        assert_eq!(config.stability, MetricStability::Stable);
+        assert_eq!(config.unit, Unit::Count);
+        assert_eq!(config.otlp_attributes, &["s3_request"]);
+
+        let config = lookup_config("invalid.metric");
+        assert_eq!(config.stability, MetricStability::Internal);
+        assert_eq!(config.unit, Unit::Count);
+        assert_eq!(config.otlp_attributes, &[] as &[&str]);
     }
 }

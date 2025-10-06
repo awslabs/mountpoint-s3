@@ -8,7 +8,7 @@ pub use crate::metrics_otel::OtlpConfig;
 #[cfg(feature = "otlp_integration")]
 use crate::metrics_otel::OtlpMetricsExporter;
 #[cfg(feature = "otlp_integration")]
-use defs::MetricStability;
+use defs::{MetricStability, lookup_config};
 
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -156,7 +156,7 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                let config = defs::lookup_config(key.name());
+                let config = lookup_config(key.name());
                 if config.stability != MetricStability::Internal {
                     return Metric::counter_otlp(exporter, key, &config);
                 }
@@ -170,7 +170,7 @@ impl MetricsSink {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
             #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
-                let config = defs::lookup_config(key.name());
+                let config = lookup_config(key.name());
                 if config.stability != MetricStability::Internal {
                     return Metric::gauge_otlp(exporter, key, &config);
                 }
@@ -432,7 +432,7 @@ mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
     use crate::metrics_otel::OtlpMetricsExporter;
-    use defs::{Attribute, FuseMetric, S3Metric};
+    use defs::{MetricAttribute, FuseMetric, S3Metric, lookup_config};
     use metrics::Unit;
     use opentelemetry::metrics::MeterProvider as _;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
@@ -553,13 +553,13 @@ mod test_otlp_metrics {
         let key = Key::from_parts(
             S3Metric::RequestFailure.as_ref(),
             vec![
-                metrics::Label::new(Attribute::S3Request.as_ref(), "GetObject"),
-                metrics::Label::new(Attribute::S3Error.as_ref(), "NoSuchKey"),
+                metrics::Label::new(MetricAttribute::S3Request.as_ref(), "GetObject"),
+                metrics::Label::new(MetricAttribute::S3Error.as_ref(), "NoSuchKey"),
                 metrics::Label::new("some-attribute", "some-value"),
             ],
         );
 
-        let config = defs::lookup_config(S3Metric::RequestFailure.as_ref());
+        let config = lookup_config(S3Metric::RequestFailure.as_ref());
         let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
 
         if let Metric::Counter(counter_impl) = counter {
@@ -606,7 +606,7 @@ mod test_otlp_metrics {
         let otlp_config = OtlpConfig::new("http://localhost:4317");
         let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
 
-        // Use predefined stable metrics instead of test_ metrics
+        // Use predefined stable metrics until we have a better way to test these
         let counter = sink.counter(&Key::from_name(S3Metric::RequestCount.as_ref()));
         let gauge = sink.gauge(&Key::from_name(FuseMetric::IdleThreads.as_ref()));
         let histogram = sink.histogram(&Key::from_name(S3Metric::RequestTotalLatency.as_ref()));
