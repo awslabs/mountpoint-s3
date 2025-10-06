@@ -5,8 +5,7 @@ use mountpoint_s3_fs::s3::S3Personality;
 #[cfg(target_os = "linux")]
 use nix::fcntl::RenameFlags;
 use rand::Rng;
-use rand::distributions::Alphanumeric;
-use rand::thread_rng;
+use rand::distr::Alphanumeric;
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::ffi::CString;
@@ -1844,7 +1843,7 @@ fn rename_dest_open_for_reading_s3(prefix: &str) {
 }
 
 fn generate_random_filename() -> String {
-    thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(8) // 8 character filenames
         .map(char::from)
@@ -1852,7 +1851,7 @@ fn generate_random_filename() -> String {
 }
 
 fn generate_random_path(max_depth: usize) -> PathBuf {
-    let depth = thread_rng().gen_range(2..=max_depth);
+    let depth = rand::rng().random_range(2..=max_depth);
     let mut path = PathBuf::new();
     for _ in 0..depth {
         path.push(generate_random_filename());
@@ -1916,11 +1915,11 @@ where
         if i % 50 == 0 {
             info!("Completed {} renames...", i);
         }
-        let source_idx = thread_rng().gen_range(0..files.len());
+        let source_idx = rand::rng().random_range(0..files.len());
         let (source_path, _) = &files[source_idx];
 
         // Different types of rename operations with weighted probabilities
-        let new_path = match thread_rng().gen_range(0..100) {
+        let new_path = match rand::rng().random_range(0..100) {
             0..=40 => {
                 // 40% chance: Same directory, new name
                 source_path.with_file_name(format!("{}.txt", generate_random_filename()))

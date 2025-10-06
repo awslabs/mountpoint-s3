@@ -1964,7 +1964,7 @@ mod tests {
         // Stream randomly sized parts into put_object_request.
         let mut next_offset = 0;
         while next_offset < obj.len() {
-            let part_size = rng.gen_range(0..=obj.len() - next_offset);
+            let part_size = rng.random_range(0..=obj.len() - next_offset);
             let result = obj.read(next_offset as u64, part_size);
             next_offset += part_size;
             put_request.write(&result).await.unwrap();
@@ -2063,7 +2063,7 @@ mod tests {
         // Stream randomly sized parts into put_object_request.
         let mut next_offset = 0;
         while next_offset < obj.len() {
-            let part_size = rng.gen_range(0..=obj.len() - next_offset);
+            let part_size = rng.random_range(0..=obj.len() - next_offset);
             let result = obj.read(next_offset as u64, part_size);
             next_offset += part_size;
             put_request.write(&result).await.unwrap();

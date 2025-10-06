@@ -13,7 +13,6 @@ use std::path::Path;
 use std::{fs::File, io::Read};
 
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 use test_case::test_case;
 use walkdir::WalkDir;
 
@@ -493,7 +492,7 @@ fn test_unsorted_manifest(lookup: bool, sorted: bool) {
     ];
     let mut manifest_keys = all_files_sorted.clone();
     if !sorted {
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
         manifest_keys.shuffle(&mut rng);
     }
     let (_tmp_dir, db_path) =

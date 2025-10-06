@@ -334,7 +334,7 @@ mod tests {
             for i in 0..num_threads {
                 let pool = pool.clone();
                 scope.spawn(move || {
-                    let len = rand::thread_rng().gen_range(1..original.len());
+                    let len = rand::rng().random_range(1..original.len());
                     let original = &original[..len];
                     let bytes = copy_from_slice(&pool, &original[..len]);
                     assert_eq!(original, bytes.deref());

@@ -78,8 +78,8 @@ pub fn record_name(name: &str) {
 pub fn prepare_log_file_name(log_directory: &Path) -> PathBuf {
     let timestamp = log_file_name_time_suffix();
 
-    let random_suffix: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
+    let random_suffix: String = rand::rng()
+        .sample_iter(&rand::distr::Alphanumeric)
         .take(6)
         .map(char::from)
         .collect();

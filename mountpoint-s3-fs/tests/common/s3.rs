@@ -2,7 +2,7 @@ use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
-use rand::RngCore;
+use rand::TryRngCore;
 use rand_chacha::rand_core::OsRng;
 
 use crate::common::tokio_block_on;
@@ -21,7 +21,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
 
 pub fn get_test_prefix(test_name: &str) -> String {
     // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
+    let nonce = OsRng.try_next_u64().unwrap();
 
     // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));

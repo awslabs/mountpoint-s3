@@ -28,7 +28,7 @@ async fn test_put_object(
     key: &str,
     request_params: PutObjectParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -94,7 +94,7 @@ async fn test_put_object_multi_part(
     key: &str,
     request_params: PutObjectParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = [0u8; 32];
     rng.fill(&mut contents[..]);
@@ -133,7 +133,7 @@ async fn test_put_object_large(
     key: &str,
     request_params: PutObjectParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     const OBJECT_SIZE: usize = 32 * 1024 * 1024;
     const CHUNK_SIZE: usize = 1024 * 1024 + 1;
@@ -168,7 +168,7 @@ object_client_test!(test_put_object_large);
 
 // Test for dropped PUT object. Checks that the GET fails.
 async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -196,7 +196,7 @@ async fn test_put_object_abort(size: usize) {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; size];
     rng.fill(&mut contents[..]);
 
@@ -322,7 +322,7 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     );
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
@@ -438,7 +438,7 @@ async fn test_put_review(pass_review: bool) {
     let client = get_test_client_with_config(client_config);
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
@@ -505,7 +505,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 

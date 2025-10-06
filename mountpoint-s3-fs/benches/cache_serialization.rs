@@ -28,7 +28,7 @@ async fn read_cache_block(cache: &DiskDataCache, cache_key: &ObjectId) {
 }
 
 fn random_bytes(length: usize) -> Vec<u8> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut random_bytes = vec![0u8; length];
     rng.fill_bytes(&mut random_bytes);
     random_bytes
