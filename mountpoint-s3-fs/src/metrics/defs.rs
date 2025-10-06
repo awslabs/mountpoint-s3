@@ -4,7 +4,7 @@ use strum::{AsRefStr, Display, EnumIter, EnumProperty, EnumString};
 
 pub mod metric_defs {
     // UCUM units for OTel integration
-    //(https://opentelemetry.io/docs/specs/semconv/general/metrics/#instrument-units) 
+    //(https://opentelemetry.io/docs/specs/semconv/general/metrics/#instrument-units)
     pub const UNIT_COUNT: &str = "1";
     pub const UNIT_MICROSECONDS: &str = "us";
     pub const UNIT_BYTES: &str = "By";
@@ -52,11 +52,11 @@ trait MetricProperties: strum::EnumProperty {
                 Some(STABILITY_EXPERIMENTAL) => MetricStability::Experimental,
                 _ => MetricStability::Internal,
             },
-            unit: self.get_str(PROP_UNIT)
-                .unwrap_or(UNIT_COUNT),
-            otlp_attributes: self.get_str(PROP_METRIC_ATTR)
+            unit: self.get_str(PROP_UNIT).unwrap_or(UNIT_COUNT),
+            otlp_attributes: self
+                .get_str(PROP_METRIC_ATTR)
                 .map(|attrs| attrs.split(',').map(str::trim).collect())
-                .unwrap_or_default()
+                .unwrap_or_default(),
         }
     }
 }
@@ -66,29 +66,13 @@ trait MetricProperties: strum::EnumProperty {
 #[strum(serialize_all = "snake_case")]
 #[strum(prefix = "fuse.")]
 pub enum FuseMetric {
-    #[strum(props(
-        metric_attr = "fuse_request",
-        stability = "experimental",
-        unit = "1"
-    ))]
+    #[strum(props(metric_attr = "fuse_request", stability = "experimental", unit = "1"))]
     IdleThreads,
-    #[strum(props(
-        metric_attr = "fuse_request",
-        stability = "stable",
-        unit = "By"
-    ))]
+    #[strum(props(metric_attr = "fuse_request", stability = "stable", unit = "By"))]
     IoSize,
-    #[strum(props(
-        metric_attr = "fuse_request",
-        stability = "stable",
-        unit = "1"
-    ))]
+    #[strum(props(metric_attr = "fuse_request", stability = "stable", unit = "1"))]
     RequestFailure,
-    #[strum(props(
-        metric_attr = "fuse_request",
-        stability = "stable",
-        unit = "us"
-    ))]
+    #[strum(props(metric_attr = "fuse_request", stability = "stable", unit = "us"))]
     RequestLatency,
 }
 
@@ -97,35 +81,15 @@ pub enum FuseMetric {
 #[strum(serialize_all = "snake_case")]
 #[strum(prefix = "s3.")]
 pub enum S3Metric {
-    #[strum(props(
-        metric_attr = "s3_request",
-        stability = "experimental",
-        unit = "1"
-    ))]
+    #[strum(props(metric_attr = "s3_request", stability = "experimental", unit = "1"))]
     RequestCanceled,
-    #[strum(props(
-        metric_attr = "s3_request",
-        stability = "stable",
-        unit = "1"
-    ))]
+    #[strum(props(metric_attr = "s3_request", stability = "stable", unit = "1"))]
     RequestCount,
-    #[strum(props(
-        metric_attr = "s3_request,s3_error",
-        stability = "stable",
-        unit = "1"
-    ))]
+    #[strum(props(metric_attr = "s3_request,s3_error", stability = "stable", unit = "1"))]
     RequestFailure,
-    #[strum(props(
-        metric_attr = "s3_request",
-        stability = "experimental",
-        unit = "us"
-    ))]
+    #[strum(props(metric_attr = "s3_request", stability = "experimental", unit = "us"))]
     RequestFirstByteLatency,
-    #[strum(props(
-        metric_attr = "s3_request",
-        stability = "stable",
-        unit = "us"
-    ))]
+    #[strum(props(metric_attr = "s3_request", stability = "stable", unit = "us"))]
     RequestTotalLatency,
 }
 
@@ -134,10 +98,7 @@ pub enum S3Metric {
 #[strum(serialize_all = "snake_case")]
 #[strum(prefix = "process.")]
 pub enum ProcessMetric {
-    #[strum(props(
-        stability = "stable",
-        unit = "By"
-    ))]
+    #[strum(props(stability = "stable", unit = "By"))]
     MemoryUsage,
 }
 
@@ -156,16 +117,11 @@ impl MetricGroup {
     pub fn parse(s: &str) -> Result<Self, strum::ParseError> {
         match s {
             s if s.starts_with("fuse.") => {
-                FuseMetric::from_str(s.strip_prefix("fuse.").unwrap())
-                    .map(MetricGroup::Fuse)
+                FuseMetric::from_str(s.strip_prefix("fuse.").unwrap()).map(MetricGroup::Fuse)
             }
-            s if s.starts_with("s3.") => {
-                S3Metric::from_str(s.strip_prefix("s3.").unwrap())
-                    .map(MetricGroup::S3)
-            }
+            s if s.starts_with("s3.") => S3Metric::from_str(s.strip_prefix("s3.").unwrap()).map(MetricGroup::S3),
             s if s.starts_with("process.") => {
-                ProcessMetric::from_str(s.strip_prefix("process.").unwrap())
-                    .map(MetricGroup::Process)
+                ProcessMetric::from_str(s.strip_prefix("process.").unwrap()).map(MetricGroup::Process)
             }
             _ => Err(strum::ParseError::VariantNotFound),
         }
