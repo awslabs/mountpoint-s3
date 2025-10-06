@@ -89,7 +89,8 @@ jobs:
     - name: Build tests
       run: cargo test --no-run
     - name: Run tests
-      run: cargo test -- --skip=mnt::test::mount_unmount
+      # Skip `mountpoint-s3-fuser` tests on macOS.
+      run: cargo test --workspace --exclude mountpoint-s3-fuser
 
   check:
     name: Check all targets
