@@ -97,7 +97,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
@@ -157,7 +157,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
@@ -204,7 +204,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-          # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+          # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
           rustflags: ""
       - name: Install operating system dependencies
         uses: ./.github/actions/install-dependencies
@@ -246,7 +246,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
         components: rust-src
     - name: Install operating system dependencies
