@@ -1,4 +1,8 @@
 use metrics::Unit;
+pub use mountpoint_s3_client::metric_defs::{
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_FAILURE, S3_REQUEST_FIRST_BYTE_LATENCY,
+    S3_REQUEST_TOTAL_LATENCY,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricStability {
@@ -20,34 +24,27 @@ pub const FUSE_IO_SIZE: &str = "fuse.io_size";
 pub const FUSE_REQUEST_FAILURE: &str = "fuse.request_failure";
 pub const FUSE_IDLE_THREADS: &str = "fuse.idle_threads";
 
-pub const S3_REQUEST_COUNT: &str = "s3.request_count";
-pub const S3_REQUEST_FAILURE: &str = "s3.request_failure";
-pub const S3_REQUEST_TOTAL_LATENCY: &str = "s3.request_total_latency";
-pub const S3_REQUEST_FIRST_BYTE_LATENCY: &str = "s3.request_first_byte_latency";
-
 pub const PROCESS_MEMORY_USAGE: &str = "process.memory_usage";
 
 // Attribute constants
-pub const FUSE_REQUEST: &str = "fuse.request";
-pub const S3_REQUEST: &str = "s3.request";
-pub const S3_ERROR: &str = "s3.error";
+pub const ATTR_FUSE_REQUEST: &str = "fuse_request";
 
 pub fn lookup_config(name: &str) -> MetricConfig {
     match name {
         FUSE_REQUEST_LATENCY => MetricConfig {
             unit: Unit::Milliseconds,
             stability: MetricStability::Stable,
-            otlp_attributes: &[FUSE_REQUEST],
+            otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
         FUSE_IO_SIZE => MetricConfig {
             unit: Unit::Bytes,
             stability: MetricStability::Stable,
-            otlp_attributes: &[FUSE_REQUEST],
+            otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
         FUSE_REQUEST_FAILURE => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
-            otlp_attributes: &[FUSE_REQUEST],
+            otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
         FUSE_IDLE_THREADS => MetricConfig {
             unit: Unit::Count,
@@ -57,22 +54,22 @@ pub fn lookup_config(name: &str) -> MetricConfig {
         S3_REQUEST_COUNT => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST],
+            otlp_attributes: &[ATTR_S3_REQUEST],
         },
         S3_REQUEST_FAILURE => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST, S3_ERROR],
+            otlp_attributes: &[ATTR_S3_REQUEST, ATTR_HTTP_STATUS],
         },
         S3_REQUEST_TOTAL_LATENCY => MetricConfig {
             unit: Unit::Microseconds,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST],
+            otlp_attributes: &[ATTR_S3_REQUEST],
         },
         S3_REQUEST_FIRST_BYTE_LATENCY => MetricConfig {
             unit: Unit::Microseconds,
             stability: MetricStability::Stable,
-            otlp_attributes: &[S3_REQUEST],
+            otlp_attributes: &[ATTR_S3_REQUEST],
         },
         PROCESS_MEMORY_USAGE => MetricConfig {
             unit: Unit::Bytes,
@@ -88,6 +85,8 @@ pub fn lookup_config(name: &str) -> MetricConfig {
     }
 }
 
+// UCUM units for OTel integration
+// https://opentelemetry.io/docs/specs/semconv/general/metrics/#instrument-units)
 pub fn to_ucum(unit: Unit) -> &'static str {
     match unit {
         Unit::Nanoseconds => "ns",

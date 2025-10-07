@@ -221,9 +221,14 @@ impl MetricsSink {
                 )
             };
 
-            let unit = match defs::lookup_config(key.name()).unit.as_canonical_label() {
-                "" => String::new(),
-                label => format!(" ({label})"),
+            let unit = {
+                #[cfg(feature = "otlp_integration")]
+                match defs::lookup_config(key.name()).unit.as_canonical_label() {
+                    "" => String::new(),
+                    label => format!(" ({label})"),
+                }
+                #[cfg(not(feature = "otlp_integration"))]
+                String::new()
             };
 
             metrics.push(format!("{} {}{}: {}", key.name(), unit, labels, metric_str));
@@ -401,43 +406,19 @@ mod tests {
             }
         });
     }
-
-    #[test]
-    #[cfg(feature = "otlp_integration")]
-    fn test_otlp_endpoint_validation() {
-        // Test with an invalid URI - we need to directly test the MetricsSink::new function
-        // since install() will try to set up a global recorder which can only be done once
-        let otlp_config = OtlpConfig::new("not-a-valid-uri");
-        let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
-        assert!(result.is_err());
-        let error = result.unwrap_err().to_string();
-        assert!(
-            error.contains("Invalid OTLP endpoint configuration"),
-            "Error message should indicate invalid configuration: {error}",
-        );
-
-        // Test with no OTLP config (should succeed)
-        let result = MetricsSink::new(None);
-        assert!(result.is_ok());
-
-        // Test with a syntactically valid endpoint (should succeed)
-        let otlp_config = OtlpConfig::new("http://example.com:4318/v1/metrics");
-        let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
-        assert!(result.is_ok());
-    }
 }
 
 #[cfg(all(test, feature = "otlp_integration"))]
 mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
-    use crate::metrics_otel::OtlpMetricsExporter;
-    use metrics::Unit;
+    use crate::metrics::defs::{ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_FAILURE};
+    use crate::metrics_otel::{OtlpConfig, OtlpMetricsExporter};
+    use metrics::{Key, Unit};
     use opentelemetry::metrics::MeterProvider as _;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
     use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
-
     struct TestContext {
         exporter: InMemoryMetricExporter,
         provider: SdkMeterProvider,
@@ -507,10 +488,7 @@ mod test_otlp_metrics {
     }
 
     #[test]
-    fn test_internal_stability_no_metrics() {
-        use crate::metrics_otel::OtlpConfig;
-        use metrics::Key;
-
+    fn test_internal_metric_is_not_exported_to_otlp() {
         let otlp_config = OtlpConfig::new("http://localhost:4317");
         let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
 
@@ -550,13 +528,13 @@ mod test_otlp_metrics {
         let key = Key::from_parts(
             "s3.request_failure",
             vec![
-                metrics::Label::new("s3.request", "GetObject"),
-                metrics::Label::new("s3.error", "NoSuchKey"),
+                metrics::Label::new(ATTR_S3_REQUEST, "GetObject"),
+                metrics::Label::new(ATTR_HTTP_STATUS, "403"),
                 metrics::Label::new("some-attribute", "some-value"),
             ],
         );
 
-        let config = defs::lookup_config("s3.request_failure");
+        let config = defs::lookup_config(S3_REQUEST_FAILURE);
         let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
 
         if let Metric::Counter(counter_impl) = counter {
@@ -585,8 +563,8 @@ mod test_otlp_metrics {
                     assert_eq!(attributes.len(), 2);
                     let attr_keys: Vec<&str> = attributes.iter().map(|kv| kv.key.as_str()).collect();
 
-                    assert!(attr_keys.contains(&"s3.request"));
-                    assert!(attr_keys.contains(&"s3.error"));
+                    assert!(attr_keys.contains(&ATTR_S3_REQUEST));
+                    assert!(attr_keys.contains(&ATTR_HTTP_STATUS));
                     assert!(!attr_keys.contains(&"random-attribute"));
                 }
                 _ => panic!("Expected Sum data"),
@@ -597,9 +575,6 @@ mod test_otlp_metrics {
 
     #[test]
     fn test_otlp_flow() {
-        use crate::metrics_otel::OtlpConfig;
-        use metrics::Key;
-
         let otlp_config = OtlpConfig::new("http://localhost:4317");
         let sink = Arc::new(MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config))).unwrap());
 
@@ -631,5 +606,28 @@ mod test_otlp_metrics {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_otlp_endpoint_validation() {
+        // Test with an invalid URI - we need to directly test the MetricsSink::new function
+        // since install() will try to set up a global recorder which can only be done once
+        let otlp_config = OtlpConfig::new("not-a-valid-uri");
+        let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
+        assert!(result.is_err());
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains("Invalid OTLP endpoint configuration"),
+            "Error message should indicate invalid configuration: {error}",
+        );
+
+        // Test with no OTLP config (should succeed)
+        let result = MetricsSink::new(None);
+        assert!(result.is_ok());
+
+        // Test with a syntactically valid endpoint (should succeed)
+        let otlp_config = OtlpConfig::new("http://example.com:4318/v1/metrics");
+        let result = MetricsSink::new(Some(MetricsConfig::Otlp(otlp_config)));
+        assert!(result.is_ok());
     }
 }
