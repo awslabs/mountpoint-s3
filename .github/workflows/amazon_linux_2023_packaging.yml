@@ -1,0 +1,175 @@
+name: Amazon Linux 2023 RPM Build and Test
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+  merge_group:
+    types: [ "checks_requested" ]
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+  S3_REGION: ${{ vars.S3_REGION }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  al2023-package-test:
+    name: Amazon Linux 2023 RPM Build and Test
+    runs-on: ubuntu-latest
+    container:
+      image: amazonlinux:2023
+      options: --privileged
+
+    steps:
+    - name: Install Git
+      run: dnf -y install git
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v5
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        submodules: true
+        persist-credentials: false
+
+    - name: Install build tools and dependencies
+      run: |
+        dnf -y install rpm-build rpmdevtools make git \
+                      mock \
+                      ca-certificates \
+                      python3 \
+                      rust \
+                      cargo \
+                      
+        cargo install cargo-about
+
+    - name: Generate Amazon Linux 2023 spec file
+      run: |
+        cd $GITHUB_WORKSPACE
+        cd package
+        python3 generate_spec.py amzn2023
+        ls -la amzn2023-packaging.spec
+
+    - name: Build source tarball and SRPM
+      run: |
+        cd $GITHUB_WORKSPACE
+        
+        echo " Extracting version from spec file..."
+        VERSION=$(awk '/^Version:/ {print $2}' package/amzn2023-packaging.spec)
+        echo " Building version: $VERSION"
+        
+        echo " Generating vendor dependencies..."
+        cargo vendor
+        echo " Cargo vendor completed"
+        
+        echo " Generating license file..."
+        cargo about generate --config package/attribution.toml --output-file THIRD_PARTY_LICENSES package/attribution.hbs
+        echo "Third party License file generated"
+
+        echo " Setting up RPM build directory..."
+        rpmdev-setuptree
+        echo " RPM directories created"
+
+        cp package/amzn2023-packaging.spec ~/rpmbuild/SPECS/
+
+        cp LICENSE ~/rpmbuild/SOURCES/
+        cp NOTICE ~/rpmbuild/SOURCES/
+        cp THIRD_PARTY_LICENSES ~/rpmbuild/SOURCES/
+        echo "RPM Sources created"
+
+        echo " Creating source tarball..."
+        cd ..
+        tar -czf mountpoint-s3-${VERSION}.tar.gz mountpoint-s3
+        ls -la
+        cp mountpoint-s3-${VERSION}.tar.gz ~/rpmbuild/SOURCES/
+        echo " Source tarball created"
+
+        echo " Checking SOURCES directory contents..."
+        ls -la ~/rpmbuild/SOURCES/
+        echo " Contents of SOURCES directory listed"
+
+        echo " Building Source RPM..."
+        rpmbuild -bs ~/rpmbuild/SPECS/amzn2023-packaging.spec
+        echo " SRPM build completed"
+        
+        echo " Verifying SRPM was created..."
+        ls -la ~/rpmbuild/SRPMS/mount-s3-${VERSION}-amzn2023.src.rpm
+        
+        # Export VERSION for next step
+        echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+    - name: Avoid PAM issues by installing sudo interactively
+      run: |
+        # https://github.com/geerlingguy/docker-rockylinux9-ansible/issues/6
+        echo "y" | dnf install sudo
+        chmod 0400 /etc/shadow || true
+    
+    - name: Test RPM build with Mock in Amazon Linux 2023 chroot
+      run: |
+        echo " Building binary RPM for version: $VERSION"
+
+        sudo mock -r amazonlinux-2023-x86_64 --clean
+
+        sudo mock -r amazonlinux-2023-x86_64 --rebuild ~/rpmbuild/SRPMS/mount-s3-${VERSION}-amzn2023.src.rpm
+        
+        echo "Files created"
+
+        ls -la /var/lib/mock/amazonlinux-2023-x86_64/result/
+
+        echo " Mock build completed"
+
+    - name: Test RPM installation
+      run: |
+        echo "Testing RPM installation..."
+
+        # Install the main binary RPM
+        echo "Installing mount-s3 RPM..."
+        dnf -y install /var/lib/mock/amazonlinux-2023-x86_64/result/mount-s3-${VERSION}-amzn2023.x86_64.rpm
+
+        # Verify installation
+        echo "Verifying installation..."
+        which mount-s3
+
+        # Test basic functionality
+        echo "Testing basic functionality..."
+        mount-s3 --version
+        mount-s3 --help | head -10
+
+        # Show what files were installed
+        echo "Files installed by RPM:"
+        rpm -ql mount-s3
+
+        # Show package info
+        echo "Package information:"
+        rpm -qi mount-s3
+
+        echo "RPM installation test completed successfully"
+
+    - name: Test mount with file operations
+      run: |
+        dnf -y install awscli
+
+        mkdir -p /mnt/s3-test
+
+        # Use allowed prefix: github-actions-tmp/
+        TEST_PREFIX="github-actions-tmp/run-${{ github.run_id }}/rpm-test/"
+
+        echo "Hello from RPM test" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt"
+        mount-s3 ${S3_BUCKET_NAME} /mnt/s3-test --prefix=${TEST_PREFIX} --region=${S3_REGION}
+
+        ls -la /mnt/s3-test/
+        cat /mnt/s3-test/test.txt
+
+        sudo umount /mnt/s3-test
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt"
