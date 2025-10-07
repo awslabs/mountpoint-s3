@@ -1,14 +1,16 @@
 freebsd_instance:
-  image_family: freebsd-14-0
+  image_family: freebsd-14-2
 
 task:
   name: FreeBSD
   setup_script:
-    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust
+    - kldload fusefs
+    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust bash
   build_script:
-    - cargo build --all --all-targets
+    - cargo build --all --all-targets --features=libfuse
   doc_script:
-    - cargo doc --all --no-deps --features=abi-7-21
+    - cargo doc --all --no-deps --features=libfuse,abi-7-21
   test_script:
-    - cargo test --all --all-targets -- --skip=mnt::test::mount_unmount
-    - cargo test --all --all-targets --features=abi-7-21 -- --skip=mnt::test::mount_unmount
+    - cargo test --all --all-targets --features=libfuse -- --skip=mnt::test::mount_unmount
+    - cargo test --all --all-targets --features=libfuse,abi-7-21 -- --skip=mnt::test::mount_unmount
+    - ./bsd_mount_tests.sh

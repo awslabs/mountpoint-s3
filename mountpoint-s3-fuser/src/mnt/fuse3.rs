@@ -1,10 +1,11 @@
 use super::fuse3_sys::{
-    fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
+    fuse_lowlevel_ops, fuse_session_destroy, fuse_session_fd, fuse_session_mount, fuse_session_new,
     fuse_session_unmount,
 };
-use super::{with_fuse_args, MountOption};
+use super::{MountOption, with_fuse_args};
+use log::warn;
 use std::{
-    ffi::{c_void, CString},
+    ffi::{CString, c_void},
     fs::File,
     io,
     os::unix::{ffi::OsStrExt, io::FromRawFd},
@@ -28,6 +29,7 @@ fn ensure_last_os_error() -> io::Error {
 #[derive(Debug)]
 pub struct Mount {
     fuse_session: *mut c_void,
+    mountpoint: CString,
 }
 impl Mount {
     /// Mounts the filesystem at the given path, with the given options.
@@ -36,11 +38,23 @@ impl Mount {
     pub fn new(mnt: &Path, options: &[MountOption]) -> io::Result<(Arc<File>, Mount)> {
         let mnt = CString::new(mnt.as_os_str().as_bytes()).unwrap();
         with_fuse_args(options, |args| {
-            let fuse_session = unsafe { fuse_session_new(args, ptr::null(), 0, ptr::null_mut()) };
+            let ops = fuse_lowlevel_ops::default();
+
+            let fuse_session = unsafe {
+                fuse_session_new(
+                    args,
+                    &ops as *const _,
+                    std::mem::size_of::<fuse_lowlevel_ops>(),
+                    ptr::null_mut(),
+                )
+            };
             if fuse_session.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            let mount = Mount { fuse_session };
+            let mount = Mount {
+                fuse_session,
+                mountpoint: mnt.clone(),
+            };
             let result = unsafe { fuse_session_mount(mount.fuse_session, mnt.as_ptr()) };
             if result != 0 {
                 return Err(ensure_last_os_error());
@@ -59,9 +73,20 @@ impl Mount {
 }
 impl Drop for Mount {
     fn drop(&mut self) {
-        unsafe {
-            fuse_session_unmount(self.fuse_session);
-            fuse_session_destroy(self.fuse_session);
+        use std::io::ErrorKind::PermissionDenied;
+
+        if let Err(err) = super::libc_umount(&self.mountpoint) {
+            // Linux always returns EPERM for non-root users.  We have to let the
+            // library go through the setuid-root "fusermount -u" to unmount.
+            if err.kind() == PermissionDenied {
+                #[cfg(target_os = "linux")]
+                unsafe {
+                    fuse_session_unmount(self.fuse_session);
+                    fuse_session_destroy(self.fuse_session);
+                    return;
+                }
+            }
+            warn!("umount failed with {err:?}");
         }
     }
 }

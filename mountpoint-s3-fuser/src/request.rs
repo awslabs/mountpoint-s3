@@ -5,7 +5,7 @@
 //!
 //! TODO: This module is meant to go away soon in favor of `ll::Request`.
 
-use crate::ll::{fuse_abi as abi, Errno, Response};
+use crate::ll::{Errno, Response, fuse_abi as abi};
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 #[cfg(feature = "abi-7-28")]
@@ -13,16 +13,15 @@ use std::convert::TryInto;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
+use crate::Filesystem;
+use crate::PollHandle;
 use crate::channel::ChannelSender;
 use crate::ll::Request as _;
 #[cfg(feature = "abi-7-21")]
 use crate::reply::ReplyDirectoryPlus;
 use crate::reply::{Reply, ReplyDirectory, ReplySender};
 use crate::session::{Session, SessionACL};
-use crate::Filesystem;
-#[cfg(feature = "abi-7-11")]
-use crate::PollHandle;
-use crate::{ll, KernelConfig};
+use crate::{KernelConfig, ll};
 
 /// Request data structure
 #[derive(Debug)]
@@ -42,7 +41,7 @@ impl<'a> Request<'a> {
         let request = match ll::AnyRequest::try_from(data) {
             Ok(request) => request,
             Err(err) => {
-                error!("{}", err);
+                error!("{err}");
                 return None;
             }
         };
@@ -65,7 +64,7 @@ impl<'a> Request<'a> {
         .with_iovec(unique, |iov| self.ch.send(iov));
 
         if let Err(err) = res {
-            warn!("Request {:?}: Failed to send reply: {}", unique, err)
+            warn!("Request {unique:?}: Failed to send reply: {err}");
         }
     }
 
@@ -101,7 +100,7 @@ impl<'a> Request<'a> {
                     }
                 }
             }
-            #[cfg(all(feature = "abi-7-16", not(feature = "abi-7-21")))]
+            #[cfg(not(feature = "abi-7-21"))]
             {
                 match op {
                     // Only allow operations that the kernel may issue without a uid set
@@ -121,25 +120,6 @@ impl<'a> Request<'a> {
                     }
                 }
             }
-            #[cfg(not(feature = "abi-7-16"))]
-            {
-                match op {
-                    // Only allow operations that the kernel may issue without a uid set
-                    ll::Operation::Init(_)
-                    | ll::Operation::Destroy(_)
-                    | ll::Operation::Read(_)
-                    | ll::Operation::ReadDir(_)
-                    | ll::Operation::Forget(_)
-                    | ll::Operation::Write(_)
-                    | ll::Operation::FSync(_)
-                    | ll::Operation::FSyncDir(_)
-                    | ll::Operation::Release(_)
-                    | ll::Operation::ReleaseDir(_) => {}
-                    _ => {
-                        return Err(Errno::EACCES);
-                    }
-                }
-            }
         }
         match op {
             // Filesystem initialization
@@ -147,7 +127,7 @@ impl<'a> Request<'a> {
                 // We don't support ABI versions before 7.6
                 let v = x.version();
                 if v < ll::Version(7, 6) {
-                    error!("Unsupported FUSE ABI version {}", v);
+                    error!("Unsupported FUSE ABI version {v}");
                     return Err(Errno::EPROTO);
                 }
                 // Remember ABI version supported by kernel
@@ -210,18 +190,12 @@ impl<'a> Request<'a> {
                     .forget(self, self.request.nodeid().into(), x.nlookup()); // no reply
             }
             ll::Operation::GetAttr(_attr) => {
-                #[cfg(feature = "abi-7-9")]
                 se.filesystem.getattr(
                     self,
                     self.request.nodeid().into(),
                     _attr.file_handle().map(|fh| fh.into()),
                     self.reply(),
                 );
-
-                // Pre-abi-7-9 does not support providing a file handle.
-                #[cfg(not(feature = "abi-7-9"))]
-                se.filesystem
-                    .getattr(self, self.request.nodeid().into(), None, self.reply());
             }
             ll::Operation::SetAttr(x) => {
                 se.filesystem.setattr(
@@ -507,7 +481,6 @@ impl<'a> Request<'a> {
                 );
             }
 
-            #[cfg(feature = "abi-7-11")]
             ll::Operation::IoCtl(x) => {
                 if x.unrestricted() {
                     return Err(Errno::ENOSYS);
@@ -524,7 +497,6 @@ impl<'a> Request<'a> {
                     );
                 }
             }
-            #[cfg(feature = "abi-7-11")]
             ll::Operation::Poll(x) => {
                 let ph = PollHandle::new(se.ch.sender(), x.kernel_handle());
 
@@ -538,12 +510,10 @@ impl<'a> Request<'a> {
                     self.reply(),
                 );
             }
-            #[cfg(feature = "abi-7-15")]
             ll::Operation::NotifyReply(_) => {
                 // TODO: handle FUSE_NOTIFY_REPLY
                 return Err(Errno::ENOSYS);
             }
-            #[cfg(feature = "abi-7-16")]
             ll::Operation::BatchForget(x) => {
                 se.filesystem.batch_forget(self, x.nodes()); // no reply
             }
@@ -634,7 +604,6 @@ impl<'a> Request<'a> {
                 );
             }
 
-            #[cfg(feature = "abi-7-12")]
             ll::Operation::CuseInit(_) => {
                 // TODO: handle CUSE_INIT
                 return Err(Errno::ENOSYS);
@@ -675,11 +644,9 @@ impl<'a> Request<'a> {
 
     /// Returns whether this is a forget request
     pub fn is_forget(&self) -> bool {
-        match self.request.opcode() {
-            Ok(abi::fuse_opcode::FUSE_FORGET) => true,
-            #[cfg(feature = "abi-7-16")]
-            Ok(abi::fuse_opcode::FUSE_BATCH_FORGET) => true,
-            _ => false,
-        }
+        matches!(
+            self.request.opcode(),
+            Ok(abi::fuse_opcode::FUSE_FORGET) | Ok(abi::fuse_opcode::FUSE_BATCH_FORGET)
+        )
     }
 }
