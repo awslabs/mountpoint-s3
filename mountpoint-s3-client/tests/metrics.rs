@@ -20,7 +20,7 @@ use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use mountpoint_s3_client::error::ObjectClientError;
-use mountpoint_s3_client::metric_defs::{
+use mountpoint_s3_client::metrics::{
     ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_FAILURE, S3_REQUEST_FIRST_BYTE_LATENCY,
     S3_REQUEST_TOTAL_LATENCY,
 };

@@ -465,11 +465,7 @@ mod test_otlp_metrics {
                 otlp_attributes: &[],
             };
             let counter = Metric::counter_otlp(&self.otlp_exporter, &Key::from_name("test_metric"), &config);
-
-            if let Metric::Counter(counter_impl) = counter {
-                let counter_handle = metrics::Counter::from_arc(counter_impl);
-                counter_handle.increment(1);
-            }
+            counter.as_counter().increment(1);
         }
     }
 
@@ -536,11 +532,7 @@ mod test_otlp_metrics {
 
         let config = defs::lookup_config(S3_REQUEST_FAILURE);
         let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
-
-        if let Metric::Counter(counter_impl) = counter {
-            let counter_handle = metrics::Counter::from_arc(counter_impl);
-            counter_handle.increment(1);
-        }
+        counter.as_counter().increment(1);
 
         let metrics = ctx.get_metrics();
         assert_eq!(metrics.len(), 1);

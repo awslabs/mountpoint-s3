@@ -51,7 +51,7 @@ mod endpoint_config;
 pub mod failure_client;
 pub mod imds_crt_client;
 pub mod instance_info;
-pub mod metric_defs;
+pub mod metrics;
 #[doc(hidden)]
 pub mod mock_client;
 mod object_client;

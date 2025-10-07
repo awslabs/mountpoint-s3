@@ -9,9 +9,8 @@ use crate::metrics_otel::OtlpMetricsExporter;
 use opentelemetry::KeyValue;
 
 #[cfg(feature = "otlp_integration")]
-fn filter_attributes(labels: &metrics::Key, allowed: &[&str]) -> Vec<KeyValue> {
-    labels
-        .labels()
+fn filter_attributes(key: &metrics::Key, allowed: &[&str]) -> Vec<KeyValue> {
+    key.labels()
         .filter(|label| allowed.contains(&label.key()))
         .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
         .collect()

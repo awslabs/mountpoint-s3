@@ -44,7 +44,7 @@ use crate::checksums::{crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, s
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
-use crate::metric_defs::{
+use crate::metrics::{
     ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_CANCELED, S3_REQUEST_COUNT, S3_REQUEST_FAILURE,
     S3_REQUEST_FIRST_BYTE_LATENCY, S3_REQUEST_TOTAL_LATENCY,
 };
