@@ -2,7 +2,7 @@ use crate::tokio_block_on;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use rand::TryRngCore;
-use rand_chacha::rand_core::OsRng;
+use rand::rngs::OsRng;
 
 pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")

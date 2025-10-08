@@ -8,8 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use mountpoint_s3_client::types::{Checksum, ChecksumAlgorithm, PutObjectSingleParams, UploadChecksum};
+use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
 use test_case::{test_case, test_matrix};
 
 use mountpoint_s3_fs::S3FilesystemConfig;
@@ -146,7 +146,7 @@ fn sequential_write_test(
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["hello.txt", "new.txt"]);
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
@@ -317,7 +317,7 @@ fn sequential_write_streaming_test(creator_fn: impl TestSessionCreator, object_s
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), 0);
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + object_size as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + object_size as u64);
     let mut body = vec![0u8; object_size];
     rng.fill(&mut body[..]);
 
@@ -386,7 +386,7 @@ fn fsync_test(creator_fn: impl TestSessionCreator, rw_mode: ReadWriteMode, uploa
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), 0);
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
@@ -457,7 +457,7 @@ fn fstat_after_writing(creator_fn: impl TestSessionCreator, sync_mode: FSyncMode
     let stat = f.metadata().expect("fstat should succeed before writing");
     assert_eq!(stat.len(), 0);
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
@@ -573,7 +573,7 @@ fn out_of_order_write_test(creator_fn: impl TestSessionCreator, offset: i64, upl
     let m = metadata(&path).unwrap();
     assert_eq!(m.len(), 0);
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
@@ -711,7 +711,7 @@ fn flush_test(creator_fn: impl TestSessionCreator, append_mode: AppendMode, uplo
         .open(&path)
         .unwrap();
 
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 
@@ -1388,7 +1388,7 @@ fn write_checksums_test(
     let path = test_session.mount_path().join(KEY);
 
     let mut f = File::options().append(true).create(true).open(&path).unwrap();
-    let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+    let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
     let mut body = vec![0u8; OBJECT_SIZE];
     rng.fill(&mut body[..]);
 

@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand_chacha::ChaCha20Rng;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
@@ -374,7 +374,7 @@ impl MockClient {
         // Shuffle the keys now before we construct an iterator over them. This won't be stable in
         // the presence of mutation, but that's the expected behavior anyway.
         let mut object_keys: Vec<_> = objects.keys().filter(|key| key.starts_with(prefix)).collect();
-        object_keys.shuffle(&mut ChaCha20Rng::seed_from_u64(seed));
+        object_keys.shuffle(&mut SmallRng::seed_from_u64(seed));
 
         // Continuation tokens for unordered list will just be the index in the shuffled list. This
         // again won't work well in the presence of mutation, but again, that's the expected
@@ -1333,7 +1333,6 @@ enum MockObjectParts {
 mod tests {
     use futures::StreamExt;
     use rand::{Rng, RngCore, SeedableRng};
-    use rand_chacha::ChaChaRng;
     use std::ops::Range;
     use test_case::test_case;
 
@@ -1357,7 +1356,7 @@ mod tests {
         range: Option<Range<u64>>,
         object_metadata: HashMap<String, String>,
     ) {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
@@ -1408,7 +1407,7 @@ mod tests {
         range: Option<Range<u64>>,
         backpressure_read_window_size: usize,
     ) {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let client = MockClient::config()
             .bucket("test_bucket")
@@ -1458,7 +1457,7 @@ mod tests {
     #[allow(clippy::reversed_empty_ranges)]
     #[tokio::test]
     async fn get_object_errors() {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
@@ -1515,7 +1514,7 @@ mod tests {
     async fn verify_backpressure_get_object() {
         let key = "key1";
 
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
         let client = MockClient::config()
             .bucket("test_bucket")
             .part_size(1024)
@@ -1944,7 +1943,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_put_object() {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
@@ -2047,7 +2046,7 @@ mod tests {
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksums_set_after_meta_put(trailing_checksums: PutObjectTrailingChecksums) {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 

@@ -3,7 +3,7 @@ use aws_sdk_s3::primitives::ByteStream;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use rand::TryRngCore;
-use rand_chacha::rand_core::OsRng;
+use rand::rngs::OsRng;
 
 use crate::common::tokio_block_on;
 
