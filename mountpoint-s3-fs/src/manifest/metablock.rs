@@ -8,8 +8,8 @@ use time::OffsetDateTime;
 use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
-    ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
+    AddDirEntry, AddDirEntryResult, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat,
+    Lookup, Metablock, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidName, WriteMode,
 };
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -122,7 +122,7 @@ impl Metablock for ManifestMetablock {
         //
         // [ManifestMetablock] never forgets inodes, so this argument is unused.
         _is_readdirplus: bool,
-        mut replier: TryAddDirEntry<'a>,
+        mut add: AddDirEntry<'a>,
     ) -> Result<(), InodeError> {
         let Some(readdir_handle) = self
             .readdir_handles
@@ -136,12 +136,13 @@ impl Metablock for ManifestMetablock {
 
         // serve '.' and '..' entries
         if offset < 1 {
-            if replier(
+            if add(
                 InodeInformation::new(parent, self.stat_for_directory(), InodeKind::Directory, true),
                 ".".into(),
                 offset + 1,
                 0,
-            ) {
+            ) == AddDirEntryResult::ReplyBufferFull
+            {
                 return Ok(());
             }
             offset += 1;
@@ -149,12 +150,13 @@ impl Metablock for ManifestMetablock {
 
         if offset < 2 {
             let grandparent_ino = self.get_parent_id(parent)?;
-            if replier(
+            if add(
                 InodeInformation::new(grandparent_ino, self.stat_for_directory(), InodeKind::Directory, true),
                 "..".into(),
                 offset + 1,
                 0,
-            ) {
+            ) == AddDirEntryResult::ReplyBufferFull
+            {
                 return Ok(());
             }
             offset += 1;
@@ -168,7 +170,7 @@ impl Metablock for ManifestMetablock {
             let (inode_info, name) = manifest_entry
                 .clone()
                 .into_inode_information(&self.channels, self.mount_time)?;
-            if replier(inode_info, OsString::from(name), offset + 1, 0) {
+            if add(inode_info, OsString::from(name), offset + 1, 0) == AddDirEntryResult::ReplyBufferFull {
                 readdir_handle.readd(manifest_entry);
                 break;
             }

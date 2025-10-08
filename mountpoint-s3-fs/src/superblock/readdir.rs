@@ -645,7 +645,7 @@ impl DirHandle {
 #[cfg(test)]
 mod tests {
     use crate::fs::FUSE_ROOT_INODE;
-    use crate::metablock::{InodeKind, Metablock};
+    use crate::metablock::{AddDirEntryResult, InodeKind, Metablock};
     use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
     use crate::sync::Arc;
@@ -690,7 +690,13 @@ mod tests {
             .expect("Finish writing failed");
 
         superblock
-            .readdir(FUSE_ROOT_INODE, handle_id, 0, false, Box::new(|_, _, _, _| false))
+            .readdir(
+                FUSE_ROOT_INODE,
+                handle_id,
+                0,
+                false,
+                Box::new(|_, _, _, _| AddDirEntryResult::EntryAdded),
+            )
             .await
             .expect("Readdir failed");
     }

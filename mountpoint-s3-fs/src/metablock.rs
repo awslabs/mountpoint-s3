@@ -77,14 +77,14 @@ pub trait Metablock: Send + Sync {
 
     /// Reads entries from the readdir stream, for the directory `parent`, referred to by `fh` starting at offset `offset`.
     ///
-    /// Entries shall be passed onto the `replier` as described in its documentation.
+    /// Entries shall be passed to `add` as described in its documentation.
     async fn readdir<'a>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
-        mut replier: TryAddDirEntry<'a>,
+        mut add: AddDirEntry<'a>,
     ) -> Result<(), InodeError>;
 
     /// Closes the readdir handle.
@@ -108,7 +108,7 @@ pub trait Metablock: Send + Sync {
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
 }
 
-/// A callback function used to pass information to the filesystem.
+/// Callback to the file system which adds directory entries to the reply buffer.
 ///
 /// # Parameters (in order)
 ///
@@ -119,13 +119,23 @@ pub trait Metablock: Send + Sync {
 ///
 /// # Returns
 ///
-/// Returns `true` if the entry was successfully used
+/// - [AddDirEntryResult::EntryAdded] if the entry was added, or
+/// - [AddDirEntryResult::ReplyBufferFull] if the reply buffer was full.
 ///
 ///
 /// [^1]: The generation number is used to ensure uniqueness of inode/generation pairs.
 ///     If the file system were exported over NFS, these pairs would need to be unique.
 ///     For more information, see the [libfuse documentation](https://github.com/libfuse/libfuse/blob/fc1c8da0cf8a18d222cb1feed0057ba44ea4d18f/include/fuse_lowlevel.h#L70).
-pub type TryAddDirEntry<'r> = Box<dyn FnMut(InodeInformation, OsString, i64, u64) -> bool + Send + Sync + 'r>;
+pub type AddDirEntry<'r> = Box<dyn FnMut(InodeInformation, OsString, i64, u64) -> AddDirEntryResult + Send + Sync + 'r>;
+
+/// Result of a call to `AddDirEntry`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddDirEntryResult {
+    /// The entry was added successfully.
+    EntryAdded,
+    /// The entry was not added because the reply buffer was full.
+    ReplyBufferFull,
+}
 
 #[derive(Debug, Default)]
 pub struct WriteMode {
