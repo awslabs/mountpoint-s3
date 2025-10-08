@@ -1,12 +1,7 @@
 name: Amazon Linux 2023 RPM Build and Test
 
 on:
-  pull_request:
-    branches: [ "main" ]
-  push:
-    branches: [ "main" ]
-  merge_group:
-    types: [ "checks_requested" ]
+  pull_request_target:
 
 env:
   RUST_BACKTRACE: 1
@@ -23,6 +18,7 @@ jobs:
   al2023-package-test:
     name: Amazon Linux 2023 RPM Build and Test
     runs-on: ubuntu-latest
+    environment: PR integration tests
     container:
       image: amazonlinux:2023
       options: --privileged
@@ -40,6 +36,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
       with:
+        ref: ${{ github.event.pull_request.head.sha }}
         submodules: true
         persist-credentials: false
 
