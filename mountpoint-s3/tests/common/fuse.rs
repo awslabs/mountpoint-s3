@@ -1,6 +1,5 @@
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
-use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -17,11 +16,10 @@ pub fn mount_for_passing_fuse_fd(mount_point: &Path, options: &[MountOption]) ->
     // fuser sets `FD_CLOEXEC` (i.e., close-on-exec) flag on the file descriptor in its libfuse3 implementation.
     // Since we're forking the process in some of our test cases, this prevents child process to inherit the FUSE fd and causes our tests to fail.
     // Here we're clearing this flag if its set on the FUSE fd.
-    let fd = file.as_raw_fd();
-    let mut flags = FdFlag::from_bits_retain(fcntl::fcntl(fd, fcntl::F_GETFD).unwrap());
+    let mut flags = FdFlag::from_bits_retain(fcntl::fcntl(&file, fcntl::F_GETFD).unwrap());
     if flags.contains(FdFlag::FD_CLOEXEC) {
         flags.remove(FdFlag::FD_CLOEXEC);
-        let _ = fcntl::fcntl(fd, fcntl::F_SETFD(flags)).unwrap();
+        let _ = fcntl::fcntl(&file, fcntl::F_SETFD(flags)).unwrap();
     }
 
     (file, mount)
