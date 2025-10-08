@@ -15,7 +15,7 @@ use mountpoint_s3_client::{NewClientError, OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use mountpoint_s3_crt::common::uri::Uri;
-use rand::RngCore;
+use rand::TryRngCore;
 use rand::rngs::OsRng;
 use std::ops::Range;
 use std::sync::Arc;
@@ -56,7 +56,7 @@ pub fn get_unique_test_prefix(test_name: &str) -> String {
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
     // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
+    let nonce = OsRng.try_next_u64().unwrap();
     let prefix = format!("{prefix}{test_name}/{nonce}/");
     prefix
 }

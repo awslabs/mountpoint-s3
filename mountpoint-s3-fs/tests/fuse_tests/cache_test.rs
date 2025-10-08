@@ -390,7 +390,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
 
 /// Generates random data of the specified size
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
-    let seed = rand::thread_rng().r#gen();
+    let seed = rand::rng().random();
     let mut rng = ChaChaRng::seed_from_u64(seed);
     let mut data = vec![0; size_in_bytes];
     rng.fill_bytes(&mut data);
@@ -400,7 +400,7 @@ fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
 /// Creates a random key which has a size of at least `min_size_in_bytes`
 /// The `key_prefix` is not included in the return value.
 fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
-    let random_suffix: u64 = rand::thread_rng().r#gen();
+    let random_suffix: u64 = rand::rng().random();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"
     let full_key = format!("{key_prefix}{last_key_part}");
     let full_key_size = full_key.len();

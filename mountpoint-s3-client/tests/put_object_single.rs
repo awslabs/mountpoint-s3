@@ -24,7 +24,7 @@ async fn test_put_object_single(
     key: &str,
     request_params: PutObjectSingleParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -93,7 +93,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
     let client = get_test_client_with_config(client_config);
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
@@ -219,7 +219,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
@@ -386,7 +386,7 @@ async fn test_append_new_object() {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -459,7 +459,7 @@ async fn test_append_existing_object() {
         .await
         .expect("sdk put_object should succeed");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -509,7 +509,7 @@ async fn test_append_existing_object_if_match() {
         .expect("sdk put_object should succeed");
     let etag = result.e_tag().expect("sdk put_object should return etag");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -653,7 +653,7 @@ async fn test_append_non_existing_object() {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -688,7 +688,7 @@ async fn test_append_invalid_offset() {
         .await
         .expect("sdk put_object should succeed");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -726,7 +726,7 @@ async fn test_append_with_bad_checksum() {
         .await
         .expect("sdk put_object should succeed");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -766,7 +766,7 @@ async fn test_append_with_invalid_checksum() {
         .await
         .expect("sdk put_object should succeed");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -808,7 +808,7 @@ async fn test_append_with_matching_checksum(checksum_algorithm: aws_sdk_s3::type
         .await
         .expect("sdk put_object should succeed");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);

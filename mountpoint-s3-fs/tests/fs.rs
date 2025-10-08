@@ -462,9 +462,9 @@ async fn test_random_read(object_size: usize) {
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
     for _ in 0..10 {
-        let offset = rng.gen_range(0..object_size);
+        let offset = rng.random_range(0..object_size);
         // TODO do we need to bound it? should work anyway, just partial read, right?
-        let length = rng.gen_range(0..(object_size - offset).min(1024 * 1024)) + 1;
+        let length = rng.random_range(0..(object_size - offset).min(1024 * 1024)) + 1;
         let bytes_read = fs
             .read(ino, fh, offset as i64, length as u32, 0, None)
             .await
