@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760020435883,
+  "lastUpdate": 1760021852756,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "chagem@amazon.com",
-            "name": "Christian Hagemeier",
-            "username": "c-hagem"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "028ec721e5134829d2c1c8605ef8f3236d5ddeed",
-          "message": "[Benchmarks] Ensure binaries are built with necessary flags for flamegraphing (#1575)\n\nEnsures that frame pointers for C and Rust code are emitted when\nflamegraphing mountpoint.\n\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Christian Hagemeier <chagem@amazon.com>",
-          "timestamp": "2025-08-29T13:28:20Z",
-          "tree_id": "1384d0df12a36373765319f23a69312c3bcd9dcf",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/028ec721e5134829d2c1c8605ef8f3236d5ddeed"
-        },
-        "date": 1756482197957,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3476.46484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4905.52734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8433.69921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 22.015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 51.2890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 24.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 50.51171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 17.5390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 27.28125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 20.8203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 26.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8206.12109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 48.67578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8096.6171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 49.77734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2107.66015625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 22.796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2111.796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2102.62109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 24.62109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 934.37109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 459.30078125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3909,6 +3775,140 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/awslabs/mountpoint-s3/commit/0279442c074f667703177f59f5f37be35241d50d"
         },
         "date": 1760020435824,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 0,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a84b07f3e5f759de17b50f9236b52f135ae9efa",
+          "message": "Fix instructions for updating CRT dependencies (#1644)\n\nThe command to fetch tags could fail in case of conflict and bail out\nbefore upgrading the remaining submodules.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-10-09T12:41:41Z",
+          "tree_id": "f3dbc9776d94d3fac2487f917acb4e89ac1cb1d0",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0a84b07f3e5f759de17b50f9236b52f135ae9efa"
+        },
+        "date": 1760021852699,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
