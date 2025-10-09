@@ -86,4 +86,5 @@ which = "8.0.0"
 libc = "0.2.176"
 
 [lib]
+# this prevents C docs being interpreted as rustdoc tests after bindgen
 doctest = false

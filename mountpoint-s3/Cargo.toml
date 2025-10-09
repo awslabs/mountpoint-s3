@@ -58,9 +58,6 @@ s3express_tests = ["mountpoint-s3-fs/s3express_tests"]
 # Other feature flags
 mock = ["mountpoint-s3-client/mock", "futures/thread-pool", "tracing/log"]
 
-[lib]
-doctest = false
-
 [[bin]]
 name = "mount-s3"
 path = "src/main.rs"

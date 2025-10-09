@@ -69,6 +69,3 @@ fips_tests = []
 s3express_tests = []
 pool_tests = []
 fs_pool_tests = []
-
-[lib]
-doctest = false
