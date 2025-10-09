@@ -13,7 +13,7 @@ Source1:        LICENSE
 Source2:        NOTICE
 Source3:        THIRD_PARTY_LICENSES
 
-{# Amazon Linux 2023 build dependencies #}
+{# Build dependencies #}
 BuildRequires:  clang
 BuildRequires:  clang-devel
 BuildRequires:  rust >= {{ rust_version }}      
@@ -34,7 +34,7 @@ BuildRequires:  which
 BuildRequires:  rust-packaging
 BuildRequires:  rust-toolset
 
-{# Supported architectures for Amazon Linux 2023 #}
+{# Supported architectures #}
 ExclusiveArch: x86_64 aarch64
 
 {# Bundled C/C++ libraries for security tracking #}

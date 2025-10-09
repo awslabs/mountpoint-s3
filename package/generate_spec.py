@@ -43,10 +43,9 @@ def get_submodule_versions():
     versions = {}
     for line in result.stdout.strip().split('\n'):
         if line.strip():
-            parts = line.strip().split(' ', 1)
-            if len(parts) == 2:
-                name, version = parts
-                versions[name] = version.lstrip('v')
+            match line.strip().split(' ', 1):
+                case [name, version]:
+                    versions[name] = version.lstrip('v')
     return versions
 
 
