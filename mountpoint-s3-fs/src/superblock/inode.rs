@@ -3,32 +3,30 @@ use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::time::Duration;
 
-use crate::metablock::{InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey, Metablock};
+use crate::metablock::{
+    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, Metablock, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
+};
 use crate::s3::Prefix;
 use crate::sync::{Arc, AsyncMutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::debug;
 
-use futures::{
-    task::SpawnError,
-    Future,
-};
+use crate::fs::{FileHandle, FileHandleState};
+use futures::Future;
 use mountpoint_s3_client::ObjectClient;
-use crate::err;
-use crate::fs::{Error, FileHandle, FileHandleState};
 
 #[derive(Clone, Debug)]
 pub struct CompletionHook {
-    state: Arc<AsyncMutex<CompletionHandle>>,
+    state: Arc<AsyncMutex<CompletionHookState>>,
 }
 
-pub struct CompletionHandle {
-    complete_fn: Pin<Box<dyn Future<Output = ()> + Send>>,
+struct CompletionHookState {
+    future: Pin<Box<dyn Future<Output = ()> + Send>>,
     result: bool,
 }
 
-impl std::fmt::Debug for CompletionHandle {
+impl std::fmt::Debug for CompletionHookState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompletionHookState")
             .field("has_result", &self.result)
@@ -37,45 +35,6 @@ impl std::fmt::Debug for CompletionHandle {
 }
 
 impl CompletionHook {
-    pub fn new(wrapper: CompletionHandle) -> Self {
-        Self {
-            state: Arc::new(AsyncMutex::new(CompletionHandle {
-                complete_fn: wrapper.complete_fn,
-                result: false,
-            })),
-        }
-    }
-
-    pub async fn trigger(&self) -> Result<(), SpawnError> {
-        let mut state = self.state.lock().await;
-        if state.result {
-            return Ok(());
-        }
-
-        let future = std::mem::replace(&mut state.complete_fn, Box::pin(std::future::ready(())));
-        drop(state); // Release the lock before awaiting
-        future.await;
-        
-        // Mark as completed
-        let mut state = self.state.lock().await;
-        state.result = true;
-        Ok(())
-    }
-
-    pub async fn await_completion(&self) -> Result<(), Error> {
-        let state = self.state.lock().await;
-        if state.result {
-            Ok(())
-        } else {
-            // If not completed yet, trigger completion first
-            drop(state);
-            self.trigger().await.map_err(|_| err!(libc::EIO, "Failed to trigger completion"))?;
-            Ok(())
-        }
-    }
-}
-
-impl CompletionHandle {
     pub(crate) fn new<Client>(metablock: Arc<dyn Metablock>, handle: Arc<FileHandle<Client>>) -> Self
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -83,15 +42,29 @@ impl CompletionHandle {
         let ino = handle.ino;
         let location = handle.location.clone();
 
-        Self {
-            complete_fn: Box::pin(async move {
+        let state = Arc::new(AsyncMutex::new(CompletionHookState {
+            future: Box::pin(async move {
                 let mut fh_state = handle.state.lock().await;
                 if let FileHandleState::Write { state, .. } = &mut *fh_state {
                     _ = state.complete_if_in_progress(metablock, ino, &location).await;
                 }
             }),
             result: false,
+        }));
+
+        Self { state }
+    }
+
+    pub async fn trigger(&self) {
+        let mut state = self.state.lock().await;
+        if state.result {
+            return;
         }
+
+        let future = std::mem::replace(&mut state.future, Box::pin(std::future::ready(())));
+        future.await;
+
+        state.result = true;
     }
 }
 

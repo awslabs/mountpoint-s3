@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 
+use super::core::{Manifest, ManifestDirIter, ManifestError};
 use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
-use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 use crate::metablock::{
     InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
     ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
 };
 use crate::s3::S3Path;
-use crate::superblock::inode::{CompletionHandle};
+use crate::superblock::inode::CompletionHook;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 
@@ -206,7 +206,13 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn start_writing(&self, ino: InodeNo, _mode: &WriteMode, _is_truncate: bool, _handle_id: u64) -> Result<(), InodeError> {
+    async fn start_writing(
+        &self,
+        ino: InodeNo,
+        _mode: &WriteMode,
+        _is_truncate: bool,
+        _handle_id: u64,
+    ) -> Result<(), InodeError> {
         // For a read-only view, don't allow writing
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
@@ -281,11 +287,11 @@ impl Metablock for ManifestMetablock {
         Ok(true)
     }
 
-    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> { 
+    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> {
         Ok(true)
     }
 
-    async fn flush_writer(&self, _ino: InodeNo, _completion_handle: CompletionHandle) -> Result<bool, InodeError> {
+    async fn flush_writer(&self, _ino: InodeNo, _completion_handle: CompletionHook) -> Result<bool, InodeError> {
         Ok(false)
     }
 }
