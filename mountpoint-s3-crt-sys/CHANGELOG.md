@@ -1,6 +1,7 @@
 ## Unreleased (v0.15.1)
 
 * Upgrade cargo dependencies.
+* Update to latest CRT dependencies.
 
 ## v0.15.0 (July 23, 2025)
 
