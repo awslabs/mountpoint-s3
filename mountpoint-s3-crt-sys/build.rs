@@ -48,6 +48,7 @@ const CRT_HEADERS: &[&str] = &[
     "io/stream.h",
     "io/uri.h",
     "s3/s3.h",
+    "s3/s3_buffer_pool.h",
     "s3/s3_client.h",
     "s3/s3_endpoint_resolver.h",
     "sdkutils/endpoints_rule_engine.h",
@@ -59,7 +60,10 @@ const CRT_HEADERS: &[&str] = &[
 const PRIVATE_CRT_HEADERS: &[&str] = &[
     // To access S3 client stats
     "aws-c-s3/include/aws/s3/private/s3_client_impl.h",
-    "aws-c-s3/include/aws/s3/private/s3_buffer_pool.h",
+    // To get usage state from the default pool
+    "aws-c-s3/include/aws/s3/private/s3_default_buffer_pool.h",
+    // To get meta request type
+    "aws-c-s3/include/aws/s3/private/s3_meta_request_impl.h",
 ];
 
 /// Get the OS name we are compiling to
@@ -115,7 +119,10 @@ fn get_required_libraries(target_os: &str) -> Vec<CrtLibrary> {
 /// If `cmake3` exists, let's use that as our CMAKE.
 fn discover_cmake3() {
     if which::which("cmake3").is_ok() {
-        std::env::set_var("CMAKE", "cmake3");
+        // SAFETY: build is single-threaded.
+        unsafe {
+            std::env::set_var("CMAKE", "cmake3");
+        }
     }
 }
 
@@ -177,6 +184,7 @@ fn generate_bindings(include_dir: &Path, output_path: &Path) -> Result<(), Bindg
         builder = builder.header(header_path.to_str().unwrap());
     }
 
+    builder = builder.clang_args(&["-I", Path::new(CRT_PATH).join("aws-c-s3/include").to_str().unwrap()]);
     for header in PRIVATE_CRT_HEADERS {
         let header_path = Path::new(CRT_PATH).join(header);
         if !header_path.exists() {

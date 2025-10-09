@@ -1,23 +1,23 @@
 use async_stream::try_stream;
 use futures::task::SpawnExt;
-use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
+use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
-use tracing::{debug_span, error, trace, Instrument};
+use tracing::{Instrument, debug_span, error, trace};
 
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 
-use super::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
-use super::part::Part;
-use super::part_queue::{unbounded_part_queue, PartQueueProducer};
-use super::task::RequestTask;
 use super::PrefetchReadError;
+use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::part::Part;
+use super::part_queue::{PartQueueProducer, unbounded_part_queue};
+use super::task::RequestTask;
 
 /// A generic interface to retrieve data from objects in a S3-like store.
 pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
@@ -195,11 +195,11 @@ impl<Client> Debug for PartStream<Client> {
 pub struct ClientPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ClientPartStream<Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter<Client>>) -> Self {
+    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>) -> Self {
         Self {
             runtime,
             client,
@@ -492,7 +492,8 @@ mod tests {
         assert_eq!(range.object_size(), aligned_range.object_size());
         if range.start() as usize % part_size == 0 {
             assert!(
-                aligned_range.end() as usize == aligned_range.object_size() || aligned_range.end() as usize % part_size == 0,
+                aligned_range.end() as usize == aligned_range.object_size()
+                    || aligned_range.end() as usize % part_size == 0,
                 "ranges starting on a part boundary should be aligned to another part boundary, or to the end of the object"
             );
         }

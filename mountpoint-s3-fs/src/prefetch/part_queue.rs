@@ -4,12 +4,12 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
-use crate::sync::async_channel::{unbounded, Receiver, RecvError, Sender};
-use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::Arc;
+use crate::sync::async_channel::{Receiver, RecvError, Sender, unbounded};
+use crate::sync::atomic::{AtomicUsize, Ordering};
 
-use super::part::Part;
 use super::PrefetchReadError;
+use super::part::Part;
 
 /// A queue of [Part]s where the first part can be partially read from if the reader doesn't want
 /// the entire part in one shot.
@@ -23,7 +23,7 @@ pub struct PartQueue<Client: ObjectClient> {
     failed: bool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -36,7 +36,7 @@ pub struct PartQueueProducer<E: std::error::Error> {
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<Client: ObjectClient>(
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 ) -> (PartQueue<Client>, PartQueueProducer<Client::ClientError>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
@@ -153,6 +153,7 @@ impl<Client: ObjectClient> Drop for PartQueue<Client> {
 mod tests {
     use crate::checksums::ChecksummedBytes;
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+    use crate::memory::PagedPool;
     use crate::object::ObjectId;
 
     use super::*;
@@ -172,8 +173,8 @@ mod tests {
     }
 
     async fn run_test(ops: Vec<Op>) {
-        let client = MockClient::new(Default::default());
-        let mem_limiter = MemoryLimiter::new(client, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        let mem_limiter = MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
         let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());
         let mut current_offset = 0;

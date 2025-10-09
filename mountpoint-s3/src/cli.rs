@@ -2,20 +2,19 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context as _};
-use clap::{value_parser, ArgGroup, Parser, ValueEnum};
-use mountpoint_s3_client::config::{AddressingStyle, S3ClientAuthConfig, AWSCRT_LOG_TARGET};
+use anyhow::{Context as _, anyhow};
+use clap::{ArgGroup, Parser, ValueEnum, value_parser};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
 use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
-use mountpoint_s3_fs::logging::{prepare_log_file_name, LoggingConfig};
+use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::config::{BucketNameOrS3Uri, ClientConfig, PartConfig, S3Path};
-use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::{autoconfigure, metrics, S3FilesystemConfig};
+use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path, S3PathError, S3Personality};
+use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 use sysinfo::{RefreshKind, System};
 
 use crate::build_info;
@@ -55,7 +54,7 @@ Arguments:
 pub struct CliArgs {
     #[clap(
         help = "Name of bucket, or an S3 URI, to mount",
-        value_parser = |arg: &str| BucketNameOrS3Uri::try_from(arg.to_string()),
+        value_parser = parse_bucket_name_or_s3_uri,
     )]
     pub bucket_name: BucketNameOrS3Uri,
 
@@ -280,6 +279,26 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     #[clap(long, help = "Enable logging of summarized performance metrics", help_heading = LOGGING_OPTIONS_HEADER)]
     pub log_metrics: bool,
 
+    #[cfg(feature = "otlp_integration")]
+    #[clap(
+        long,
+        help = "OTLP endpoint for publishing metrics",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "ENDPOINT"
+    )]
+    pub otlp_endpoint: Option<String>,
+
+    #[cfg(feature = "otlp_integration")]
+    #[clap(
+        long,
+        help = "OTLP metrics export interval in seconds [default: 60]",
+        help_heading = LOGGING_OPTIONS_HEADER,
+        value_name = "SECONDS",
+        value_parser = value_parser!(u64).range(1..),
+        requires = "otlp_endpoint"
+    )]
+    pub otlp_export_interval: Option<u64>,
+
     #[clap(short, long, help = "Enable debug logging for Mountpoint", help_heading = LOGGING_OPTIONS_HEADER)]
     pub debug: bool,
 
@@ -345,7 +364,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help_heading = CACHING_OPTIONS_HEADER,
         value_name = "BUCKET",
         group = "cache_group",
-        value_parser = |arg: &str| BucketNameOrS3Uri::try_from(arg.to_string()),
+        value_parser = parse_bucket_name_or_s3_uri,
     )]
     pub cache_xz: Option<BucketNameOrS3Uri>,
 
@@ -455,7 +474,7 @@ impl CliArgs {
         let s3path = match self.bucket_name.clone() {
             BucketNameOrS3Uri::S3Uri(s3uri) => {
                 if prefix.as_str().is_empty() {
-                    s3uri.into()
+                    s3uri
                 } else {
                     return Err(anyhow!("explicit prefix option not allowed with S3 URI"));
                 }
@@ -523,7 +542,7 @@ impl CliArgs {
         filesystem_config
     }
 
-    fn cache_block_size_in_bytes(&self) -> u64 {
+    pub fn cache_block_size_in_bytes(&self) -> u64 {
         #[cfg(feature = "block_size")]
         if let Some(kib) = self.cache_block_size {
             return kib * 1024;
@@ -566,7 +585,7 @@ impl CliArgs {
         let bucket_name = self.cache_xz.to_owned()?;
         let s3path = match bucket_name {
             BucketNameOrS3Uri::BucketName(bucket_name) => S3Path::new(bucket_name, Prefix::empty()),
-            BucketNameOrS3Uri::S3Uri(s3_uri) => s3_uri.into(),
+            BucketNameOrS3Uri::S3Uri(s3_uri) => s3_uri,
         };
         Some(s3path)
     }
@@ -577,8 +596,8 @@ impl CliArgs {
                 if !express_path.prefix.as_str().is_empty() {
                     return Err(anyhow!("cache-xz argument must not contain a prefix"));
                 }
-                let bucket_name = &self.s3_path()?.bucket_name;
-                let express_bucket_name = express_path.bucket_name.as_str();
+                let bucket_name = &self.s3_path()?.bucket;
+                let express_bucket_name = express_path.bucket.as_str();
                 let config = ExpressDataCacheConfig::new(express_bucket_name, bucket_name)
                     .block_size(self.cache_block_size_in_bytes())
                     .sse(sse);
@@ -650,12 +669,14 @@ impl CliArgs {
             let mut filter = if self.debug {
                 String::from("debug")
             } else {
-                String::from("warn")
+                String::from("info")
             };
             let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
-            filter.push_str(&format!(",{}={}", AWSCRT_LOG_TARGET, crt_verbosity));
-            if self.log_metrics {
-                filter.push_str(&format!(",{}=info", metrics::TARGET_NAME));
+            filter.push_str(&format!(",{AWSCRT_LOG_TARGET}={crt_verbosity}"));
+            // Only turn off metrics if neither --log-metrics nor --debug is set.
+            // In debug mode, we want to see all available information including metrics.
+            if !self.log_metrics && !self.debug {
+                filter.push_str(&format!(",{}=off", metrics::TARGET_NAME));
             }
             filter
         };
@@ -688,9 +709,9 @@ impl CliArgs {
 
     fn user_agent(&self, instance_info: &InstanceInfo, version: &str) -> UserAgent {
         let user_agent_prefix = if let Some(custom_prefix) = &self.user_agent_prefix {
-            format!("{} mountpoint-s3/{}", custom_prefix, version)
+            format!("{custom_prefix} mountpoint-s3/{version}")
         } else {
-            format!("mountpoint-s3/{}", version)
+            format!("mountpoint-s3/{version}")
         };
         let mut user_agent = UserAgent::new_with_instance_info(Some(user_agent_prefix), instance_info);
         if self.read_only {
@@ -720,22 +741,22 @@ impl CliArgs {
         user_agent
     }
 
-    fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> f64 {
-        const DEFAULT_TARGET_THROUGHPUT: f64 = 10.0;
-
-        let throughput_target_gbps = self.maximum_throughput_gbps.map(|t| t as f64).unwrap_or_else(|| {
+    fn throughput_target_gbps(&self, instance_info: &InstanceInfo) -> TargetThroughputSetting {
+        let throughput_target_gbps = self.maximum_throughput_gbps.map(|t| TargetThroughputSetting::User { gbps: t as f64 }).unwrap_or_else(|| {
             match autoconfigure::network_throughput(instance_info) {
-                Ok(throughput) => throughput,
+                Ok(throughput) => TargetThroughputSetting::Instance { gbps: throughput },
                 Err(e) => {
                     tracing::warn!(
-                        "failed to detect network throughput. Using {DEFAULT_TARGET_THROUGHPUT} gbps as throughput. \
-                        Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {e:?}",
+                        "failed to detect network throughput. Using {} gbps as throughput. \
+                        Use --maximum-throughput-gbps CLI flag to configure a target throughput appropriate for the instance. Detection failed due to: {:?}",
+                        TargetThroughputSetting::DEFAULT_TARGET_THROUGHPUT_GBPS,
+                        e,
                         );
-                    DEFAULT_TARGET_THROUGHPUT
+                    TargetThroughputSetting::Default
                 }
             }
         });
-        tracing::info!("target network throughput {throughput_target_gbps} Gbps");
+        tracing::info!("target network throughput {} Gbps", throughput_target_gbps.value());
         throughput_target_gbps
     }
 
@@ -763,7 +784,7 @@ impl CliArgs {
     pub fn client_config(&self, version: &str) -> ClientConfig {
         let instance_info = InstanceInfo::new();
         let user_agent = self.user_agent(&instance_info, version);
-        let throughput_target_gbps = self.throughput_target_gbps(&instance_info);
+        let throughput_target = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
         ClientConfig {
@@ -775,7 +796,7 @@ impl CliArgs {
             auth_config: self.auth_config(),
             requester_pays: self.requester_pays,
             expected_bucket_owner: self.expected_bucket_owner.clone(),
-            throughput_target_gbps,
+            throughput_target,
             bind: self.bind.clone(),
             part_config: self.part_config(),
             user_agent,
@@ -803,6 +824,22 @@ fn parse_kms_key_arn(kms_key_arn: &str) -> anyhow::Result<String> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum BucketNameOrS3Uri {
+    BucketName(Bucket),
+    S3Uri(S3Path),
+}
+
+fn parse_bucket_name_or_s3_uri(bucket_name_or_uri: &str) -> Result<BucketNameOrS3Uri, S3PathError> {
+    if bucket_name_or_uri.starts_with("s3://") {
+        Ok(BucketNameOrS3Uri::S3Uri(S3Path::parse_s3_uri(bucket_name_or_uri)?))
+    } else {
+        Ok(BucketNameOrS3Uri::BucketName(Bucket::new(
+            bucket_name_or_uri.to_owned(),
+        )?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,9 +862,7 @@ mod tests {
         assert_eq!(
             valid,
             _parse_cli_args(bucket_name).is_some(),
-            "bucket_name: {}, expected: {}",
-            bucket_name,
-            valid
+            "bucket_name: {bucket_name}, expected: {valid}"
         );
     }
 
@@ -845,27 +880,24 @@ mod tests {
             let cli_args = CliArgs::try_parse_from(["mount-s3", bucket_name, "test/location"])?;
             cli_args
                 .s3_path()
-                .map(|path| (path.bucket_name, path.prefix.as_str().to_string()))
+                .map(|path| (path.bucket.to_string(), path.prefix.as_str().to_string()))
         }
         let s3_path = get_err(bucket_name);
         match (s3_path, expected_path) {
             (Ok(s3_path), Ok(expected_path)) => {
                 assert_eq!(
                     expected_path, s3_path,
-                    "bucket_name: {:?}, expected: {:?}",
-                    s3_path, expected_path,
+                    "bucket_name: {s3_path:?}, expected: {expected_path:?}",
                 );
             }
             (Err(err), Err(should_contain)) => {
                 assert!(
-                    format!("{:#}", err).contains(&should_contain),
-                    "Actual error `{:#}` does not contain string {:?}",
-                    err,
-                    should_contain
+                    format!("{err:#}").contains(&should_contain),
+                    "Actual error `{err:#}` does not contain string {should_contain:?}"
                 )
             }
             (s3_path, expected_path) => {
-                panic!("bucket_name: {:?}, expected: {:?}", s3_path, expected_path);
+                panic!("bucket_name: {s3_path:?}, expected: {expected_path:?}");
             }
         }
     }

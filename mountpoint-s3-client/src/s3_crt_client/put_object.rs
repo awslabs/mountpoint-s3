@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use futures::channel::oneshot::{self, Receiver};
 use futures::FutureExt;
+use futures::channel::oneshot::{self, Receiver};
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
@@ -18,8 +18,8 @@ use crate::object_client::{
 };
 
 use super::{
-    emit_throughput_metric, ETag, PutObjectTrailingChecksums, S3CrtClient, S3Message, S3MetaRequest, S3Operation,
-    S3RequestError,
+    ETag, PutObjectTrailingChecksums, S3CrtClient, S3Message, S3MetaRequest, S3Operation, S3RequestError,
+    emit_throughput_metric,
 };
 
 const ETAG_HEADER_NAME: &str = "ETag";
@@ -57,7 +57,7 @@ impl S3CrtClient {
 
             for (name, value) in &params.object_metadata {
                 message
-                    .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
+                    .set_header(&Header::new(format!("x-amz-meta-{name}"), value))
                     .map_err(S3RequestError::construction_failure)?
             }
             for (name, value) in &params.custom_headers {
@@ -81,6 +81,7 @@ impl S3CrtClient {
                 span,
                 move |metrics| {
                     if metrics.request_type() == RequestType::CreateMultipartUpload && !metrics.error().is_err() {
+                        // Send signal on a successful CreateMultipartUpload request
                         if let Some(sender) = on_mpu_created_sender.lock().unwrap().take() {
                             _ = sender.send(Ok(()));
                         }
@@ -162,7 +163,7 @@ impl S3CrtClient {
             }
             for (name, value) in &params.object_metadata {
                 message
-                    .set_header(&Header::new(format!("x-amz-meta-{}", name), value))
+                    .set_header(&Header::new(format!("x-amz-meta-{name}"), value))
                     .map_err(S3RequestError::construction_failure)?;
             }
             for (name, value) in &params.custom_headers {
@@ -340,10 +341,10 @@ fn parse_put_object_single_error(result: &MetaRequestResult) -> Option<PutObject
 
 fn parse_if_error_message_starts_with<E: std::error::Error>(prefix: &str, element: &Element, error: E) -> Option<E> {
     let error_message = element.get_child("Message")?.get_text();
-    if let Some(error_message) = error_message {
-        if error_message.starts_with(prefix) {
-            return Some(error);
-        }
+    if let Some(error_message) = error_message
+        && error_message.starts_with(prefix)
+    {
+        return Some(error);
     }
     None
 }

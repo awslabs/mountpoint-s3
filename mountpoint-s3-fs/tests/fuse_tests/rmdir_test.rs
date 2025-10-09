@@ -1,4 +1,4 @@
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionCreator, read_dir_to_entry_names};
 use std::fs::{self, DirBuilder, File};
 use std::io::Write;
 use test_case::test_case;

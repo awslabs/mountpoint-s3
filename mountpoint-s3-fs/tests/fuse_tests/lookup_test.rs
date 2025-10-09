@@ -6,12 +6,12 @@ use std::{
 };
 
 use mountpoint_s3_fs::{
-    fs::{CacheConfig, TimeToLive},
     S3FilesystemConfig,
+    fs::{CacheConfig, TimeToLive},
 };
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 /// See [mountpoint_s3_fs::inode::tests::test_lookup_directory_overlap].
 fn lookup_directory_overlap_test(creator_fn: impl TestSessionCreator, prefix: &str, subdir: &str) {

@@ -4,7 +4,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use mountpoint_s3_fs::S3FilesystemConfig;
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn simple_unlink_tests(creator_fn: impl TestSessionCreator, prefix: &str) {

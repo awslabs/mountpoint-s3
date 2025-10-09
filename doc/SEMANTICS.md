@@ -5,7 +5,7 @@ Mountpoint for Amazon S3 allows your applications to access objects stored in Am
 ## Behavior tenets
 
 While the rest of this document gives details on specific file system behaviors, we can summarize the Mountpoint approach in three high-level tenets:
-1. Mountpoint does not support file behaviors that cannot be implemented efficiently against S3's object APIs. It does not emulate operations like `rename` that would require many API calls to S3 to perform.
+1. Mountpoint does not support file behaviors that cannot be implemented efficiently against S3's object APIs. It does not emulate operations like `rename` on S3 general purpose buckets, which would require many API calls to S3 to perform.
 2. Mountpoint presents a common view of S3 object data through both file and object APIs. It does not emulate POSIX file features that have no close analog in S3's object APIs, such as mutable ownership and permissions.
 3. When these tenets conflict with POSIX requirements, Mountpoint fails early and explicitly. We would rather cause applications to fail with IO errors than silently accept operations that Mountpoint will never successfully persist, such as extended attributes.
 
@@ -15,13 +15,23 @@ Mountpoint supports opening and reading existing objects from your S3 bucket. It
 
 Mountpoint supports creating new objects in your S3 bucket by allowing writes to new files. If the `--allow-overwrite` flag is set at startup time, Mountpoint also supports replacing existing objects by allowing writes to existing files, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. In both cases, writes must always start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`. The new (or overwritten) object will be visible to other S3 clients only after closing it (or on `fsync`).
 
-For directory buckets in S3 Express One Zone, Mountpoint also supports appending to existing files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
-
 By default, Mountpoint does not allow deleting existing objects with commands like `rm`. To enable deletion, pass the `--allow-delete` flag to Mountpoint at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. We recommend that you enable [Bucket Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) to help protect against unintentionally deleting objects. You cannot delete a file while it is being written.
 
-You cannot rename an existing file using Mountpoint.
+For objects stored in S3 Express One Zone, Mountpoint supports appending to files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
+
+Mountpoint supports atomic file rename for objects stored in the S3 Express One Zone storage class.
+Attempting to rename files where unsupported by S3 will result in the operation being rejected.
+Mountpoint distinguishes between rename operations that move to an empty destination (non-replacing) and those that replace an existing object at the destination (replacing).
+While non-replacing renames do not require further flags to be set, replacing rename require passing the `--allow-overwrite` flag to Mountpoint at startup time.
+Rename operations immediately rename the object in S3.
+Existing readers (to source or destination) may eventually fail to read more data from the object after it has been renamed.
+You cannot rename a file while it or the destination of a rename is being written by the same Mountpoint instance.
+
+Append and rename are not supported for directory buckets that reside in Local Zones. You can only append data to or rename existing objects in directory buckets that reside in Availability Zones.
+You should not pass the `--incremental-upload` flag to Mountpoint in this case, as writes to files will fail. Attempting to rename files in this case will lead to the operation being rejected.
 
 Objects in the S3 Glacier Flexible Retrieval and S3 Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are only accessible with Mountpoint if they have been restored. To access these objects with Mountpoint, [restore](https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html) them first.
+
 
 ## Directories
 
@@ -148,13 +158,13 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
 
   * `blue`
   * `blue/image.jpg`
-  
-  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`. 
+
+  then mounting your bucket would give a file system with a `blue` directory, containing the file `image.jpg`.
 The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
-Additionally, remote directories will always shadow local directories or files. 
+Additionally, remote directories will always shadow local directories or files.
 Thus Mountpoint shadows directory entries in the following order, where the first takes precedence: remote directories, any local state, remote files.
-For example, if you create a directory i.e. `blue/` and a conflicting object with key `blue` appears in the bucket, the local directory will still be accessible.  
+For example, if you create a directory i.e. `blue/` and a conflicting object with key `blue` appears in the bucket, the local directory will still be accessible.
 
 We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
 
@@ -223,7 +233,7 @@ Basic read-only directory operations (`opendir`, `readdir`, `closedir`, `rewindd
 
 Sorting order of `readdir` results:
 * For general purpose buckets, `readdir` returns results in lexicographical order.
-* For directory buckets (S3 Express One Zone), `readdir` does not return results in lexicographical order.
+* For directory buckets, `readdir` does not return results in lexicographical order.
 
 Creating directories (`mkdir`) is supported, with the following behavior:
 
@@ -231,7 +241,7 @@ Creating directories (`mkdir`) is supported, with the following behavior:
 * Note that this is different from e.g. the S3 Console, which creates "directory markers" (i.e. zero-byte objects with `<directory-name>/` key) in the bucket.
 * If a file is created under the new (or a nested) directory and committed to S3, Mountpoint will revert to using the default mapping of S3 object keys. This implies that the directory will be visible as long as there are keys which contain it as a prefix.
 
-Renaming files and directories (`rename`, `renameat`) is not currently supported.
+Rename (`rename`, `renameat`, `renameat2`) semantics are described in the [File and directory rename](#file-and-directory-rename) section.
 
 File deletion (`unlink`) semantics are described in the [Deletes](#deletes) section above.
 
@@ -246,6 +256,32 @@ Empty directory removal (`rmdir`) is supported, with the following semantics:
 * On success, the directory will be deleted immediately. Subsequent reads or writes to the directory (e.g. creating a file or subdirectory) will fail.
 
 Synchronization operations (`fsync`) on directories are not supported.
+
+### File and directory rename
+
+File and directory renames refer to the `rename` family of system calls, where a file is moved from one part of the file system tree to another.
+
+On Amazon S3 directory buckets in S3 Express One Zone, renaming individual files within the same bucket is supported with the following semantics:
+
+* Non-replacing file rename will work without any further Mountpoint configuration.
+* If a file already exists at the new destination path (replacing rename), the rename will fail, unless the `--allow-overwrite` flag was set
+  at mount time and the system call does not specify the `RENAME_NOREPLACE` flag.
+* For files currently open for writing or not yet committed to S3, the client does not permit `rename` or `renameat2` operations.
+  Similarly, if the destination file of a rename operation is open for writing, the rename will be rejected.
+* For files not open for writing, the client _immediately_ renames the corresponding S3 object,
+  and moves the file in the local file system representation.
+* Mountpoint does not support `rename` or `renameat2` where `RENAME_EXCHANGE` is specified, as exchanging two objects is not supported by Amazon S3.
+* Mountpoint does not support `rename` or `renameat2` where `RENAME_WHITEOUT` is specified, as Mountpoint is not an overlay/union file system.
+* If there are still open read file handles to the file being renamed or the destination file, future reads to them will fail.
+* Because the object is immediately renamed in S3, future reads with file handles from other hosts will also fail.
+* Concurrent rename to a destination and uploads to the same key may result in the renamed object being overwritten.
+  We do not recommend concurrent mutations to the same key.
+* Note, that renaming the last file in a directory has a similar effect to that directory as removing the last file. Thus, moving the last file out of a directory
+  may lead to that directory being inaccessible, as there will no longer be an object in S3 under that directory.
+
+Renaming individual files is not supported by Amazon S3 general purpose buckets, nor objects not in the S3 Express One Zone storage class.
+
+Directory rename is not supported on any Amazon S3 bucket type.
 
 ### File and directory metadata and permissions
 

@@ -4,6 +4,11 @@
 use mountpoint_s3_client::config::{EndpointConfig, SigningAlgorithm};
 
 pub mod config;
+pub mod path;
+pub mod prefix;
+
+pub use path::{Bucket, S3Path, S3PathError};
+pub use prefix::{Prefix, PrefixError};
 
 /// The type of S3 we're talking to.
 ///
@@ -45,6 +50,14 @@ impl S3Personality {
     pub fn supports_additional_checksums(&self) -> bool {
         match self {
             S3Personality::Standard => true,
+            S3Personality::ExpressOneZone => true,
+            S3Personality::Outposts => false,
+        }
+    }
+
+    pub fn supports_rename_object(&self) -> bool {
+        match self {
+            S3Personality::Standard => false,
             S3Personality::ExpressOneZone => true,
             S3Personality::Outposts => false,
         }

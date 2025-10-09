@@ -1,8 +1,8 @@
 [package]
 name = "mountpoint-s3-crt-sys"
 # See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.13.1"
-edition = "2021"
+version = "0.15.1"
+edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust FFI bindings to the AWS Common Runtime for Mountpoint for Amazon S3."
@@ -74,16 +74,16 @@ exclude = [
 ]
 
 [build-dependencies]
-bindgen = { version = "0.71.1", default-features = false, features = [
+bindgen = { version = "0.72.1", default-features = false, features = [
     "runtime",
 ] }
-cc = "1.2.10"
-cmake = "0.1.52"
-rustflags = "0.1.6"
-which = "7.0.1"
+cc = "1.2.40"
+cmake = "0.1.54"
+rustflags = "0.1.7"
+which = "8.0.0"
 
 [dependencies]
-libc = "0.2.169"
+libc = "0.2.176"
 
 [lib]
 doctest = false

@@ -1,20 +1,20 @@
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
-use crate::object::ObjectId;
 use crate::ServerSideEncryption;
+use crate::object::ObjectId;
 use std::collections::HashMap;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use base64ct::{Base64, Encoding};
 use bytes::{Bytes, BytesMut};
-use futures::{pin_mut, StreamExt};
+use futures::{StreamExt, pin_mut};
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
     ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse, PutObjectSingleParams,
     UploadChecksum,
 };
-use mountpoint_s3_client::ObjectClient;
 use sha2::{Digest, Sha256};
 use tracing::Instrument;
 
@@ -481,7 +481,7 @@ pub fn get_s3_key(prefix: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> 
             .chain_update(cache_key.etag().as_str())
             .finalize(),
     );
-    format!("{}/{}/{:010}", prefix, hashed_cache_key, block_idx)
+    format!("{prefix}/{hashed_cache_key}/{block_idx:010}")
 }
 
 #[cfg(test)]
@@ -491,8 +491,8 @@ mod tests {
     use crate::sync::Arc;
     use proptest::{prop_assert, proptest};
 
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
+    use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientError};
     use mountpoint_s3_client::types::ETag;
     use test_case::test_case;
 
@@ -501,14 +501,14 @@ mod tests {
     #[tokio::test]
     async fn test_put_get(part_size: usize, block_size: u64) {
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size,
-            enable_backpressure: true,
-            initial_read_window_size: part_size,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(part_size)
+                .build(),
+        );
 
         let config = ExpressDataCacheConfig::new(bucket, "unique source description").block_size(block_size);
         let cache = ExpressDataCache::new(client, config);
@@ -532,8 +532,7 @@ mod tests {
             .expect("cache should be accessible");
         assert!(
             block.is_none(),
-            "no entry should be available to return but got {:?}",
-            block,
+            "no entry should be available to return but got {block:?}",
         );
 
         // PUT and GET, OK?
@@ -600,14 +599,14 @@ mod tests {
     #[tokio::test]
     async fn large_object_bypassed() {
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 8 * 1024 * 1024,
-            enable_backpressure: true,
-            initial_read_window_size: 8 * 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(8 * 1024 * 1024)
+                .enable_backpressure(true)
+                .initial_read_window_size(8 * 1024 * 1024)
+                .build(),
+        );
         let cache = ExpressDataCache::new(
             client.clone(),
             ExpressDataCacheConfig::new(bucket, "unique source description"),
@@ -632,14 +631,14 @@ mod tests {
     async fn test_get_validate_failure() {
         let source_bucket = "source-bucket";
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 8 * 1024 * 1024,
-            enable_backpressure: true,
-            initial_read_window_size: 8 * 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(8 * 1024 * 1024)
+                .enable_backpressure(true)
+                .initial_read_window_size(8 * 1024 * 1024)
+                .build(),
+        );
         let config = ExpressDataCacheConfig::new(bucket, source_bucket);
         let block_size = config.block_size;
         let cache = ExpressDataCache::new(client.clone(), config);
@@ -759,14 +758,14 @@ mod tests {
     async fn test_verify_cache_valid_success() {
         let source_bucket = "source-bucket";
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 8 * 1024 * 1024,
-            enable_backpressure: true,
-            initial_read_window_size: 8 * 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(8 * 1024 * 1024)
+                .enable_backpressure(true)
+                .initial_read_window_size(8 * 1024 * 1024)
+                .build(),
+        );
         let cache = ExpressDataCache::new(client.clone(), ExpressDataCacheConfig::new(bucket, source_bucket));
 
         cache.verify_cache_valid().await.expect("cache should work");
@@ -776,14 +775,14 @@ mod tests {
     async fn test_verify_cache_valid_failure() {
         let source_bucket = "source-bucket";
         let bucket = "test-bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 8 * 1024 * 1024,
-            enable_backpressure: true,
-            initial_read_window_size: 8 * 1024 * 1024,
-            ..Default::default()
-        };
-        let client = Arc::new(MockClient::new(config));
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket)
+                .part_size(8 * 1024 * 1024)
+                .enable_backpressure(true)
+                .initial_read_window_size(8 * 1024 * 1024)
+                .build(),
+        );
 
         let mut put_single_failures = HashMap::new();
         put_single_failures.insert(1, MockClientError("error".to_owned().into()).into());

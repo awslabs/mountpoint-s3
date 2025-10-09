@@ -59,7 +59,7 @@ mod tests {
     #[test_case("hello"; "not ending in slash")]
     #[test_case("hello/world"; "nested folder not ending in slash")]
     fn test_invalid_prefix(prefix: &str) {
-        assert!(Prefix::new(prefix).is_err(), "Prefix should be invalid: '{}'", prefix);
+        assert!(Prefix::new(prefix).is_err(), "Prefix should be invalid: '{prefix}'");
     }
 
     #[test_case(""; "empty string")]
@@ -70,6 +70,6 @@ mod tests {
     #[test_case("//"; "double slash")]
     #[test_case("/hello/"; "starting with slash")]
     fn test_valid_prefix(prefix: &str) {
-        assert!(Prefix::new(prefix).is_ok(), "Prefix should be valid: '{}'", prefix);
+        assert!(Prefix::new(prefix).is_ok(), "Prefix should be valid: '{prefix}'");
     }
 }

@@ -1,7 +1,7 @@
 //! Configuration for signing requests to AWS APIs
 
-use crate::auth::credentials::CredentialsProvider;
 use crate::ToAwsByteCursor;
+use crate::auth::credentials::CredentialsProvider;
 use mountpoint_s3_crt_sys::{aws_s3_init_default_signing_config, aws_signing_algorithm, aws_signing_config_aws};
 use std::ffi::OsString;
 use std::fmt::Debug;

@@ -20,14 +20,14 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: true
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-          # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+          # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
           rustflags: ""
       - name: Package ${{ matrix.crate }} crate
         # `--no-verify` avoids building using crates.io dependencies, which for local packages may not be updated yet

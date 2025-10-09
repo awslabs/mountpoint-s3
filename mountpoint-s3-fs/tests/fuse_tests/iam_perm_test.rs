@@ -12,12 +12,12 @@ use std::io::Read;
 use std::time::Duration;
 
 use aws_sdk_s3::primitives::ByteStream;
-use mountpoint_s3_fs::fs::CacheConfig;
 use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::fs::CacheConfig;
 use test_case::test_case;
 
 use crate::common::creds::get_scoped_down_credentials;
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig};
+use crate::common::fuse::{self, TestSessionConfig, read_dir_to_entry_names};
 use crate::common::s3::{get_test_bucket, get_test_region, get_test_sdk_client};
 use crate::common::tokio_block_on;
 

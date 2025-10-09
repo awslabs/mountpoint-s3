@@ -1,11 +1,11 @@
 //! An asychronous DNS resolver
 
+use crate::CrtError as _;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::string::AwsString;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::io_library_init;
-use crate::CrtError as _;
 use mountpoint_s3_crt_sys::*;
 use std::ptr::NonNull;
 

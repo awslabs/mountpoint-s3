@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use futures::future::{Fuse, FusedFuture};
 use futures::FutureExt;
+use futures::future::{Fuse, FusedFuture};
 pub use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProviderChainDefaultOptions, CredentialsProviderProfileOptions};
 use mountpoint_s3_crt::auth::signing_config::SigningConfig;
@@ -26,17 +26,19 @@ pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
 use mountpoint_s3_crt::io::stream::InputStream;
+use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
-    init_signing_config, BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions,
-    MetaRequestResult, MetaRequestType, RequestMetrics, RequestType,
+    BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
+    MetaRequestType, RequestMetrics, RequestType, init_signing_config,
 };
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
-use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use mountpoint_s3_crt::s3::pool::{CrtBufferPoolFactory, MemoryPool, MemoryPoolFactory};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
 use pin_project::pin_project;
 use thiserror::Error;
-use tracing::{debug, error, trace, Span};
+use tracing::{Span, debug, error, trace};
 
 use crate::checksums::{crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, sha1_to_base64, sha256_to_base64};
 use crate::endpoint_config::EndpointError;
@@ -67,6 +69,8 @@ pub(crate) mod get_object_attributes;
 
 pub(crate) mod head_object;
 pub(crate) mod list_objects;
+
+pub(crate) mod rename_object;
 
 pub(crate) mod head_bucket;
 pub(crate) mod put_object;
@@ -105,6 +109,7 @@ pub struct S3ClientConfig {
     network_interface_names: Vec<String>,
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
     event_loop_threads: Option<u16>,
+    buffer_pool_factory: Option<CrtBufferPoolFactory>,
 }
 
 impl Default for S3ClientConfig {
@@ -126,6 +131,7 @@ impl Default for S3ClientConfig {
             network_interface_names: vec![],
             telemetry_callback: None,
             event_loop_threads: None,
+            buffer_pool_factory: None,
         }
     }
 }
@@ -246,6 +252,20 @@ impl S3ClientConfig {
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn event_loop_threads(mut self, event_loop_threads: u16) -> Self {
         self.event_loop_threads = Some(event_loop_threads);
+        self
+    }
+
+    /// Set a custom memory pool
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn memory_pool(mut self, pool: impl MemoryPool) -> Self {
+        self.buffer_pool_factory = Some(CrtBufferPoolFactory::new(move |_| pool.clone()));
+        self
+    }
+
+    /// Set a custom memory pool factory
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn memory_pool_factory(mut self, pool_factory: impl MemoryPoolFactory) -> Self {
+        self.buffer_pool_factory = Some(CrtBufferPoolFactory::new(pool_factory));
         self
     }
 }
@@ -415,6 +435,10 @@ impl S3CrtClientInner {
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);
 
+        if let Some(pool_factory) = &config.buffer_pool_factory {
+            client_config.buffer_pool_factory(pool_factory.clone());
+        }
+
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
         let max_part_size = cmp::min(5_u64 * 1024 * 1024 * 1024, usize::MAX as u64) as usize;
         // TODO: Review the part size validation for read_part_size, read_part_size can have a more relax limit.
@@ -459,7 +483,7 @@ impl S3CrtClientInner {
     /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
-    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
+    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message<'_>, ConstructionError> {
         let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
         let uri = endpoint.uri()?;
         trace!(?uri, "resolved endpoint");
@@ -491,7 +515,7 @@ impl S3CrtClientInner {
         let path_prefix = uri.path().to_os_string().into_string().unwrap();
         let port = uri.host_port();
         let hostname_header = if port > 0 {
-            format!("{}:{}", hostname, port)
+            format!("{hostname}:{port}")
         } else {
             hostname.to_string()
         };
@@ -532,7 +556,7 @@ impl S3CrtClientInner {
         request_span: Span,
         on_request_finish: impl Fn(&RequestMetrics) + Send + 'static,
         mut on_headers: impl FnMut(&Headers, i32) + Send + 'static,
-        mut on_body: impl FnMut(u64, &[u8]) + Send + 'static,
+        mut on_body: impl FnMut(u64, &Buffer) + Send + 'static,
         parse_meta_request_error: impl FnOnce(&MetaRequestResult) -> Option<E> + Send + 'static,
         on_meta_request_result: impl FnOnce(ObjectClientResult<(), E, S3RequestError>) + Send + 'static,
     ) -> Result<CancellingMetaRequest, S3RequestError> {
@@ -829,17 +853,21 @@ impl S3CrtClientInner {
 
         // Buffer pool metrics
         let start = Instant::now();
-        let buffer_pool_stats = s3_client.poll_buffer_pool_usage_stats();
-        metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us").record(start.elapsed().as_micros() as f64);
-        metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_allocated").set(buffer_pool_stats.primary_allocated as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_reserved").set(buffer_pool_stats.primary_reserved as f64);
-        metrics::gauge!("s3.client.buffer_pool.primary_num_blocks").set(buffer_pool_stats.primary_num_blocks as f64);
-        metrics::gauge!("s3.client.buffer_pool.secondary_reserved").set(buffer_pool_stats.secondary_reserved as f64);
-        metrics::gauge!("s3.client.buffer_pool.secondary_used").set(buffer_pool_stats.secondary_used as f64);
-        metrics::gauge!("s3.client.buffer_pool.forced_used").set(buffer_pool_stats.forced_used as f64);
+        if let Some(buffer_pool_stats) = s3_client.poll_default_buffer_pool_usage_stats() {
+            metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us")
+                .record(start.elapsed().as_micros() as f64);
+            metrics::gauge!("s3.client.buffer_pool.mem_limit").set(buffer_pool_stats.mem_limit as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_cutoff").set(buffer_pool_stats.primary_cutoff as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_used").set(buffer_pool_stats.primary_used as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_allocated").set(buffer_pool_stats.primary_allocated as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_reserved").set(buffer_pool_stats.primary_reserved as f64);
+            metrics::gauge!("s3.client.buffer_pool.primary_num_blocks")
+                .set(buffer_pool_stats.primary_num_blocks as f64);
+            metrics::gauge!("s3.client.buffer_pool.secondary_reserved")
+                .set(buffer_pool_stats.secondary_reserved as f64);
+            metrics::gauge!("s3.client.buffer_pool.secondary_used").set(buffer_pool_stats.secondary_used as f64);
+            metrics::gauge!("s3.client.buffer_pool.forced_used").set(buffer_pool_stats.forced_used as f64);
+        }
     }
 
     fn next_request_counter(&self) -> u64 {
@@ -909,6 +937,61 @@ struct S3Message<'a> {
     signing_config: Option<SigningConfig>,
 }
 
+// This is RFC 3986 but with '/' also considered a safe character for path fragments.
+const URLENCODE_QUERY_FRAGMENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
+const URLENCODE_PATH_FRAGMENT: &AsciiSet = &URLENCODE_QUERY_FRAGMENT.remove(b'/');
+
+fn write_encoded_fragment(s: &mut OsString, piece: impl AsRef<OsStr>, encoding: &'static AsciiSet) {
+    let iter = percent_encode(piece.as_ref().as_bytes(), encoding);
+    s.extend(iter.map(|s| OsStr::from_bytes(s.as_bytes())));
+}
+
+#[derive(Debug, Default)]
+enum QueryFragment<'a, P: AsRef<OsStr>> {
+    #[default]
+    Empty,
+    Query(&'a [(P, P)]),
+    Action(P),
+}
+
+impl<P: AsRef<OsStr>> QueryFragment<'_, P> {
+    // This estimate is exact if no characters need encoding, otherwise we'll end up
+    // reallocating a couple of times. The '?' for the query is counted in the first key-value
+    // pair.
+    fn size(&self) -> usize {
+        match self {
+            QueryFragment::Empty => 0,
+            QueryFragment::Query(query) => query
+                .iter()
+                .map(|(key, value)| key.as_ref().len() + value.as_ref().len() + 2)
+                .sum::<usize>(),
+            QueryFragment::Action(action) => 1 + action.as_ref().len(),
+        }
+    }
+
+    // Write the fragment to the query string
+    fn write(&self, path: &mut OsString) {
+        match &self {
+            QueryFragment::Query(query) if !query.is_empty() => {
+                path.push("?");
+                for (i, (key, value)) in query.iter().enumerate() {
+                    if i != 0 {
+                        path.push("&");
+                    }
+                    write_encoded_fragment(path, key, URLENCODE_QUERY_FRAGMENT);
+                    path.push("=");
+                    write_encoded_fragment(path, value, URLENCODE_QUERY_FRAGMENT);
+                }
+            }
+            QueryFragment::Action(action) => {
+                path.push("?");
+                path.push(action.as_ref());
+            }
+            _ => {}
+        }
+    }
+}
+
 impl<'a> S3Message<'a> {
     /// Add a header to this message. The header is added if necessary and any existing values for
     /// this header are removed.
@@ -924,28 +1007,9 @@ impl<'a> S3Message<'a> {
     fn set_request_path_and_query<P: AsRef<OsStr>>(
         &mut self,
         path: impl AsRef<OsStr>,
-        query: impl AsRef<[(P, P)]>,
+        query_or_action: QueryFragment<P>,
     ) -> Result<(), mountpoint_s3_crt::common::error::Error> {
-        // This is RFC 3986 but with '/' also considered a safe character for path fragments.
-        const URLENCODE_QUERY_FRAGMENT: &AsciiSet =
-            &NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_').remove(b'~');
-        const URLENCODE_PATH_FRAGMENT: &AsciiSet = &URLENCODE_QUERY_FRAGMENT.remove(b'/');
-
-        fn write_encoded_fragment(s: &mut OsString, piece: impl AsRef<OsStr>, encoding: &'static AsciiSet) {
-            let iter = percent_encode(piece.as_ref().as_bytes(), encoding);
-            s.extend(iter.map(|s| OsStr::from_bytes(s.as_bytes())));
-        }
-
-        // This estimate is exact if no characters need encoding, otherwise we'll end up
-        // reallocating a couple of times. The '?' for the query is counted in the first key-value
-        // pair.
-        let space_needed = self.path_prefix.len()
-            + path.as_ref().len()
-            + query
-                .as_ref()
-                .iter()
-                .map(|(key, value)| key.as_ref().len() + value.as_ref().len() + 2) // +2 for & and =
-                .sum::<usize>();
+        let space_needed = self.path_prefix.len() + query_or_action.size();
 
         let mut full_path = OsString::with_capacity(space_needed);
 
@@ -953,25 +1017,14 @@ impl<'a> S3Message<'a> {
         write_encoded_fragment(&mut full_path, &path, URLENCODE_PATH_FRAGMENT);
 
         // Build the query string
-        if !query.as_ref().is_empty() {
-            full_path.push("?");
-            for (i, (key, value)) in query.as_ref().iter().enumerate() {
-                if i != 0 {
-                    full_path.push("&");
-                }
-                write_encoded_fragment(&mut full_path, key, URLENCODE_QUERY_FRAGMENT);
-                full_path.push("=");
-                write_encoded_fragment(&mut full_path, value, URLENCODE_QUERY_FRAGMENT);
-            }
-        }
-
+        query_or_action.write(&mut full_path);
         self.inner.set_request_path(full_path)
     }
 
     /// Set the request path for this message. The path should not be URL-encoded; this method will
     /// handle that.
     fn set_request_path(&mut self, path: impl AsRef<OsStr>) -> Result<(), mountpoint_s3_crt::common::error::Error> {
-        self.set_request_path_and_query::<&str>(path, &[])
+        self.set_request_path_and_query::<&str>(path, Default::default())
     }
 
     /// Sets the checksum configuration for this message.
@@ -1361,16 +1414,16 @@ impl ObjectClient for S3CrtClient {
     type PutObjectRequest = S3PutObjectRequest;
     type ClientError = S3RequestError;
 
-    fn read_part_size(&self) -> Option<usize> {
-        Some(self.inner.read_part_size)
+    fn read_part_size(&self) -> usize {
+        self.inner.read_part_size
     }
 
-    fn write_part_size(&self) -> Option<usize> {
+    fn write_part_size(&self) -> usize {
         // TODO: the CRT does some clamping to a max size rather than just swallowing the part size
         // we configured it with, so this might be wrong. Right now the only clamping is to the max
         // S3 part size (5GiB), so this shouldn't affect the result.
         // https://github.com/awslabs/aws-c-s3/blob/94e3342c12833c5199/source/s3_client.c#L337-L344
-        Some(self.inner.write_part_size)
+        self.inner.write_part_size
     }
 
     fn initial_read_window_size(&self) -> Option<usize> {
@@ -1383,9 +1436,13 @@ impl ObjectClient for S3CrtClient {
 
     fn mem_usage_stats(&self) -> Option<BufferPoolUsageStats> {
         let start = Instant::now();
-        let crt_buffer_pool_stats = self.inner.s3_client.poll_buffer_pool_usage_stats();
-        metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us").record(start.elapsed().as_micros() as f64);
-        Some(crt_buffer_pool_stats)
+        self.inner
+            .s3_client
+            .poll_default_buffer_pool_usage_stats()
+            .inspect(|_| {
+                metrics::histogram!("s3.client.buffer_pool.get_usage_latency_us")
+                    .record(start.elapsed().as_micros() as f64);
+            })
     }
 
     async fn delete_object(
@@ -1468,6 +1525,16 @@ impl ObjectClient for S3CrtClient {
         self.get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
     }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        self.rename_object(bucket, src_key, dst_key, params).await
+    }
 }
 
 /// Custom handling of telemetry events
@@ -1539,9 +1606,11 @@ mod tests {
             .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
-        assert!(user_agent_header_value
-            .to_string_lossy()
-            .starts_with(expected_user_agent));
+        assert!(
+            user_agent_header_value
+                .to_string_lossy()
+                .starts_with(expected_user_agent)
+        );
     }
 
     fn assert_expected_host(expected_host: &str, endpoint_config: EndpointConfig) {
@@ -1571,7 +1640,10 @@ mod tests {
         fn test_endpoint_favors_parameter_over_env_variable() {
             let endpoint_uri = Uri::new_from_str(&Allocator::default(), "https://s3.us-west-2.amazonaws.com").unwrap();
             let endpoint_config = EndpointConfig::new("region-place-holder").endpoint(endpoint_uri);
-            std::env::set_var("AWS_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com");
+
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::set_var("AWS_ENDPOINT_URL", "https://s3.us-east-1.amazonaws.com"); }
+
             // even though we set the environment variable, the parameter takes precedence
             assert_expected_host("s3.us-west-2.amazonaws.com", endpoint_config);
         }
@@ -1579,14 +1651,20 @@ mod tests {
         #[test]
         fn test_endpoint_favors_env_variable() {
             let endpoint_config = EndpointConfig::new("us-east-1");
-            std::env::set_var("AWS_ENDPOINT_URL", "https://s3.eu-west-1.amazonaws.com");
+
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::set_var("AWS_ENDPOINT_URL", "https://s3.eu-west-1.amazonaws.com"); }
+
             assert_expected_host("s3.eu-west-1.amazonaws.com", endpoint_config);
         }
 
         #[test]
         fn test_endpoint_with_invalid_env_variable() {
             let endpoint_config = EndpointConfig::new("us-east-1");
-            std::env::set_var("AWS_ENDPOINT_URL", "htp:/bad:url");
+
+            // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+            unsafe { std::env::set_var("AWS_ENDPOINT_URL", "htp:/bad:url"); }
+
             let config = S3ClientConfig {
                 endpoint_config,
                 ..Default::default()
@@ -1622,9 +1700,11 @@ mod tests {
             .expect("User Agent Header expected with given prefix");
         let user_agent_header_value = user_agent_header.value();
 
-        assert!(user_agent_header_value
-            .to_string_lossy()
-            .starts_with(expected_user_agent));
+        assert!(
+            user_agent_header_value
+                .to_string_lossy()
+                .starts_with(expected_user_agent)
+        );
     }
 
     #[test_case("bytes 200-1000/67589" => Some(200..1001))]
@@ -1660,9 +1740,11 @@ mod tests {
             .expect("the headers should contain x-amz-expected-bucket-owner");
         let expected_bucket_owner_value = expected_bucket_owner_header.value();
 
-        assert!(expected_bucket_owner_value
-            .to_string_lossy()
-            .starts_with(expected_bucket_owner));
+        assert!(
+            expected_bucket_owner_value
+                .to_string_lossy()
+                .starts_with(expected_bucket_owner)
+        );
     }
 
     fn make_result(
@@ -1689,7 +1771,7 @@ mod tests {
         let result = make_result(301, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::IncorrectRegion(region, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(region, "us-west-2");
     }
@@ -1700,7 +1782,7 @@ mod tests {
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "Access Denied");
     }
@@ -1711,7 +1793,7 @@ mod tests {
         let result = make_result(400, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "The provided token is malformed or otherwise invalid.");
     }
@@ -1722,7 +1804,7 @@ mod tests {
         let result = make_result(400, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "The provided token has expired.");
     }
@@ -1734,7 +1816,7 @@ mod tests {
         let result = make_result(400, OsStr::from_bytes(&body[..]), Some("us-west-2"));
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::IncorrectRegion(region, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(region, "us-west-2");
     }
@@ -1745,9 +1827,12 @@ mod tests {
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
-        assert_eq!(message, "The request signature we calculated does not match the signature you provided. Check your key and signing method.");
+        assert_eq!(
+            message,
+            "The request signature we calculated does not match the signature you provided. Check your key and signing method."
+        );
     }
 
     #[test]
@@ -1757,7 +1842,7 @@ mod tests {
         let result = make_result(403, OsStr::from_bytes(&body[..]), None);
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::Forbidden(message, _)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(message, "This error is made up.");
     }
@@ -1777,7 +1862,7 @@ mod tests {
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::NoSigningCredentials) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
     }
 
@@ -1788,7 +1873,7 @@ mod tests {
         let result = make_crt_error_result(0, error_code.into());
         let result = try_parse_generic_error(&result);
         let Some(S3RequestError::CrtError(error)) = result else {
-            panic!("wrong result, got: {:?}", result);
+            panic!("wrong result, got: {result:?}");
         };
         assert_eq!(error, error_code.into());
     }

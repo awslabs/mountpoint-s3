@@ -1,4 +1,5 @@
 {
+    "config_version": "0.0.1",
     "mountpoint": "/exmpl/mountpoint",
     "metadata_store_dir": "/exmpl/tmpdir",
     "event_log_dir": "/exmpl/event_log_dir",
@@ -8,11 +9,17 @@
         {
             "directory_name": "example_dir",
             "bucket_name": "amzn-s3-demo-bucket",
-            "manifest_path": "../output.csv"
+            "manifest_path": "../output.csv",
+            "manifest_checksum": "NHslfQ=="
         }
     ],
     "loglevel": "debug,awscrt=off",
     "throughput_config": {
         "type": "IMDSAutoConfigure"
+    },
+    "memory_limit_bytes": 2147483648,
+    "disk_cache": {
+        "path": "./cache_dir",
+        "limit_bytes": 1073741824
     }
 }

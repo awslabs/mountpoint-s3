@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, metadata, Metadata},
+    fs::{self, Metadata, metadata},
     io,
     os::unix::prelude::{MetadataExt, PermissionsExt},
 };
@@ -8,7 +8,7 @@ use mountpoint_s3_fs::S3FilesystemConfig;
 use nix::unistd::{getgid, getuid};
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 fn perm_test(
     creator_fn: impl TestSessionCreator,

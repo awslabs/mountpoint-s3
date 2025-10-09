@@ -17,7 +17,7 @@ pub struct fuse_args {
 }
 
 #[cfg(fuser_mount_impl = "libfuse2")]
-extern "C" {
+unsafe extern "C" {
     // *_compat25 functions were introduced in FUSE 2.6 when function signatures changed.
     // Therefore, the minimum version requirement for *_compat25 functions is libfuse-2.6.0.
 

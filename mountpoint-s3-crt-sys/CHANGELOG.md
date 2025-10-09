@@ -1,4 +1,19 @@
-## Unreleased
+## Unreleased (v0.15.1)
+
+* Upgrade cargo dependencies.
+
+## v0.15.0 (July 23, 2025)
+
+* Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+
+## v0.14.1 (July 17, 2025)
+
+* Update to latest CRT dependencies.
+
+## v0.14.0 (Jun 27, 2025)
+
+* Include bindings for the new `s3_buffer_pool` API in `aws-c-s3`. ([#1472](https://github.com/awslabs/mountpoint-s3/pull/1472))
+* Update to latest CRT dependencies.
 
 ## v0.13.1 (May 9, 2025)
 

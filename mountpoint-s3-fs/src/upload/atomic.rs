@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::checksums::{crc32c, crc32c_from_base64, Crc32c};
+use mountpoint_s3_client::checksums::{Crc32c, crc32c, crc32c_from_base64};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
@@ -8,9 +8,9 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::error;
 
+use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
-use crate::ServerSideEncryption;
 
 use super::UploadError;
 
@@ -25,7 +25,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     hasher: crc32c::Hasher,
-    maximum_upload_size: Option<usize>,
+    maximum_upload_size: usize,
     sse: ServerSideEncryption,
 }
 
@@ -74,9 +74,7 @@ where
 
         let put_bucket = params.bucket.to_owned();
         let put_key = params.key.to_owned();
-        let maximum_upload_size = client
-            .write_part_size()
-            .map(|ps| ps.saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS));
+        let maximum_upload_size = client.write_part_size().saturating_mul(MAX_S3_MULTIPART_UPLOAD_PARTS);
         let request = runtime
             .spawn_with_result(async move { client.put_object(&put_bucket, &put_key, &put_object_params).await })
             .unwrap();
@@ -104,10 +102,10 @@ where
                 expected_offset: next_offset,
             });
         }
-        if let Some(maximum_size) = self.maximum_upload_size {
-            if next_offset + data.len() as u64 > maximum_size as u64 {
-                return Err(UploadError::ObjectTooBig { maximum_size });
-            }
+        if next_offset + data.len() as u64 > self.maximum_upload_size as u64 {
+            return Err(UploadError::ObjectTooBig {
+                maximum_size: self.maximum_upload_size,
+            });
         }
 
         self.hasher.update(data);
@@ -200,13 +198,14 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::fs::SseCorruptedError;
-    use crate::mem_limiter::{MemoryLimiter, MINIMUM_MEM_LIMIT};
+    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::memory::PagedPool;
     use crate::sync::Arc;
-    use crate::upload::Uploader;
+    use crate::upload::{Uploader, UploaderConfig};
 
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError};
+    use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
+    use mountpoint_s3_client::mock_client::{MockClient, MockClientError};
     use mountpoint_s3_client::types::ChecksumAlgorithm;
     use test_case::test_case;
 
@@ -221,17 +220,19 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let buffer_size = client.write_part_size().unwrap();
+        let buffer_size = client.write_part_size();
+        let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(client.clone(), MINIMUM_MEM_LIMIT);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,
             runtime,
+            pool,
             mem_limiter.into(),
-            storage_class,
-            server_side_encryption,
-            buffer_size,
-            use_additional_checksums.then_some(ChecksumAlgorithm::Crc32c),
+            UploaderConfig::new(buffer_size)
+                .storage_class(storage_class)
+                .server_side_encryption(server_side_encryption)
+                .default_checksum_algorithm(use_additional_checksums.then_some(ChecksumAlgorithm::Crc32c)),
         )
     }
 
@@ -241,11 +242,7 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
         let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
 
@@ -267,11 +264,7 @@ mod tests {
         let key = name;
         let storage_class = "INTELLIGENT_TIERING";
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         let uploader = new_uploader_for_test(
             client.clone(),
             Some(storage_class.to_owned()),
@@ -308,11 +301,7 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
 
         let mut put_failures = HashMap::new();
         put_failures.insert(1, Ok((1, MockClientError("error".to_owned().into()))));
@@ -362,11 +351,7 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: PART_SIZE,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(PART_SIZE).build());
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
         let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
 
@@ -396,7 +381,7 @@ mod tests {
     #[test_case(Some("aws:kms"), None)]
     #[tokio::test]
     async fn put_with_corrupted_sse_test(sse_type_corrupted: Option<&str>, key_id_corrupted: Option<&str>) {
-        let client = Arc::new(MockClient::new(Default::default()));
+        let client = Arc::new(MockClient::config().build());
         let mut uploader = new_uploader_for_test(
             client,
             None,
@@ -421,11 +406,7 @@ mod tests {
         let name = "hello";
         let key = name;
 
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            part_size: 32,
-            ..Default::default()
-        }));
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         let uploader = new_uploader_for_test(
             client,
             None,

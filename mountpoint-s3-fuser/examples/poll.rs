@@ -12,8 +12,8 @@ use std::{
     ffi::OsStr,
     os::unix::ffi::OsStrExt,
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     thread,
     time::{Duration, UNIX_EPOCH},
@@ -22,8 +22,8 @@ use std::{
 use libc::{EACCES, EBADF, EBUSY, EINVAL, ENOENT, ENOTDIR};
 
 use fuser::{
+    FUSE_ROOT_ID, FileAttr, FileType, MountOption, PollHandle, Request,
     consts::{FOPEN_DIRECT_IO, FOPEN_NONSEEKABLE, FUSE_POLL_SCHEDULE_NOTIFY},
-    FileAttr, FileType, MountOption, PollHandle, Request, FUSE_ROOT_ID,
 };
 
 const NUMFILES: u8 = 16;
@@ -306,9 +306,9 @@ fn producer(data: &Mutex<FSelData>, notifier: &fuser::Notifier) {
                 if d.bytecnt[tidx] != MAXBYTES {
                     d.bytecnt[tidx] += 1;
                     if d.notify_mask & (1 << t) != 0 {
-                        println!("NOTIFY {:X}", t);
+                        println!("NOTIFY {t:X}");
                         if let Err(e) = notifier.poll(d.poll_handles[tidx]) {
-                            eprintln!("poll notification failed: {}", e);
+                            eprintln!("poll notification failed: {e}");
                         }
                         d.notify_mask &= !(1 << t);
                     }

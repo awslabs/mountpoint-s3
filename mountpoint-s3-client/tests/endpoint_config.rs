@@ -5,9 +5,9 @@ pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use common::*;
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::config::{AddressingStyle, EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::GetObjectParams;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use test_case::test_case;
 
 async fn run_test(endpoint_config: EndpointConfig, prefix: &str, bucket: String) {
@@ -26,7 +26,7 @@ async fn run_test(endpoint_config: EndpointConfig, prefix: &str, bucket: String)
         .unwrap();
 
     let config = S3ClientConfig::new().endpoint_config(endpoint_config.clone());
-    let client = S3CrtClient::new(config).expect("could not create test client");
+    let client = get_test_client_with_config(config);
 
     let result = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -123,7 +123,7 @@ async fn test_single_region_access_point(addressing_style: AddressingStyle, arn:
 // For multi region access points, Rust SDK is not supported. Hence different helper method for these tests.
 async fn run_list_objects_test(endpoint_config: EndpointConfig, prefix: &str, bucket: &str) {
     let config = S3ClientConfig::new().endpoint_config(endpoint_config.clone());
-    let client = S3CrtClient::new(config).expect("could not create test client");
+    let client = get_test_client_with_config(config);
 
     client
         .list_objects(bucket, None, "/", 10, prefix)

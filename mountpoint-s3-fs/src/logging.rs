@@ -10,16 +10,16 @@ use anyhow::Context;
 use rand::Rng;
 use signal_hook::consts::SIGUSR2;
 use signal_hook::iterator::{Handle as SignalsHandle, Signals};
+use time::OffsetDateTime;
 use time::format_description::FormatItem;
 use time::macros;
-use time::OffsetDateTime;
 use tracing::Span;
 use tracing_log::log::warn;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use mountpoint_s3_client::config::{RustLogAdapter, AWSCRT_LOG_TARGET};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, RustLogAdapter};
 
 use crate::metrics::metrics_tracing_span_layer;
 
@@ -27,7 +27,7 @@ use crate::metrics::metrics_tracing_span_layer;
 mod testing;
 
 mod envfilter;
-use envfilter::{toggleable, ToggleableHandle};
+use envfilter::{ToggleableHandle, toggleable};
 
 #[cfg(feature = "event_log")]
 pub mod error_logger;
@@ -78,8 +78,8 @@ pub fn record_name(name: &str) {
 pub fn prepare_log_file_name(log_directory: &Path) -> PathBuf {
     let timestamp = log_file_name_time_suffix();
 
-    let random_suffix: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
+    let random_suffix: String = rand::rng()
+        .sample_iter(&rand::distr::Alphanumeric)
         .take(6)
         .map(char::from)
         .collect();
@@ -99,7 +99,7 @@ fn log_file_name_time_suffix() -> String {
 fn tracing_panic_hook(panic_info: &PanicHookInfo) {
     let location = panic_info
         .location()
-        .map(|l| format!("{}", l))
+        .map(|l| format!("{l}"))
         .unwrap_or_else(|| String::from("<unknown>"));
 
     let payload = panic_info.payload();
@@ -148,7 +148,10 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<LoggingHandl
         }
         let file = file_options.open(log_file_path).context("failed to create log file")?;
 
-        let file_layer = tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file);
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_thread_ids(true)
+            .with_writer(file);
         Some(file_layer)
     } else {
         None
@@ -162,7 +165,11 @@ fn init_tracing_subscriber(config: LoggingConfig) -> anyhow::Result<LoggingHandl
     };
 
     let console_layer = if config.log_to_stdout {
-        Some(tracing_subscriber::fmt::layer().with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some()))
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(supports_color::on(supports_color::Stream::Stdout).is_some())
+                .with_thread_ids(true),
+        )
     } else {
         None
     };

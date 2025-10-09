@@ -1,10 +1,16 @@
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, Uri};
-use rand::RngCore;
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
+use rand::TryRngCore;
 use rand_chacha::rand_core::OsRng;
 
 use crate::common::tokio_block_on;
+
+pub fn get_test_s3_path(test_name: &str) -> S3Path {
+    let (bucket, prefix) = get_test_bucket_and_prefix(test_name);
+    S3Path::new(Bucket::new(bucket).unwrap(), Prefix::new(&prefix).unwrap())
+}
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
     let bucket = get_test_bucket();
@@ -15,7 +21,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
 
 pub fn get_test_prefix(test_name: &str) -> String {
     // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
+    let nonce = OsRng.try_next_u64().unwrap();
 
     // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
@@ -29,6 +35,10 @@ pub fn get_test_bucket() -> String {
     return get_standard_bucket();
     #[cfg(feature = "s3express_tests")]
     return get_express_bucket();
+}
+
+pub fn get_second_standard_test_bucket() -> String {
+    std::env::var("S3_SECOND_BUCKET_NAME").expect("Set S3_SECOND_BUCKET_NAME to run integration tests")
 }
 
 #[cfg(feature = "s3express_tests")]

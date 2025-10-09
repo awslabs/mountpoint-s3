@@ -17,7 +17,7 @@ use crate::object_client::{
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientResult, ObjectMetadata, PutObjectError, PutObjectParams,
-    PutObjectResult, PutObjectSingleParams,
+    PutObjectResult, PutObjectSingleParams, RenameObjectError, RenameObjectParams, RenameObjectResult,
 };
 
 use super::MockBackpressureHandle;
@@ -30,8 +30,10 @@ use super::MockBackpressureHandle;
 /// TODO: make it bi-directional, so that upload throughput can be simulated as well.
 pub struct ThroughputMockClient {
     inner: MockClient,
-    /// A throughput rate limiter with one token per byte
-    rate_limiter: LeakyBucket,
+    /// A throughput rate limiter with one token per byte.
+    ///
+    /// If [None], there will be no limit on throughput.
+    rate_limiter: Option<LeakyBucket>,
 }
 
 impl ThroughputMockClient {
@@ -46,12 +48,23 @@ impl ThroughputMockClient {
             .refill_amount(bytes_per_interval as u32)
             .max(config.part_size as u32)
             .tokens(0)
-            .build();
+            .build()
+            .into();
         tracing::info!(?rate_limiter, "new client");
 
         Self {
             inner: MockClient::new(config),
             rate_limiter,
+        }
+    }
+
+    /// Create a new [ThroughputMockClient] with the given configuration and no throughput limits.
+    ///
+    /// This is effectively the same as a [MockClient], but allows you to use the [ThroughputMockClient] type.
+    pub fn new_unlimited_throughput(config: MockClientConfig) -> Self {
+        Self {
+            inner: MockClient::new(config),
+            rate_limiter: None,
         }
     }
 
@@ -65,7 +78,7 @@ impl ThroughputMockClient {
 pub struct ThroughputGetObjectResponse {
     #[pin]
     request: MockGetObjectResponse,
-    rate_limiter: LeakyBucket,
+    rate_limiter: Option<LeakyBucket>,
 }
 
 #[cfg_attr(not(docsrs), async_trait)]
@@ -94,8 +107,10 @@ impl Stream for ThroughputGetObjectResponse {
         this.request.poll_next(cx).map(|next| {
             next.map(|item| {
                 item.inspect(|body_part| {
-                    // Acquire enough tokens for the number of bytes we want to deliver
-                    block_on(this.rate_limiter.acquire(body_part.data.len() as u32));
+                    if let Some(rate_limiter) = this.rate_limiter {
+                        // Acquire enough tokens for the number of bytes we want to deliver
+                        block_on(rate_limiter.acquire(body_part.data.len() as u32));
+                    }
                 })
             })
         })
@@ -108,11 +123,11 @@ impl ObjectClient for ThroughputMockClient {
     type PutObjectRequest = MockPutObjectRequest;
     type ClientError = MockClientError;
 
-    fn read_part_size(&self) -> Option<usize> {
+    fn read_part_size(&self) -> usize {
         self.inner.read_part_size()
     }
 
-    fn write_part_size(&self) -> Option<usize> {
+    fn write_part_size(&self) -> usize {
         self.inner.write_part_size()
     }
 
@@ -209,14 +224,24 @@ impl ObjectClient for ThroughputMockClient {
             .get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
     }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        self.inner.rename_object(bucket, src_key, dst_key, params).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
 
-    use futures::executor::block_on;
     use futures::StreamExt;
+    use futures::executor::block_on;
 
     use crate::mock_client::MockObject;
     use crate::types::ETag;
@@ -230,12 +255,7 @@ mod tests {
 
         for rate_gbps in [0.5, 1.0, 2.0] {
             for _ in 0..ITERATIONS {
-                let config = MockClientConfig {
-                    part_size: 8 * 1024 * 1024,
-                    bucket: "test_bucket".to_owned(),
-                    unordered_list_seed: None,
-                    ..Default::default()
-                };
+                let config = MockClient::config().part_size(8 * 1024 * 1024).bucket("test_bucket");
                 let client = ThroughputMockClient::new(config, rate_gbps);
 
                 client

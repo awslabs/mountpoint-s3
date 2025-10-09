@@ -2,7 +2,7 @@
 //
 //   cargo run --example ioctl --features abi-7-11 /tmp/foobar
 
-use clap::{crate_version, Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, crate_version};
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
@@ -106,14 +106,7 @@ impl Filesystem for FiocFS {
         }
     }
 
-    fn readdir(
-        &self,
-        _req: &Request,
-        ino: u64,
-        _fh: u64,
-        offset: i64,
-        mut reply: ReplyDirectory,
-    ) {
+    fn readdir(&self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
         if ino != 1 {
             reply.error(ENOENT);
             return;
@@ -164,7 +157,7 @@ impl Filesystem for FiocFS {
                 reply.ioctl(0, &[]);
             }
             _ => {
-                debug!("unknown ioctl: {}", cmd);
+                debug!("unknown ioctl: {cmd}");
                 reply.error(EINVAL);
             }
         }

@@ -9,8 +9,7 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
-use crate::s3::s3_library_init;
-use crate::{aws_byte_cursor_as_slice, CrtError, ToAwsByteCursor};
+use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
 
@@ -25,6 +24,10 @@ use std::sync::{Arc, Mutex};
 use std::task::Waker;
 use std::time::Duration;
 
+use super::buffer::Buffer;
+use super::pool::CrtBufferPoolFactory;
+use super::s3_library_init;
+
 /// A client for high-throughput access to Amazon S3
 #[derive(Debug)]
 pub struct Client {
@@ -34,7 +37,7 @@ pub struct Client {
     /// Hold on to an owned copy of the configuration so that it doesn't get dropped while the
     /// client still exists. This is because the client config holds ownership of some strings
     /// (like the region) that could still be used while the client exists.
-    _config: ClientConfig,
+    config: ClientConfig,
 }
 
 // SAFETY: We assume that the CRT allows making requests using the same client from multiple threads.
@@ -67,6 +70,9 @@ pub struct ClientConfig {
     /// The client will determine the logic for balancing requests over the network interfaces
     /// according to its own logic.
     network_interface_names: Option<NetworkInterfaceNames>,
+
+    /// Holds the custom pool implementation factory if set.
+    pool_factory: Option<CrtBufferPoolFactory>,
 }
 
 /// This struct bundles together the list of owned strings for the network interfaces, and the
@@ -116,7 +122,7 @@ impl NetworkInterfaceNames {
 impl ClientConfig {
     /// Create a new [ClientConfig] with default options.
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     /// Client bootstrap used for common staples such as event loop group, host resolver, etc.
@@ -208,6 +214,17 @@ impl ClientConfig {
         self
     }
 
+    /// Custom buffer pool factory.
+    ///
+    /// When not set, the client will use the default pool with the configured memory limit.
+    pub fn buffer_pool_factory(&mut self, pool_factory: CrtBufferPoolFactory) -> &mut Self {
+        let (factory_fn, user_data) = pool_factory.as_inner();
+        self.inner.buffer_pool_factory_fn = factory_fn;
+        self.inner.buffer_pool_user_data = user_data;
+        self.pool_factory = Some(pool_factory);
+        self
+    }
+
     /// When set, this will cap the number of active connections. Otherwise, the client will
     /// determine this value based on throughput_target_gbps. (Recommended)
     pub fn max_active_connections_override(&mut self, max_active_connections_override: u32) -> &mut Self {
@@ -223,7 +240,7 @@ type TelemetryCallback = Box<dyn Fn(&RequestMetrics) + Send>;
 type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 
 /// Callback for when part of the response body is received. Given (range_start, data).
-type BodyCallback = Box<dyn FnMut(u64, &[u8]) + Send>;
+type BodyExCallback = Box<dyn FnMut(u64, &Buffer) + Send>;
 
 /// Callback for reviewing an upload before it completes.
 type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> bool + Send>;
@@ -259,7 +276,7 @@ struct MetaRequestOptionsInner<'a> {
     on_headers: Option<HeadersCallback>,
 
     /// Body callback, if provided.
-    on_body: Option<BodyCallback>,
+    on_body_ex: Option<BodyExCallback>,
 
     /// Upload review callback, if provided (and not already called, since it's FnOnce).
     on_upload_review: Option<UploadReviewCallback>,
@@ -280,7 +297,8 @@ impl<'a> MetaRequestOptionsInner<'a> {
     /// [MetaRequestOptionsInner] is unconstrained, so the caller must make sure that the lifetime
     /// of the returned reference does not outlive the [MetaRequestOptionsInner].
     unsafe fn from_user_data_ptr(user_data: *mut libc::c_void) -> &'a mut Self {
-        (user_data as *mut Self).as_mut().unwrap()
+        // SAFETY: `user_data` is initialized in `MetaRequestOptions::new`.
+        unsafe { (user_data as *mut Self).as_mut().unwrap() }
     }
 
     /// Convert from user_data in a callback to an owned Box holding this struct, so it will be
@@ -290,7 +308,8 @@ impl<'a> MetaRequestOptionsInner<'a> {
     ///
     /// Don't use except in the shutdown callback, once we are certain not to be called back again.
     unsafe fn from_user_data_ptr_owned(user_data: *mut libc::c_void) -> Box<Self> {
-        Box::from_raw(user_data as *mut Self)
+        // SAFETY: `user_data` is leaked in `MetaRequestOptions::new`.
+        unsafe { Box::from_raw(user_data as *mut Self) }
     }
 }
 
@@ -320,7 +339,7 @@ impl<'a> MetaRequestOptions<'a> {
             inner: aws_s3_meta_request_options {
                 telemetry_callback: Some(meta_request_telemetry_callback),
                 headers_callback: Some(meta_request_headers_callback),
-                body_callback: Some(meta_request_receive_body_callback),
+                body_callback_ex: Some(meta_request_receive_body_callback_ex),
                 finish_callback: Some(meta_request_finish_callback),
                 shutdown_callback: Some(meta_request_shutdown_callback),
                 upload_review_callback: Some(meta_request_upload_review_callback),
@@ -334,7 +353,7 @@ impl<'a> MetaRequestOptions<'a> {
             copy_source_uri: None,
             on_telemetry: None,
             on_headers: None,
-            on_body: None,
+            on_body_ex: None,
             on_upload_review: None,
             on_finish: None,
             _pinned: Default::default(),
@@ -427,10 +446,10 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Provide a callback to run when the request's body arrives.
-    pub fn on_body(&mut self, callback: impl FnMut(u64, &[u8]) + Send + 'static) -> &mut Self {
+    pub fn on_body(&mut self, callback: impl FnMut(u64, &Buffer) + Send + 'static) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
-        options.on_body = Some(Box::new(callback));
+        options.on_body_ex = Some(Box::new(callback));
         self
     }
 
@@ -518,6 +537,18 @@ impl From<MetaRequestType> for aws_s3_meta_request_type {
     }
 }
 
+impl From<aws_s3_meta_request_type> for MetaRequestType {
+    fn from(value: aws_s3_meta_request_type) -> Self {
+        match value {
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_DEFAULT => MetaRequestType::Default,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_COPY_OBJECT => MetaRequestType::CopyObject,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_GET_OBJECT => MetaRequestType::GetObject,
+            aws_s3_meta_request_type::AWS_S3_META_REQUEST_TYPE_PUT_OBJECT => MetaRequestType::PutObject,
+            _ => panic!("unknown meta request type {value:?}"),
+        }
+    }
+}
+
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn meta_request_telemetry_callback(
     _request: *mut aws_s3_meta_request,
@@ -526,7 +557,7 @@ unsafe extern "C" fn meta_request_telemetry_callback(
 ) {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     if let Some(callback) = user_data.on_telemetry.as_ref() {
         let metrics = NonNull::new(metrics).expect("request metrics is never null");
@@ -546,11 +577,12 @@ unsafe extern "C" fn meta_request_headers_callback(
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     if let Some(callback) = user_data.on_headers.as_mut() {
         let headers = NonNull::new(headers as *mut aws_http_headers).expect("request headers is never null");
-        let headers = Headers::from_crt(headers);
+        // SAFETY: `headers` is a valid `aws_http_headers` returned by the CRT.
+        let headers = unsafe { Headers::from_crt(headers) };
         callback(&headers, response_status);
     }
 
@@ -558,19 +590,20 @@ unsafe extern "C" fn meta_request_headers_callback(
 }
 
 /// SAFETY: Don't call this function directly, only called by the CRT as a callback.
-unsafe extern "C" fn meta_request_receive_body_callback(
+unsafe extern "C" fn meta_request_receive_body_callback_ex(
     _request: *mut aws_s3_meta_request,
     body: *const aws_byte_cursor,
-    range_start: u64,
+    meta: aws_s3_meta_request_receive_body_extra_info,
     user_data: *mut libc::c_void,
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
-    if let Some(callback) = user_data.on_body.as_mut() {
-        let slice: &[u8] = aws_byte_cursor_as_slice(&*body);
-        callback(range_start, slice);
+    if let Some(callback) = user_data.on_body_ex.as_mut() {
+        // SAFETY: `body` and `meta.ticket` outlive `buffer`.
+        let buffer = unsafe { Buffer::new_unchecked(&*body, &meta.ticket) };
+        callback(meta.range_start, &buffer);
     }
 
     AWS_OP_SUCCESS
@@ -582,15 +615,17 @@ unsafe extern "C" fn meta_request_finish_callback(
     result: *const aws_s3_meta_request_result,
     user_data: *mut libc::c_void,
 ) {
-    let result = result.as_ref().expect("result cannot be NULL");
+    // SAFETY: `result` points to a valid `aws_s3_meta_request_result`.
+    let result = unsafe { result.as_ref().expect("result cannot be NULL") };
 
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     // take ownership of the callback, since it can only be called once.
     if let Some(callback) = user_data.on_finish.take() {
-        callback(MetaRequestResult::from_crt_result(result));
+        // SAFETY: `result` is a valid `aws_s3_meta_request_result` returned by the CRT.
+        callback(unsafe { MetaRequestResult::from_crt_result(result) });
     }
 }
 
@@ -599,7 +634,7 @@ unsafe extern "C" fn meta_request_shutdown_callback(user_data: *mut libc::c_void
     // Take back ownership of the user data so it will be freed when dropped.
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr_owned(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr_owned(user_data) };
 
     // SAFETY: at this point, we shouldn't receieve any more callbacks for this request.
     std::mem::drop(user_data);
@@ -613,19 +648,23 @@ unsafe extern "C" fn meta_request_upload_review_callback(
 ) -> i32 {
     // SAFETY: user_data always will be a MetaRequestOptionsInner since that's what we set it to
     // in MetaRequestOptions::new.
-    let user_data = MetaRequestOptionsInner::from_user_data_ptr(user_data);
+    let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr(user_data) };
 
     let Some(callback) = user_data.on_upload_review.take() else {
         return AWS_OP_SUCCESS;
     };
 
-    let upload_review = upload_review
-        .as_ref()
-        .expect("CRT should provide a valid upload_review");
+    // SAFETY: `upload_review` points to a valid `aws_s3_upload_review`.
+    let upload_review = unsafe {
+        upload_review
+            .as_ref()
+            .expect("CRT should provide a valid upload_review")
+    };
     if callback(UploadReview::new(upload_review)) {
         AWS_OP_SUCCESS
     } else {
-        aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32)
+        // SAFETY: we are returning from the CRT callback.
+        unsafe { aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32) }
     }
 }
 
@@ -777,8 +816,8 @@ impl<'s> Future for MetaRequestWrite<'_, 's> {
 
 /// Safety: Don't call this function directly, only called by the CRT as a callback.
 unsafe extern "C" fn poll_write_waker_callback(user_data: *mut ::libc::c_void) {
-    // Take ownership of the `Arc` in `user_data`.
-    let waker = Arc::from_raw(user_data as *mut Mutex<Option<Waker>>);
+    // SAFETY: `user_data` was returned by `Arc::into_raw` in `MetaRequestWrite::poll`.
+    let waker = unsafe { Arc::from_raw(user_data as *mut Mutex<Option<Waker>>) };
     // Notify the waker.
     waker
         .lock()
@@ -885,7 +924,7 @@ impl Client {
         // guaranteed to be a valid allocator because of the type-safe wrapper.
         let inner = unsafe { aws_s3_client_new(allocator.inner.as_ptr(), &config.inner).ok_or_last_error()? };
 
-        Ok(Self { inner, _config: config })
+        Ok(Self { inner, config })
     }
 
     /// Make a meta request to S3 using this [Client]. A meta request is an HTTP request that
@@ -968,13 +1007,20 @@ impl Client {
         }
     }
 
-    /// Poll [BufferPoolUsageStats] from underlying CRT client.
-    pub fn poll_buffer_pool_usage_stats(&self) -> BufferPoolUsageStats {
+    /// Poll [BufferPoolUsageStats] from underlying CRT client, if using the default memory pool.
+    pub fn poll_default_buffer_pool_usage_stats(&self) -> Option<BufferPoolUsageStats> {
+        if self.config.pool_factory.is_some() {
+            // We are using a custom pool implementation rather than the default pool.
+            return None;
+        }
+
+        // Retrieve usage stats from the default pool.
+
         // SAFETY: The `aws_s3_client` in `self.inner` is guaranteed to be initialized and
         // dereferencable as long as Client lives.
         let inner_stats = unsafe {
             let client = self.inner.as_ref();
-            aws_s3_buffer_pool_get_usage(client.buffer_pool)
+            aws_s3_default_buffer_pool_get_usage(client.buffer_pool)
         };
 
         let mem_limit = inner_stats.mem_limit as u64;
@@ -987,7 +1033,7 @@ impl Client {
         let secondary_used = inner_stats.secondary_used as u64;
         let forced_used = inner_stats.forced_used as u64;
 
-        BufferPoolUsageStats {
+        Some(BufferPoolUsageStats {
             mem_limit,
             primary_cutoff,
             primary_used,
@@ -997,7 +1043,7 @@ impl Client {
             secondary_reserved,
             secondary_used,
             forced_used,
-        }
+        })
     }
 
     fn get_num_requests_network_io(client: &aws_s3_client, meta_request_type: aws_s3_meta_request_type) -> u32 {
@@ -1060,16 +1106,22 @@ impl MetaRequestResult {
     /// SAFETY: This copies from the raw pointer inside of the request result, so only call on
     /// results given to us from the CRT.
     unsafe fn from_crt_result(inner: &aws_s3_meta_request_result) -> Self {
-        let error_response_headers = inner
-            .error_response_headers
-            .as_ref()
-            .map(|headers| Headers::from_crt(NonNull::from(headers)));
+        // SAFETY: `.error_response_headers` points to a valid `aws_http_headers`.
+        let error_response_headers = unsafe {
+            inner
+                .error_response_headers
+                .as_ref()
+                .map(|headers| Headers::from_crt(NonNull::from(headers)))
+        };
 
-        let error_response_body: Option<OsString> = inner.error_response_body.as_ref().map(|byte_buf| {
-            assert!(!byte_buf.buffer.is_null(), "error_response_body.buffer is null");
-            let slice: &[u8] = std::slice::from_raw_parts(byte_buf.buffer, byte_buf.len);
-            OsStr::from_bytes(slice).to_owned()
-        });
+        // SAFETY: `.error_response_body` points to a valid `aws_byte_buf`.
+        let error_response_body: Option<OsString> = unsafe {
+            inner.error_response_body.as_ref().map(|byte_buf| {
+                assert!(!byte_buf.buffer.is_null(), "error_response_body.buffer is null");
+                let slice: &[u8] = std::slice::from_raw_parts(byte_buf.buffer, byte_buf.len);
+                OsStr::from_bytes(slice).to_owned()
+            })
+        };
 
         Self {
             response_status: inner.response_status,
@@ -1410,7 +1462,7 @@ impl From<aws_s3_request_type> for RequestType {
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_UPLOAD_PART_COPY => RequestType::UploadPartCopy,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_COPY_OBJECT => RequestType::CopyObject,
             aws_s3_request_type::AWS_S3_REQUEST_TYPE_PUT_OBJECT => RequestType::PutObject,
-            _ => panic!("unknown request type {:?}", value),
+            _ => panic!("unknown request type {value:?}"),
         }
     }
 }
@@ -1518,7 +1570,7 @@ impl Display for ChecksumAlgorithm {
             ChecksumAlgorithm::Crc32 => f.write_str("CRC32"),
             ChecksumAlgorithm::Sha1 => f.write_str("SHA1"),
             ChecksumAlgorithm::Sha256 => f.write_str("SHA256"),
-            ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {:?}", algorithm),
+            ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {algorithm:?}"),
         }
     }
 }

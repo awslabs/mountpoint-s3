@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
-use mountpoint_s3_client::ObjectClient;
 
 use thiserror::Error;
 use tracing::error;
@@ -10,6 +10,7 @@ use tracing::error;
 use crate::async_util::Runtime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::sync::Arc;
 
 mod atomic;
@@ -28,7 +29,11 @@ pub use incremental::AppendUploadRequest;
 pub struct Uploader<Client: ObjectClient> {
     client: Client,
     runtime: Runtime,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    /// Memory pool used by the incremental uploader.
+    /// The atomic uploader does not directly reserve buffers, but relies on
+    /// the client, which is configured with the same pool in Mountpoint.
+    pool: PagedPool,
+    mem_limiter: Arc<MemoryLimiter>,
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
     buffer_size: usize,
@@ -41,7 +46,9 @@ pub struct Uploader<Client: ObjectClient> {
 
 #[derive(Debug, Error)]
 pub enum UploadError<E> {
-    #[error("out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}")]
+    #[error(
+        "out-of-order write is NOT supported by Mountpoint, aborting the upload; expected offset {expected_offset:?} but got {write_offset:?}"
+    )]
     OutOfOrderWrite { write_offset: u64, expected_offset: u64 },
 
     #[error("put request failed")]
@@ -63,6 +70,40 @@ pub enum UploadError<E> {
     ObjectTooBig { maximum_size: usize },
 }
 
+#[derive(Debug)]
+pub struct UploaderConfig {
+    storage_class: Option<String>,
+    server_side_encryption: ServerSideEncryption,
+    buffer_size: usize,
+    default_checksum_algorithm: Option<ChecksumAlgorithm>,
+}
+
+impl UploaderConfig {
+    pub fn new(buffer_size: usize) -> Self {
+        Self {
+            storage_class: None,
+            server_side_encryption: Default::default(),
+            buffer_size,
+            default_checksum_algorithm: None,
+        }
+    }
+
+    pub fn storage_class(mut self, storage_class: Option<String>) -> Self {
+        self.storage_class = storage_class;
+        self
+    }
+
+    pub fn server_side_encryption(mut self, server_side_encryption: ServerSideEncryption) -> Self {
+        self.server_side_encryption = server_side_encryption;
+        self
+    }
+
+    pub fn default_checksum_algorithm(mut self, default_checksum_algorithm: Option<ChecksumAlgorithm>) -> Self {
+        self.default_checksum_algorithm = default_checksum_algorithm;
+        self
+    }
+}
+
 impl<Client> Uploader<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
@@ -71,20 +112,19 @@ where
     pub fn new(
         client: Client,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter<Client>>,
-        storage_class: Option<String>,
-        server_side_encryption: ServerSideEncryption,
-        buffer_size: usize,
-        default_checksum_algorithm: Option<ChecksumAlgorithm>,
+        pool: PagedPool,
+        mem_limiter: Arc<MemoryLimiter>,
+        config: UploaderConfig,
     ) -> Self {
         Self {
             client,
             runtime,
+            pool,
             mem_limiter,
-            storage_class,
-            server_side_encryption,
-            buffer_size,
-            default_checksum_algorithm,
+            storage_class: config.storage_class,
+            server_side_encryption: config.server_side_encryption,
+            buffer_size: config.buffer_size,
+            default_checksum_algorithm: config.default_checksum_algorithm,
         }
     }
 
@@ -112,6 +152,9 @@ where
         initial_offset: u64,
         initial_etag: Option<ETag>,
     ) -> AppendUploadRequest<Client> {
+        // Limit the queue capacity to hold buffers for a total of at most
+        // MAX_BYTES_IN_QUEUE, but ensure it allows at least 1 buffer.
+        let capacity = (MAX_BYTES_IN_QUEUE / self.buffer_size).max(1);
         let params = AppendUploadQueueParams {
             bucket,
             key,
@@ -119,12 +162,13 @@ where
             initial_etag,
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
-            capacity: MAX_BYTES_IN_QUEUE / self.buffer_size,
+            capacity,
         };
         AppendUploadRequest::new(
             &self.runtime,
             self.client.clone(),
             self.buffer_size,
+            self.pool.clone(),
             self.mem_limiter.clone(),
             params,
         )

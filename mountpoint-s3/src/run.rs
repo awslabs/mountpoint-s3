@@ -5,25 +5,46 @@ use std::os::fd::AsRawFd;
 use std::time::Duration;
 use std::{env, fs};
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
-use mountpoint_s3_fs::s3::S3Personality;
-use mountpoint_s3_fs::{metrics, MountpointConfig, Runtime};
+use mountpoint_s3_fs::memory::PagedPool;
+#[cfg(feature = "otlp_integration")]
+use mountpoint_s3_fs::metrics::MetricsConfig;
+use mountpoint_s3_fs::s3::config::ClientConfig;
+use mountpoint_s3_fs::s3::{S3Path, S3Personality};
+use mountpoint_s3_fs::{MountpointConfig, Runtime, Superblock, SuperblockConfig, metrics};
 use nix::sys::signal::Signal;
 use nix::unistd::ForkResult;
 
 use crate::cli::CliArgs;
 use crate::{build_info, parse_cli_args};
 
+/// Initialize metrics based on CLI arguments.
+/// Returns a handle that must be kept alive for the duration of metrics collection.
+#[cfg(feature = "otlp_integration")]
+fn init_metrics(
+    log_metrics_otlp: &Option<String>,
+    log_metrics_otlp_interval: Option<u64>,
+) -> anyhow::Result<impl Drop> {
+    let otlp_config = log_metrics_otlp.as_deref().map(|endpoint| {
+        let mut config = mountpoint_s3_fs::metrics::OtlpConfig::new(endpoint);
+        if let Some(interval) = log_metrics_otlp_interval {
+            config = config.with_interval_secs(interval);
+        }
+        config
+    });
+    match otlp_config {
+        Some(config) => metrics::install(Some(MetricsConfig::Otlp(config)))
+            .map_err(|e| anyhow!("Failed to initialize metrics: {}", e)),
+        None => metrics::install(None).map_err(|e| anyhow!("Failed to initialize metrics: {}", e)),
+    }
+}
+
 /// Run Mountpoint with the given [CliArgs].
-pub fn run<ClientBuilder, Client>(client_builder: ClientBuilder, args: CliArgs) -> anyhow::Result<()>
-where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
+pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<()> {
     let successful_mount_msg = format!(
         "{} is mounted at {}",
         args.bucket_description()?,
@@ -32,8 +53,13 @@ where
 
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
+        #[cfg(feature = "otlp_integration")]
+        let otlp_endpoint = args.otlp_endpoint.clone();
+        #[cfg(feature = "otlp_integration")]
+        let _metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
-        let _metrics = metrics::install();
+        #[cfg(not(feature = "otlp_integration"))]
+        let _metrics = metrics::install(None);
 
         create_pid_file()?;
 
@@ -64,8 +90,13 @@ where
             ForkResult::Child => {
                 let args = parse_cli_args(false);
                 let _logging = init_logging(logging_config).context("failed to initialize logging")?;
+                #[cfg(feature = "otlp_integration")]
+                let otlp_endpoint = args.otlp_endpoint.clone();
+                #[cfg(feature = "otlp_integration")]
+                let _metrics = init_metrics(&otlp_endpoint, args.otlp_export_interval)?;
 
-                let _metrics = metrics::install();
+                #[cfg(not(feature = "otlp_integration"))]
+                let _metrics = metrics::install(None);
 
                 create_pid_file()?;
 
@@ -168,23 +199,32 @@ where
     Ok(())
 }
 
-fn mount<ClientBuilder, Client>(args: CliArgs, client_builder: ClientBuilder) -> anyhow::Result<FuseSession>
-where
-    ClientBuilder: FnOnce(&CliArgs) -> anyhow::Result<(Client, Runtime, S3Personality)>,
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
+fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<FuseSession> {
     tracing::info!("mount-s3 {}", build_info::FULL_VERSION);
     tracing::debug!("{:?}", args);
 
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
-    let (client, runtime, s3_personality) = client_builder(&args)?;
+    let client_config = args.client_config(build_info::FULL_VERSION);
+
+    // Set up a paged memory pool
+    let pool = PagedPool::new_with_candidate_sizes([
+        args.cache_block_size_in_bytes() as usize,
+        client_config.part_config.read_size_bytes,
+        client_config.part_config.write_size_bytes,
+    ]);
+    // Schedule trimming of empty memory pages every minutes. We should consider
+    // event-based triggers and/or a configurable interval in the future.
+    pool.schedule_trim(Duration::from_secs(60));
+
+    let s3_path = args.s3_path()?;
+    let (client, runtime, s3_personality) =
+        client_builder.build(client_config, pool.clone(), &s3_path, args.personality())?;
 
     let bucket_description = args.bucket_description()?;
     tracing::debug!("using S3 personality {s3_personality:?} for {bucket_description}");
 
-    let s3_path = args.s3_path()?;
     let filesystem_config = args.filesystem_config(sse.clone(), s3_personality);
     let mut data_cache_config = args.data_cache_config(sse)?;
 
@@ -193,8 +233,17 @@ where
     tracing::debug!(?fuse_session_config, "creating fuse session");
     let mount_point_path = format!("{}", fuse_session_config.mount_point());
 
+    let superblock = Superblock::new(
+        client.clone(),
+        s3_path,
+        SuperblockConfig {
+            cache_config: filesystem_config.cache_config.clone(),
+            s3_personality: filesystem_config.s3_personality,
+        },
+    );
+
     let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)
-        .create_fuse_session(s3_path, client, runtime)?;
+        .create_fuse_session(superblock, client, runtime, pool)?;
     tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
 
     if let Some(managed_cache_dir) = managed_cache_dir {
@@ -205,19 +254,52 @@ where
     Ok(fuse_session)
 }
 
-/// Create a real S3 client
-pub fn create_s3_client(args: &CliArgs) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
-    let client_config = args.client_config(build_info::FULL_VERSION);
+/// Builder for [ObjectClient] implementations.
+pub trait ClientBuilder {
+    type Client: ObjectClient + Clone + Send + Sync + 'static;
 
-    let s3_path = args.s3_path()?;
+    /// Build a new client instance.
+    fn build(
+        self,
+        client_config: ClientConfig,
+        pool: PagedPool,
+        s3_path: &S3Path,
+        personality: Option<S3Personality>,
+    ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)>;
+}
+
+impl<F, C> ClientBuilder for F
+where
+    F: FnOnce(ClientConfig, PagedPool, &S3Path, Option<S3Personality>) -> anyhow::Result<(C, Runtime, S3Personality)>,
+    C: ObjectClient + Clone + Send + Sync + 'static,
+{
+    type Client = C;
+
+    fn build(
+        self,
+        client_config: ClientConfig,
+        pool: PagedPool,
+        s3_path: &S3Path,
+        personality: Option<S3Personality>,
+    ) -> anyhow::Result<(Self::Client, Runtime, S3Personality)> {
+        self(client_config, pool, s3_path, personality)
+    }
+}
+
+// Create a real S3 client
+pub fn create_s3_client(
+    client_config: ClientConfig,
+    pool: PagedPool,
+    s3_path: &S3Path,
+    personality: Option<S3Personality>,
+) -> anyhow::Result<(S3CrtClient, Runtime, S3Personality)> {
     let client = client_config
-        .create_client(Some(&s3_path))
+        .create_client(pool, Some(s3_path))
         .context("Failed to create S3 client")?;
 
     let runtime = Runtime::new(client.event_loop_group());
-    let s3_personality = args
-        .personality()
-        .unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket_name, &client.endpoint_config()));
+    let s3_personality =
+        personality.unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
 }
@@ -227,11 +309,28 @@ fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Res
         return Ok(None);
     };
     let cache_key = env_unstable_cache_key();
-    let managed_cache_dir =
-        ManagedCacheDir::new_from_parent_with_cache_key(&disk_cache_config.cache_directory, cache_key.as_deref())
-            .context("failed to create cache directory")?;
+    let managed_cache_dir = ManagedCacheDir::new_from_parent_with_cache_key(
+        &disk_cache_config.cache_directory,
+        cache_key.as_deref(),
+        should_cleanup_cache_dir(),
+    )
+    .context("failed to create cache directory")?;
     disk_cache_config.cache_directory = managed_cache_dir.as_path_buf();
     Ok(Some(managed_cache_dir))
+}
+
+/// Return if [ManagedCacheDir] should be configured with cleanup disabled or not.
+///
+/// This allows cache directories to be reused, which is useful for testing/benchmarking.
+/// We do not recommend using this configuration option in production and it may be removed at any time without notice.
+fn should_cleanup_cache_dir() -> bool {
+    const ENV_CONFIG_KEY_NAME: &str = "UNSTABLE_MOUNTPOINT_DISABLE_CACHE_CLEANUP";
+    let disable_cleanup =
+        std::env::var_os(ENV_CONFIG_KEY_NAME).is_some_and(|x| x.eq_ignore_ascii_case("TRUE") || x == "1");
+    if disable_cleanup {
+        tracing::warn!("{ENV_CONFIG_KEY_NAME} is set and 'truthy', disabling cache cleanup");
+    }
+    !disable_cleanup
 }
 
 fn env_unstable_cache_key() -> Option<OsString> {

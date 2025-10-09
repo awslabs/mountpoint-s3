@@ -8,11 +8,14 @@ on:
 
 jobs:
   compile:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         libfuse: [libfuse-dev, libfuse3-dev]
         features: [ '', 'abi-7-19' ]
+
+    env:
+      RUSTFLAGS: --deny warnings
 
     steps:
       - uses: actions/checkout@v4
@@ -42,13 +45,18 @@ jobs:
 
       - name: Run tests
         run: |
+          cargo build --all --all-targets --features=libfuse,${{ matrix.features }}
           cargo build --all --all-targets --features=${{ matrix.features }}
-          cargo build --all --all-targets --no-default-features
-          cargo build --target=x86_64-unknown-linux-musl --no-default-features
+          cargo build --target=x86_64-unknown-linux-musl
+          cargo test --all --features=libfuse,${{ matrix.features }}
           cargo test --all --features=${{ matrix.features }}
           cargo doc --all --no-deps --features=${{ matrix.features }}
+          make test_passthrough
+
   ci:
     runs-on: ubuntu-22.04
+    env:
+      RUSTFLAGS: --deny warnings
     steps:
       - uses: actions/checkout@v4
 

@@ -1,25 +1,25 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
 use fuser::FileType;
-#[cfg(feature = "s3_tests")]
-use mountpoint_s3_client::config::S3ClientConfig;
-#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
-use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
-use mountpoint_s3_client::failure_client::{countdown_failure_client, CountdownFailureConfig};
-use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject, Operation};
-use mountpoint_s3_client::types::{ETag, GetObjectParams, RestoreStatus};
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_client::PutObjectRequest;
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_client::S3CrtClient;
 #[cfg(feature = "s3_tests")]
+use mountpoint_s3_client::config::S3ClientConfig;
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+use mountpoint_s3_client::error_metadata::ClientErrorMetadata;
+use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
+use mountpoint_s3_client::mock_client::{MockClient, MockClientError, MockObject, Operation};
+use mountpoint_s3_client::types::{ETag, GetObjectParams, PutObjectSingleParams, RestoreStatus};
+#[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use mountpoint_s3_fs::fs::{CacheConfig, OpenFlags, TimeToLive, ToErrno, FUSE_ROOT_INODE};
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::s3::S3Personality;
+use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags, RenameFlags, TimeToLive, ToErrno};
+use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::s3::{Prefix, S3Personality};
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use nix::unistd::{getgid, getuid};
 use rand::{Rng, SeedableRng};
@@ -35,12 +35,11 @@ use test_case::test_case;
 mod common;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::creds::get_scoped_down_credentials;
-use common::{assert_attr, make_test_filesystem, make_test_filesystem_with_client, DirectoryReply};
+#[cfg(feature = "s3_tests")]
+use common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
+use common::{DirectoryReply, assert_attr, make_test_filesystem, make_test_filesystem_with_client};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use common::{get_crt_client_auth_config, s3::deny_single_object_access_policy};
-
-#[cfg(feature = "s3_tests")]
-use crate::common::s3::{get_test_bucket_and_prefix, get_test_endpoint_config};
 
 #[test_case(""; "unprefixed")]
 #[test_case("test_prefix/"; "prefixed")]
@@ -70,7 +69,7 @@ async fn test_read_dir_root(prefix: &str) {
     // Listing the root directory doesn't require resolving it first, can just opendir the root inode
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 3);
 
@@ -107,8 +106,7 @@ async fn test_read_dir_root(prefix: &str) {
     assert!(offset > 0);
 
     let mut reply = Default::default();
-    let _reply = fs
-        .readdir(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+    fs.readdir(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
         .await
         .unwrap();
     assert_eq!(reply.entries.len(), 0);
@@ -147,7 +145,7 @@ async fn test_read_dir_nested(prefix: &str) {
 
     let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 2);
 
@@ -183,7 +181,7 @@ async fn test_read_dir_nested(prefix: &str) {
     assert!(offset > 0);
 
     let mut reply = Default::default();
-    let _reply = fs.readdir(dir_ino, dir_handle, offset, &mut reply).await.unwrap();
+    fs.readdir(dir_ino, dir_handle, offset, &mut reply).await.unwrap();
     assert_eq!(reply.entries.len(), 0);
 
     fs.releasedir(dir_ino, dir_handle, 0).await.unwrap();
@@ -228,8 +226,7 @@ async fn test_lookup_negative_cached() {
     {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs
-            .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
             .await
             .unwrap();
 
@@ -331,7 +328,7 @@ async fn test_readdir_then_open_cached() {
         let dir_ino = FUSE_ROOT_INODE;
         let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
         assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -424,7 +421,7 @@ async fn test_mknod_cached() {
         .await
         .expect_err("file already exists")
         .to_errno();
-    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {:?}", err_no);
+    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {err_no:?}");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 
@@ -435,7 +432,7 @@ async fn test_mknod_cached() {
         .await
         .expect_err("should fail as directory entry still cached")
         .to_errno();
-    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {:?}", err_no);
+    assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {err_no:?}");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
 }
@@ -454,7 +451,7 @@ async fn test_random_read(object_size: usize) {
     // Find the object
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(1, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -465,9 +462,9 @@ async fn test_random_read(object_size: usize) {
 
     let mut rng = ChaCha20Rng::seed_from_u64(0x12345678);
     for _ in 0..10 {
-        let offset = rng.gen_range(0..object_size);
+        let offset = rng.random_range(0..object_size);
         // TODO do we need to bound it? should work anyway, just partial read, right?
-        let length = rng.gen_range(0..(object_size - offset).min(1024 * 1024)) + 1;
+        let length = rng.random_range(0..(object_size - offset).min(1024 * 1024)) + 1;
         let bytes_read = fs
             .read(ino, fh, offset as i64, length as u32, 0, None)
             .await
@@ -504,7 +501,7 @@ async fn test_implicit_directory_shadow(prefix: &str) {
 
     let dir_handle = fs.opendir(dir_ino, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
+    fs.readdirplus(dir_ino, dir_handle, 0, &mut reply).await.unwrap();
 
     assert_eq!(reply.entries.len(), 2 + 1);
 
@@ -711,15 +708,15 @@ async fn test_upload_aborted_on_write_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_write_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let part_size = 1024 * 1024;
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
     let mut put_failures = HashMap::new();
     put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
 
@@ -732,6 +729,7 @@ async fn test_upload_aborted_on_write_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
+        PagedPool::new_with_candidate_sizes([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -786,15 +784,15 @@ async fn test_upload_aborted_on_fsync_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let part_size = 1024 * 1024;
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
     let mut put_failures = HashMap::new();
     put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
 
@@ -807,6 +805,7 @@ async fn test_upload_aborted_on_fsync_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
+        PagedPool::new_with_candidate_sizes([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -846,15 +845,15 @@ async fn test_upload_aborted_on_release_failure() {
     const BUCKET_NAME: &str = "test_upload_aborted_on_fsync_failure";
     const FILE_NAME: &str = "foo.bin";
 
-    let client_config = MockClientConfig {
-        bucket: BUCKET_NAME.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
+    let part_size = 1024 * 1024;
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
     let mut put_failures = HashMap::new();
     put_failures.insert(1, Ok((2, MockClientError("error".to_owned().into()))));
 
@@ -867,6 +866,7 @@ async fn test_upload_aborted_on_release_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
+        PagedPool::new_with_candidate_sizes([part_size]),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -1055,7 +1055,7 @@ async fn test_directory_shadowing_readdir() {
     let bar_dentry = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(foo_dir.attr.ino, dir_handle, 0).await.unwrap();
 
         // Skip . and .. to get to the `bar` dentry
@@ -1076,7 +1076,7 @@ async fn test_directory_shadowing_readdir() {
     let bar_dentry_new = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(bar_file.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(bar_file.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(bar_file.attr.ino, dir_handle, 0).await.unwrap();
 
         // Skip . and .. to get to the `bar` dentry
@@ -1099,7 +1099,7 @@ async fn test_directory_shadowing_readdir() {
     let bar_dentry = {
         let dir_handle = fs.opendir(foo_dir.attr.ino, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(foo_dir.attr.ino, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(foo_dir.attr.ino, dir_handle, 0).await.unwrap();
 
         // Skip . and .. to get to the `bar` dentry
@@ -1128,7 +1128,7 @@ async fn test_readdir_vs_readdirplus() {
     let readdir_entries = {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs.readdir(FUSE_ROOT_INODE, dir_handle, 0, &mut reply).await.unwrap();
+        fs.readdir(FUSE_ROOT_INODE, dir_handle, 0, &mut reply).await.unwrap();
         fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
 
         // Skip . and ..
@@ -1152,8 +1152,7 @@ async fn test_readdir_vs_readdirplus() {
     let readdirplus_entries = {
         let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
         let mut reply = Default::default();
-        let _reply = fs
-            .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+        fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
             .await
             .unwrap();
         fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
@@ -1207,8 +1206,7 @@ async fn test_flexible_retrieval_objects() {
 
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
     let mut reply = Default::default();
-    let _reply = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
         .await
         .unwrap();
     fs.releasedir(FUSE_ROOT_INODE, dir_handle, 0).await.unwrap();
@@ -1275,8 +1273,7 @@ async fn test_readdir_rewind_ordered() {
     let dir_handle = fs.opendir(FUSE_ROOT_INODE, 0).await.unwrap().fh;
 
     let mut reply = DirectoryReply::new(5);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, 0, &mut reply)
         .await
         .unwrap();
     let entries = reply
@@ -1322,16 +1319,14 @@ async fn test_readdir_rewind_ordered() {
     // but let's rewind first
     let _ = ls(&fs, dir_handle, 0, 5).await;
     let mut next_page = DirectoryReply::new(0);
-    let _ = fs
-        .readdirplus(
-            FUSE_ROOT_INODE,
-            dir_handle,
-            reply.entries.back().unwrap().offset,
-            &mut next_page,
-        )
-        .await
-        .unwrap();
-
+    fs.readdirplus(
+        FUSE_ROOT_INODE,
+        dir_handle,
+        reply.entries.back().unwrap().offset,
+        &mut next_page,
+    )
+    .await
+    .unwrap();
     assert_eq!(next_page.entries.len(), 7); // 10 directory entries + . + .. = 12, minus the 5 we already saw
     assert_eq!(next_page.entries.front().unwrap().name, "foo3");
 
@@ -1408,9 +1403,11 @@ async fn test_readdir_rewind_with_new_files(s3_fs_config: S3FilesystemConfig) {
     assert_eq!(new_entries.len(), 14); // 10 original remote files + 1 new local file + 1 new remote file + 2 dirs (. and ..) = 13 entries
 
     // assert entries contain new local file
-    assert!(new_entries
-        .iter()
-        .any(|(_, name)| name.as_os_str().to_str().unwrap() == file_name));
+    assert!(
+        new_entries
+            .iter()
+            .any(|(_, name)| name.as_os_str().to_str().unwrap() == file_name)
+    );
 
     // Request more entries but there is no more
     let new_entries = ls(&fs, dir_handle, 14, 20).await;
@@ -1532,12 +1529,16 @@ async fn test_readdir_repeat_response_after_rewind() {
 async fn test_lookup_404_not_an_error() {
     let name = "test_lookup_404_not_an_error";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let client_config = S3ClientConfig::default()
         .endpoint_config(get_test_endpoint_config())
-        .read_backpressure(true);
+        .read_backpressure(true)
+        .memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
     let fs = make_test_filesystem_with_client(
         client,
+        pool,
         &bucket,
         &prefix.parse().expect("prefix must be valid"),
         Default::default(),
@@ -1565,11 +1566,14 @@ async fn test_lookup_forbidden() {
     let key = format!("{}{}", prefix, name);
     let policy = deny_single_object_access_policy(&bucket, &key);
 
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
         .auth_config(auth_config)
         .endpoint_config(get_test_endpoint_config())
-        .read_backpressure(true);
+        .read_backpressure(true)
+        .memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).expect("must be able to create a CRT client");
 
     // create an empty file
@@ -1584,6 +1588,7 @@ async fn test_lookup_forbidden() {
     // try to lookup file with a S3 policy that dissallows that
     let fs = make_test_filesystem_with_client(
         client,
+        pool,
         &bucket,
         &prefix.parse().expect("prefix must be valid"),
         Default::default(),
@@ -1629,8 +1634,7 @@ async fn ls(
     max_entries: usize,
 ) -> Vec<(u64, OsString)> {
     let mut reply = DirectoryReply::new(max_entries);
-    let _ = fs
-        .readdirplus(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
+    fs.readdirplus(FUSE_ROOT_INODE, dir_handle, offset, &mut reply)
         .await
         .unwrap();
     reply
@@ -1638,4 +1642,62 @@ async fn ls(
         .iter()
         .map(|e| (e.ino, e.name.clone()))
         .collect::<Vec<_>>()
+}
+
+#[tokio::test]
+async fn test_rename_support_is_cached() {
+    const BUCKET_NAME: &str = "test_rename_support_cached_general_purpose";
+    const FILE_NAME: &str = "a.txt";
+
+    let part_size = 1024 * 1024;
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(BUCKET_NAME)
+            .part_size(part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .enable_rename(false)
+            .build(),
+    );
+
+    // Put one object into the bucket
+    let params = PutObjectSingleParams::new();
+    client
+        .put_object_single(BUCKET_NAME, FILE_NAME, &params, "content")
+        .await
+        .expect("put object should have succeeded");
+
+    let counter = client.new_counter(Operation::RenameObject);
+    // Try to rename twice
+    let fs = make_test_filesystem_with_client(
+        client.clone(),
+        pool,
+        BUCKET_NAME,
+        &Default::default(),
+        Default::default(),
+    );
+    let err = fs
+        .rename(
+            FUSE_ROOT_INODE,
+            FILE_NAME.as_ref(),
+            FUSE_ROOT_INODE,
+            "b.txt".as_ref(),
+            RenameFlags::empty(),
+        )
+        .await
+        .expect_err("rename should fail");
+    assert_eq!(err.to_errno(), libc::ENOSYS, "rename should fail with ENOSYS");
+    let err = fs
+        .rename(
+            FUSE_ROOT_INODE,
+            FILE_NAME.as_ref(),
+            FUSE_ROOT_INODE,
+            "b.txt".as_ref(),
+            RenameFlags::empty(),
+        )
+        .await
+        .expect_err("rename should fail");
+    assert_eq!(err.to_errno(), libc::ENOSYS, "rename should again fail with ENOSYS");
+    assert_eq!(counter.count(), 1, "The second failed rename should have been cached");
 }

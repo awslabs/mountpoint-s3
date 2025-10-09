@@ -3,8 +3,8 @@ name = "mountpoint-s3-fuser"
 description = "A fork of fuser - Filesystem in Userspace (FUSE) for Rust - only for use in Mountpoint for Amazon S3"
 license = "MIT"
 homepage = "https://github.com/awslabs/mountpoint-s3/tree/fuser/fork"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 readme = "README.md"
 keywords = ["fuse", "filesystem", "system", "bindings"]
 categories = ["external-ffi-bindings", "api-bindings", "filesystem", "os::unix-apis"]
@@ -21,10 +21,10 @@ page_size = "0.6.0"
 serde = { version = "1.0.102", features = ["std", "derive"], optional = true }
 smallvec = "1.6.1"
 zerocopy = { version = "0.8", features = ["derive"] }
-nix = { version = "0.29.0", features = ["fs", "user"] }
+nix = { version = "0.29.0", features = ["fs", "user", "ioctl"] }
 
 [dev-dependencies]
-env_logger = "0.11.3"
+env_logger = "0.11.7"
 clap = { version = "4.4", features = ["cargo", "derive"] }
 bincode = "1.3.1"
 serde = { version = "1.0.102", features = ["std", "derive"] }
@@ -35,21 +35,11 @@ nix = { version = "0.29.0", features = ["poll", "fs", "ioctl"] }
 pkg-config = { version = "0.3.14", optional = true }
 
 [features]
-default = ["libfuse"]
+default = []
 libfuse = ["pkg-config"]
 serializable = ["serde"]
 macfuse-4-compat = []
-abi-7-9 = []
-abi-7-10 = ["abi-7-9"]
-abi-7-11 = ["abi-7-10"]
-abi-7-12 = ["abi-7-11"]
-abi-7-13 = ["abi-7-12"]
-abi-7-14 = ["abi-7-13"]
-abi-7-15 = ["abi-7-14"]
-abi-7-16 = ["abi-7-15"]
-abi-7-17 = ["abi-7-16"]
-abi-7-18 = ["abi-7-17"]
-abi-7-19 = ["abi-7-18"]
+abi-7-19 = []
 abi-7-20 = ["abi-7-19"]
 abi-7-21 = ["abi-7-20"]
 abi-7-22 = ["abi-7-21"]
@@ -62,23 +52,24 @@ abi-7-28 = ["abi-7-27"]
 abi-7-29 = ["abi-7-28"]
 abi-7-30 = ["abi-7-29"]
 abi-7-31 = ["abi-7-30"]
+abi-7-36 = ["abi-7-31"]
+abi-7-40 = ["abi-7-36", "nix/ioctl"]
 
 [[example]]
 name = "poll"
-required-features = ["abi-7-11"]
 
 [[example]]
 name = "poll_client"
-required-features = ["abi-7-11"]
 
 [[example]]
 name = "notify_inval_entry"
-required-features = ["abi-7-12"]
 
 [[example]]
 name = "notify_inval_inode"
-required-features = ["abi-7-15"]
 
 [[example]]
 name = "ioctl"
-required-features = ["abi-7-11"]
+
+[[example]]
+name = "passthrough"
+required-features = ["abi-7-40"]

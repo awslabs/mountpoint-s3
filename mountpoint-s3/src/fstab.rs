@@ -69,7 +69,7 @@ impl FsTabCliArgs {
     fn rename_option(option: String) -> String {
         match option.as_str() {
             "ro" => "--read-only".to_string(),
-            _ => format!("--{}", option),
+            _ => format!("--{option}"),
         }
     }
 
@@ -209,13 +209,13 @@ mod tests {
     fn test_fstab_cli_args_parses(args: Vec<&str>, should_parse: bool, expected_prefix: Result<String, String>) {
         let res: Result<CliArgs, clap::Error> =
             FsTabCliArgs::try_parse_from(&args).and_then(|fstab_cli_args| fstab_cli_args.try_into());
-        assert_eq!(res.is_ok(), should_parse, "args={:?}\n res={:?}", args, res);
+        assert_eq!(res.is_ok(), should_parse, "args={args:?}\n res={res:?}");
 
         if let Ok(cli_args) = res {
             match expected_prefix {
                 Ok(prefix) => {
                     let s3_path = cli_args.s3_path().unwrap();
-                    assert_eq!(s3_path.bucket_name, "demo_s3_bucket");
+                    assert_eq!(s3_path.bucket.as_str(), "demo_s3_bucket");
                     assert_eq!(s3_path.prefix.as_str(), prefix.as_str());
                 }
                 Err(expected_err) => {
@@ -246,7 +246,7 @@ mod tests {
 
         assert!(!cli_args.foreground);
         assert_eq!(cli_args.mount_point.to_str(), Some("/mnt/test"));
-        assert_eq!(s3_path.bucket_name, "demo_s3_bucket");
+        assert_eq!(s3_path.bucket.as_str(), "demo_s3_bucket");
         assert_eq!(s3_path.prefix.as_str(), "foo/bar,baz/");
         assert_eq!(cli_args.uid, Some(2));
         assert_eq!(cli_args.gid, None);
@@ -263,9 +263,8 @@ mod tests {
             .s3_path()
             .expect_err("CliArgs should not produce a valid s3 path");
         assert!(
-            format!("{:#}", err).contains("explicit prefix option not allowed with S3 URI"),
-            "{:#}",
-            err
+            format!("{err:#}").contains("explicit prefix option not allowed with S3 URI"),
+            "{err:#}"
         )
     }
 
@@ -324,7 +323,7 @@ mod tests {
     impl From<CliArgs> for FstabCompatibleCliArgs {
         fn from(cli: CliArgs) -> Self {
             FstabCompatibleCliArgs {
-                bucket_name: cli.s3_path().unwrap().bucket_name,
+                bucket_name: cli.s3_path().unwrap().bucket.to_string(),
                 mount_point: cli.mount_point.to_string_lossy().into_owned(),
                 uid: cli.uid.unwrap_or_default(),
                 allow_delete: cli.allow_delete,

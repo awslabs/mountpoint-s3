@@ -1,4 +1,18 @@
-## Unreleased
+## Unreleased (v1.21.0)
+
+* Change default logging level from WARN to INFO to improve visibility of important operational messages. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605))
+
+## v1.20.0 (Sep 12, 2025)
+
+* Adopt a unified memory pool to reduce overall memory usage. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
+* Log messages now include the thread ID that logged the message, like "ThreadId(01)", after the level. ([#1460](https://github.com/awslabs/mountpoint-s3/pull/1460))
+* Fix issue preventing incremental upload to handle very large write part sizes. ([#1538](https://github.com/awslabs/mountpoint-s3/pull/1538))
+* Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
+* Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
+
+## v1.19.0 (Jun 19, 2025)
+
+* Add support for renaming files using the RenameObject API when mounting directory buckets in S3 Express One Zone. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
 
 ## v1.18.0 (May 30, 2025)
 

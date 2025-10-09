@@ -16,6 +16,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+  S3_SECOND_BUCKET_NAME: ${{ vars.S3_SECOND_BUCKET_NAME }}
   S3_EXPRESS_ONE_ZONE_BUCKET_NAME: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME }}
   # Optional endpoint urls, can be empty
   S3_ENDPOINT_URL: ${{ vars.S3_ENDPOINT_URL }}
@@ -36,43 +37,58 @@ env:
   S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME_EXTERNAL }}
   KMS_TEST_KEY_ID: ${{ vars.KMS_TEST_KEY_ID }}
   S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS: ${{ vars.S3_EXPRESS_ONE_ZONE_BUCKET_NAME_SSE_KMS }}
-  RUST_FEATURES: fuse_tests,s3_tests,fips_tests,event_log,second_account_tests,manifest
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
+  approval:
+    name: Approval Gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Approval Gate
+        run: echo "Approved!"
+
   test:
-    name: Tests (${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
+    name: FS Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
     runs-on: ${{ matrix.runner.tags }}
 
-    environment: ${{ inputs.environment }}
+    needs: approval
+    env:
+      features: fuse_tests,s3_tests,fips_tests,event_log,second_account_tests,manifest,${{ matrix.bucket-type.feature }}
+      packages: --package mountpoint-s3 --package mountpoint-s3-fs
 
     strategy:
       fail-fast: false
       matrix:
+        bucket-type:
+        - name: S3
+          feature: 
+        - name: S3XOZ
+          feature: s3express_tests
         fuseVersion: [2, 3]
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: Amazon Linux arm
+        - name: AL2 arm
           tags: [self-hosted, linux, arm64]
         exclude:
           # fuse3 is not available on Amazon Linux 2
           - runner:
-              name: Amazon Linux arm
+              name: AL2 arm
               tags: [self-hosted, linux, arm64]
             fuseVersion: 3
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v5
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -81,50 +97,58 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Build tests
-      run: cargo test --features $RUST_FEATURES --no-run
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test --features $RUST_FEATURES
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
-  s3express-test:
-    name: S3 Express One Zone tests (${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
+  client-test:
+    name: Client Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, ${{ matrix.pool.name }})
     runs-on: ${{ matrix.runner.tags }}
 
-    environment: ${{ inputs.environment }}
+    needs: approval
+    env:
+      features: s3_tests,fips_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
+      packages: --package mountpoint-s3-client --package mountpoint-s3-crt --package mountpoint-s3-crt-sys
 
     strategy:
       fail-fast: false
       matrix:
-        fuseVersion: [2, 3]
+        bucket-type:
+        - name: S3
+          feature: 
+        - name: S3XOZ
+          feature: s3express_tests
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: Amazon Linux arm
+        - name: AL2 arm
           tags: [self-hosted, linux, arm64]
-        exclude:
-          # fuse3 is not available on Amazon Linux 2
-          - runner:
-              name: Amazon Linux arm
-              tags: [self-hosted, linux, arm64]
-            fuseVersion: 3
+        pool:
+        - name: Default Pool
+          feature:
+        - name: Test Pool
+          feature: pool_tests
+        - name: FS Pool
+          feature: fs_pool_tests
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v5
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -133,25 +157,26 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
-        fuseVersion: ${{ matrix.fuseVersion }}
+        # not required for client tests. TODO: make it optional.
+        fuseVersion: 2
     - name: Build tests
-      run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests' --no-run
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test --features '${{ env.RUST_FEATURES }},s3express_tests'
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'Amazon Linux arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   fstab:
     name: fstab tests (${{ matrix.runner.name }}
     runs-on: ${{ matrix.runner.tags }}
 
-    environment: ${{ inputs.environment }}
+    needs: approval
 
     strategy:
       fail-fast: false
@@ -160,17 +185,17 @@ jobs:
         runner:
           - name: Ubuntu x86
             tags: [ubuntu-22.04] # GitHub-hosted
-          - name: Amazon Linux arm
+          - name: AL2 arm
             tags: [self-hosted, linux, arm64]
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
           submodules: true
@@ -179,7 +204,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-          # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+          # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
           rustflags: ""
       - name: Install operating system dependencies
         uses: ./.github/actions/install-dependencies
@@ -198,7 +223,7 @@ jobs:
     name: Address sanitizer
     runs-on: [self-hosted, linux, arm64]
 
-    environment: ${{ inputs.environment }}
+    needs: approval
 
     env:
       # We're using ASan to test our CRT bindings, so focus only on S3, not on FUSE
@@ -208,12 +233,12 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v5
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -221,7 +246,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
         components: rust-src
     - name: Install operating system dependencies

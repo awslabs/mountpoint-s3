@@ -2,15 +2,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_INTERNAL;
+use mountpoint_s3_fs::manifest::DbEntry;
+use mountpoint_s3_fs::metablock::ValidKey;
+use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{
     logging::error_logger::{Event, FileErrorLogger},
     manifest::Manifest,
-    S3FilesystemConfig,
 };
 use tempfile::tempdir;
 use time::OffsetDateTime;
 
 use crate::common::fuse::{self, TestSessionConfig};
+use crate::common::manifest::{create_dummy_manifest, insert_entries};
 
 const VERSION: &str = "1";
 
@@ -23,9 +26,7 @@ fn test_manifest_error_logged() {
         fuse_request_id: Some(0),
         error_code: MOUNTPOINT_ERROR_INTERNAL.to_string(),
         errno: Some(5),
-        internal_message: Some(
-            "inode error: manifest error: database error: no such table: s3_objects: Error code 1: SQL error or missing database".to_string(),
-        ),
+        internal_message: Some("inode error: manifest error: read invalid row with id 3".to_string()),
         s3_bucket_name: None,
         s3_object_key: None,
         s3_error_http_status: None,
@@ -34,21 +35,34 @@ fn test_manifest_error_logged() {
         version: VERSION.to_string(),
     }];
 
-    // create a fuse session with a non existent manifest
-    let tmp_dir = tempdir().expect("must create a tmp dir");
-    let manifest_db_path = tmp_dir.path().join("non_existent.db");
+    // create a fuse session with a manifest containing a corrupted entry (no etag)
+    let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
+    let (tmp_dir, manifest_db_path) =
+        create_dummy_manifest::<&str>(&[], 0, "channel_0", &s3_path.bucket).expect("manifest must be created");
+    insert_entries(
+        &manifest_db_path,
+        &[DbEntry::new(
+            3,
+            1,
+            0,
+            Some(ValidKey::root()),
+            "key".try_into().unwrap(),
+            None,
+            Some(1),
+            &s3_path,
+        )
+        .expect("must be a valid db entry")],
+    )
+    .expect("insert invalid row must succeed");
     let error_logger = Box::new(FileErrorLogger::new(tmp_dir.path(), || ()).expect("must create a error callback"));
     let manifest = Manifest::new(&manifest_db_path).unwrap();
     let test_session_config = TestSessionConfig {
-        filesystem_config: S3FilesystemConfig {
-            manifest: Some(manifest),
-            ..Default::default()
-        },
+        manifest: Some(manifest),
         error_logger: Some(error_logger),
         ..Default::default()
     };
 
-    let test_session = fuse::mock_session::new("test_manifest_error_logged", test_session_config);
+    let test_session = fuse::mock_session::new(s3_path.prefix.as_str(), test_session_config);
 
     // try to lookup and expect an EIO error
     let e = std::fs::metadata(test_session.mount_path().join("key")).expect_err("lookup must fail");
@@ -66,7 +80,7 @@ fn test_not_found_error_not_logged() {
     // define the expected output
     let expected_events = vec![];
 
-    // create a fuse session with a non existent manifest
+    // create a fuse session with empty mock client
     let tmp_dir = tempdir().expect("must create a tmp dir");
     let error_logger = Box::new(FileErrorLogger::new(tmp_dir.path(), || ()).expect("must create a error callback"));
     let test_session_config = TestSessionConfig {

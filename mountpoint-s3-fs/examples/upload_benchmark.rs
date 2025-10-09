@@ -6,12 +6,13 @@ use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
-use mountpoint_s3_fs::upload::Uploader;
+use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use sysinfo::{RefreshKind, System};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
@@ -56,9 +57,6 @@ struct UploadBenchmarkArgs {
     #[clap(long, help = "Size of each write in bytes", default_value = "131072")]
     pub write_size: usize,
 
-    #[arg(long, help = "Override value for CRT memory limit in gibibytes", value_name = "GiB")]
-    pub crt_memory_limit_gib: Option<u64>,
-
     #[clap(
         long,
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
@@ -90,9 +88,8 @@ struct UploadBenchmarkArgs {
 
 fn main() {
     init_tracing_subscriber();
-    let _metrics_handle = mountpoint_s3_fs::metrics::install();
-
     let args = UploadBenchmarkArgs::parse();
+
     println!("starting upload benchmark with {:?}", &args);
 
     let mut endpoint_config = EndpointConfig::new(&args.region);
@@ -100,13 +97,13 @@ fn main() {
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), url).expect("Failed to parse endpoint URL");
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
-    let mut config = S3ClientConfig::new()
+    let pool = PagedPool::new_with_candidate_sizes([args.write_part_size]);
+    let config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)
-        .write_part_size(args.write_part_size);
-    if let Some(crt_mem_limit_gib) = args.crt_memory_limit_gib {
-        config = config.memory_limit_in_bytes(crt_mem_limit_gib * 1024 * 1024 * 1024);
-    }
+        .write_part_size(args.write_part_size)
+        .memory_pool(pool.clone());
+
     let client = Arc::new(S3CrtClient::new(config).expect("couldn't create client"));
     let runtime = Runtime::new(client.event_loop_group());
 
@@ -118,7 +115,7 @@ fn main() {
             let sys = System::new_with_specifics(RefreshKind::everything());
             (sys.total_memory() as f64 * 0.95) as u64
         };
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), max_memory_target));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), max_memory_target));
 
         let buffer_size = args.write_part_size;
         let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
@@ -134,11 +131,11 @@ fn main() {
         let uploader = Uploader::new(
             client.clone(),
             runtime.clone(),
+            pool.clone(),
             mem_limiter,
-            None,
-            server_side_encryption,
-            buffer_size,
-            checksum_algorithm,
+            UploaderConfig::new(buffer_size)
+                .server_side_encryption(server_side_encryption)
+                .default_checksum_algorithm(checksum_algorithm),
         );
 
         let start = Instant::now();

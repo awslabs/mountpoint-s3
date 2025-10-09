@@ -12,21 +12,22 @@ pub mod fuse;
 #[cfg(feature = "s3_tests")]
 pub mod s3;
 
-#[cfg(feature = "manifest")]
+#[cfg(all(test, feature = "manifest"))]
 pub mod manifest;
 
 use aws_credential_types::Credentials;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::config::{
     Allocator, CredentialsProvider, CredentialsProviderStaticOptions, RustLogAdapter, S3ClientAuthConfig,
 };
-use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
-use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
+use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::prefix::Prefix;
-use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig};
+use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
+use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
@@ -36,21 +37,23 @@ pub fn make_test_filesystem(
     prefix: &Prefix,
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
-    let client_config = MockClientConfig {
-        bucket: bucket.to_string(),
-        part_size: 1024 * 1024,
-        enable_backpressure: true,
-        initial_read_window_size: 256 * 1024,
-        ..Default::default()
-    };
-
-    let client = Arc::new(MockClient::new(client_config));
-    let fs = make_test_filesystem_with_client(client.clone(), bucket, prefix, config);
+    let part_size = 1024 * 1024;
+    let client = Arc::new(
+        MockClient::config()
+            .bucket(bucket)
+            .part_size(part_size)
+            .enable_backpressure(true)
+            .initial_read_window_size(256 * 1024)
+            .build(),
+    );
+    let pool = PagedPool::new_with_candidate_sizes([part_size]);
+    let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
     (client, fs)
 }
 
 pub fn make_test_filesystem_with_client<Client>(
     client: Client,
+    pool: PagedPool,
     bucket: &str,
     prefix: &Prefix,
     config: S3FilesystemConfig,
@@ -60,7 +63,15 @@ where
 {
     let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
     let prefetcher_builder = Prefetcher::default_builder(client.clone());
-    S3Filesystem::new(client, prefetcher_builder, runtime, bucket, prefix, config)
+    let superblock = Superblock::new(
+        client.clone(),
+        S3Path::new(Bucket::new(bucket).unwrap(), prefix.clone()),
+        SuperblockConfig {
+            cache_config: config.cache_config.clone(),
+            s3_personality: config.s3_personality,
+        },
+    );
+    S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, config)
 }
 
 #[track_caller]
