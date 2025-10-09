@@ -7,9 +7,9 @@ mod built {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
-/// Valid SemVer version constructed using declared Cargo version, build target,and short commit hash if needed.
+/// Valid SemVer version constructed using declared Cargo version, release target, and short commit hash if needed.
 pub const FULL_VERSION: &str = {
-    const RELEASE_INFO: Option<&'static str> = release_info();
+    const RELEASE_INFO: Option<&'static str> = official_aws_release_target();
 
     if RELEASE_INFO.is_none() {
         const_format::concatcp!(built::PKG_VERSION, "-unofficial", git_commit_suffix())
@@ -22,7 +22,7 @@ pub const FULL_VERSION: &str = {
         };
         #[allow(
             clippy::const_is_empty,
-            reason = "The RELEASE_INFO_STR can be empty or non-empty depending on the release target"
+            reason = "The RELEASE_INFO_STR can be empty or non-empty depending on the environment at build time"
         )]
         if RELEASE_INFO_STR.is_empty() {
             built::PKG_VERSION
@@ -32,7 +32,8 @@ pub const FULL_VERSION: &str = {
     }
 };
 
-const fn release_info() -> Option<&'static str> {
+/// Checks environment to see the official Mountpoint for Amazon S3 release target
+const fn official_aws_release_target() -> Option<&'static str> {
     option_env!("MOUNTPOINT_S3_AWS_RELEASE_TARGET")
 }
 
