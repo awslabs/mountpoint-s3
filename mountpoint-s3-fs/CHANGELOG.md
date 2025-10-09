@@ -1,6 +1,7 @@
 ## Unreleased (v0.8.1)
 
 * Upgrade toolchain to Rust 1.89. ([#1628](https://github.com/awslabs/mountpoint-s3/pull/1628))
+* `PrefetchGetObject` now has an updated backpressure algorithm advancing the read window with each call to `PrefetchGetObject::read`, with the aim of higher sequential-read throughput. ([#1453](https://github.com/awslabs/mountpoint-s3/pull/1453))
 
 ## v0.8.0 (September 30, 2025)
 
