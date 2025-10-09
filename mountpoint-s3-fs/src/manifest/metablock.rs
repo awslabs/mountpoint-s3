@@ -4,7 +4,6 @@ use std::ffi::{OsStr, OsString};
 use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
-
 use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 use crate::metablock::{
@@ -12,6 +11,7 @@ use crate::metablock::{
     ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
 };
 use crate::s3::S3Path;
+use crate::superblock::inode::{CompletionHandle};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
 
@@ -223,15 +223,13 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>, _fh: u64) -> Result<(), InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>) -> Result<(), InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
             key: "".into(),
             bucket: None,
         }))
     }
-
-    async fn finish_flushing(&self, _ino: InodeNo, _etag: Option<ETag>, _fh: u64, _flushed: &mut bool) -> Result<(), InodeError> { Ok(()) }
 
     async fn rename(
         &self,
@@ -279,7 +277,15 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn is_valid_handle(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> {
+    async fn is_valid_handle(&self, _ino: InodeNo, _fh: u64, _op: &str) -> Result<bool, InodeError> {
         Ok(true)
+    }
+
+    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> { 
+        Ok(true)
+    }
+
+    async fn flush_writer(&self, _ino: InodeNo, _completion_handle: CompletionHandle) -> Result<bool, InodeError> {
+        Ok(false)
     }
 }
