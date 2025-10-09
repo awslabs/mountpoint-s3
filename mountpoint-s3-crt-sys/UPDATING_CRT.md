@@ -9,7 +9,7 @@ The CRT submodules can be updated by following these steps:
 1. Update every submodule to the latest tagged release. E.g. by running:
 
    ```sh
-   git submodule foreach 'git fetch -q --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`'
+   git submodule foreach 'git fetch -q -f --tags && git checkout --recurse-submodules `git tag -l --sort=-v:refname | head -1`'
    ```
 
 2. Review the commit history, in particular for `aws-c-s3`, looking for changes that may affect `mountpoint-s3` (bug fixes, API changes, etc.). E.g.:
