@@ -8,10 +8,10 @@ use mountpoint_s3_crt_sys::{
     aws_retry_strategy_new_standard, aws_retry_strategy_release, aws_standard_retry_options,
 };
 
+use crate::CrtError as _;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::event_loop::EventLoopGroup;
-use crate::CrtError as _;
 
 /// A strategy for scheduling retries of failed requests
 #[derive(Debug)]

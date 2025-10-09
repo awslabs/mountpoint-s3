@@ -2,12 +2,10 @@ use std::time::Duration;
 
 use nix::unistd::{getgid, getuid};
 
-#[cfg(feature = "manifest")]
-use crate::manifest::Manifest;
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
-use crate::superblock::WriteMode;
 
 use super::{ServerSideEncryption, TimeToLive};
 
@@ -29,6 +27,8 @@ pub struct S3FilesystemConfig {
     pub allow_delete: bool,
     /// Allow overwrite
     pub allow_overwrite: bool,
+    /// Allow renames
+    pub allow_rename: bool,
     /// Enable incremental uploads
     pub incremental_upload: bool,
     /// Storage class to be used for new object uploads
@@ -43,9 +43,6 @@ pub struct S3FilesystemConfig {
     pub mem_limit: u64,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
-    /// An SQLite DB containing the list of S3 keys available with this mount
-    #[cfg(feature = "manifest")]
-    pub manifest: Option<Manifest>,
 }
 
 impl Default for S3FilesystemConfig {
@@ -63,14 +60,13 @@ impl Default for S3FilesystemConfig {
             allow_delete: false,
             allow_overwrite: false,
             incremental_upload: false,
+            allow_rename: true,
             storage_class: None,
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
-            #[cfg(feature = "manifest")]
-            manifest: None,
         }
     }
 }

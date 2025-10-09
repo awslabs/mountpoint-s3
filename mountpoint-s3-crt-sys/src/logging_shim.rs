@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{aws_log_level, aws_log_subject_t, aws_logger, aws_string, AWS_OP_SUCCESS};
+use crate::{AWS_OP_SUCCESS, aws_log_level, aws_log_subject_t, aws_logger, aws_string};
 
 pub type LogFn = unsafe extern "C" fn(
     logger: *mut aws_logger,
@@ -38,7 +38,7 @@ pub enum LoggerInitError {
 }
 
 #[link(name = "logging_shim", kind = "static")]
-extern "C" {
+unsafe extern "C" {
     /// This is the function invoked by the CRT's logging macros to emit a log entry. It takes a
     /// `printf`-style format string and variadic arguments. Unfortunately, variadic functions
     /// aren't stable Rust. But we're in luck: we don't actually need the arguments, as we're just
@@ -46,7 +46,7 @@ extern "C" {
     /// implications of passing a `va_list` around the place, we use a little C trampoline (this
     /// function) that receive the arguments, `vsprintf`s them into an `aws_string`, and then calls
     /// the Rust function `logger_vtable_log_fn` with that body.
-    pub fn aws_crt_s3_rs_logging_shim_log_fn_trampoline(
+    pub unsafe fn aws_crt_s3_rs_logging_shim_log_fn_trampoline(
         logger: *mut aws_logger,
         log_level: aws_log_level::Type,
         subject: aws_log_subject_t,
@@ -55,7 +55,7 @@ extern "C" {
     ) -> libc::c_int;
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn aws_crt_s3_rs_logging_shim_log_fn(
     logger: *mut aws_logger,
     log_level: aws_log_level::Type,
@@ -63,9 +63,13 @@ unsafe extern "C" fn aws_crt_s3_rs_logging_shim_log_fn(
     body: *mut aws_string,
     body_length: usize,
 ) -> libc::c_int {
-    if let Some(f) = LOGGER_LOG_FN {
-        f(logger, log_level, subject, body, body_length)
-    } else {
-        AWS_OP_SUCCESS
+    // SAFETY: this function is only called after `try_init`, which is the only place
+    // where `LOGGER_LOG_FN` is initialized.
+    unsafe {
+        if let Some(f) = LOGGER_LOG_FN {
+            f(logger, log_level, subject, body, body_length)
+        } else {
+            AWS_OP_SUCCESS
+        }
     }
 }

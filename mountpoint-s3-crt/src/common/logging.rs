@@ -5,8 +5,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use mountpoint_s3_crt_sys::{
-    aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set, aws_logger_vtable, aws_string,
-    logging_shim, AWS_OP_ERR, AWS_OP_SUCCESS,
+    AWS_OP_ERR, AWS_OP_SUCCESS, aws_log_level, aws_log_subject_name, aws_log_subject_t, aws_logger, aws_logger_set,
+    aws_logger_vtable, aws_string, logging_shim,
 };
 
 use crate::common::allocator::Allocator;
@@ -109,13 +109,23 @@ pub trait LoggerImpl {
     fn clean_up(&self) {}
 }
 
-#[allow(clippy::borrowed_box)]
-unsafe fn logger_impl<'a>(logger: *mut aws_logger) -> &'a Box<dyn LoggerImpl> {
-    let logger = logger.as_ref().unwrap();
-    (logger.p_impl as *mut Box<dyn LoggerImpl>).as_ref().unwrap()
+/// Get a reference to the internal `LoggerImpl`.
+///
+/// # Safety
+/// `aws_logger` points to the instance initialized in `Logger::new`.
+unsafe fn logger_impl<'a>(logger: *mut aws_logger) -> &'a dyn LoggerImpl {
+    // SAFETY: `logger` is a non-null pointer to a valid `aws_logger`.
+    let logger = unsafe { logger.as_ref().expect("logger is not null") };
+    // SAFETY: `logger.p_impl` points to a valid `Box<dyn LoggerImpl>`.
+    let box_impl = unsafe {
+        (logger.p_impl as *mut Box<dyn LoggerImpl>)
+            .as_ref()
+            .expect("p_impl is not null")
+    };
+    box_impl.as_ref()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn logger_vtable_log_fn(
     logger: *mut aws_logger,
     log_level: aws_log_level::Type,
@@ -123,10 +133,13 @@ unsafe extern "C" fn logger_vtable_log_fn(
     body: *mut aws_string,
     body_length: usize,
 ) -> libc::c_int {
-    let impl_ = logger_impl(logger);
+    // SAFETY: `logger` was initialized in `Logger::new`.
+    let impl_ = unsafe { logger_impl(logger) };
     let message = {
-        let body = body.as_ref().expect("body cannot be null");
-        let bytes = std::slice::from_raw_parts(&body.bytes as *const u8, body_length);
+        // SAFETY: logger API guarantees that `body` is a non-null pointer to a valid `aws_string`.
+        let body = unsafe { body.as_ref().expect("body cannot be null") };
+        // SAFETY: logger API guarantees that `body.bytes` points to a slice of at least `body_length`.
+        let bytes = unsafe { std::slice::from_raw_parts(&body.bytes as *const u8, body_length) };
         // We assume log messages are valid ASCII
         std::str::from_utf8(bytes).expect("log messages should be valid UTF-8")
     };
@@ -138,7 +151,8 @@ unsafe extern "C" fn logger_vtable_get_log_level_fn(
     logger: *mut aws_logger,
     subject: aws_log_subject_t,
 ) -> aws_log_level::Type {
-    let impl_ = logger_impl(logger);
+    // SAFETY: `logger` was initialized in `Logger::new`.
+    let impl_ = unsafe { logger_impl(logger) };
     impl_.get_log_level(subject.into()).into()
 }
 
@@ -146,7 +160,8 @@ unsafe extern "C" fn logger_vtable_set_log_level_fn(
     logger: *mut aws_logger,
     level: aws_log_level::Type,
 ) -> libc::c_int {
-    let impl_ = logger_impl(logger);
+    // SAFETY: `logger` was initialized in `Logger::new`.
+    let impl_ = unsafe { logger_impl(logger) };
     impl_
         .set_log_level(level.into())
         .map(|_| AWS_OP_SUCCESS)
@@ -154,7 +169,8 @@ unsafe extern "C" fn logger_vtable_set_log_level_fn(
 }
 
 unsafe extern "C" fn logger_vtable_clean_up_fn(logger: *mut aws_logger) {
-    let impl_ = logger_impl(logger);
+    // SAFETY: `logger` was initialized in `Logger::new`.
+    let impl_ = unsafe { logger_impl(logger) };
     impl_.clean_up();
 }
 

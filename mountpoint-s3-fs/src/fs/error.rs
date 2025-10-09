@@ -4,8 +4,8 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use tracing::Level;
 
 use crate::fs::error_metadata::ErrorMetadata;
+use crate::metablock::InodeError;
 use crate::prefetch::PrefetchReadError;
-use crate::superblock::InodeError;
 use crate::upload::UploadError;
 
 /// Generate an error that includes a conversion to a libc errno for use in replies to FUSE.
@@ -178,8 +178,16 @@ impl ToErrno for InodeError {
             InodeError::CorruptedMetadata(_) => libc::EIO,
             InodeError::SetAttrNotPermittedOnRemoteInode(_) => libc::EPERM,
             InodeError::StaleInode { .. } => libc::ESTALE,
+            InodeError::CannotRenameDirectory(_) => libc::EPERM,
+            InodeError::RenameDestinationExists { .. } => libc::EEXIST,
+            InodeError::RenameNotPermittedWhileWriting(_) => libc::EPERM,
+            InodeError::RenameNotSupported() => libc::ENOSYS,
+            InodeError::NameTooLong(_) => libc::ENAMETOOLONG,
             #[cfg(feature = "manifest")]
             InodeError::ManifestError { .. } => libc::EIO,
+            InodeError::OperationNotSupportedOnSyntheticInode { .. } => libc::EIO,
+            InodeError::OutOfOrderReadDir { .. } => libc::EBADF,
+            InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
         }
     }
 }

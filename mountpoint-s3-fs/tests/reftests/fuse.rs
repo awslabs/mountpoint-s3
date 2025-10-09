@@ -19,7 +19,7 @@ use proptest_derive::Arbitrary;
 use tempfile::TempDir;
 use tracing::{info, info_span};
 
-use crate::common::fuse::{mock_session, TestSession, TestSessionConfig};
+use crate::common::fuse::{TestSession, TestSessionConfig, mock_session};
 
 const MAX_NUM_FILES: usize = 10;
 const MAX_FILE_SIZE: usize = 1024 * 1024;
@@ -65,6 +65,7 @@ impl MountpointFileSystem {
     fn new(config: S3FilesystemConfig) -> anyhow::Result<Self> {
         let test_config = TestSessionConfig {
             filesystem_config: config,
+            max_worker_threads: 1,
             ..Default::default()
         };
         let session = mock_session::new("", test_config);
@@ -322,7 +323,7 @@ fn run(ops: &[Op], mut f1: DirectoryFileSystem, mut f2: MountpointFileSystem) {
 
     // Pre-populate the file system with some interesting files
     for i in 1..5 {
-        let file_path = PathBuf::from(format!("file_{}", i));
+        let file_path = PathBuf::from(format!("file_{i}"));
         let content = vec![i as u8; 100000 * i];
 
         f1.put(&file_path, &content).unwrap();
@@ -414,7 +415,9 @@ fn run(ops: &[Op], mut f1: DirectoryFileSystem, mut f2: MountpointFileSystem) {
 
                 // TODO fix https://github.com/awslabs/mountpoint-s3/issues/791 and then remove this check
                 if fd.mode.is_write() {
-                    info!("skipping read to write-mode FD due to page cache bug; see https://github.com/awslabs/mountpoint-s3/issues/791");
+                    info!(
+                        "skipping read to write-mode FD due to page cache bug; see https://github.com/awslabs/mountpoint-s3/issues/791"
+                    );
                     continue;
                 }
 

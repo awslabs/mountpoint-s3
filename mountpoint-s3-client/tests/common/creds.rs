@@ -14,7 +14,7 @@ fn mask_aws_creds_if_on_gha(credentials: &Credentials) {
         println!("::add-mask::{}", credentials.access_key_id());
         println!("::add-mask::{}", credentials.secret_access_key());
         if let Some(token) = credentials.session_token() {
-            println!("::add-mask::{}", token);
+            println!("::add-mask::{token}");
         }
     }
 }
@@ -28,8 +28,8 @@ pub use integ_only::*;
 mod integ_only {
     use super::*;
 
-    use aws_config::sts::AssumeRoleProvider;
     use aws_config::Region;
+    use aws_config::sts::AssumeRoleProvider;
     use aws_credential_types::provider::ProvideCredentials;
 
     use crate::common::get_test_region;

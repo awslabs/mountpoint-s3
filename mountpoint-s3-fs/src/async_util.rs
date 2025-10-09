@@ -69,10 +69,10 @@ impl<T, E> ResultSender<T, E> {
 
 impl<T, E> RemoteResult<T, E> {
     async fn receive(&mut self) -> Result<&mut Option<T>, E> {
-        if self.value.is_none() {
-            if let Ok(value) = self.receiver.recv().await {
-                self.value = Some(value?);
-            }
+        if self.value.is_none()
+            && let Ok(value) = self.receiver.recv().await
+        {
+            self.value = Some(value?);
         }
         Ok(&mut self.value)
     }
@@ -96,13 +96,13 @@ impl<T, E> Drop for RemoteResult<T, E> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use futures::executor::{block_on, ThreadPool};
+    use futures::executor::{ThreadPool, block_on};
     use test_case::test_case;
 
-    use super::{result_channel, Runtime};
+    use super::{Runtime, result_channel};
 
     #[test_case(Ok(42))]
     #[test_case(Err("error"))]

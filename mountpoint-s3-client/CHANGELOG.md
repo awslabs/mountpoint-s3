@@ -1,4 +1,44 @@
-## Unreleased
+## Unreleased (v0.19.2)
+
+* Upgrade toolchain to Rust 1.89. ([#1628](https://github.com/awslabs/mountpoint-s3/pull/1628))
+
+## v0.19.1 (September 15, 2025)
+
+* Update `tracing-subscriber` from `0.3.19` to `0.3.20`. ([#1590](https://github.com/awslabs/mountpoint-s3/pull/1590))
+
+## v0.19.0 (July 28, 2025)
+
+### Breaking changes
+
+* Make `ObjectClient` part sizes no longer optional. ([#1542](https://github.com/awslabs/mountpoint-s3/pull/1542))
+* Remove `restore_buffer_copy` feature flag. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
+
+## v0.18.0 (July 23, 2025)
+
+* Add support for custom memory pools. ([#1516](https://github.com/awslabs/mountpoint-s3/pull/1516))
+* Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+
+## v0.17.1 (July 17, 2025)
+
+* Fix a race condition in the internal memory pool that in some cases could result in a deadlock.
+  ([#1515](https://github.com/awslabs/mountpoint-s3/pull/1515))
+  ([#1520](https://github.com/awslabs/mountpoint-s3/pull/1520))
+  ([awslabs/aws-c-s3#533](https://github.com/awslabs/aws-c-s3/pull/533))
+  ([awslabs/aws-c-s3#536](https://github.com/awslabs/aws-c-s3/pull/536))
+
+## v0.17.0 (Jun 27, 2025)
+
+### Breaking changes
+
+* Reduce memory fragmentation and peak usage by avoiding copying data returned by GetObject into newly allocated buffers.
+  Callers of the `get_object` method are now responsible for returning the buffers to the internal memory pool by dropping
+  the received `Bytes` instances after use. Failure to do so may eventually lead to reduced or zero throughput when the
+  memory pool reaches capacity.
+  ([#1481](https://github.com/awslabs/mountpoint-s3/pull/1481))
+
+## v0.16.0 (Jun 19, 2025)
+
+* Add support for RenameObject API. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
 
 ## v0.15.0 (May 27, 2025)
 

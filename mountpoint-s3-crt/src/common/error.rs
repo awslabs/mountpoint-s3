@@ -2,7 +2,7 @@
 
 use std::ffi::CStr;
 
-use mountpoint_s3_crt_sys::{aws_error_debug_str, aws_last_error, AWS_OP_SUCCESS};
+use mountpoint_s3_crt_sys::{AWS_OP_SUCCESS, aws_error_debug_str, aws_last_error};
 
 /// An error reported by the AWS Common Runtime
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -11,10 +11,12 @@ pub struct Error(i32);
 impl Error {
     /// Return the last error raised on the current thread
     ///
-    /// Safety: This reads a thread local, so the caller must ensure no other CRT code has run on
+    /// # Safety
+    /// This reads a thread local, so the caller must ensure no other CRT code has run on
     /// the same thread since the error was last set, otherwise the result will be the wrong error.
     pub(crate) unsafe fn last_error() -> Self {
-        Self(aws_last_error())
+        // SAFETY: Must be guaranteed by the caller.
+        Self(unsafe { aws_last_error() })
     }
 
     /// Return whether this error is an error or a successful result

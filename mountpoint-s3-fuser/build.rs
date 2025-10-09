@@ -1,7 +1,9 @@
 fn main() {
     // Register rustc cfg for switching between mount implementations.
     // When fuser MSRV is updated to v1.77 or above, we should switch from 'cargo:' to 'cargo::' syntax.
-    println!("cargo:rustc-check-cfg=cfg(fuser_mount_impl, values(\"pure-rust\", \"libfuse2\", \"libfuse3\"))");
+    println!(
+        "cargo:rustc-check-cfg=cfg(fuser_mount_impl, values(\"pure-rust\", \"libfuse2\", \"libfuse3\"))"
+    );
 
     #[cfg(all(not(feature = "libfuse"), not(target_os = "linux")))]
     unimplemented!("Building without libfuse is only supported on Linux");
@@ -16,7 +18,7 @@ fn main() {
             if pkg_config::Config::new()
                 .atleast_version("2.6.0")
                 .probe("fuse") // for macFUSE 4.x
-                .map_err(|e| eprintln!("{}", e))
+                .map_err(|e| eprintln!("{e}"))
                 .is_ok()
             {
                 println!("cargo:rustc-cfg=fuser_mount_impl=\"libfuse2\"");
@@ -25,7 +27,7 @@ fn main() {
                 pkg_config::Config::new()
                     .atleast_version("2.6.0")
                     .probe("osxfuse") // for osxfuse 3.x
-                    .map_err(|e| eprintln!("{}", e))
+                    .map_err(|e| eprintln!("{e}"))
                     .unwrap();
                 println!("cargo:rustc-cfg=fuser_mount_impl=\"libfuse2\"");
             }

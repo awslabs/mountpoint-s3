@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use mountpoint_s3_crt_sys::{
-    aws_hash, aws_hash_destroy, aws_hash_finalize, aws_hash_update, aws_sha256_new, AWS_SHA256_LEN,
+    AWS_SHA256_LEN, aws_hash, aws_hash_destroy, aws_hash_finalize, aws_hash_update, aws_sha256_new,
 };
 
 use crate::common::allocator::Allocator;

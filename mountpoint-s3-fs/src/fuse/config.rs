@@ -17,6 +17,7 @@ pub struct FuseSessionConfig {
 }
 
 /// Mount options to be passed to FUSE.
+#[derive(Debug, Default)]
 pub struct FuseOptions {
     /// Mount file system in read-only mode
     pub read_only: bool,
@@ -110,25 +111,25 @@ impl MountPoint {
         const FUSE_DEV: &str = "/dev/fuse";
 
         use procfs::{
-            process::{FDPermissions, FDTarget, Process},
             ProcError,
+            process::{FDPermissions, FDTarget, Process},
         };
         use std::os::fd::{FromRawFd, OwnedFd};
 
-        let mount_point = format!("/dev/fd/{}", fd);
+        let mount_point = format!("/dev/fd/{fd}");
 
         let process = Process::myself().unwrap();
         let fd_info = match process.fd_from_fd(fd) {
             Ok(fd_info) => fd_info,
             Err(ProcError::NotFound(_)) => {
-                return Err(anyhow!("mount point {} is not a valid file descriptor", &mount_point))
+                return Err(anyhow!("mount point {} is not a valid file descriptor", &mount_point));
             }
             Err(err) => {
                 return Err(anyhow!(
                     "failed to get file descriptor information for mount point {}: {}",
                     &mount_point,
                     err
-                ))
+                ));
             }
         };
         let FDTarget::Path(path) = &fd_info.target else {

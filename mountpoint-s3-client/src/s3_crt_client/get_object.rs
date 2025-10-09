@@ -1,8 +1,8 @@
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use async_trait::async_trait;
@@ -17,14 +17,11 @@ use tracing::trace;
 
 use crate::error_metadata::ClientErrorMetadata;
 use crate::object_client::{
-    Checksum, ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, ObjectClientError,
-    ObjectClientResult, ObjectMetadata,
+    Checksum, ChecksumMode, ClientBackpressureHandle, GetBodyPart, GetObjectError, GetObjectParams, GetObjectResponse,
+    ObjectChecksumError, ObjectClientError, ObjectClientResult, ObjectMetadata,
 };
 
-use super::{
-    parse_checksum, CancellingMetaRequest, GetObjectResponse, ObjectChecksumError, ResponseHeadersError, S3CrtClient,
-    S3Operation, S3RequestError,
-};
+use super::{CancellingMetaRequest, ResponseHeadersError, S3CrtClient, S3Operation, S3RequestError, parse_checksum};
 
 impl S3CrtClient {
     /// Create and begin a new GetObject request. The returned [S3GetObjectResponse] is a [Stream] of
@@ -84,6 +81,7 @@ impl S3CrtClient {
 
             let mut headers_sender = Some(event_sender.clone());
             let part_sender = event_sender.clone();
+
             self.inner.meta_request_with_callbacks(
                 options,
                 span,
@@ -100,10 +98,12 @@ impl S3CrtClient {
                     }
                 },
                 move |offset, data| {
-                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(GetBodyPart {
-                        offset,
-                        data: Bytes::copy_from_slice(data),
-                    }));
+                    let owned_buffer = data
+                        .to_owned_buffer()
+                        .expect("buffers returned from GetObject can always be acquired");
+                    let bytes = Bytes::from_owner(owned_buffer);
+                    let body_part = GetBodyPart { offset, data: bytes };
+                    _ = part_sender.unbounded_send(S3GetObjectEvent::BodyPart(body_part));
                 },
                 parse_get_object_error,
                 move |result| {
@@ -250,12 +250,11 @@ impl Stream for S3GetObjectResponse {
                 // the next chunk we want to return error instead of keeping the request blocked.
                 // This prevents a risk of deadlock from using the [S3CrtClient], users must implement
                 // their own logic to block the request if they really want to block a [S3GetObjectResponse].
-                if let Some(handle) = &this.backpressure_handle {
-                    if *this.next_offset >= handle.read_window_end_offset() {
-                        return Poll::Ready(Some(Err(ObjectClientError::ClientError(
-                            S3RequestError::EmptyReadWindow,
-                        ))));
-                    }
+                if let Some(handle) = &this.backpressure_handle
+                    && *this.next_offset >= handle.read_window_end_offset()
+                {
+                    let err = ObjectClientError::from(S3RequestError::EmptyReadWindow);
+                    return Poll::Ready(Some(Err(err)));
                 }
                 Poll::Pending
             }

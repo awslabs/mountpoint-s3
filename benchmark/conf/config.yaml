@@ -3,66 +3,82 @@
 
 defaults:
   - _self_
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+  - override hydra/sweeper: multi
 
+# ===== Common parameters for all benchmarks =====
 s3_bucket: ???
-s3_prefix: !!null
-
+s3_result_bucket: !!null
+application_workers: 1
+iteration: 0
+iterations: 10
+run_time: 30  # Default run time in seconds
+read_size: 262144 # Defaults to 256KiB, can go up to 1MiB.
 read_part_size: !!null
-write_part_size: 16777216 # to allow for uploads of 100GiB
+region: "us-east-1"
+write_part_size: 16777216  # 16 MiB, to allow for uploads of large files
+object_size_in_gib: 100  # Size of the object to benchmark
+benchmark_type: "fio" # fio, prefetch, client, client_bp, crt
+s3_keys: !!null
+download_checksums: true
+crt_eventloop_threads: !!null # Number of ELG thread count
 
-metadata_ttl: "indefinite"
-
-fio_benchmarks:
-  - sequential_read
-
-# Path to Mountpoint binary. Recommended to use an absolute path.
-mountpoint_binary: !!null
-mountpoint_debug: false
-mountpoint_debug_crt: false
-
-# No configuration out of the box, use defaults.
+# Network configuration
 network:
   interface_names: []
   maximum_throughput_gbps: !!null
 
-# For overriding upload checksums configured for Mountpoint. Passed as `--upload-checksums` argument.
-upload_checksums: !!null
+# Monitoring options (common to all benchmarks)
+monitoring:
+  with_bwm: false
+  with_perf_stat: false
+  with_flamegraph: false
+  flamegraph_scripts_path: !!null        # Path to directory containing stackcollapse-perf.pl and flamegraph.pl from https://github.com/brendangregg/FlameGraph
 
-# For overriding fuse max_background and congestion threshold setttings
-# environment variables
-mountpoint_max_background: !!null
-mountpoint_congestion_threshold: !!null
+# ===== Mountpoint configuration =====
+mountpoint:
+  fuse_threads: !!null
+  prefix: !!null
+  metadata_ttl: "indefinite"
+  mountpoint_max_background: !!null
+  mountpoint_congestion_threshold: !!null
+  mountpoint_binary: !!null
+  upload_checksums: !!null
+  max_memory_target: !!null # memory upper-limit in MB
+  stub_mode: "off"  # Options: "off", "fs_handler", "s3_client"
+  mountpoint_debug: false
+  mountpoint_debug_crt: false
+  otlp_metrics: false
+  otlp_endpoint: !!null # Metrics collector/agent endpoint like "http://localhost:4318"
+  otlp_export_interval: !!null  # Export interval in seconds (default: 60)
+  otlp_temporality_preference: !!null  # Options: "cumulative", "delta"
 
-# For monitoring network bandwidth
-with_bwm: false
+# ===== Benchmark-specific configurations =====
+benchmarks:
+  fio:
+    direct_io: false
+    fio_benchmarks:
+      - sequential_read
+    fio_benchmark: "${benchmarks.fio.fio_benchmarks[0]}"
+    fio_io_engine: "psync"
 
-# Works automatically ONLY where this script manages compilation. It has no effect if `mountpoint_binary` is set.
-stub_mode: "off" # fs_handler
+  prefetch:
+    max_memory_target: !!null # memory upper-limit in MB
 
-iterations: 1
+  crt:
+    crt_benchmarks_path: !!null
 
-# Define defaults for these columns, but script will run as MULTIRUN by default
-fuse_threads: !!null
-application_workers: 1
-direct_io: false
-fio_benchmark: "${fio_benchmarks[0]}"
-fio_io_engine: "psync"
-iteration: 0
+  client:
+    # None
+
+  client_bp:
+    read_window_size: !!null #2147483648
+
 
 hydra:
   help:
-    app_name: "Mountpoint sequential read experiment runner"
+    app_name: "Mountpoint benchmark runner"
   mode: MULTIRUN
   job:
     chdir: true
-  sweeper:
-    params:
-      # Maximum number of FUSE threads for Mountpoint. Passed as `--max-threads` argument.
-      'fuse_threads': 16, 32, 64, 128
-      # Number of processes that will be interacting with the file.
-      'application_workers': 1, 4, 8, 16, 32, 64, 128, 256
-      # Configure if application should use Direct IO, skipping the Linux page cache
-      'direct_io': false, true
-      # Don't touch the params below, they are based on settings above.
-      'fio_benchmark': "${join:',', ${fio_benchmarks}}"
-      'iteration': "range(${iterations})"

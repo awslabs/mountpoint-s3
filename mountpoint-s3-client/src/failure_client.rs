@@ -18,7 +18,8 @@ use crate::object_client::{
     GetObjectAttributesError, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError,
-    PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, UploadReview,
+    PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, RenameObjectError, RenameObjectParams,
+    RenameObjectResult, UploadReview,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -72,11 +73,11 @@ where
     type PutObjectRequest = FailurePutObjectRequest<Client, GetWrapperState>;
     type ClientError = Client::ClientError;
 
-    fn read_part_size(&self) -> Option<usize> {
+    fn read_part_size(&self) -> usize {
         self.client.read_part_size()
     }
 
-    fn write_part_size(&self) -> Option<usize> {
+    fn write_part_size(&self) -> usize {
         self.client.write_part_size()
     }
 
@@ -199,6 +200,17 @@ where
         self.client
             .get_object_attributes(bucket, key, max_parts, part_number_marker, object_attributes)
             .await
+    }
+
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dst_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError> {
+        // TODO failure hook for rename_object
+        self.client.rename_object(bucket, src_key, dst_key, params).await
     }
 }
 
@@ -437,7 +449,7 @@ pub fn countdown_failure_client<Client: ObjectClient>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mock_client::{MockClient, MockClientConfig, MockClientError, MockObject};
+    use crate::mock_client::{MockClient, MockClientError, MockObject};
     use crate::types::ETag;
     use std::collections::HashSet;
 
@@ -446,12 +458,7 @@ mod tests {
         let bucket = "test_bucket";
         let key = "foo";
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: 128,
-            unordered_list_seed: None,
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket(bucket).part_size(128).build();
 
         let body = vec![0u8; 50];
         client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
@@ -500,10 +507,7 @@ mod tests {
         let bucket = "test_bucket";
         let key = "foo";
 
-        let client = MockClient::new(MockClientConfig {
-            bucket: bucket.to_string(),
-            ..Default::default()
-        });
+        let client = MockClient::config().bucket(bucket).build();
 
         let mut put_single_failures = HashMap::new();
         put_single_failures.insert(2, ObjectClientError::ClientError(MockClientError("error".into())));

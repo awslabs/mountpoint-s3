@@ -1,9 +1,24 @@
-use std::ops::{Bound, Range, RangeBounds};
+use std::{
+    fmt,
+    ops::{Bound, Range, RangeBounds},
+};
 
 use bytes::{Bytes, BytesMut};
-use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
-
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{self, Visitor},
+};
 use thiserror::Error;
+
+use mountpoint_s3_client::checksums::{
+    crc32c::{self, Crc32c},
+    crc32c_from_base64, crc32c_to_base64,
+};
+
+/// Check if integrity validation is disabled via environment variable
+fn is_integrity_validation_disabled() -> bool {
+    std::env::var("EXPERIMENTAL_MOUNTPOINT_NO_DOWNLOAD_INTEGRITY_VALIDATION").is_ok()
+}
 
 /// A `ChecksummedBytes` is a bytes buffer that carries its checksum.
 /// The implementation guarantees that integrity will be validated before the data can be accessed.
@@ -34,7 +49,11 @@ impl ChecksummedBytes {
 
     /// Create [ChecksummedBytes] from [Bytes], calculating its checksum.
     pub fn new(bytes: Bytes) -> Self {
-        let checksum = crc32c::checksum(&bytes);
+        let checksum = if is_integrity_validation_disabled() {
+            Crc32c::new(0) // Dummy checksum when validation is disabled
+        } else {
+            crc32c::checksum(&bytes)
+        };
         Self::new_from_inner_data(bytes, checksum)
     }
 
@@ -100,15 +119,11 @@ impl ChecksummedBytes {
 
             assert!(
                 slice_start_offset <= slice_end_offset,
-                "range start must not be greater than end: {:?} <= {:?}",
-                slice_start_offset,
-                slice_end_offset,
+                "range start must not be greater than end: {slice_start_offset:?} <= {slice_end_offset:?}",
             );
             assert!(
                 slice_end_offset <= original_len,
-                "range end out of bounds: {:?} <= {:?}",
-                slice_end_offset,
-                original_len,
+                "range end out of bounds: {slice_end_offset:?} <= {original_len:?}",
             );
 
             (original_start + slice_start_offset)..(original_start + slice_end_offset)
@@ -197,6 +212,10 @@ impl ChecksummedBytes {
     ///
     /// Return [IntegrityError] on data corruption.
     pub fn validate(&self) -> Result<(), IntegrityError> {
+        if is_integrity_validation_disabled() {
+            return Ok(()); // Skip validation when disabled
+        }
+
         let checksum = crc32c::checksum(&self.buffer);
         if self.checksum != checksum {
             return Err(IntegrityError::ChecksumMismatch(self.checksum, checksum));
@@ -249,6 +268,10 @@ impl TryFrom<ChecksummedBytes> for Bytes {
 /// Calculates the combined checksum for `AB` where `prefix_crc` is the checksum for `A`,
 /// `suffix_crc` is the checksum for `B`, and `suffix_len` is the length of `B`.
 pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usize) -> Crc32c {
+    if is_integrity_validation_disabled() {
+        return Crc32c::new(0); // Dummy checksum when validation is disabled
+    }
+
     let combined = ::crc32c::crc32c_combine(prefix_crc.value(), suffix_crc.value(), suffix_len);
     Crc32c::new(combined)
 }
@@ -257,6 +280,60 @@ pub fn combine_checksums(prefix_crc: Crc32c, suffix_crc: Crc32c, suffix_len: usi
 pub enum IntegrityError {
     #[error("Checksum mismatch. expected: {0:?}, actual: {1:?}")]
     ChecksumMismatch(Crc32c, Crc32c),
+}
+
+/// A Crc32c checksum which can be (de)serialized to a base64 encoded string.
+///
+/// TODO: there should be a single Crc32c type implementing serialization.
+#[derive(Debug)]
+pub struct Crc32cBase64(Crc32c);
+
+impl Crc32cBase64 {
+    /// Create a new Crc32cBase64 checksum with the given value.
+    pub fn new(value: u32) -> Crc32cBase64 {
+        Crc32cBase64(Crc32c::new(value))
+    }
+
+    /// The CRC32C checksum value.
+    pub fn value(&self) -> Crc32c {
+        self.0
+    }
+}
+
+impl Serialize for Crc32cBase64 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let encoded = crc32c_to_base64(&self.0);
+        serializer.serialize_str(&encoded)
+    }
+}
+
+impl<'de> Deserialize<'de> for Crc32cBase64 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Crc32cVisitor;
+
+        impl<'de> Visitor<'de> for Crc32cVisitor {
+            type Value = Crc32cBase64;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a base64-encoded CRC32C string")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                crc32c_from_base64(v).map(Crc32cBase64).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_str(Crc32cVisitor)
+    }
 }
 
 // Implement equality for tests only. We implement equality, and will panic if the data is corrupted.

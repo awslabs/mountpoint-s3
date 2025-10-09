@@ -8,15 +8,15 @@ use aws_sdk_s3::operation::list_multipart_uploads::ListMultipartUploadsError;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use bytes::Bytes;
-use futures::{pin_mut, Stream, StreamExt};
+use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::config::{EndpointConfig, S3ClientConfig};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectResponse};
-use mountpoint_s3_client::{OnTelemetry, S3CrtClient};
+use mountpoint_s3_client::{NewClientError, OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use mountpoint_s3_crt::common::uri::Uri;
+use rand::TryRngCore;
 use rand::rngs::OsRng;
-use rand::RngCore;
 use std::ops::Range;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
@@ -24,6 +24,8 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
 
 pub mod creds;
+#[cfg(feature = "pool_tests")]
+pub mod memory_pool;
 pub mod tracing_test;
 
 /// Enable tracing and CRT logging when running unit tests.
@@ -54,7 +56,7 @@ pub fn get_unique_test_prefix(test_name: &str) -> String {
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
     // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.next_u64();
+    let nonce = OsRng.try_next_u64().unwrap();
     let prefix = format!("{prefix}{test_name}/{nonce}/");
     prefix
 }
@@ -72,9 +74,28 @@ pub fn get_test_kms_key_id() -> String {
     std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
 }
 
+pub fn set_up_client_config(config: S3ClientConfig) -> S3ClientConfig {
+    #[cfg(feature = "pool_tests")]
+    let config = config.memory_pool(memory_pool::new_for_tests());
+
+    #[cfg(feature = "fs_pool_tests")]
+    let config = config.memory_pool_factory(|options: mountpoint_s3_client::config::MemoryPoolFactoryOptions| {
+        mountpoint_s3_fs::memory::PagedPool::new_with_candidate_sizes([options.part_size()])
+    });
+
+    config
+}
+
+pub fn create_client_with_config(config: S3ClientConfig) -> Result<S3CrtClient, NewClientError> {
+    S3CrtClient::new(set_up_client_config(config))
+}
+
+pub fn get_test_client_with_config(config: S3ClientConfig) -> S3CrtClient {
+    create_client_with_config(config).expect("could not create test client")
+}
+
 pub fn get_test_client() -> S3CrtClient {
-    S3CrtClient::new(S3ClientConfig::new().endpoint_config(get_test_endpoint_config()))
-        .expect("could not create test client")
+    get_test_client_with_config(S3ClientConfig::new().endpoint_config(get_test_endpoint_config()))
 }
 
 pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Option<usize>) -> S3CrtClient {
@@ -85,14 +106,14 @@ pub fn get_test_backpressure_client(initial_read_window: usize, part_size: Optio
     if let Some(part_size) = part_size {
         config = config.part_size(part_size);
     }
-    S3CrtClient::new(config).expect("could not create test client")
+    get_test_client_with_config(config)
 }
 
 pub fn get_test_client_with_custom_telemetry(telemetry_callback: Arc<dyn OnTelemetry>) -> S3CrtClient {
     let config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .telemetry_callback(telemetry_callback);
-    S3CrtClient::new(config).expect("could not create test client")
+    get_test_client_with_config(config)
 }
 
 pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
@@ -267,19 +288,18 @@ macro_rules! object_client_test {
     ($test_fn_identifier:ident) => {
         mod $test_fn_identifier {
             use super::$test_fn_identifier;
-            use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+            use mountpoint_s3_client::mock_client::MockClient;
             use $crate::{get_test_bucket_and_prefix, get_test_client};
 
             #[tokio::test]
             async fn mock() {
                 let (bucket, prefix) = get_test_bucket_and_prefix(stringify!($test_fn_identifier));
 
-                let client = MockClient::new(MockClientConfig {
-                    bucket: bucket.to_string(),
-                    part_size: 1024,
-                    unordered_list_seed: None,
-                    ..Default::default()
-                });
+                let client = MockClient::config()
+                    .bucket(&bucket)
+                    .part_size(1024)
+                    .unordered_list_seed(None)
+                    .build();
 
                 let key = format!("{prefix}hello");
                 $test_fn_identifier(&client, &bucket, &key, Default::default()).await;

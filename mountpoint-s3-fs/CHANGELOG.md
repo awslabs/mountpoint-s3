@@ -1,8 +1,36 @@
-## Unreleased
+## Unreleased (v0.8.1)
 
-## v0.5.0
-
+* Upgrade toolchain to Rust 1.89. ([#1628](https://github.com/awslabs/mountpoint-s3/pull/1628))
 * `PrefetchGetObject` now has an updated backpressure algorithm advancing the read window with each call to `PrefetchGetObject::read`, with the aim of higher sequential-read throughput. ([#1453](https://github.com/awslabs/mountpoint-s3/pull/1453))
+
+## v0.8.0 (September 30, 2025)
+
+* Downgrade setattr logging level from INFO to DEBUG to reduce log noise. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605))
+* Add integrity checks for the  `ManifestMetablock` under the `manifest` feature flag. ([#1563](https://github.com/awslabs/mountpoint-s3/pull/1563))
+
+## v0.7.1 (September 15, 2025)
+
+* Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
+* Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
+* Introduce experimental support for publishing OTEL metrics to an endpoint, under the `otlp_integration` feature. ([1552](https://github.com/awslabs/mountpoint-s3/pull/1552) and [1550](https://github.com/awslabs/mountpoint-s3/pull/1550))
+* Add experimental environment variable `UNSTABLE_CRT_EVENTLOOP_THREADS` to configure EventLoopGroup thread count. ([#1579](https://github.com/awslabs/mountpoint-s3/pull/1579))
+* Replace `httpmock` dependency with `wiremock` which is more frequently updated. ([#1589](https://github.com/awslabs/mountpoint-s3/pull/1589))
+
+## v0.7.0 (July 28, 2025)
+
+* Adopt a unified memory pool to reduce overall memory usage. ([#1511](https://github.com/awslabs/mountpoint-s3/pull/1511))
+* Replace `S3Uri` with `S3Path` and consolidate related types like `Bucket` and `Prefix` into the `s3` module.
+  ([#1535](https://github.com/awslabs/mountpoint-s3/pull/1535))
+
+## v0.6.0 (July 23, 2025)
+
+* Introduce `Metablock` abstraction and adjust the interface between `S3Filesystem` and implementors of `Metablock`. ([#1500](https://github.com/awslabs/mountpoint-s3/pull/1500), [#1488](https://github.com/awslabs/mountpoint-s3/pull/1488))
+* Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+* Introduce `ManifestMetablock` under the `manifest` feature flag, which allows loading S3 metadata from disk. ([#1506](https://github.com/awslabs/mountpoint-s3/pull/1506))
+
+## v0.5.0 (Jun 19, 2025)
+
+* Add support for renaming files on buckets supporting the RenameObject API. ([#1468](https://github.com/awslabs/mountpoint-s3/pull/1468))
 
 ## v0.4.0 (May 30, 2025)
 

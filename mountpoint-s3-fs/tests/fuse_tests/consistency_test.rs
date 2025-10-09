@@ -3,14 +3,20 @@ use std::os::unix::prelude::FileExt;
 
 use test_case::test_case;
 
-use crate::common::fuse::{self, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator};
 use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 
 fn page_cache_sharing_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     // Big enough to avoid readahead
     const OBJECT_SIZE: usize = 512 * 1024;
 
-    let test_session = creator_fn(prefix, Default::default());
+    let test_session = creator_fn(
+        prefix,
+        TestSessionConfig {
+            max_worker_threads: 1, // avoid stale inode issues. (FIXME)
+            ..Default::default()
+        },
+    );
 
     // Create the first version of the file
     let old_contents = vec![0xaau8; OBJECT_SIZE];
@@ -58,7 +64,7 @@ fn page_cache_sharing_test_s3() {
 #[test]
 fn page_cache_sharing_test_s3_with_cache() {
     page_cache_sharing_test(
-        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "page_cache_sharing_test",
     );
 }
@@ -73,7 +79,7 @@ fn page_cache_sharing_test_mock(prefix: &str) {
 #[test_case("page_cache_sharing_test"; "prefix")]
 fn page_cache_sharing_test_mock_with_cache(prefix: &str) {
     page_cache_sharing_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
     );
 }

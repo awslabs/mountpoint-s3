@@ -1,5 +1,8 @@
 use std::time::{Duration, Instant};
 
+// 200 years seems long enough
+pub const NEVER_EXPIRE_TTL: Duration = Duration::from_secs(200 * 365 * 24 * 60 * 60);
+
 #[derive(Debug, Clone, Copy)]
 pub struct Expiry(Instant);
 

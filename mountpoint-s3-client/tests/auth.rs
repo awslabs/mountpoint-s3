@@ -14,10 +14,10 @@ use tempfile::NamedTempFile;
 use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use common::*;
 
+use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::types::GetObjectParams;
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::auth::credentials::{CredentialsProvider, CredentialsProviderStaticOptions};
 use mountpoint_s3_crt::common::allocator::Allocator;
 
@@ -51,7 +51,7 @@ async fn test_static_provider() {
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     let result = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -71,7 +71,7 @@ async fn test_static_provider() {
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     let _error = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -107,9 +107,9 @@ async fn test_profile_provider_static_async() {
     // because we'll be truncating the access key ID later, so we want it last in the file.
     let profile_name = "mountpoint-profile";
     let mut config_file = NamedTempFile::new().unwrap();
-    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
     if let Some(session_token) = credentials.session_token() {
-        writeln!(config_file, "aws_session_token = {}", session_token).unwrap()
+        writeln!(config_file, "aws_session_token = {session_token}").unwrap()
     }
     writeln!(
         config_file,
@@ -119,15 +119,17 @@ async fn test_profile_provider_static_async() {
     .unwrap();
     writeln!(config_file, "aws_access_key_id = {}", credentials.access_key_id()).unwrap();
 
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    }
 
     // Build a S3CrtClient that uses the config file
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     let result = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -143,7 +145,7 @@ async fn test_profile_provider_static_async() {
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     let _error = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -156,7 +158,7 @@ async fn test_profile_provider_static_async() {
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile("not-the-right-profile-name".to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let _result = S3CrtClient::new(config).expect_err("profile doesn't exist");
+    let _result = create_client_with_config(config).expect_err("profile doesn't exist");
 }
 
 async fn test_profile_provider_assume_role_async() {
@@ -181,28 +183,30 @@ async fn test_profile_provider_assume_role_async() {
 
     // Populate source profile from the default credentials chain
     let credentials = get_sdk_default_chain_creds().await;
-    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "[profile {source_profile}]").unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
     if let Some(session_token) = credentials.session_token() {
         writeln!(config_file, "aws_session_token={session_token}").unwrap();
     }
 
-    writeln!(config_file, "[profile {}]", profile_name).unwrap();
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
 
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
-    std::env::remove_var("AWS_ACCESS_KEY_ID");
-    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
-    std::env::remove_var("AWS_SESSION_TOKEN");
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+        std::env::remove_var("AWS_ACCESS_KEY_ID");
+        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+        std::env::remove_var("AWS_SESSION_TOKEN");
+    }
 
     // First, verify that we can use this profile for the client but the request should fail because
     // we did not configure which arn to assume yet.
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     let _error = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -210,12 +214,12 @@ async fn test_profile_provider_assume_role_async() {
         .expect_err("role arn is not set");
 
     // Build a S3CrtClient that uses the right config, now the request should succeed.
-    writeln!(config_file, "role_arn = {}", subsession_role).unwrap();
-    writeln!(config_file, "source_profile = {}", source_profile).unwrap();
+    writeln!(config_file, "role_arn = {subsession_role}").unwrap();
+    writeln!(config_file, "source_profile = {source_profile}").unwrap();
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     let result = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -286,7 +290,7 @@ async fn test_credential_process_behind_source_profile_async() {
     // Create two source profiles to provide credentials from previously created files using `credential_process`.
     let (correct_source_profile, incorrect_source_profile) = {
         let correct = "correct-source-profile";
-        writeln!(config_file, "[profile {}]", correct).unwrap();
+        writeln!(config_file, "[profile {correct}]").unwrap();
         writeln!(
             config_file,
             "credential_process=cat {}",
@@ -294,7 +298,7 @@ async fn test_credential_process_behind_source_profile_async() {
         )
         .unwrap();
         let incorrect = "incorrect-source-profile";
-        writeln!(config_file, "[profile {}]", incorrect).unwrap();
+        writeln!(config_file, "[profile {incorrect}]").unwrap();
         writeln!(
             config_file,
             "credential_process=cat {}",
@@ -307,29 +311,31 @@ async fn test_credential_process_behind_source_profile_async() {
     // Create two profiles to assume our test role with previously created source profiles.
     let (correct_profile, incorrect_profile) = {
         let correct = "correct-profile";
-        writeln!(config_file, "[profile {}]", correct).unwrap();
+        writeln!(config_file, "[profile {correct}]").unwrap();
         writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
-        writeln!(config_file, "source_profile={}", correct_source_profile).unwrap();
+        writeln!(config_file, "source_profile={correct_source_profile}").unwrap();
         writeln!(config_file, "region={}", &get_test_region()).unwrap();
         let incorrect = "incorrect-profile";
-        writeln!(config_file, "[profile {}]", incorrect).unwrap();
+        writeln!(config_file, "[profile {incorrect}]").unwrap();
         writeln!(config_file, "role_arn={}", get_subsession_iam_role()).unwrap();
-        writeln!(config_file, "source_profile={}", incorrect_source_profile).unwrap();
+        writeln!(config_file, "source_profile={incorrect_source_profile}").unwrap();
         writeln!(config_file, "region={}", &get_test_region()).unwrap();
         (correct, incorrect)
     };
 
     config_file.flush().unwrap();
 
-    // Set up the environment variables to use this new config file. This is only OK to do because
-    // this test is run in a forked process, so won't affect any other concurrently running tests.
-    std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+    }
 
     // With correct profile, things should be fine
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(correct_profile.to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
     let _result = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}foo/"))
         .await
@@ -339,7 +345,7 @@ async fn test_credential_process_behind_source_profile_async() {
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Profile(incorrect_profile.to_owned()))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
     let err = client
         .list_objects(&bucket, None, "/", 10, &format!("{prefix}/"))
         .await
@@ -413,7 +419,7 @@ async fn test_scoped_credentials() {
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(config).unwrap();
+    let client = get_test_client_with_config(config);
 
     // Inside the prefix, things should be fine
     let _result = client

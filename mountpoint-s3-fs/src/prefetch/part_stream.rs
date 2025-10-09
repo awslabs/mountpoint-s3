@@ -1,23 +1,23 @@
 use async_stream::try_stream;
 use futures::task::SpawnExt;
-use futures::{pin_mut, Stream, StreamExt};
-use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
+use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use std::marker::{Send, Sync};
 use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
-use tracing::{debug_span, error, trace, Instrument};
+use tracing::{Instrument, debug_span, error, trace};
 
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 
-use super::backpressure_controller::{new_backpressure_controller, BackpressureConfig, BackpressureLimiter};
-use super::part::Part;
-use super::part_queue::{unbounded_part_queue, PartQueueProducer};
-use super::task::RequestTask;
 use super::PrefetchReadError;
+use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::part::Part;
+use super::part_queue::{PartQueueProducer, unbounded_part_queue};
+use super::task::RequestTask;
 
 /// A generic interface to retrieve data from objects in a S3-like store.
 pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
@@ -43,7 +43,7 @@ pub struct RequestTaskConfig {
     pub read_window_size_multiplier: usize,
 }
 
-/// The range of a [ObjectPartStream::spawn_get_object_request] request.
+/// The range of an [ObjectPartStream].
 /// Includes the total size of the object.
 #[derive(Clone, Copy)]
 pub struct RequestRange {
@@ -195,11 +195,11 @@ impl<Client> Debug for PartStream<Client> {
 pub struct ClientPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter<Client>>,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ClientPartStream<Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter<Client>>) -> Self {
+    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>) -> Self {
         Self {
             runtime,
             client,
@@ -358,7 +358,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 // as there is no one to increase the read window.
                 //
                 // This is an runtime error instead of an `assert!` because the prefetcher resets the
-                // prefetch to the offset again in case of an error, and that would cause a new `read_from_client_stream`
+                // prefetch to the offset again in case of an error, and that would cause a new stream
                 // to be created which in turn would succeed in the next try if this was a transient issue.
                 error!(key=object_id.key(), current_range=?range, current_offset, "Previous GetObject request terminated unexpectedly");
                 Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)?;
@@ -377,6 +377,11 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
             //                                        1st req window end
             backpressure_limiter.wait_for_read_window_increment(range.start()).await?;
 
+            // TODO: We currently wait for the first request data to be consumed
+            //       before starting the request for the remainder of the object.
+            //       However, we could start this in parallel to potentially accelerate medium-sized reads,
+            //       where medium-sized is roughly larger than 1MiB+1KiB but smaller than a few parts,
+            //       since we expect impact due to round-trip time latency.
             let request_stream = read_from_request(
                 backpressure_limiter,
                 client,
@@ -392,8 +397,9 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     }
 }
 
-/// Creates a `GetObject` request with the specified range and sends received body parts to the stream.
-/// A [PrefetchReadError] is returned when the request cannot be completed.
+/// Creates a meta GetObject request with the specified range and sends received body parts via the returned [Stream].
+///
+/// A [PrefetchReadError] is returned when something goes wrong in the underlying meta GetObject request.
 fn read_from_request<'a, Client: ObjectClient + 'a>(
     backpressure_limiter: &'a mut BackpressureLimiter,
     client: &'a Client,
@@ -408,10 +414,10 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
 
-        let mut backpressure_handle = request.backpressure_handle().cloned();
-        if let Some(handle) = backpressure_handle.as_mut() {
-            handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
-        }
+        let mut client_backpressure_handle = request.backpressure_handle()
+            .expect("S3 client backpressure should always be enabled in Mountpoint")
+            .clone();
+        client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
 
         pin_mut!(request);
         while let Some(next) = request.next().await {
@@ -437,11 +443,14 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             if excess_bytes > 0 {
                 metrics::histogram!("s3.client.read_window_excess_bytes").record(excess_bytes as f64);
             }
-            // Blocks if read window increment if it's not enough to read the next offset
+
+            // When we detect an updated read window end offset, pass this signal on to the S3 client.
+            // TODO:
+            //   It does not make sense to 'block' here. In reality, we don't actually block here anyway.
+            //   This serves instead as the point where we react to the backpressure, and send signals to the S3 client.
+            //   Instead, the backpressure controller or an async task could communicate directly with the client.
             if let Some(next_read_window_end_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
-                if let Some(handle) = backpressure_handle.as_mut() {
-                    handle.ensure_read_window(next_read_window_end_offset);
-                }
+                client_backpressure_handle.ensure_read_window(next_read_window_end_offset);
             }
         }
         trace!("request finished");
@@ -483,7 +492,8 @@ mod tests {
         assert_eq!(range.object_size(), aligned_range.object_size());
         if range.start() as usize % part_size == 0 {
             assert!(
-                aligned_range.end() as usize == aligned_range.object_size() || aligned_range.end() as usize % part_size == 0,
+                aligned_range.end() as usize == aligned_range.object_size()
+                    || aligned_range.end() as usize % part_size == 0,
                 "ranges starting on a part boundary should be aligned to another part boundary, or to the end of the object"
             );
         }

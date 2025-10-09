@@ -33,13 +33,11 @@ pub trait ObjectClient {
     type PutObjectRequest: PutObjectRequest<ClientError = Self::ClientError>;
     type ClientError: std::error::Error + ProvideErrorMetadata + Send + Sync + 'static;
 
-    /// Query the part size this client uses for GET operations to the object store. This
-    /// can be `None` if the client does not do multi-part operations.
-    fn read_part_size(&self) -> Option<usize>;
+    /// Query the part size this client uses for GET operations to the object store.
+    fn read_part_size(&self) -> usize;
 
-    /// Query the part size this client uses for PUT operations to the object store. This
-    /// can be `None` if the client does not do multi-part operations.
-    fn write_part_size(&self) -> Option<usize>;
+    /// Query the part size this client uses for PUT operations to the object store.
+    fn write_part_size(&self) -> usize;
 
     /// Query the initial read window size this client uses for backpressure GetObject requests.
     /// This can be `None` if backpressure is disabled.
@@ -128,6 +126,15 @@ pub trait ObjectClient {
         part_number_marker: Option<usize>,
         object_attributes: &[ObjectAttribute],
     ) -> ObjectClientResult<GetObjectAttributesResult, GetObjectAttributesError, Self::ClientError>;
+
+    /// Rename an object from some source key to a destination key within the same bucket.
+    async fn rename_object(
+        &self,
+        bucket: &str,
+        src_key: &str,
+        dest_key: &str,
+        params: &RenameObjectParams,
+    ) -> ObjectClientResult<RenameObjectResult, RenameObjectError, Self::ClientError>;
 }
 
 /// The top-level error type returned by calls to an [`ObjectClient`].
@@ -192,6 +199,12 @@ impl ProvideErrorMetadata for HeadObjectError {
 }
 
 impl ProvideErrorMetadata for DeleteObjectError {
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
+    }
+}
+
+impl ProvideErrorMetadata for RenameObjectError {
     fn meta(&self) -> ClientErrorMetadata {
         Default::default()
     }
@@ -427,6 +440,94 @@ pub enum GetObjectAttributesError {
     NoSuchKey,
 }
 
+/// Parameters to a [`rename_object`](ObjectClient::rename_object) request
+#[derive(Debug, Default, Clone)]
+#[non_exhaustive]
+pub struct RenameObjectParams {
+    /// Can be set to * to disable overwrite
+    pub if_none_match: Option<String>,
+    /// Optional ETag that the destination must match
+    pub if_match: Option<ETag>,
+    /// Optional ETag that the source must match
+    pub if_source_match: Option<ETag>,
+    /// Idempotency token
+    pub client_token: Option<String>,
+    /// Can be used for custom headers
+    pub custom_headers: Vec<(String, String)>,
+}
+
+impl RenameObjectParams {
+    /// Create a default [RenameObjectParams].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set if-none-match header
+    pub fn if_none_match(mut self, value: Option<String>) -> Self {
+        self.if_none_match = value;
+        self
+    }
+
+    /// Set if-match header
+    pub fn if_match(mut self, value: Option<ETag>) -> Self {
+        self.if_match = value;
+        self
+    }
+
+    /// Set if-source-match header
+    pub fn if_source_match(mut self, value: Option<ETag>) -> Self {
+        self.if_source_match = value;
+        self
+    }
+
+    /// Set idempotency token
+    pub fn client_token(mut self, value: Option<String>) -> Self {
+        self.client_token = value;
+        self
+    }
+
+    /// Set custom headers
+    pub fn custom_headers(mut self, value: Vec<(String, String)>) -> Self {
+        self.custom_headers = value;
+        self
+    }
+}
+
+/// Result of a [`rename_object`](ObjectClient::rename_object) request
+#[derive(Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct RenameObjectResult {}
+
+#[derive(Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum RenamePreconditionTypes {
+    IfMatch,
+    IfNoneMatch,
+    Other,
+}
+
+/// Errors returned by a [`rename_object`](ObjectClient::rename_object) request
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RenameObjectError {
+    #[error("The bucket does not exist")]
+    NoSuchBucket,
+    #[error("The destination key provided is too long")]
+    KeyTooLong,
+    #[error("The key was not found")]
+    KeyNotFound,
+    #[error("A Precondition")]
+    PreConditionFailed(RenamePreconditionTypes),
+    #[error("The service does not implement rename")]
+    NotImplementedError,
+    #[error("The service returned an Internal Error")]
+    InternalError,
+    #[error("You do not have access to this resource")]
+    AccessDenied,
+    #[error("Bad Request")]
+    BadRequest,
+}
+
 pub type ObjectMetadata = HashMap<String, String>;
 
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
@@ -632,6 +733,12 @@ impl UploadChecksum {
 /// Maintain a smaller window to limit the amount of data buffered in memory.
 pub trait ClientBackpressureHandle {
     /// Increment the flow-control read window, so that response data continues downloading.
+    ///
+    /// The client should read data up to and including the end of the read window,
+    /// even if that means fetching and returning data beyond the end of the window
+    /// to fulfil a part-sized GetObject request.
+    /// As an example, a call with `len = 1` could trigger an 8MiB GetObject request
+    /// if the given client fetches data in requests of 8MiB ranges.
     fn increment_read_window(&mut self, len: usize);
 
     /// Move the upper bound of the read window to the given offset if it's not already there.
@@ -835,7 +942,7 @@ impl fmt::Display for ObjectAttribute {
             ObjectAttribute::StorageClass => "StorageClass",
             ObjectAttribute::ObjectSize => "ObjectSize",
         };
-        write!(f, "{}", attr_name)
+        write!(f, "{attr_name}")
     }
 }
 

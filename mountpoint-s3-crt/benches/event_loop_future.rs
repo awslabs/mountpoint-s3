@@ -6,13 +6,13 @@ use std::hint::black_box;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use futures::executor::block_on;
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::futures::FutureSpawner;
 
-async fn yield_now() {
+fn yield_now() -> impl Future {
     struct YieldNow(bool);
 
     impl Future for YieldNow {
@@ -28,6 +28,8 @@ async fn yield_now() {
             Poll::Pending
         }
     }
+
+    YieldNow(false)
 }
 
 async fn work() -> usize {

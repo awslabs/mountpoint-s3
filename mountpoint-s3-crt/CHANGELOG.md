@@ -1,4 +1,24 @@
-## Unreleased
+## Unreleased (v0.13.2)
+
+* Upgrade cargo dependencies.
+
+## v0.13.1 (September 15, 2025)
+
+* Update `tracing-subscriber` from `0.3.19` to `0.3.20`. ([#1590](https://github.com/awslabs/mountpoint-s3/pull/1590))
+
+## v0.13.0 (July 23, 2025)
+
+* Upgrade to Rust 2024. ([#1498](https://github.com/awslabs/mountpoint-s3/pull/1498))
+
+## v0.12.5 (July 17, 2025)
+
+* Update to latest CRT dependencies.
+
+## v0.12.4 (Jun 27, 2025)
+
+* Adopt the new `body_callback_ex` provided in the latest CRT update and expose the returned data slices as `Buffer`
+  references, which allow callers to acquire ownership of the underlying memory pool buffers, avoiding a copy.
+  ([#1481](https://github.com/awslabs/mountpoint-s3/pull/1481))
 
 ## v0.12.3 (May 9, 2025)
 

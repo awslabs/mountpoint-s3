@@ -82,27 +82,22 @@ sudo yum install fuse-devel pkgconfig
 
 ### macOS (untested)
 
-Installer packages can be downloaded from the [FUSE for macOS homepage][FUSE for macOS]. This is the *kernel* part that needs to be installed always.
+Install [FUSE for macOS], which can be obtained from their website or installed using the Homebrew or Nix package managers. macOS version 10.9 or later is required. If you are using a Mac with Apple Silicon, you must also [enable support for third party kernel extensions][enable kext].
+
 
 #### To install using Homebrew
 
 ```sh
-brew install macfuse
+brew install macfuse pkgconf
 ```
 
 #### To install using Nix
 
 ``` sh
-nix-env -iA nixos.osxfuse
+nix-env -iA nixos.macfuse-stubs nixos.pkg-config
 ```
 
-And `pkg-config` (required for building):
-
-``` sh
-nix-env -iA nixos.pkg-config
-```
-
-When using `nix` it is required that you specify `PKG_CONFIG_PATH` environment variable to point at where `osxfuse` is installed:
+When using `nix` it is required that you specify `PKG_CONFIG_PATH` environment variable to point at where `macfuse` is installed:
 
 ``` sh
 export PKG_CONFIG_PATH=${HOME}/.nix-profile/lib/pkgconfig
@@ -118,11 +113,15 @@ pkg install fusefs-libs pkgconf
 
 ## Usage
 
-Put this in your `Cargo.toml`:
+```sh
+cargo add fuser
+```
+
+or put this in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fuser = "0.7"
+fuser = "0.15"
 ```
 
 To create a new filesystem, implement the trait `fuser::Filesystem`. See the [documentation] for details or the `examples` directory for some basic examples.
@@ -152,5 +151,6 @@ Fork, hack, submit pull request. Make sure to make it useful for the target audi
 [Documentation]: https://docs.rs/fuser
 
 [FUSE for Linux]: https://github.com/libfuse/libfuse/
-[FUSE for macOS]: https://osxfuse.github.io
+[FUSE for macOS]: https://macfuse.github.io
+[enable kext]: https://github.com/macfuse/macfuse/wiki/Getting-Started#enabling-support-for-third-party-kernel-extensions-apple-silicon-macs
 [FUSE for FreeBSD]: https://wiki.freebsd.org/FUSEFS

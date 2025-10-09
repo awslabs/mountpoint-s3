@@ -4,10 +4,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use std::thread::{self, JoinHandle};
-use time::{serde::rfc3339, OffsetDateTime};
+use time::{OffsetDateTime, serde::rfc3339};
 
-use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fs::Error;
+use crate::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 use crate::fuse::ErrorLogger;
 use crate::logging::log_file_name_time_suffix;
 use crate::sync::mpsc::{self, Receiver, SyncSender};
@@ -76,7 +76,7 @@ impl FileErrorLogger {
             fuse_request_id: Some(fuse_request_id),
             error_code: error_code.to_string(),
             errno: Some(error.errno),
-            internal_message: Some(format!("{:#}", error)),
+            internal_message: Some(format!("{error:#}")),
             s3_object_key: error.meta().s3_object_key.clone(),
             s3_bucket_name: error.meta().s3_bucket_name.clone(),
             s3_error_http_status: error.meta().client_error_meta.http_code,

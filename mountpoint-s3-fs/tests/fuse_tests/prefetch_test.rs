@@ -37,7 +37,7 @@ fn read_test_s3(object_size: usize) {
 #[test_case(1024*1024; "1MiB file")]
 fn read_test_s3_with_cache(object_size: usize) {
     read_test(
-        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         object_size,
     );
 }
@@ -54,7 +54,7 @@ fn read_test_mock(object_size: usize) {
 #[test_case(1024*1024; "1MiB file")]
 fn read_test_mock_with_cache(object_size: usize) {
     read_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         object_size,
     );
 }
@@ -79,6 +79,7 @@ fn prefetch_test_etag(
         TestSessionConfig {
             part_size,
             initial_read_window_size,
+            max_worker_threads: 1, // avoid stale inode issues. (FIXME)
             ..Default::default()
         },
     );
@@ -168,7 +169,7 @@ fn prefetch_test_etag_mock(initial_read_window_size: usize, read_size: usize) {
 fn prefetch_test_etag_mock_with_cache(initial_read_window_size: usize, read_size: usize) {
     let part_size = 256 * 1024;
     prefetch_test_etag(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "prefetch_test_etag_mock",
         part_size,
         initial_read_window_size,
@@ -200,7 +201,7 @@ fn prefetch_test_etag_s3(initial_read_window_size: usize, read_size: usize) {
 fn prefetch_test_etag_s3_with_cache(initial_read_window_size: usize, read_size: usize) {
     let part_size = 8 * 1024 * 1024;
     prefetch_test_etag(
-        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "prefetch_test_etag_s3",
         part_size,
         initial_read_window_size,

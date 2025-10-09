@@ -29,21 +29,29 @@ env:
   MAX_VALUES_IN_BENCH_CHART: 30
 
 jobs:
+  approval:
+    name: Approval Gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Approval Gate
+        run: echo "Approved!"
+
   bench:
     name: Benchmark (Throughput)
     runs-on: [self-hosted, linux, x64, nvme-high-performance]
 
-    environment: ${{ inputs.environment }}
+    needs: approval
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v5
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -58,7 +66,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
       run: cargo build --release
@@ -116,17 +124,17 @@ jobs:
     name: Benchmark (Latency)
     runs-on: [self-hosted, linux, x64, nvme-high-performance]
 
-    environment: ${{ inputs.environment }}
+    needs: approval
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v5
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -141,7 +149,7 @@ jobs:
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-        # We need to this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
       run: cargo build --release

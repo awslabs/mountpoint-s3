@@ -11,9 +11,9 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Record};
 use tracing::{Event, Id, Level, Subscriber};
 use tracing_log::NormalizeEvent;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 /// A [tracing_subscriber::Layer] that emits log events to syslog. This layer does no filtering,
 /// and so should be paired with a [tracing_subscriber::Filter].
@@ -113,6 +113,10 @@ where
         let metadata = normalized_meta.as_ref().unwrap_or_else(|| event.metadata());
 
         let mut message = format!("[{}] ", metadata.level());
+
+        // Add thread name to log message like other formatter layers:
+        let _ = write!(message, "{:0>2?} ", std::thread::current().id());
+
         // First deal with any spans by walking up the span tree and adding each span's formatted
         // representation to the message
         if let Some(scope) = ctx.event_scope(event) {
@@ -173,7 +177,7 @@ impl Visit for FormatFields<'_> {
             // Skip fields added by `tracing-log` that are handled by normalized_metadata above
             name if name.starts_with("log.") => (),
             "message" => {
-                let _ = write!(self.buf, "{:?}", value);
+                let _ = write!(self.buf, "{value:?}");
             }
             _ => {
                 if !self.buf.is_empty() {
@@ -189,7 +193,7 @@ impl Visit for FormatFields<'_> {
             // Skip fields added by `tracing-log` that are handled by normalized_metadata above
             name if name.starts_with("log.") => (),
             "message" => {
-                let _ = write!(self.buf, "{}", value);
+                let _ = write!(self.buf, "{value}");
             }
             _ => {
                 if !self.buf.is_empty() {
@@ -226,22 +230,21 @@ mod tests {
         let output = buf.into_string();
         // The actual output is syslog-formatted, so includes the current time and PID. Let's just
         // check the parts of the payload we really care about.
-        let expected = "[INFO] span1{msg1=1 field1=1 field2=2}:span2{msg2=2 field3=3 field4=4}: mountpoint_s3_fs::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6";
+        let expected = format!(
+            "[INFO] {:0>2?} span1{{msg1=1 field1=1 field2=2}}:span2{{msg2=2 field3=3 field4=4}}: mountpoint_s3_fs::logging::syslog::tests: this is a real \"cool\" message field5=5 field6=6",
+            std::thread::current().id()
+        );
         assert!(
-            output.ends_with(expected),
-            "expected payload {:?} to end with {:?}",
-            output,
-            expected
+            output.ends_with(&expected),
+            "expected payload {output:?} to end with {expected:?}",
         );
         assert!(
             output.contains("mount-s3"),
-            "expected payload {:?} to contain mount-s3",
-            output
+            "expected payload {output:?} to contain mount-s3",
         );
         assert!(
             output.starts_with("<14>"),
-            "expected payload {:?} to start with syslog PRI <14>",
-            output
+            "expected payload {output:?} to start with syslog PRI <14>",
         );
     }
 }

@@ -30,35 +30,37 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
             },
             ..Default::default()
         },
+        max_worker_threads: 1, // avoid stale inode issues. (FIXME)
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_session_conf);
 
     let file_name = "file.bin";
+    let file_path = test_session.mount_path().join(file_name);
 
     // Create the first version of the file
-    let old_contents = vec![0x0fu8; OBJECT_SIZE];
-    test_session.client().put_object(file_name, &old_contents).unwrap();
+    let original_contents = vec![0x0fu8; OBJECT_SIZE];
+    test_session.client().put_object(file_name, &original_contents).unwrap();
 
     // Open and read fully the file before updating it remotely
-    let old_file = File::open(test_session.mount_path().join(file_name)).unwrap();
+    let original_file = File::open(&file_path).expect("first open should succeed");
     let mut buf = vec![0u8; OBJECT_SIZE];
-    old_file.read_exact_at(&mut buf, 0).unwrap();
-    assert_eq!(buf, &old_contents[..buf.len()]);
+    original_file.read_exact_at(&mut buf, 0).unwrap();
+    assert_eq!(buf, &original_contents[..buf.len()]);
 
     let new_contents = vec![0xffu8; OBJECT_SIZE];
     test_session.client().put_object(file_name, &new_contents).unwrap();
 
     // Open the file again, which should be reading from cache
     for _ in 0..2 {
-        let new_file = File::open(test_session.mount_path().join(file_name)).unwrap();
-        new_file
+        let still_original_file = File::open(&file_path).expect("next open should succeed");
+        still_original_file
             .read_exact_at(&mut buf, 0)
             .expect("should be OK as result is cached");
         assert_eq!(
             buf,
-            &old_contents[..buf.len()],
-            "bytes read should be old object from cache"
+            &original_contents[..buf.len()],
+            "bytes read should be original object from cache"
         );
     }
 
@@ -67,8 +69,8 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let new_file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECT)
-        .open(test_session.mount_path().join(file_name))
-        .unwrap();
+        .open(&file_path)
+        .expect("open with O_DIRECT should succeed");
     new_file
         .read_exact_at(&mut buf, 0)
         .expect("should be able to read file content from S3");
@@ -84,7 +86,7 @@ fn cache_and_direct_io_test(creator_fn: impl TestSessionCreator, prefix: &str) {
 #[serial]
 fn cache_and_direct_io_test_mock(prefix: &str) {
     cache_and_direct_io_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         prefix,
     );
 }
@@ -94,7 +96,7 @@ fn cache_and_direct_io_test_mock(prefix: &str) {
 #[serial]
 fn cache_and_direct_io_test_s3() {
     cache_and_direct_io_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "cache_and_direct_io_test_s3",
     );
 }

@@ -83,3 +83,12 @@ impl Default for Allocator {
         Self { inner, traced: false }
     }
 }
+
+impl From<NonNull<aws_allocator>> for Allocator {
+    fn from(value: NonNull<aws_allocator>) -> Self {
+        Self {
+            inner: value,
+            traced: false,
+        }
+    }
+}

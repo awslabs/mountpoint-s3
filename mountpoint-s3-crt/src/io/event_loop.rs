@@ -4,8 +4,8 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -13,12 +13,12 @@ use futures::task::{FutureObj, Spawn, SpawnError};
 use mountpoint_s3_crt_sys::*;
 use thiserror::Error;
 
+use crate::CrtError as _;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::common::task_scheduler::{Task, TaskScheduler, TaskStatus};
 use crate::io::futures::FutureSpawner;
 use crate::io::io_library_init;
-use crate::CrtError as _;
 
 /// An event loop that can be used to schedule and execute tasks
 #[derive(Debug)]
@@ -169,7 +169,9 @@ struct ShutdownCallbackUserData {
 /// SAFETY: not safe to call directly, only let the CRT call this function as a callback.
 unsafe extern "C" fn shutdown_callback(user_data: *mut libc::c_void) {
     assert!(!user_data.is_null());
-    let user_data: Box<ShutdownCallbackUserData> = Box::from_raw(user_data as *mut ShutdownCallbackUserData);
+
+    // SAFETY: `user_data` was leaked in `EventLoopGroup::new_default`.
+    let user_data: Box<ShutdownCallbackUserData> = unsafe { Box::from_raw(user_data as *mut ShutdownCallbackUserData) };
 
     (user_data.callback)();
 }
@@ -332,7 +334,7 @@ mod test {
     use crate::io::futures::FutureSpawner;
     use futures::executor::block_on;
     use std::sync::atomic::{AtomicI32, Ordering};
-    use std::sync::{mpsc, Arc};
+    use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
     /// How long each test should wait to receive values from channels. We set this deadline so that

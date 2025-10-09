@@ -103,11 +103,13 @@ Mountpoint also respects access control lists (ACLs) applied to objects in your 
 
 ## S3 bucket configuration
 
-By default, Mountpoint will automatically mount your S3 bucket given only the bucket name, and will automatically select the appropriate S3 HTTPS endpoint. However, you can override this automation if you need finer control over how Mountpoint connects to your bucket.
+By default, Mountpoint automatically mounts your S3 bucket based on the bucket name and selects a default S3 HTTPS endpoint.  You can override the default if you want additional control on how Mountpoint connects to your bucket.
 
 ### S3 bucket types
 
-Mountpoint for Amazon S3 supports both general purpose and directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones). In order to mount a general purpose bucket, run Mountpoint with the following command:
+Mountpoint for Amazon S3 supports three bucket types: general purpose, directory buckets (in Availability Zones for S3 Express One Zone, and in AWS Dedicated Local Zones), and outposts buckets. To mount a bucket, provide the bucket name and following command:
+
+For a general purpose bucket use the full bucket name:
 
 ```
 mount-s3 amzn-s3-demo-bucket /path/to/mount
@@ -121,7 +123,13 @@ mount-s3 amzn-s3-demo-bucket--az_id--x-s3 /path/to/mount
 
 For more information on directory buckets see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-buckets-overview.html). For more information on directory buckets in Dedicated Local Zones see [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/directory-bucket-data-residency.html).
 
-Mountpoint for Amazon S3 also supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
+For an Outposts bucket use the access point ARN or alias:
+
+```
+mount-s3 arn:aws:s3-outposts:region:123456789012:outpost/op-01ac5d28a6a232904/bucket/example-outposts-bucket /path/to/mount
+```
+
+Mountpoint for Amazon S3 supports [access points](#access-points) and [object lambda endpoints](#s3-object-lambda).
 
 ### Mounting a bucket prefix
 
@@ -233,11 +241,16 @@ Mountpoint automatically configures reasonable defaults for file system settings
 
 By default, Mountpoint allows creating new files but does not allow deleting or overwriting existing objects.
 
-If you want to allow file deletion, use the `--allow-delete` flag at mount time. Delete operations immediately delete the object from S3, even if the file is being read from.
+If you want to allow file deletion, use the `--allow-delete` flag at mount time.
+Delete operations are immediately actioned against the object in S3, even if the file is being read from.
+
+File rename is supported for objects stored in the S3 Express One Zone storage class.
+Renames that would replace the destination file are only enabled when the `--allow-overwrite` flag is set.
+Rename operations are performed atomically and immediately actioned against the objects in S3, even where the source or any destination file is being read from.
 
 If you want to allow overwriting existing files, use the `--allow-overwrite` flag at mount time. The file must be opened with the `O_TRUNC` flag which will truncate the existing file. All writes must start from the beginning of the file and must be made sequentially.
 
-You can also allow appending to existing files in directory buckets in S3 Express One Zone, by setting the `--incremental-upload` flag at mount time. In this mode, writes to existing files opened without the `O_TRUNC` flag are allowed, provided they start at the end of the file and are made sequentially. For more details, see [Reading and writing files](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#reading-and-writing-files).
+You can also allow appending to existing files for objects stored in the S3 Express One Zone storage class, by setting the `--incremental-upload` flag at mount time. In this mode, writes to existing files opened without the `O_TRUNC` flag are allowed, provided they start at the end of the file and are made sequentially. For more details, see [Reading and writing files](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#reading-and-writing-files).
 
 If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use the `--read-only` command-line flag.
 
@@ -295,7 +308,7 @@ You can use the following example to edit the fstab file to configure automatic 
 s3://amzn-s3-demo-bucket/example-prefix/ /mnt/mountpoint mount-s3 _netdev,nosuid,nodev,nofail,rw 0 0
 ```
 
-Where: 
+Where:
 
 * `_netdev` specifies that the filesystem requires networking to mount.
 * `nosuid` specifies that the filesystem cannot contain set userid files.

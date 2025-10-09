@@ -101,7 +101,7 @@ async fn test_get_object_backpressure(size: usize, range: Option<Range<u64>>) {
 async fn verify_backpressure_get_object() {
     let initial_window_size = 256;
     let client: S3CrtClient = get_test_backpressure_client(initial_window_size, None);
-    let part_size = client.read_part_size().unwrap();
+    let part_size = client.read_part_size();
 
     let size = part_size * 2;
     let range = 0..(part_size + 1) as u64;
@@ -359,8 +359,7 @@ async fn test_get_object_wrong_region() {
     let key = format!("{prefix}/nonexistent_key");
 
     let endpoint_config = EndpointConfig::new(&get_secondary_test_region());
-    let client =
-        S3CrtClient::new(S3ClientConfig::new().endpoint_config(endpoint_config)).expect("must create a client");
+    let client = get_test_client_with_config(S3ClientConfig::new().endpoint_config(endpoint_config));
 
     let err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
@@ -627,13 +626,12 @@ async fn stress_test_get_object() {
         .await
         .unwrap();
 
-    let client: S3CrtClient = S3CrtClient::new(
+    let client = get_test_client_with_config(
         S3ClientConfig::new()
             .endpoint_config(get_test_endpoint_config())
             .event_loop_threads(100),
-    )
-    .expect("could not create test client");
-    assert!(client.read_part_size().unwrap() > size);
+    );
+    assert!(client.read_part_size() > size);
 
     let mut tasks = tokio::task::JoinSet::new();
     for t in 0..10000 {

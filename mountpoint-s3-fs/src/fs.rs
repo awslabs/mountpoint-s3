@@ -7,24 +7,24 @@ use std::ffi::{OsStr, OsString};
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{debug, trace, Level};
+use tracing::{Level, debug, trace};
 
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
-use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::ObjectClient;
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
+use crate::metablock::Metablock;
+pub use crate::metablock::{InodeError, InodeKind, InodeNo};
+use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
-use crate::prefix::Prefix;
-use crate::superblock::{InodeError, InodeKind, LookedUp, ReaddirHandle, Superblock, SuperblockConfig};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
-use crate::upload::Uploader;
-
-pub use crate::superblock::InodeNo;
+use crate::upload::{Uploader, UploaderConfig};
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
@@ -37,10 +37,10 @@ pub mod error_metadata;
 use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 
 mod flags;
-pub use flags::OpenFlags;
+pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
-use handles::{DirHandle, FileHandle, FileHandleState};
+pub use handles::{FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};
@@ -50,19 +50,15 @@ pub use time_to_live::TimeToLive;
 
 pub const FUSE_ROOT_INODE: InodeNo = 1u64;
 
-#[derive(Debug)]
 pub struct S3Filesystem<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     config: S3FilesystemConfig,
-    client: Client,
-    superblock: Superblock,
+    metablock: Arc<dyn Metablock>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
-    bucket: String,
     next_handle: AtomicU64,
-    dir_handles: AsyncRwLock<HashMap<u64, Arc<DirHandle>>>,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
 
@@ -103,7 +99,6 @@ pub struct DirectoryEntry {
     pub attr: FileAttr,
     pub generation: u64,
     pub ttl: Duration,
-    lookup: LookedUp,
 }
 
 /// Reply to a 'statfs' call
@@ -150,41 +145,32 @@ where
     pub fn new(
         client: Client,
         prefetch_builder: PrefetcherBuilder<Client>,
+        pool: PagedPool,
         runtime: Runtime,
-        bucket: &str,
-        prefix: &Prefix,
+        metablock: impl Metablock + 'static,
         config: S3FilesystemConfig,
     ) -> Self {
-        trace!(?bucket, ?prefix, ?config, "new filesystem");
+        trace!(?config, "new filesystem");
 
-        let superblock_config = SuperblockConfig {
-            cache_config: config.cache_config.clone(),
-            s3_personality: config.s3_personality,
-            #[cfg(feature = "manifest")]
-            manifest: config.manifest.clone(),
-        };
-        let superblock = Superblock::new(bucket, prefix, superblock_config);
-        let mem_limiter = Arc::new(MemoryLimiter::new(client.clone(), config.mem_limit));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), config.mem_limit));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
             runtime,
+            pool,
             mem_limiter,
-            config.storage_class.to_owned(),
-            config.server_side_encryption.clone(),
-            client.write_part_size().unwrap(),
-            config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c),
+            UploaderConfig::new(client.write_part_size())
+                .storage_class(config.storage_class.to_owned())
+                .server_side_encryption(config.server_side_encryption.clone())
+                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c)),
         );
 
         Self {
             config,
-            client,
-            superblock,
+            metablock: Arc::new(metablock),
             prefetcher,
             uploader,
-            bucket: bucket.to_string(),
             next_handle: AtomicU64::new(1),
-            dir_handles: AsyncRwLock::new(HashMap::new()),
             file_handles: AsyncRwLock::new(HashMap::new()),
         }
     }
@@ -195,12 +181,10 @@ where
 
     /// Helper to return the u16 value in an environment variable, or panic.  Useful for unstable overrides.
     fn parse_env_var_to_u16(var_name: &str, var_value: std::ffi::OsString) -> u16 {
-        var_value.to_string_lossy().parse::<u16>().unwrap_or_else(|_| {
-            panic!(
-                "Invalid value for environment variable {}. Must be positive integer.",
-                var_name
-            )
-        })
+        var_value
+            .to_string_lossy()
+            .parse::<u16>()
+            .unwrap_or_else(|_| panic!("Invalid value for environment variable {var_name}. Must be positive integer."))
     }
 
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
@@ -213,7 +197,7 @@ where
             let max_background = Self::parse_env_var_to_u16(ENV_VAR_KEY_MAX_BACKGROUND, user_max_background);
             let old = config
                 .set_max_background(max_background)
-                .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {}", max_background));
+                .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {max_background}"));
             tracing::warn!(
                 "Successfully overridden FUSE max_background configuration to {} (was {}) from unstable environment variable.",
                 max_background,
@@ -237,7 +221,7 @@ where
                 Self::parse_env_var_to_u16(ENV_VAR_KEY_CONGESTION_THRESHOLD, user_congestion_threshold);
             let old = config
                 .set_congestion_threshold(congestion_threshold)
-                .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {}", congestion_threshold));
+                .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {congestion_threshold}"));
             tracing::warn!(
                 "Successfully overridden FUSE congestion_threshold configuration to {} (was {}) from unstable environment variable.",
                 congestion_threshold,
@@ -258,7 +242,7 @@ where
         Ok(())
     }
 
-    fn make_attr(&self, lookup: &LookedUp) -> FileAttr {
+    fn make_attr(&self, lookup: &InodeInformation) -> FileAttr {
         /// From man stat(2): `st_blocks`: "This field indicates the number of blocks allocated to
         /// the file, in 512-byte units."
         const STAT_BLOCK_SIZE: u64 = 512;
@@ -269,9 +253,9 @@ where
         // We don't implement hard links, and don't want to have to list a directory to count its
         // hard links, so we just assume one link for files (itself) and two links for directories
         // (itself + the "." link).
-        let (perm, nlink) = match lookup.inode.kind() {
+        let (perm, nlink) = match lookup.kind() {
             InodeKind::File => {
-                if lookup.stat.is_readable {
+                if lookup.stat().is_readable {
                     (self.config.file_mode, 1)
                 } else {
                     (0o000, 1)
@@ -281,14 +265,14 @@ where
         };
 
         FileAttr {
-            ino: lookup.inode.ino(),
-            size: lookup.stat.size as u64,
-            blocks: (lookup.stat.size as u64).div_ceil(STAT_BLOCK_SIZE),
-            atime: lookup.stat.atime.into(),
-            mtime: lookup.stat.mtime.into(),
-            ctime: lookup.stat.ctime.into(),
+            ino: lookup.ino(),
+            size: lookup.stat().size as u64,
+            blocks: (lookup.stat().size as u64).div_ceil(STAT_BLOCK_SIZE),
+            atime: lookup.stat().atime.into(),
+            mtime: lookup.stat().mtime.into(),
+            ctime: lookup.stat().ctime.into(),
             crtime: UNIX_EPOCH,
-            kind: lookup.inode.kind().into(),
+            kind: lookup.kind().into(),
             perm,
             nlink,
             uid: self.config.uid,
@@ -303,8 +287,8 @@ where
         trace!("fs:lookup with parent {:?} name {:?}", parent, name);
 
         let lookup = self
-            .superblock
-            .lookup(&self.client, parent, name)
+            .metablock
+            .lookup(parent, name)
             .await
             .map_err(|err| match err {
                 InodeError::FileDoesNotExist(_, _) => {
@@ -313,9 +297,10 @@ where
                 }
                 _ => err.into(),
             })?;
-        let attr = self.make_attr(&lookup);
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
         Ok(Entry {
-            ttl: lookup.validity(),
+            ttl,
             attr,
             generation: 0,
         })
@@ -324,13 +309,11 @@ where
     pub async fn getattr(&self, ino: InodeNo) -> Result<Attr, Error> {
         trace!("fs:getattr with ino {:?}", ino);
 
-        let lookup = self.superblock.getattr(&self.client, ino, false).await?;
-        let attr = self.make_attr(&lookup);
+        let lookup = self.metablock.getattr(ino, false).await?;
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
 
-        Ok(Attr {
-            ttl: lookup.validity(),
-            attr,
-        })
+        Ok(Attr { ttl, attr })
     }
 
     pub async fn setattr(
@@ -341,7 +324,7 @@ where
         size: Option<u64>,
         _flags: Option<u32>,
     ) -> Result<Attr, Error> {
-        tracing::info!(
+        tracing::debug!(
             "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?} size {:?}",
             ino,
             _flags,
@@ -349,29 +332,29 @@ where
             mtime,
             size
         );
-        let setattr_result = self.superblock.setattr(&self.client, ino, atime, mtime).await;
+        let setattr_result = self.metablock.setattr(ino, atime, mtime).await;
         let lookup = match (setattr_result, size) {
             (Ok(lookup), _) => lookup,
             (Err(InodeError::SetAttrNotPermittedOnRemoteInode(_)), Some(0)) if !self.config.allow_overwrite => {
                 // We want to provide better feedback to users to prompt them to opt-in to file overwrites if it looks like what the application needs.
                 // Instead of complex logic to match `setattr` truncation only, we just check for the error and if the size was set in the request.
                 // If so, we assume its probably a truncation.
-                return Err(
-                    err!(libc::EPERM, "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"));
+                return Err(err!(
+                    libc::EPERM,
+                    "file overwrite is disabled by default, you need to remount with --allow-overwrite flag and open the file in truncate mode (O_TRUNC) to overwrite it"
+                ));
             }
             (Err(e), _) => return Err(e.into()),
         };
-        let attr = self.make_attr(&lookup);
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
 
-        Ok(Attr {
-            ttl: lookup.validity(),
-            attr,
-        })
+        Ok(Attr { ttl, attr })
     }
 
     pub async fn forget(&self, ino: InodeNo, n: u64) {
         trace!("fs:forget with ino {:?} n {:?}", ino, n);
-        self.superblock.forget(ino, n);
+        self.metablock.forget(ino, n).await;
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
@@ -389,38 +372,36 @@ where
         }
 
         let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
-        let lookup = self.superblock.getattr(&self.client, ino, force_revalidate).await?;
+        let lookup = self.metablock.getattr(ino, force_revalidate).await?;
 
-        match lookup.inode.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode.err()).into()),
+        match lookup.kind() {
+            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
             InodeKind::File => (),
         }
 
         let state = if flags.contains(OpenFlags::O_RDWR) {
-            if !lookup.inode.is_remote()?
+            if !lookup.is_remote()
                 || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
                 || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
             {
                 // If the file is new or if it was opened in truncate or in append mode,
                 // we know it must be a write handle.
                 debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
             } else {
                 // Otherwise, it must be a read handle.
                 debug!("fs:open choosing read handle for O_RDWR");
                 FileHandleState::new_read_handle(&lookup, self).await?
             }
         } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.inode.ino(), flags, self).await?
+            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
         } else {
             FileHandleState::new_read_handle(&lookup, self).await?
         };
 
-        let inode = lookup.inode.clone();
-        let full_key = self.superblock.full_key_for_inode(&inode);
         let handle = FileHandle {
-            inode,
-            full_key,
+            ino,
+            location: lookup.try_into_s3_location()?,
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
@@ -445,10 +426,7 @@ where
     ) -> Result<Bytes, Error> {
         trace!(
             "fs:read with ino {:?} fh {:?} offset {:?} size {:?}",
-            ino,
-            fh,
-            offset,
-            size
+            ino, fh, offset, size
         );
 
         if option_env!("MOUNTPOINT_BUILD_STUB_FS_HANDLER").is_some() {
@@ -465,10 +443,10 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(handle.inode.name());
+        logging::record_name(handle.file_name());
         let mut state = handle.state.lock().await;
         let request = match &mut *state {
-            FileHandleState::Read { request, .. } => request,
+            FileHandleState::Read(request) => request,
             FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
@@ -495,27 +473,23 @@ where
             ));
         }
 
-        let lookup = self
-            .superblock
-            .create(&self.client, parent, name, InodeKind::File)
-            .await?;
-        debug!(ino = lookup.inode.ino(), "new inode created");
-        let attr = self.make_attr(&lookup);
+        let lookup = self.metablock.create(parent, name, InodeKind::File).await?;
+        debug!(ino = lookup.ino(), "new inode created");
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
         Ok(Entry {
-            ttl: lookup.validity(),
+            ttl,
             attr,
             generation: 0,
         })
     }
 
     pub async fn mkdir(&self, parent: InodeNo, name: &OsStr, _mode: libc::mode_t, _umask: u32) -> Result<Entry, Error> {
-        let lookup = self
-            .superblock
-            .create(&self.client, parent, name, InodeKind::Directory)
-            .await?;
-        let attr = self.make_attr(&lookup);
+        let lookup = self.metablock.create(parent, name, InodeKind::Directory).await?;
+        let ttl = lookup.validity();
+        let attr = self.make_attr(&lookup.into());
         Ok(Entry {
-            ttl: lookup.validity(),
+            ttl,
             attr,
             generation: 0,
         })
@@ -535,10 +509,7 @@ where
         let len = data.len();
         trace!(
             "fs:write with ino {:?} fh {:?} offset {:?} size {:?}",
-            ino,
-            fh,
-            offset,
-            len
+            ino, fh, offset, len
         );
 
         let handle = {
@@ -548,7 +519,7 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(handle.inode.name());
+        logging::record_name(handle.file_name());
 
         let len = {
             let mut state = handle.state.lock().await;
@@ -557,208 +528,72 @@ where
                 FileHandleState::Write(request) => request,
             };
 
-            request.write(offset, data, &handle.full_key).await?
+            request.write(self, &handle, offset, data).await?
         };
         Ok(len)
     }
 
     /// Creates a new ReaddirHandle for the provided parent and default page size
-    async fn readdir_handle(&self, parent: InodeNo) -> Result<ReaddirHandle, InodeError> {
-        self.superblock.readdir(&self.client, parent, 1000).await
+    async fn readdir_handle(&self, parent: InodeNo) -> Result<u64, InodeError> {
+        self.metablock.new_readdir_handle(parent).await
     }
 
     pub async fn opendir(&self, parent: InodeNo, _flags: i32) -> Result<Opened, Error> {
         trace!("fs:opendir with parent {:?} flags {:#b}", parent, _flags);
 
         let readdir_handle = self.readdir_handle(parent).await?;
-        let handle = DirHandle::new(parent, readdir_handle);
-        let fh = self.next_handle();
-        let mut dir_handles = self.dir_handles.write().await;
-        dir_handles.insert(fh, Arc::new(handle));
-
-        Ok(Opened { fh, flags: 0 })
+        trace!(fh = readdir_handle, "Opened new directory handle");
+        Ok(Opened {
+            fh: readdir_handle,
+            flags: 0,
+        })
     }
 
-    pub async fn readdir<R: DirectoryReplier>(
+    pub async fn readdir<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         reply: R,
-    ) -> Result<R, Error> {
+    ) -> Result<(), Error> {
         trace!("fs:readdir with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         self.readdir_impl(parent, fh, offset, false, reply).await
     }
 
-    pub async fn readdirplus<R: DirectoryReplier>(
+    pub async fn readdirplus<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         reply: R,
-    ) -> Result<R, Error> {
+    ) -> Result<(), Error> {
         trace!("fs:readdirplus with ino {:?} fh {:?} offset {:?}", parent, fh, offset);
         self.readdir_impl(parent, fh, offset, true, reply).await
     }
 
-    async fn readdir_impl<R: DirectoryReplier>(
+    async fn readdir_impl<R: DirectoryReplier + Send + Sync>(
         &self,
         parent: InodeNo,
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
         mut reply: R,
-    ) -> Result<R, Error> {
-        let dir_handle = {
-            let dir_handles = self.dir_handles.read().await;
-            dir_handles
-                .get(&fh)
-                .cloned()
-                .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))?
-        };
+    ) -> Result<(), Error> {
+        let adder: TryAddDirEntry = Box::new(move |information, name, offset, generation| {
+            reply.add(DirectoryEntry {
+                ino: information.ino(),
+                offset,
+                name,
+                attr: self.make_attr(&information),
+                generation,
+                ttl: information.validity(),
+            })
+        });
 
-        // special case where we need to rewind and restart the streaming but only when it is not the first time we see offset 0
-        if offset == 0 && dir_handle.offset() != 0 {
-            let new_handle = self.readdir_handle(parent).await?;
-            *dir_handle.handle.lock().await = new_handle;
-            dir_handle.rewind_offset();
-            // drop any cached entries, as new response may be unordered and cache would be stale
-            *dir_handle.last_response.lock().await = None;
-        }
-
-        let readdir_handle = dir_handle.handle.lock().await;
-
-        // If offset is 0 we've already restarted the request and do not use cache, otherwise we're using the same request
-        // and it is safe to repeat the response. We do not repeat the response if negative offset was provided.
-        if offset != dir_handle.offset() && offset > 0 {
-            // POSIX allows seeking an open directory. That's a pain for us since we are streaming
-            // the directory entries and don't want to keep them all in memory. But one common case
-            // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
-            // request offset 0 twice in a row. So we remember the last response and, if repeated,
-            // we return it again. Last response may also be used partially, if an interrupt occured
-            // (https://github.com/awslabs/mountpoint-s3/issues/955), which caused entries from it to
-            // be only partially fetched by kernel.
-
-            let last_response = dir_handle.last_response.lock().await;
-            if let Some((last_offset, entries)) = last_response.as_ref() {
-                let offset = offset as usize;
-                let last_offset = *last_offset as usize;
-                if (last_offset..last_offset + entries.len()).contains(&offset) {
-                    trace!(offset, "repeating readdir response");
-                    for entry in entries[offset - last_offset..].iter() {
-                        if reply.add(entry.clone()) {
-                            break;
-                        }
-                        // We are returning this result a second time, so the contract is that we
-                        // must remember it again, except that readdirplus specifies that . and ..
-                        // are never incremented.
-                        if is_readdirplus && entry.name != "." && entry.name != ".." {
-                            readdir_handle.remember(&entry.lookup);
-                        }
-                    }
-                    return Ok(reply);
-                }
-            }
-
-            return Err(err!(
-                libc::EINVAL,
-                "out-of-order readdir, expected={}, actual={}",
-                dir_handle.offset(),
-                offset
-            ));
-        }
-
-        /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
-        /// we can re-use them if the directory handle rewinds
-        struct Reply<R: DirectoryReplier> {
-            reply: R,
-            entries: Vec<DirectoryEntry>,
-        }
-
-        impl<R: DirectoryReplier> Reply<R> {
-            async fn finish(self, offset: i64, dir_handle: &DirHandle) -> R {
-                *dir_handle.last_response.lock().await = Some((offset, self.entries));
-                self.reply
-            }
-        }
-
-        impl<R: DirectoryReplier> DirectoryReplier for Reply<R> {
-            fn add(&mut self, entry: DirectoryEntry) -> bool {
-                let result = self.reply.add(entry.clone());
-                if !result {
-                    self.entries.push(entry);
-                }
-                result
-            }
-        }
-
-        let mut reply = Reply { reply, entries: vec![] };
-
-        if dir_handle.offset() < 1 {
-            let lookup = self.superblock.getattr(&self.client, parent, false).await?;
-            let attr = self.make_attr(&lookup);
-            let entry = DirectoryEntry {
-                ino: parent,
-                offset: dir_handle.offset() + 1,
-                name: ".".into(),
-                attr,
-                generation: 0,
-                ttl: lookup.validity(),
-                lookup,
-            };
-            if reply.add(entry) {
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            dir_handle.next_offset();
-        }
-        if dir_handle.offset() < 2 {
-            let lookup = self
-                .superblock
-                .getattr(&self.client, readdir_handle.parent(), false)
-                .await?;
-            let attr = self.make_attr(&lookup);
-            let entry = DirectoryEntry {
-                ino: readdir_handle.parent(),
-                offset: dir_handle.offset() + 1,
-                name: "..".into(),
-                attr,
-                generation: 0,
-                ttl: lookup.validity(),
-                lookup,
-            };
-            if reply.add(entry) {
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            dir_handle.next_offset();
-        }
-
-        loop {
-            let next = match readdir_handle.next(&self.client).await? {
-                None => return Ok(reply.finish(offset, &dir_handle).await),
-                Some(next) => next,
-            };
-            trace!(next_inode = ?next.inode, "new inode yielded by readdir handle");
-
-            let attr = self.make_attr(&next);
-            let entry = DirectoryEntry {
-                ino: attr.ino,
-                offset: dir_handle.offset() + 1,
-                name: next.inode.name().into(),
-                attr,
-                generation: 0,
-                ttl: next.validity(),
-                lookup: next.clone(),
-            };
-
-            if reply.add(entry) {
-                readdir_handle.readd(next);
-                return Ok(reply.finish(offset, &dir_handle).await);
-            }
-            if is_readdirplus {
-                readdir_handle.remember(&next);
-            }
-            dir_handle.next_offset();
-        }
+        self.metablock
+            .readdir(parent, fh, offset, is_readdirplus, adder)
+            .await?;
+        Ok(())
     }
 
     pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
@@ -769,13 +604,13 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(file_handle.inode.name());
+        logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         let write_state = match &mut *state {
             FileHandleState::Read { .. } => return Ok(()),
             FileHandleState::Write(write_state) => write_state,
         };
-        match write_state.commit(&file_handle.full_key, self).await {
+        match write_state.commit(self, &file_handle).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -804,13 +639,13 @@ where
                 None => return Err(err!(libc::EBADF, "invalid file handle")),
             }
         };
-        logging::record_name(file_handle.inode.name());
+        logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { .. } => Ok(()),
             FileHandleState::Write(write_state) => {
                 write_state
-                    .complete(&file_handle.full_key, pid, file_handle.open_pid, self)
+                    .complete(self, &file_handle, pid, file_handle.open_pid)
                     .await
             }
         }
@@ -831,7 +666,7 @@ where
                 .remove(&fh)
                 .ok_or_else(|| err!(libc::EBADF, "invalid file handle"))?
         };
-        logging::record_name(file_handle.inode.name());
+        logging::record_name(file_handle.file_name());
 
         // Unwrap the atomic reference to have full ownership.
         // The kernel should make a release call when there is no more references to the file handle,
@@ -845,21 +680,23 @@ where
         };
 
         let write_state = match file_handle.state.into_inner() {
-            FileHandleState::Read { handle, .. } => {
+            FileHandleState::Read(_) => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                handle.finish()?;
+                self.metablock.finish_reading(file_handle.ino).await?;
                 return Ok(());
             }
             FileHandleState::Write(write_state) => write_state,
         };
 
-        let complete_result = write_state.complete_if_in_progress(&file_handle.full_key).await;
+        let complete_result = write_state
+            .complete_if_in_progress(self, file_handle.ino, &file_handle.location)
+            .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {
             Ok(upload_completed_async) => {
                 if upload_completed_async {
-                    debug!(key = ?&file_handle.full_key, "upload completed async after file was closed");
+                    debug!(key = %file_handle.location, "upload completed async after file was closed");
                 }
                 Ok(())
             }
@@ -872,16 +709,13 @@ where
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
-        self.superblock.rmdir(&self.client, parent_ino, name).await?;
+        self.metablock.rmdir(parent_ino, name).await?;
         Ok(())
     }
 
     pub async fn releasedir(&self, _ino: InodeNo, fh: u64, _flags: i32) -> Result<(), Error> {
-        let mut dir_handles = self.dir_handles.write().await;
-        dir_handles
-            .remove(&fh)
-            .map(|_| ())
-            .ok_or_else(|| err!(libc::EBADF, "invalid directory handle"))
+        self.metablock.releasedir(fh).await?;
+        Ok(())
     }
 
     pub async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
@@ -891,7 +725,7 @@ where
                 "Deletes are disabled. Use '--allow-delete' mount option to enable it."
             ));
         }
-        Ok(self.superblock.unlink(&self.client, parent_ino, name).await?)
+        Ok(self.metablock.unlink(parent_ino, name).await?)
     }
 
     pub async fn statfs(&self, _ino: InodeNo) -> Result<StatFs, Error> {
@@ -908,6 +742,47 @@ where
         };
         Ok(reply)
     }
+
+    pub async fn rename(
+        &self,
+        old_parent_ino: InodeNo,
+        old_name: &OsStr,
+        new_parent_ino: InodeNo,
+        new_name: &OsStr,
+        flags: RenameFlags,
+    ) -> Result<(), Error> {
+        trace!(
+            old_parent_ino,
+            ?old_name,
+            new_parent_ino,
+            ?new_name,
+            "fs:rename with flags {:#b}",
+            flags,
+        );
+
+        let overwrites_allowed: bool;
+        #[cfg(target_os = "linux")]
+        {
+            if flags.contains(RenameFlags::RENAME_EXCHANGE) {
+                return Err(err!(libc::EINVAL, "flag RENAME_EXCHANGE is not supported"));
+            }
+            if flags.contains(RenameFlags::RENAME_WHITEOUT) {
+                return Err(err!(libc::EINVAL, "flag RENAME_WHITEOUT is not supported"));
+            }
+            // Allow overwriting rename if a) allow_overwrites is set [tested before] and b) the RENAME_NOREPLACE flag is not set
+            overwrites_allowed = self.config.allow_overwrite && !flags.contains(RenameFlags::RENAME_NOREPLACE);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            overwrites_allowed = self.config.allow_overwrite;
+        }
+
+        self.metablock
+            .rename(old_parent_ino, old_name, new_parent_ino, new_name, overwrites_allowed)
+            .await?;
+        tracing::trace!("rename complete");
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -915,25 +790,29 @@ mod tests {
     use super::*;
 
     use crate::prefetch::Prefetcher;
+    use crate::s3::{Bucket, S3Path};
+    use crate::{Superblock, SuperblockConfig};
 
     use fuser::FileType;
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig, MockObject};
+    use mountpoint_s3_client::mock_client::{MockClient, MockObject};
     use mountpoint_s3_client::types::ETag;
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
-        let bucket = "bucket";
-        let client = Arc::new(MockClient::new(MockClientConfig {
-            bucket: bucket.to_owned(),
-            enable_backpressure: true,
-            initial_read_window_size: 1024 * 1024,
-            ..Default::default()
-        }));
+        let bucket = Bucket::new("bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .enable_backpressure(true)
+                .initial_read_window_size(1024 * 1024)
+                .build(),
+        );
         // Create "dir1" in the client to avoid creating it locally
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+        let pool = PagedPool::new_with_candidate_sizes([32]);
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
@@ -941,14 +820,15 @@ mod tests {
             server_side_encryption,
             ..Default::default()
         };
-        let mut fs = S3Filesystem::new(
-            client,
-            prefetcher_builder,
-            runtime,
-            bucket,
-            &Default::default(),
-            fs_config,
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            SuperblockConfig {
+                cache_config: fs_config.cache_config.clone(),
+                s3_personality: fs_config.s3_personality,
+            },
         );
+        let mut fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
 
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
@@ -978,6 +858,9 @@ mod tests {
             .await
             .expect_err("open after the corruption should fail");
         assert_eq!(err.errno, libc::EIO);
-        assert_eq!(format!("{}", err), "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)");
+        assert_eq!(
+            format!("{err}"),
+            "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)"
+        );
     }
 }

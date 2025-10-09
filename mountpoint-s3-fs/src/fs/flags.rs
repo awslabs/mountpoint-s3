@@ -10,7 +10,7 @@
 ///         B,
 ///         C,
 ///     }
-/// }    
+/// }
 /// ```
 ///
 /// See [`OpenFlags`] for an example.
@@ -85,6 +85,21 @@ libc_flags! {
     }
 }
 
+/// Flags used in [rename](super::S3Filesystem::rename).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RenameFlags(u32);
+
+libc_flags! {
+    RenameFlags : u32 {
+        #[cfg(target_os = "linux")]
+        RENAME_NOREPLACE,
+        #[cfg(target_os = "linux")]
+        RENAME_EXCHANGE,
+        #[cfg(target_os = "linux")]
+        RENAME_WHITEOUT,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +125,6 @@ mod tests {
             "OpenFlags({:#x} = O_WRONLY | O_APPEND)",
             libc::O_WRONLY | libc::O_APPEND
         );
-        assert_eq!(format!("{:?}", flags), expected);
+        assert_eq!(format!("{flags:?}"), expected);
     }
 }

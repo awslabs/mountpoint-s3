@@ -1,4 +1,4 @@
-use std::fs::{read_dir, File};
+use std::fs::{File, read_dir};
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
@@ -6,14 +6,14 @@ use std::path::Path;
 #[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
-use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 use rand::RngCore;
 use rand::SeedableRng as _;
 use rand_chacha::ChaChaRng;
 use test_case::test_matrix;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionConfig, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 const READ_ONLY: bool = true;
 const READ_WRITE: bool = false;
@@ -30,7 +30,7 @@ enum BucketPrefix {
 impl std::fmt::Display for BucketPrefix {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BucketPrefix::Some(prefix) => write!(f, "{}", prefix),
+            BucketPrefix::Some(prefix) => write!(f, "{prefix}"),
             BucketPrefix::None => write!(f, ""),
         }
     }
@@ -112,7 +112,7 @@ fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
 )]
 fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::s3_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::s3_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         "basic_read_test_with_cache",
         read_only,
         pass_fuse_fd,
@@ -135,7 +135,7 @@ fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: boo
 )]
 fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
     basic_read_test(
-        fuse::mock_session::new_with_cache(InMemoryDataCache::new(1024 * 1024)),
+        fuse::mock_session::new_with_cache(|block_size, _| InMemoryDataCache::new(block_size)),
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,

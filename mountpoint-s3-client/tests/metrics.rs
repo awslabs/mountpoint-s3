@@ -207,14 +207,14 @@ async fn test_get_object_metrics() {
     let Metric::Histogram(ttfb) = ttfb else {
         panic!("expected histogram for first byte latency");
     };
-    assert!(ttfb.lock().unwrap().len() > 0);
+    assert!(!ttfb.lock().unwrap().is_empty());
     let (_, total) = metrics
         .get("s3.requests.total_latency_us", Some("op"), Some("get_object"))
         .expect("total latency should exist");
     let Metric::Histogram(total) = total else {
         panic!("expected histogram for total latency");
     };
-    assert!(total.lock().unwrap().len() > 0);
+    assert!(!total.lock().unwrap().is_empty());
 }
 
 rusty_fork_test! {
@@ -307,7 +307,7 @@ async fn test_custom_telemetry_callback() {
 
     impl OnTelemetry for CustomOnTelemetry {
         fn on_telemetry(&self, request_metrics: &RequestMetrics) {
-            metrics::counter!(self.metric_name.clone()).absolute(request_metrics.total_duration().as_micros() as u64);
+            metrics::gauge!(self.metric_name.clone()).set(request_metrics.total_duration().as_micros() as f64);
         }
     }
 
@@ -335,11 +335,11 @@ async fn test_custom_telemetry_callback() {
         .get(request_duration_metric_name, None, None)
         .expect("The custom metric should be emitted");
 
-    let Metric::Counter(request_duration_us) = request_duration_us else {
-        panic!("Expected a counter metric")
+    let Metric::Gauge(request_duration_us) = request_duration_us else {
+        panic!("Expected a gauge metric")
     };
     assert!(
-        *request_duration_us.lock().unwrap() > 0,
+        *request_duration_us.lock().unwrap() > 0.0,
         "The request duration should be more than 0 microseconds"
     );
 }

@@ -8,7 +8,6 @@ use aws_sdk_s3::primitives::ByteStream;
 use fuser::MountOption;
 use predicates::prelude::*;
 use std::fs::{self, File};
-#[cfg(not(feature = "s3express_tests"))]
 use std::io::Read;
 use std::io::{self, BufRead, BufReader, Cursor, Write};
 use std::os::fd::AsRawFd;
@@ -190,6 +189,34 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
 
     unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
+fn test_info_level_logging() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_info_logging");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("mount-s3")?;
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--foreground")
+        .arg(format!("--region={region}"))
+        .env("RUST_LOG", "info")
+        .stdout(Stdio::piped());
+
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+
+    let child = cmd.spawn().unwrap();
+
+    let expected_log_pattern = regex::Regex::new(r"INFO").unwrap();
+
+    unmount_and_check_log(child, mount_point.path(), &expected_log_pattern);
 
     Ok(())
 }
@@ -386,7 +413,7 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!exit_status.success());
 
     // verify error message
-    let error_message = format!("mount point {} is not a valid file descriptor", mount_point);
+    let error_message = format!("mount point {mount_point} is not a valid file descriptor");
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -416,10 +443,8 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!exit_status.success());
 
     // verify error message
-    let error_message = format!(
-        "expected mount point {} to be a /dev/fuse device file descriptor but got Pipe",
-        mount_point
-    );
+    let error_message =
+        format!("expected mount point {mount_point} to be a /dev/fuse device file descriptor but got Pipe");
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())
@@ -982,7 +1007,9 @@ fn write_with_no_permissions_for_a_key_sse() {
     let child = mount_with_sse(&bucket, mount_point.path(), &prefix, &key_id, Some(credentials));
     write_to_file(mount_point.path(), "f.txt").expect_err("should not be able to write to the file without proper sse");
 
-    let log_line_pattern = format!("^.*WARN.*User: [^ ]* is not authorized to perform: kms:GenerateDataKey on resource: {key_id} because no session policy allows the kms:GenerateDataKey action.*$");
+    let log_line_pattern = format!(
+        "^.*WARN.*User: [^ ]* is not authorized to perform: kms:GenerateDataKey on resource: {key_id} because no session policy allows the kms:GenerateDataKey action.*$"
+    );
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
@@ -1037,7 +1064,9 @@ fn read_with_no_permissions_for_a_key_sse() {
         read_result.expect("should be able to read a default-encrypted file after the first read failure");
     }
 
-    let log_line_pattern = format!("^.*WARN.*{encrypted_object}.*read failed with errno 5: get request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$");
+    let log_line_pattern = format!(
+        "^.*WARN.*{encrypted_object}.*read failed with errno 5: get request failed: Client error: Forbidden: User: .* is not authorized to perform: kms:Decrypt on resource: {key_id} because no session policy allows the kms:Decrypt action.*$"
+    );
     let expected_log_line = regex::Regex::new(&log_line_pattern).unwrap();
     unmount_and_check_log(child, mount_point.path(), &expected_log_line);
 }
@@ -1128,7 +1157,7 @@ fn mount_exists(source: &str, mount_point: &str) -> bool {
 fn get_mount_from_source_and_mountpoint(source: &str, mount_point: &str) -> Option<String> {
     // macOS wrap its temp directory under /private but it's not visible to users
     #[cfg(target_os = "macos")]
-    let mount_point = format!("/private{}", mount_point);
+    let mount_point = format!("/private{mount_point}");
 
     let mut cmd = Command::new("mount");
     #[cfg(target_os = "linux")]
@@ -1198,7 +1227,6 @@ fn unmount(mount_point: &Path) {
     panic!("failed to unmount");
 }
 
-#[cfg(not(feature = "s3express_tests"))]
 fn unmount_and_check_log(mut process: Child, mount_path: &Path, expected_log_line: &regex::Regex) {
     unmount(mount_path);
     let mut stdout = process
@@ -1230,7 +1258,7 @@ fn create_cli_config_file(
 
     // Populate source profile from the default credentials chain
     let credentials = tokio_block_on(get_sdk_default_chain_creds());
-    writeln!(config_file, "[profile {}]", source_profile).unwrap();
+    writeln!(config_file, "[profile {source_profile}]").unwrap();
     writeln!(config_file, "aws_access_key_id={}", credentials.access_key_id()).unwrap();
     writeln!(config_file, "aws_secret_access_key={}", credentials.secret_access_key()).unwrap();
     if let Some(session_token) = credentials.session_token() {
@@ -1238,11 +1266,11 @@ fn create_cli_config_file(
     }
 
     // Then populate the profile for testing
-    writeln!(config_file, "[profile {}]", profile_name).unwrap();
-    writeln!(config_file, "source_profile = {}", source_profile).unwrap();
-    writeln!(config_file, "role_arn = {}", role_arn).unwrap();
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
+    writeln!(config_file, "source_profile = {source_profile}").unwrap();
+    writeln!(config_file, "role_arn = {role_arn}").unwrap();
     if let Some(region) = region {
-        writeln!(config_file, "region = {}", region).unwrap();
+        writeln!(config_file, "region = {region}").unwrap();
     }
 
     Ok(config_file)

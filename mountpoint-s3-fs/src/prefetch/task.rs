@@ -1,12 +1,12 @@
 use futures::future::RemoteHandle;
 use mountpoint_s3_client::ObjectClient;
 
+use super::PrefetchReadError;
 use super::backpressure_controller::BackpressureController;
 use super::backpressure_controller::BackpressureFeedbackEvent::{DataRead, PartQueueStall};
 use super::part::Part;
 use super::part_queue::PartQueue;
 use super::part_stream::RequestRange;
-use super::PrefetchReadError;
 
 /// A single GetObject request submitted to the S3 client
 #[derive(Debug)]
@@ -17,7 +17,7 @@ pub struct RequestTask<Client: ObjectClient> {
     remaining: usize,
     range: RequestRange,
     part_queue: PartQueue<Client>,
-    backpressure_controller: BackpressureController<Client>,
+    backpressure_controller: BackpressureController,
 }
 
 impl<Client: ObjectClient> RequestTask<Client> {
@@ -25,7 +25,7 @@ impl<Client: ObjectClient> RequestTask<Client> {
         task_handle: RemoteHandle<()>,
         range: RequestRange,
         part_queue: PartQueue<Client>,
-        backpressure_controller: BackpressureController<Client>,
+        backpressure_controller: BackpressureController,
     ) -> Self {
         Self {
             _task_handle: task_handle,

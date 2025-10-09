@@ -10,19 +10,19 @@ use crate::object_client::{
     ObjectClientResult, ObjectPart,
 };
 
-use super::{S3CrtClient, S3Operation, S3RequestError};
+use super::{QueryFragment, S3CrtClient, S3Operation, S3RequestError};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum ParseError {
     #[error("XML response was not valid: problem = {1}, xml node = {0:?}")]
-    InvalidResponse(xmltree::Element, String),
+    InvalidResponse(Box<xmltree::Element>, String),
 
     #[error("XML parsing error: {0:?}")]
     Xml(#[from] xmltree::ParseError),
 
     #[error("Missing field {1} from XML element {0:?}")]
-    MissingField(xmltree::Element, String),
+    MissingField(Box<xmltree::Element>, String),
 }
 
 impl GetObjectAttributesResult {
@@ -118,18 +118,18 @@ impl S3CrtClient {
 
             let path = format!("/{key}");
             message
-                .set_request_path_and_query(path, query)
+                .set_request_path_and_query(path, QueryFragment::Query(&query))
                 .map_err(S3RequestError::construction_failure)?;
 
             if let Some(max_parts) = max_parts {
-                let value = format!("{}", max_parts);
+                let value = format!("{max_parts}");
                 message
                     .set_header(&Header::new("x-amz-max-parts", value))
                     .map_err(S3RequestError::construction_failure)?;
             }
 
             if let Some(part_number_marker) = part_number_marker {
-                let value = format!("{}", part_number_marker);
+                let value = format!("{part_number_marker}");
                 message
                     .set_header(&Header::new("x-amz-part-number-marker", value))
                     .map_err(S3RequestError::construction_failure)?;
@@ -184,7 +184,7 @@ fn parse_get_object_attributes_error(result: &MetaRequestResult) -> Option<GetOb
 fn get_text(element: &xmltree::Element) -> Result<String, ParseError> {
     Ok(element
         .get_text()
-        .ok_or_else(|| ParseError::InvalidResponse(element.clone(), "field has no text".to_owned()))?
+        .ok_or_else(|| ParseError::InvalidResponse(element.clone().into(), "field has no text".to_owned()))?
         .to_string())
 }
 
@@ -192,7 +192,7 @@ fn get_text(element: &xmltree::Element) -> Result<String, ParseError> {
 fn get_child<'a>(element: &'a xmltree::Element, name: &str) -> Result<&'a xmltree::Element, ParseError> {
     element
         .get_child(name)
-        .ok_or_else(|| ParseError::MissingField(element.clone(), name.to_string()))
+        .ok_or_else(|| ParseError::MissingField(element.clone().into(), name.to_string()))
 }
 
 /// Get the text out of a child node, with the right error type.
@@ -203,10 +203,9 @@ fn get_field(element: &xmltree::Element, name: &str) -> Result<String, ParseErro
 /// Get the value out of a child node, return [None] if the child node is missing.
 fn get_field_or_none<T: FromStr>(element: &xmltree::Element, name: &str) -> Result<Option<T>, ParseError> {
     match get_field(element, name) {
-        Ok(str) => str
-            .parse::<T>()
-            .map(Some)
-            .map_err(|_| ParseError::InvalidResponse(element.clone(), "failed to parse field from string".to_owned())),
+        Ok(str) => str.parse::<T>().map(Some).map_err(|_| {
+            ParseError::InvalidResponse(element.clone().into(), "failed to parse field from string".to_owned())
+        }),
         Err(ParseError::MissingField(_, _)) => Ok(None),
         Err(e) => Err(e),
     }

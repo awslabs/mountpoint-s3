@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use common::*;
 
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, pin_mut};
 use rand::Rng;
 use test_case::test_case;
 
@@ -18,7 +18,7 @@ use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
     PutObjectTrailingChecksums,
 };
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3RequestError};
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
@@ -28,7 +28,7 @@ async fn test_put_object(
     key: &str,
     request_params: PutObjectParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -94,7 +94,7 @@ async fn test_put_object_multi_part(
     key: &str,
     request_params: PutObjectParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = [0u8; 32];
     rng.fill(&mut contents[..]);
@@ -133,7 +133,7 @@ async fn test_put_object_large(
     key: &str,
     request_params: PutObjectParams,
 ) -> PutObjectResult {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     const OBJECT_SIZE: usize = 32 * 1024 * 1024;
     const CHUNK_SIZE: usize = 1024 * 1024 + 1;
@@ -168,7 +168,7 @@ object_client_test!(test_put_object_large);
 
 // Test for dropped PUT object. Checks that the GET fails.
 async fn test_put_object_dropped(client: &impl ObjectClient, bucket: &str, key: &str, request_params: PutObjectParams) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
@@ -196,7 +196,7 @@ async fn test_put_object_abort(size: usize) {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; size];
     rng.fill(&mut contents[..]);
 
@@ -236,7 +236,7 @@ async fn test_put_object_write_cancelled() {
         .expect("put_object should succeed");
 
     // Write a multiple of `part_size` to ensure it will not complete immediately.
-    let full_size = client.write_part_size().unwrap() * 10;
+    let full_size = client.write_part_size() * 10;
     let buffer = vec![0u8; full_size];
 
     // Complete one write to ensure the MPU was created and the buffer for the upload request is available.
@@ -315,13 +315,14 @@ async fn test_put_object_initiate_failure() {
 async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     const PART_SIZE: usize = 5 * 1024 * 1024;
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_checksums");
-    let client_config = S3ClientConfig::new()
-        .part_size(PART_SIZE)
-        .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client_with_config(
+        S3ClientConfig::new()
+            .part_size(PART_SIZE)
+            .endpoint_config(get_test_endpoint_config()),
+    );
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
@@ -384,8 +385,7 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
 #[tokio::test]
 async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, String>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_happy");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let key = format!("{prefix}hello");
 
     let params = PutObjectParams::new().object_metadata(object_metadata.clone());
@@ -415,8 +415,7 @@ async fn test_put_user_object_metadata_happy(object_metadata: HashMap<String, St
 #[tokio::test]
 async fn test_put_user_object_metadata_bad_header(object_metadata: HashMap<String, String>) {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_user_object_metadata_bad_header");
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let key = format!("{prefix}hello");
 
     let params = PutObjectParams::new().object_metadata(object_metadata.clone());
@@ -436,10 +435,10 @@ async fn test_put_review(pass_review: bool) {
     let client_config = S3ClientConfig::new()
         .part_size(PART_SIZE)
         .endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client_with_config(client_config);
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
@@ -506,7 +505,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
     let client = get_test_client();
     let key = format!("{prefix}hello");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut contents = vec![0u8; 32];
     rng.fill(&mut contents[..]);
 
@@ -602,8 +601,7 @@ async fn check_sse(
 #[cfg(not(feature = "s3express_tests"))]
 async fn test_put_object_sse(sse_type: Option<&str>, kms_key_id: Option<String>) {
     let bucket = get_test_bucket();
-    let client_config = S3ClientConfig::new().endpoint_config(get_test_endpoint_config());
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
+    let client = get_test_client();
     let request_params = PutObjectParams::new()
         .server_side_encryption(sse_type.map(|value| value.to_owned()))
         .ssekms_key_id(kms_key_id.to_owned());
@@ -639,14 +637,14 @@ async fn test_concurrent_put_objects(throughput_target_gbps: f64, max_concurrent
     let client_config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .throughput_target_gbps(throughput_target_gbps);
-    let client = S3CrtClient::new(client_config).expect("could not create test client");
-    let not_existing_key = format!("{}not-there", prefix);
+    let client = get_test_client_with_config(client_config);
+    let not_existing_key = format!("{prefix}not-there");
     let request_params = PutObjectParams::new();
 
     // Initiate requests.
     let mut req_vec = Vec::new();
     for num_writes in 0..max_concurrent_puts {
-        let key = format!("{}obj-{}", prefix, num_writes);
+        let key = format!("{prefix}obj-{num_writes}");
         let request = client
             .put_object(&bucket, &key, &request_params)
             .await

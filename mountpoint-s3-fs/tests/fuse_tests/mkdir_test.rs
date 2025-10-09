@@ -1,8 +1,8 @@
-use std::fs::{self, metadata, DirBuilder, File};
+use std::fs::{self, DirBuilder, File, metadata};
 
 use test_case::test_case;
 
-use crate::common::fuse::{self, read_dir_to_entry_names, TestSessionCreator};
+use crate::common::fuse::{self, TestSessionCreator, read_dir_to_entry_names};
 
 fn mkdir_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     let test_session = creator_fn(prefix, Default::default());

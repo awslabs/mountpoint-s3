@@ -3,7 +3,7 @@ use aws_credential_types::Credentials;
 #[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::get_test_region;
 #[cfg(not(feature = "s3express_tests"))]
-use aws_config::{sts::AssumeRoleProvider, Region};
+use aws_config::{Region, sts::AssumeRoleProvider};
 #[cfg(not(feature = "s3express_tests"))]
 use aws_credential_types::provider::ProvideCredentials;
 
@@ -17,7 +17,7 @@ fn mask_aws_creds_if_on_gha(credentials: &Credentials) {
         println!("::add-mask::{}", credentials.access_key_id());
         println!("::add-mask::{}", credentials.secret_access_key());
         if let Some(token) = credentials.session_token() {
-            println!("::add-mask::{}", token);
+            println!("::add-mask::{token}");
         }
     }
 }

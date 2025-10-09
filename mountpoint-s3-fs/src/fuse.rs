@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::time::SystemTime;
 use time::OffsetDateTime;
-use tracing::{field, instrument, Instrument};
+use tracing::{Instrument, field, instrument};
 
 use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno};
 #[cfg(target_os = "macos")]
@@ -189,7 +189,7 @@ where
         match block_on(self.fs.readdir(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdir.entries").increment(count as u64);
+                metrics::histogram!("fuse.readdir.entries").record(count as f64);
             }
             Err(e) => fuse_error!("readdir", reply, e, self, req),
         }
@@ -235,7 +235,7 @@ where
         match block_on(self.fs.readdirplus(parent, fh, offset, replier).in_current_span()) {
             Ok(_) => {
                 reply.ok();
-                metrics::counter!("fuse.readdirplus.entries").increment(count as u64);
+                metrics::histogram!("fuse.readdirplus.entries").record(count as f64);
             }
             Err(e) => fuse_error!("readdirplus", reply, e, self, req),
         }
@@ -402,18 +402,25 @@ where
         fuse_unsupported!("symlink", reply, libc::EPERM);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), parent=parent, name=?name, newparent=newparent, newname=?newname))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), parent=parent, name=?name, newparent=newparent, newname=?newname))]
     fn rename(
         &self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         newparent: u64,
         newname: &OsStr,
-        _flags: u32,
+        flags: u32,
         reply: ReplyEmpty,
     ) {
-        fuse_unsupported!("rename", reply);
+        match block_on(
+            self.fs
+                .rename(parent, name, newparent, newname, flags.into())
+                .in_current_span(),
+        ) {
+            Ok(()) => reply.ok(),
+            Err(e) => fuse_error!("rename", reply, e, self, req),
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, newparent=newparent, newname=?newname))]
@@ -525,7 +532,7 @@ where
         _out_size: u32,
         reply: ReplyIoctl,
     ) {
-        fuse_unsupported!("ioctl", reply);
+        fuse_unsupported!("ioctl", reply, libc::ENOSYS, tracing::Level::DEBUG);
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=ino, fh=fh, offset=offset, length=length))]

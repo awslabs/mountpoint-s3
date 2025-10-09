@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::task::SpawnExt;
 use tracing::{trace, warn};
 
-use crate::{object::ObjectId, Runtime};
+use crate::{Runtime, object::ObjectId};
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
 
@@ -116,9 +116,10 @@ mod tests {
     use super::*;
     use crate::checksums::ChecksummedBytes;
     use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig};
+    use crate::memory::PagedPool;
 
     use futures::executor::ThreadPool;
-    use mountpoint_s3_client::mock_client::{MockClient, MockClientConfig};
+    use mountpoint_s3_client::mock_client::MockClient;
     use mountpoint_s3_client::types::ETag;
     use tempfile::TempDir;
     use test_case::test_case;
@@ -128,24 +129,26 @@ mod tests {
 
     fn create_disk_cache() -> (TempDir, Arc<DiskDataCache>) {
         let cache_directory = tempfile::tempdir().unwrap();
-        let cache = DiskDataCache::new(DiskDataCacheConfig {
-            cache_directory: cache_directory.path().to_path_buf(),
-            block_size: BLOCK_SIZE,
-            limit: CacheLimit::Unbounded,
-        });
+        let pool = PagedPool::new_with_candidate_sizes([BLOCK_SIZE as usize, PART_SIZE]);
+        let cache = DiskDataCache::new(
+            DiskDataCacheConfig {
+                cache_directory: cache_directory.path().to_path_buf(),
+                block_size: BLOCK_SIZE,
+                limit: CacheLimit::Unbounded,
+            },
+            pool,
+        );
         (cache_directory, Arc::new(cache))
     }
 
     fn create_express_cache() -> (MockClient, ExpressDataCache<MockClient>) {
         let bucket = "test_bucket";
-        let config = MockClientConfig {
-            bucket: bucket.to_string(),
-            part_size: PART_SIZE,
-            enable_backpressure: true,
-            initial_read_window_size: PART_SIZE,
-            ..Default::default()
-        };
-        let client = MockClient::new(config);
+        let client = MockClient::config()
+            .bucket(bucket.to_string())
+            .part_size(PART_SIZE)
+            .enable_backpressure(true)
+            .initial_read_window_size(PART_SIZE)
+            .build();
         let cache = ExpressDataCache::new(
             client.clone(),
             ExpressDataCacheConfig::new(bucket, "unique source description"),
