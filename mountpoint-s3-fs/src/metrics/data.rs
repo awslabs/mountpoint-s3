@@ -2,12 +2,16 @@ use crate::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex};
 
 #[cfg(feature = "otlp_integration")]
+use crate::metrics::defs::MetricConfig;
+#[cfg(feature = "otlp_integration")]
+use crate::metrics_otel::OtlpMetricsExporter;
+#[cfg(feature = "otlp_integration")]
 use opentelemetry::KeyValue;
 
 #[cfg(feature = "otlp_integration")]
-fn labels_to_attributes(labels: &metrics::Key) -> Vec<KeyValue> {
-    labels
-        .labels()
+fn filter_attributes(key: &metrics::Key, allowed: &[&str]) -> Vec<KeyValue> {
+    key.labels()
+        .filter(|label| allowed.contains(&label.key()))
         .map(|label| KeyValue::new(label.key().to_string(), label.value().to_string()))
         .collect()
 }
@@ -15,6 +19,9 @@ fn labels_to_attributes(labels: &metrics::Key) -> Vec<KeyValue> {
 #[cfg(feature = "otlp_integration")]
 #[derive(Debug)]
 pub(crate) struct OtlpData<T> {
+    // TODO: Currently, each unique key+labels creates separate OTel
+    // instrument. We could optimise this further to use a single instrument
+    // for all attributes/labels
     pub instrument: T,
     pub attributes: Vec<KeyValue>,
 }
@@ -41,14 +48,10 @@ impl Metric {
     }
 
     #[cfg(feature = "otlp_integration")]
-    pub fn counter_otlp(
-        exporter: &crate::metrics_otel::OtlpMetricsExporter,
-        name: String,
-        labels: &metrics::Key,
-    ) -> Self {
-        let attributes = labels_to_attributes(labels);
-        let instrument = exporter.create_counter_instrument(name);
-        Self::Counter(Arc::new(ValueAndCount::with_otlp(instrument, attributes)))
+    pub fn counter_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
+        let filtered_attributes = filter_attributes(key, config.otlp_attributes);
+        let instrument = exporter.create_counter_instrument(key.name(), config.unit, config.stability);
+        Self::Counter(Arc::new(ValueAndCount::with_otlp(instrument, filtered_attributes)))
     }
 
     pub fn as_counter(&self) -> metrics::Counter {
@@ -63,14 +66,10 @@ impl Metric {
     }
 
     #[cfg(feature = "otlp_integration")]
-    pub fn gauge_otlp(
-        exporter: &crate::metrics_otel::OtlpMetricsExporter,
-        name: String,
-        labels: &metrics::Key,
-    ) -> Self {
-        let attributes = labels_to_attributes(labels);
-        let instrument = exporter.create_gauge_instrument(name);
-        Self::Gauge(Arc::new(AtomicGauge::with_otlp(instrument, attributes)))
+    pub fn gauge_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
+        let filtered_attributes = filter_attributes(key, config.otlp_attributes);
+        let instrument = exporter.create_gauge_instrument(key.name(), config.unit, config.stability);
+        Self::Gauge(Arc::new(AtomicGauge::with_otlp(instrument, filtered_attributes)))
     }
 
     pub fn as_gauge(&self) -> metrics::Gauge {
@@ -85,14 +84,10 @@ impl Metric {
     }
 
     #[cfg(feature = "otlp_integration")]
-    pub fn histogram_otlp(
-        exporter: &crate::metrics_otel::OtlpMetricsExporter,
-        name: String,
-        labels: &metrics::Key,
-    ) -> Self {
-        let attributes = labels_to_attributes(labels);
-        let instrument = exporter.create_histogram_instrument(name);
-        Self::Histogram(Arc::new(Histogram::with_otlp(instrument, attributes)))
+    pub fn histogram_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
+        let filtered_attributes = filter_attributes(key, config.otlp_attributes);
+        let instrument = exporter.create_histogram_instrument(key.name(), config.unit, config.stability);
+        Self::Histogram(Arc::new(Histogram::with_otlp(instrument, filtered_attributes)))
     }
 
     pub fn as_histogram(&self) -> metrics::Histogram {
@@ -335,7 +330,7 @@ mod tests {
             vec![Label::new("op", "read"), Label::new("status", "success")],
         );
 
-        let attributes = labels_to_attributes(&key);
+        let attributes = filter_attributes(&key, &["op", "status"]);
 
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0].key.as_str(), "op");
@@ -358,7 +353,7 @@ mod tests {
         let provider = SdkMeterProvider::builder().with_reader(reader).build();
         let meter = provider.meter("test-meter");
 
-        let otlp_counter = meter.u64_counter("test-counter").build();
+        let otlp_counter = meter.u64_counter("test-counter").with_unit("some-unit").build();
         let attributes = vec![opentelemetry::KeyValue::new("some-label", "some-value")];
 
         let counter = ValueAndCount::with_otlp(otlp_counter, attributes);
@@ -388,6 +383,7 @@ mod tests {
         let metric = found_counter.unwrap();
 
         assert_eq!(metric.name(), "test-counter");
+        assert_eq!(metric.unit(), "some-unit");
 
         let data = metric.data();
         match data {
@@ -424,7 +420,7 @@ mod tests {
         let provider = SdkMeterProvider::builder().with_reader(reader).build();
         let meter = provider.meter("test-meter");
 
-        let otlp_gauge = meter.f64_gauge("test_gauge").build();
+        let otlp_gauge = meter.f64_gauge("test_gauge").with_unit("some-unit").build();
         let attributes = vec![opentelemetry::KeyValue::new("some-label", "some-value")];
 
         let gauge = AtomicGauge::with_otlp(otlp_gauge, attributes);
@@ -454,6 +450,7 @@ mod tests {
         let metric = found_gauge.unwrap();
 
         assert_eq!(metric.name(), "test_gauge");
+        assert_eq!(metric.unit(), "some-unit");
 
         let data = metric.data();
 
@@ -491,7 +488,7 @@ mod tests {
         let provider = SdkMeterProvider::builder().with_reader(reader).build();
         let meter = provider.meter("test-meter");
 
-        let otlp_histogram = meter.f64_histogram("test_histogram").build();
+        let otlp_histogram = meter.f64_histogram("test_histogram").with_unit("some-unit").build();
         let attributes = vec![opentelemetry::KeyValue::new("some-label", "some-value")];
 
         let histogram = Histogram::with_otlp(otlp_histogram, attributes);
@@ -525,6 +522,7 @@ mod tests {
         let metric = found_histogram.unwrap();
 
         assert_eq!(metric.name(), "test_histogram");
+        assert_eq!(metric.unit(), "some-unit");
 
         let data = metric.data();
 
