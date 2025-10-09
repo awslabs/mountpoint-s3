@@ -43,6 +43,7 @@ The permissions required to successfully mount your bucket and perform file syst
 Additionally, depending on the [file system configuration flags](#file-system-configuration) passed at mount time, some permissions may or may not be necessary.
 
 #### General Purpose Buckets
+
 On general purpose buckets, the IAM credentials you use with Mountpoint must have permission for the `s3:ListBucket` action for the S3 bucket you mount. To be able to read files with Mountpoint, you also need permission for the `s3:GetObject` action for the objects you read.
 Writing files requires permission for the `s3:PutObject` and `s3:AbortMultipartUpload` actions.
 Deleting existing files requires permission for the `s3:DeleteObject` action.
@@ -92,6 +93,7 @@ Here is an example least-privilege policy document to add to an IAM user or role
 Mountpoint also respects [access control lists (ACLs) applied to objects](https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html) in your S3 bucket, but does not allow you to automatically attach ACLs to objects created with Mountpoint. A majority of modern use cases in Amazon S3 no longer require the use of ACLs. We recommend that you keep ACLs disabled for your S3 bucket, and instead use bucket policies to control access to your objects.
 
 ### Directory buckets
+
 Directory buckets, introduced with the S3 Express One Zone storage class, use a different authentication mechanism from general purpose buckets.
 Instead of using `s3:*` actions, you should allow the `s3express:CreateSession` action.
 This will allow Mountpoint to perform create `ReadOnly` and `ReadWrite` sessions which allow Mountpoint to perform any supported operation against the bucket.
