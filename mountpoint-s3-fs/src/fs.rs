@@ -39,7 +39,7 @@ use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
-pub(crate) mod handles;
+mod handles;
 pub use handles::{FileHandle, FileHandleState};
 
 mod sse;
@@ -455,7 +455,10 @@ where
         if *flushed {
             *flushed = false;
             if !self.metablock.is_valid_handle(ino, fh, "Read").await? {
-                return Err(err!(libc::EBADF, "file handle has been invalidated by a newer handle opened"))
+                return Err(err!(
+                    libc::EBADF,
+                    "file handle has been invalidated by a newer handle opened"
+                ));
             }
         }
         request
@@ -533,14 +536,17 @@ where
             let mut state = handle.state.lock().await;
             let (request, flushed) = match &mut *state {
                 FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-                FileHandleState::Write { state, flushed} => (state, flushed)
+                FileHandleState::Write { state, flushed } => (state, flushed),
             };
 
             if *flushed {
-                *flushed = false;
                 if !self.metablock.is_valid_handle(ino, fh, "Write").await? {
-                    return Err(err!(libc::EBADF, "file handle has been invalidated by a newer handle opened"))
+                    return Err(err!(
+                        libc::EBADF,
+                        "file handle has been invalidated by a newer handle opened"
+                    ));
                 }
+                *flushed = false;
             }
 
             request.write(self, &handle, offset, data).await?
@@ -624,9 +630,9 @@ where
         let write_state = match &mut *state {
             FileHandleState::Read { flushed, .. } => {
                 *flushed = self.metablock.flush_reader(ino, fh).await?;
-                return Ok(())
-            },
-            FileHandleState::Write { state, .. } => state
+                return Ok(());
+            }
+            FileHandleState::Write { state, .. } => state,
         };
         match write_state.commit(self, file_handle.clone()).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
@@ -663,7 +669,7 @@ where
             FileHandleState::Read { flushed, .. } => {
                 *flushed = self.metablock.flush_reader(ino, fh).await?;
                 Ok(())
-            },
+            }
             FileHandleState::Write { state, .. } => {
                 state
                     .complete(self, file_handle.clone(), pid, file_handle.open_pid)

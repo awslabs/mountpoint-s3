@@ -1,15 +1,15 @@
-use std::str::FromStr as _;
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::ETag;
+use std::str::FromStr as _;
 use tracing::{debug, error};
 
 use super::{Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
-use crate::metablock::{Lookup, Metablock};
 use crate::metablock::S3Location;
+use crate::metablock::{Lookup, Metablock};
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
-use crate::superblock::inode::CompletionHandle;
-use crate::sync::{AsyncMutex, Arc};
+use crate::superblock::inode::CompletionHook;
+use crate::sync::{Arc, AsyncMutex};
 use crate::upload::{AppendUploadRequest, UploadRequest};
 
 #[derive(Debug)]
@@ -44,10 +44,7 @@ where
         flushed: bool,
     },
     /// The file handle has been assigned as a write handle
-    Write {
-        state: UploadState<Client>,
-        flushed: bool,
-    },
+    Write { state: UploadState<Client>, flushed: bool },
 }
 
 impl<Client> FileHandleState<Client>
@@ -63,7 +60,9 @@ where
     ) -> Result<FileHandleState<Client>, Error> {
         let is_truncate = flags.contains(OpenFlags::O_TRUNC);
         let write_mode = fs.config.write_mode();
-        fs.metablock.start_writing(ino, &write_mode, is_truncate, handle_id).await?;
+        fs.metablock
+            .start_writing(ino, &write_mode, is_truncate, handle_id)
+            .await?;
         let location = lookup.s3_location()?;
         let bucket = location.bucket_name();
         let key = location.full_key();
@@ -102,7 +101,11 @@ where
         Ok(handle)
     }
 
-    pub async fn new_read_handle(lookup: &Lookup, fs: &S3Filesystem<Client>, handle_id: u64) -> Result<FileHandleState<Client>, Error> {
+    pub async fn new_read_handle(
+        lookup: &Lookup,
+        fs: &S3Filesystem<Client>,
+        handle_id: u64,
+    ) -> Result<FileHandleState<Client>, Error> {
         if !lookup.stat().is_readable {
             return Err(err!(
                 libc::EACCES,
@@ -229,7 +232,9 @@ where
                         let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone()).await;
                         let mut state = handle.state.lock().await;
                         match &mut *state {
-                            FileHandleState::Read { .. } => {unreachable!("checked above")}
+                            FileHandleState::Read { .. } => {
+                                unreachable!("checked above")
+                            }
                             FileHandleState::Write { flushed, .. } => {
                                 *flushed = handle_flushed;
                             }
@@ -295,7 +300,16 @@ where
         let result = match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
-            } => Self::complete_append(fs.metablock.clone(), handle.ino, &handle.location, request, initial_etag).await,
+            } => {
+                Self::complete_append(
+                    fs.metablock.clone(),
+                    handle.ino,
+                    &handle.location,
+                    request,
+                    initial_etag,
+                )
+                .await
+            }
             UploadState::MPUInProgress { request, .. } => {
                 Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request).await
             }
@@ -390,14 +404,19 @@ where
         }
     }
 
-    async fn flush(fs: &S3Filesystem<Client>, ino: InodeNo, s3location: &S3Location, handle: Arc<FileHandle<Client>>) -> bool {
-        let completion_handle = CompletionHandle::new(fs.metablock.clone(), handle);
+    async fn flush(
+        fs: &S3Filesystem<Client>,
+        ino: InodeNo,
+        s3location: &S3Location,
+        handle: Arc<FileHandle<Client>>,
+    ) -> bool {
+        let completion_handle = CompletionHook::new(fs.metablock.clone(), handle);
         match fs.metablock.flush_writer(ino, completion_handle).await {
             // Log the issue but still return put_result.
             Err(err) => {
                 error!(?err, key=?s3location.full_key(), "error updating the inode status");
                 false
-            },
+            }
             Ok(true) => true,
             Ok(false) => false,
         }
