@@ -96,7 +96,7 @@ Mountpoint also respects [access control lists (ACLs) applied to objects](https:
 
 Directory buckets, introduced with the S3 Express One Zone storage class, use a different authentication mechanism from general purpose buckets.
 Instead of using `s3:*` actions, you should allow the `s3express:CreateSession` action.
-This will allow Mountpoint to perform create `ReadOnly` and `ReadWrite` sessions which allow Mountpoint to perform any supported operation against the bucket.
+This will permit Mountpoint to create an S3 Express session, allowing Mountpoint to perform any supported operation against the bucket.
 Thus, there is no fine-grained access control using a directory bucket in an AWS Availability Zone.
 However, when using Mountpoint with access points for directory buckets, there are further possible configuration options, allowing you to be more granular in specifying which operations are allowed.
 Please refer to the [AWS Userguide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-points-directory-buckets-policies.html) for the permissions you can grant and example policies.
