@@ -197,6 +197,7 @@ class ResourceMonitoring:
         Possible enhancement/TODO: We could optimise runtime here by not using cargo flamegraph to get perf data and compute both graphs from one invocation of stackcollapse, etc.
         """
         try:
+            assert self.flamegraph_scripts_path
             stackcollapse_script = os.path.join(self.flamegraph_scripts_path, "stackcollapse-perf.pl")
             flamegraph_script = os.path.join(self.flamegraph_scripts_path, "flamegraph.pl")
 
@@ -251,7 +252,7 @@ class ResourceMonitoring:
         except Exception:
             log.error("Error generating inverted flamegraph:", exc_info=True)
 
-    def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> any:
+    def _start_monitor_with_builtin_repeat(self, process_args: List[str], output_file) -> subprocess.Popen:
         """Start process_args with output to output_file.
 
         Used for starting processes in the background to do monitoring; good for tools that repeat the
@@ -262,7 +263,7 @@ class ResourceMonitoring:
         log.debug(f"Starting monitoring tool {' '.join(process_args)}")
         return subprocess.Popen(process_args, stdout=f)
 
-    def _start_mpstat(self) -> any:
+    def _start_mpstat(self) -> subprocess.Popen:
         # fmt: off
         return self._start_monitor_with_builtin_repeat([
                 "/usr/bin/mpstat",
@@ -272,13 +273,13 @@ class ResourceMonitoring:
             ], 'mpstat.json')
         # fmt: on
 
-    def _start_bwm_ng(self) -> any:
+    def _start_bwm_ng(self) -> subprocess.Popen:
         """Starts bwm-ng, which probably needs to be installed.
 
         https://www.gropp.org/?id=projects&sub=bwm-ng"""
         return self._start_monitor_with_builtin_repeat(['/usr/local/bin/bwm-ng', '-o', 'csv'], 'bwm-ng.csv')
 
-    def _start_perf_stat(self) -> any:
+    def _start_perf_stat(self) -> subprocess.Popen:
         """Gather perf count statistics"""
         perf_events = ["cycles", "instructions", "cache-references", "cache-misses", "bus-cycles"]
 
@@ -296,7 +297,7 @@ class ResourceMonitoring:
         log.info("Starting perf stat with args: %s", " ".join(perf_args))
         return subprocess.Popen(perf_args)
 
-    def _start_flamegraph(self):
+    def _start_flamegraph(self) -> subprocess.Popen:
         """Produces a flamegraph"""
 
         try:
