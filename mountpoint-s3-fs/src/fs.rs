@@ -453,8 +453,8 @@ where
         };
 
         if *flushed {
-            // todo mansi check if handle invalidated in InodeHandleMap
-            if !self.metablock.is_valid_handle(ino, fh).await? {
+            *flushed = false;
+            if !self.metablock.is_valid_handle(ino, fh, "Read").await? {
                 return Err(err!(libc::EBADF, "file handle has been invalidated by a newer handle opened"))
             }
         }
@@ -537,13 +537,13 @@ where
             };
 
             if *flushed {
-                // todo mansi check if handle invalidated in InodeHandleMap
-                if !self.metablock.is_valid_handle(ino, fh).await? {
+                *flushed = false;
+                if !self.metablock.is_valid_handle(ino, fh, "Write").await? {
                     return Err(err!(libc::EBADF, "file handle has been invalidated by a newer handle opened"))
                 }
             }
 
-            request.write(self, &handle, offset, data, fh).await?
+            request.write(self, &handle, offset, data).await?
         };
         Ok(len)
     }
@@ -621,14 +621,14 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let (write_state, flushed) = match &mut *state {
-            FileHandleState::Read { request: _, flushed } => {
-                self.metablock.finish_flushing(ino, None, fh, flushed).await?;
-                return Ok(());
+        let write_state = match &mut *state {
+            FileHandleState::Read { flushed, .. } => {
+                *flushed = self.metablock.flush_reader(ino, fh).await?;
+                return Ok(())
             },
-            FileHandleState::Write { state, flushed } => (state, flushed)
+            FileHandleState::Write { state, .. } => state
         };
-        match write_state.commit(self, &file_handle, fh, flushed).await {
+        match write_state.commit(self, file_handle.clone()).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -661,13 +661,12 @@ where
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { flushed, .. } => {
-                //*flushed = true;
-                self.metablock.finish_flushing(ino, None, fh, flushed).await?;
+                *flushed = self.metablock.flush_reader(ino, fh).await?;
                 Ok(())
             },
-            FileHandleState::Write { state, flushed } => {
+            FileHandleState::Write { state, .. } => {
                 state
-                    .complete(self, &file_handle, pid, file_handle.open_pid, fh, flushed)
+                    .complete(self, file_handle.clone(), pid, file_handle.open_pid)
                     .await
             }
         }
@@ -702,7 +701,7 @@ where
             }
         };
 
-        let write_state = match file_handle.state.into_inner() {
+        let mut write_state = match file_handle.state.into_inner() {
             FileHandleState::Read { .. } => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
                 self.metablock.finish_reading(file_handle.ino, fh).await?;
@@ -712,7 +711,7 @@ where
         };
 
         let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.location, fh)
+            .complete_if_in_progress(self.metablock.clone(), file_handle.ino, &file_handle.location)
             .await;
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 

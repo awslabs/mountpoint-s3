@@ -18,6 +18,7 @@ pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
 pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
 pub use stat::{InodeKind, InodeNo, InodeStat};
+use crate::superblock::inode::CompletionHandle;
 
 pub const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
@@ -62,7 +63,7 @@ pub trait Metablock: Send + Sync {
 
     /// Called when the filesystem has finished writing to the inode refernced by `ino`.
     /// Allows the implementor to make necessary adjustments / update its internal structure.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<(), InodeError>;
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
 
     /// Prepare an inode (referenced by `ino`) to start reading.
     async fn start_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
@@ -71,7 +72,10 @@ pub trait Metablock: Send + Sync {
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
     /// Updates status of the inode and of containing "local" directories.
-    async fn finish_flushing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64, flushed: &mut bool) -> Result<(), InodeError>;
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
+
+    /// Updates status of the inode and of containing "local" directories.
+    async fn flush_writer(&self, ino: InodeNo, completion_handle: CompletionHandle) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
@@ -110,7 +114,7 @@ pub trait Metablock: Send + Sync {
     /// Unlink the entry described by `parent_ino` and `name`.
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
 
-    async fn is_valid_handle(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
+    async fn is_valid_handle(&self, ino: InodeNo, fh: u64, op: &str) -> Result<bool, InodeError>;
 }
 
 /// A callback function used to pass information to the filesystem.
