@@ -13,12 +13,12 @@ mod path;
 mod stat;
 
 // Re-export all the core types
+use crate::superblock::inode::CompletionHook;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
 pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
 pub use stat::{InodeKind, InodeNo, InodeStat};
-use crate::superblock::inode::CompletionHandle;
 
 pub const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
@@ -54,7 +54,13 @@ pub trait Metablock: Send + Sync {
     async fn forget(&self, ino: InodeNo, n: u64);
 
     /// Start writing to an inode.
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool, handle_id: u64) -> Result<(), InodeError>;
+    async fn start_writing(
+        &self,
+        ino: InodeNo,
+        mode: &WriteMode,
+        is_truncate: bool,
+        handle_id: u64,
+    ) -> Result<(), InodeError>;
 
     /// Increase the size of a file open for writing.
     /// Parameter `len` refers to the additional
@@ -75,7 +81,7 @@ pub trait Metablock: Send + Sync {
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
 
     /// Updates status of the inode and of containing "local" directories.
-    async fn flush_writer(&self, ino: InodeNo, completion_handle: CompletionHandle) -> Result<bool, InodeError>;
+    async fn flush_writer(&self, ino: InodeNo, completion_handle: CompletionHook) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
