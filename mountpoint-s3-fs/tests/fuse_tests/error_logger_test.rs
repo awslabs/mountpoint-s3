@@ -21,7 +21,7 @@ const VERSION: &str = "1";
 fn test_manifest_error_logged() {
     // define the expected output
     let expected_events = vec![
-        Event::new("mount", MOUNTPOINT_EVENT_READY),
+        Event::new_simple_event("mount", MOUNTPOINT_EVENT_READY),
         Event {
             timestamp: OffsetDateTime::now_utc(),
             operation: "lookup".to_string(),
@@ -81,7 +81,7 @@ fn test_manifest_error_logged() {
 #[test]
 fn test_not_found_error_not_logged() {
     // define the expected output
-    let expected_events = vec![Event::new("mount", MOUNTPOINT_EVENT_READY)];
+    let expected_events = vec![Event::new_simple_event("mount", MOUNTPOINT_EVENT_READY)];
 
     // create a fuse session with empty mock client
     let tmp_dir = tempdir().expect("must create a tmp dir");
