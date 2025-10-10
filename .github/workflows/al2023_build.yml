@@ -100,5 +100,5 @@ jobs:
     - name: Cleanup test resources
       if: always()
       run: |
-        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt" || true
-        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}write-test.txt" || true
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt"
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}write-test.txt"
