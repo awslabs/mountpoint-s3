@@ -3,7 +3,6 @@ use std::time::Instant;
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::sync::Arc;
 use crate::sync::async_channel::{Receiver, RecvError, Sender, unbounded};
 use crate::sync::atomic::{AtomicUsize, Ordering};
@@ -23,7 +22,6 @@ pub struct PartQueue<Client: ObjectClient> {
     failed: bool,
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
-    mem_limiter: Arc<MemoryLimiter>,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -35,9 +33,7 @@ pub struct PartQueueProducer<E: std::error::Error> {
 }
 
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
-pub fn unbounded_part_queue<Client: ObjectClient>(
-    mem_limiter: Arc<MemoryLimiter>,
-) -> (PartQueue<Client>, PartQueueProducer<Client::ClientError>) {
+pub fn unbounded_part_queue<Client: ObjectClient>() -> (PartQueue<Client>, PartQueueProducer<Client::ClientError>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
     let part_queue = PartQueue {
@@ -45,7 +41,6 @@ pub fn unbounded_part_queue<Client: ObjectClient>(
         receiver,
         failed: false,
         bytes_received: Arc::clone(&bytes_counter),
-        mem_limiter,
     };
     let part_queue_producer = PartQueueProducer {
         sender,
@@ -103,9 +98,6 @@ impl<Client: ObjectClient> PartQueue<Client> {
         assert!(!self.failed, "cannot use a PartQueue after failure");
 
         metrics::gauge!("prefetch.bytes_in_queue").increment(part.len() as f64);
-        // The backpressure controller is not aware of the parts from backwards seek,
-        // so we have to reserve memory for them here.
-        self.mem_limiter.reserve(BufferArea::Prefetch, part.len() as u64);
         self.front_queue.push(part);
         Ok(())
     }
@@ -152,8 +144,6 @@ impl<Client: ObjectClient> Drop for PartQueue<Client> {
 #[cfg(test)]
 mod tests {
     use crate::checksums::ChecksummedBytes;
-    use crate::mem_limiter::MINIMUM_MEM_LIMIT;
-    use crate::memory::PagedPool;
     use crate::object::ObjectId;
 
     use super::*;
@@ -173,10 +163,8 @@ mod tests {
     }
 
     async fn run_test(ops: Vec<Op>) {
-        let pool = PagedPool::new_with_candidate_sizes([1024]);
-        let mem_limiter = MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());
+        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>();
         let mut current_offset = 0;
         let mut current_length = 0;
         for op in ops {
