@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_INTERNAL;
+use mountpoint_s3_fs::fs::error_metadata::{MOUNTPOINT_ERROR_INTERNAL, MOUNTPOINT_EVENT_READY};
 use mountpoint_s3_fs::manifest::DbEntry;
 use mountpoint_s3_fs::metablock::ValidKey;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
@@ -20,20 +20,23 @@ const VERSION: &str = "1";
 #[test]
 fn test_manifest_error_logged() {
     // define the expected output
-    let expected_events = vec![Event {
-        timestamp: OffsetDateTime::now_utc(),
-        operation: "lookup".to_string(),
-        fuse_request_id: Some(0),
-        error_code: MOUNTPOINT_ERROR_INTERNAL.to_string(),
-        errno: Some(5),
-        internal_message: Some("inode error: manifest error: read invalid row with id 3".to_string()),
-        s3_bucket_name: None,
-        s3_object_key: None,
-        s3_error_http_status: None,
-        s3_error_code: None,
-        s3_error_message: None,
-        version: VERSION.to_string(),
-    }];
+    let expected_events = vec![
+        Event::new_simple_event("mount", MOUNTPOINT_EVENT_READY),
+        Event {
+            timestamp: OffsetDateTime::now_utc(),
+            operation: "lookup".to_string(),
+            fuse_request_id: Some(0),
+            error_code: MOUNTPOINT_ERROR_INTERNAL.to_string(),
+            errno: Some(5),
+            internal_message: Some("inode error: manifest error: read invalid row with id 3".to_string()),
+            s3_bucket_name: None,
+            s3_object_key: None,
+            s3_error_http_status: None,
+            s3_error_code: None,
+            s3_error_message: None,
+            version: VERSION.to_string(),
+        },
+    ];
 
     // create a fuse session with a manifest containing a corrupted entry (no etag)
     let s3_path = S3Path::new("test_bucket".to_string().try_into().unwrap(), Prefix::empty());
@@ -78,7 +81,7 @@ fn test_manifest_error_logged() {
 #[test]
 fn test_not_found_error_not_logged() {
     // define the expected output
-    let expected_events = vec![];
+    let expected_events = vec![Event::new_simple_event("mount", MOUNTPOINT_EVENT_READY)];
 
     // create a fuse session with empty mock client
     let tmp_dir = tempdir().expect("must create a tmp dir");

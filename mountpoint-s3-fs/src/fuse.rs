@@ -8,7 +8,9 @@ use std::time::SystemTime;
 use time::OffsetDateTime;
 use tracing::{Instrument, field, instrument};
 
-use crate::fs::{DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno};
+use crate::fs::{
+    DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno, error_metadata::MOUNTPOINT_EVENT_READY,
+};
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
@@ -26,6 +28,9 @@ pub trait ErrorLogger: std::fmt::Debug {
     /// This method will be invoked immediately before a fuse operation returns an error response, with the exception of those
     /// operations which are not implemented.
     fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64);
+
+    /// Log an event with the given operation and code
+    fn event(&self, operation: &str, event_code: &str);
 }
 
 /// `tracing` doesn't allow dynamic levels but we want to dynamically choose the log level for
@@ -97,6 +102,9 @@ where
 {
     #[instrument(level="warn", skip_all, fields(req=req.unique()))]
     fn init(&self, req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+        if let Some(error_logger) = self.error_logger.as_ref() {
+            error_logger.event("mount", MOUNTPOINT_EVENT_READY);
+        }
         block_on(self.fs.init(config).in_current_span())
     }
 
