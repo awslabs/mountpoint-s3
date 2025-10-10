@@ -32,7 +32,7 @@ pub const FULL_VERSION: &str = {
     }
 };
 
-/// Checks environment to see the official Mountpoint for Amazon S3 release target
+/// Checks the environment for the official Mountpoint for Amazon S3 release target.
 const fn official_aws_release_target() -> Option<&'static str> {
     option_env!("MOUNTPOINT_S3_AWS_RELEASE_TARGET")
 }
