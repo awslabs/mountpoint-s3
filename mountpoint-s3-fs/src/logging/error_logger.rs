@@ -43,6 +43,10 @@ impl ErrorLogger for FileErrorLogger {
     fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64) {
         self.log_error(err, fuse_operation, fuse_request_id);
     }
+
+    fn event(&self, operation: &str, event_code: &str) {
+        self.log_event(operation, event_code);
+    }
 }
 
 impl FileErrorLogger {
@@ -84,6 +88,16 @@ impl FileErrorLogger {
             s3_error_message: error.meta().client_error_meta.error_message.clone(),
             version: VERSION.to_string(),
         };
+        self.event_sender
+            .as_ref()
+            .unwrap()
+            .send(event)
+            .expect("must be able to send an event");
+    }
+
+    /// Log an event with the given operation and code
+    fn log_event(&self, operation: &str, event_code: &str) {
+        let event = Event::new(operation, event_code);
         self.event_sender
             .as_ref()
             .unwrap()
@@ -140,6 +154,23 @@ pub struct Event {
 }
 
 impl Event {
+    pub fn new(operation: &str, event_code: &str) -> Self {
+        Event {
+            timestamp: OffsetDateTime::now_utc(),
+            operation: operation.to_string(),
+            error_code: event_code.to_string(),
+            version: VERSION.to_string(),
+            fuse_request_id: None,
+            errno: None,
+            internal_message: None,
+            s3_object_key: None,
+            s3_bucket_name: None,
+            s3_error_http_status: None,
+            s3_error_code: None,
+            s3_error_message: None,
+        }
+    }
+
     fn write<W: std::io::Write>(&self, mut writer: W) -> std::io::Result<()> {
         serde_json::to_writer(&mut writer, &self)?;
         writer.write_all(b"\n")?;
