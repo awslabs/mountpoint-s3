@@ -254,7 +254,7 @@ where
     };
 
     (
-        FuseSession::from_session(session, test_config.max_worker_threads).unwrap(),
+        FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap(),
         mount,
     )
 }

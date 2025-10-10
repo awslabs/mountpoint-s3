@@ -14,6 +14,7 @@ pub struct FuseSessionConfig {
     pub(crate) mount_point: MountPoint,
     pub(crate) options: Vec<MountOption>,
     pub(crate) max_threads: usize,
+    pub(crate) clone_fuse_fd: bool,
 }
 
 /// Mount options to be passed to FUSE.
@@ -27,6 +28,8 @@ pub struct FuseOptions {
     pub allow_root: bool,
     /// Allow other users, including root, to access file system
     pub allow_other: bool,
+    /// UNSTABLE: Use clone_fd optimization?
+    pub clone_fd: bool,
 }
 
 impl FuseSessionConfig {
@@ -74,6 +77,7 @@ impl FuseSessionConfig {
             mount_point,
             options,
             max_threads,
+            clone_fuse_fd: fuse_options.clone_fd,
         })
     }
 

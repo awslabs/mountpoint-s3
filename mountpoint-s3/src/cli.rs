@@ -696,6 +696,12 @@ impl CliArgs {
         Ok(s3_path.bucket_description())
     }
 
+    fn clone_fd_from_env(&self) -> bool {
+        std::env::var("UNSTABLE_MOUNTPOINT_CLONE_FUSE_FD")
+            .map(|v| v.to_lowercase() == "true")
+            .unwrap_or(false)
+    }
+
     pub fn fuse_session_config(&self) -> anyhow::Result<FuseSessionConfig> {
         let mount_point = MountPoint::new(&self.mount_point).context("Failed to create mount point")?;
         let fuse_options = FuseOptions {
@@ -703,6 +709,7 @@ impl CliArgs {
             auto_unmount: self.auto_unmount,
             allow_root: self.allow_root,
             allow_other: self.allow_other,
+            clone_fd: self.clone_fd_from_env(),
         };
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads as usize)
     }

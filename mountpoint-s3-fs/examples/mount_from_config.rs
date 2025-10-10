@@ -95,6 +95,7 @@ impl ConfigOptions {
             allow_other: self.allow_other,
             allow_root: self.allow_root,
             auto_unmount: self.auto_unmount.unwrap_or(false),
+            clone_fd: false,
         };
         FuseSessionConfig::new(mount_point, fuse_options, self.max_threads.unwrap_or(16))
     }
