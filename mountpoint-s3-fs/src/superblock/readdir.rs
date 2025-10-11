@@ -139,7 +139,20 @@ impl ReaddirHandle {
                     warn!("{} has an invalid name and will be unavailable", next.description());
                     continue;
                 };
-                let remote_lookup = self.remote_lookup_from_entry(inner, &next);
+                // Fix for readdir race condition: When files are deleted concurrently during readdir,
+                // local inodes may become stale. Handle them separately to avoid update_from_remote.
+                // Validate local inode still exists in parent before proceeding
+                if let ReaddirEntry::LocalInode { lookup } = &next {
+                    let parent_inode = inner.get(self.dir_ino)?;
+                    let parent_state = parent_inode.get_inode_state()?;
+                    if let InodeKindData::Directory { children, .. } = &parent_state.kind_data {
+                        if !children.contains_key(lookup.inode.name()) {
+                            continue;
+                        }
+                    }
+                    return Ok(Some(lookup.clone()));
+                }
+                let remote_lookup = self.remote_lookup_from_entry(inner, &next); // Only call update_from_remote for remote entries
                 let lookup = inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
                 return Ok(Some(lookup));
             } else {
@@ -636,5 +649,58 @@ impl DirHandle {
 
     pub fn rewind_offset(&self) {
         self.offset.store(0, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::fs::FUSE_ROOT_INODE;
+    use crate::metablock::{InodeKind, Metablock};
+    use crate::s3::S3Path;
+    use crate::superblock::Superblock;
+    use mountpoint_s3_client::mock_client::MockClient;
+    use std::sync::Arc;
+    /// Test to reproduce a race condition in readdir operations.
+    /// This test creates a local file, obtains a readdir handle while the file exists,
+    /// then attempts to use that handle after the file has been deleted.
+    /// The race condition occurs when readdir handles contain stale references to
+    /// deleted local inodes, causing "file does not exist" errors during readdir iteration.
+
+    #[tokio::test]
+    async fn test_readdir_race_condition() {
+        let bucket = crate::s3::Bucket::new("test-bucket").unwrap();
+        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).build());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        let filename = "test_file.txt";
+
+        let lookup = superblock
+            .create(FUSE_ROOT_INODE, filename.as_ref(), InodeKind::File)
+            .await
+            .expect("Create failed");
+
+        superblock
+            .start_writing(lookup.ino(), &Default::default(), false)
+            .await
+            .expect("Start writing failed");
+
+        let handle_id = superblock
+            .new_readdir_handle(FUSE_ROOT_INODE)
+            .await
+            .expect("Failed to create readdir handle");
+
+        superblock
+            .finish_writing(lookup.ino(), None)
+            .await
+            .expect("Finish writing failed");
+
+        superblock
+            .readdir(FUSE_ROOT_INODE, handle_id, 0, false, Box::new(|_, _, _, _| false))
+            .await
+            .expect("Readdir failed");
     }
 }
