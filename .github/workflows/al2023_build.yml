@@ -1,10 +1,7 @@
 name: AL2023 RPM Build Tests
 
 on:
-  pull_request:
-    branches: [ "main" ]
-  push:
-    branches: [ "main" ]
+  pull_request_target:
 
 permissions:
   id-token: write
@@ -16,6 +13,7 @@ env:
   CARGO_INCREMENTAL: 0
   S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
   S3_REGION: ${{ vars.S3_REGION }}
+  TEST_PREFIX: "github-actions-tmp/run-${{ github.run_id }}/rpm-test/"
 
 jobs:
   al2023-package-test:
@@ -30,6 +28,11 @@ jobs:
       run: |
         dnf -y install git rpm-build rpmdevtools make mock ca-certificates python3 rust cargo sudo awscli
         cargo install cargo-about
+
+    - name: Preventing container PAM sudo errors
+      run: |
+        # https://github.com/geerlingguy/docker-rockylinux9-ansible/issues/6
+        chmod 0400 /etc/shadow 
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v5
@@ -63,11 +66,6 @@ jobs:
         rpmbuild -bs ~/rpmbuild/SPECS/amzn2023.spec
         echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-    - name: Preventing container PAM sudo errors
-      run: |
-        # https://github.com/geerlingguy/docker-rockylinux9-ansible/issues/6
-        chmod 0400 /etc/shadow 
-    
     - name: Test RPM build with Mock in Amazon Linux 2023 chroot
       run: |
         sudo mock -r amazonlinux-2023-x86_64 --rebuild ~/rpmbuild/SRPMS/mount-s3-${VERSION}-amzn2023.src.rpm
@@ -77,14 +75,11 @@ jobs:
         dnf -y install /var/lib/mock/amazonlinux-2023-x86_64/result/mount-s3-${VERSION}-amzn2023.x86_64.rpm
         which mount-s3
         mount-s3 --version
-        mount-s3 --help 
-    
+        mount-s3 --help
+
     - name: Basic Functionality Tests
       run: |
         mkdir -p /mnt/s3-test
-
-        TEST_PREFIX="github-actions-tmp/run-${{ github.run_id }}/rpm-test/"
-        echo "TEST_PREFIX=${TEST_PREFIX}" >> "$GITHUB_ENV"
 
         # Read Test
         echo "Hello from RPM test" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt"
