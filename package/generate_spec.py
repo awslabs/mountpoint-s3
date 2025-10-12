@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 
 """
-This RPM spec generator creates distribution-specific .spec files using template inheritance.
-It extracts versions from Cargo.toml/rust-toolchain.toml, scans git submodules for bundled library declarations,
-and uses a base template with distribution-specific overrides.
+This RPM spec generator creates a distribution-specific .spec file.
+It extracts versions from Cargo.toml/rust-toolchain.toml and scans git submodules for bundled library declarations.
 
-The script takes a target distribution (like amzn2023), loads the corresponding template,
+The script takes a target distribution, loads the corresponding template,
 and outputs a complete RPM spec file ready for rpmbuild.
 """
 
 import argparse
 import subprocess
 from pathlib import Path
-import sys
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
 import tomllib
@@ -42,52 +40,51 @@ def get_submodule_versions():
     )
     versions = {}
     for line in result.stdout.strip().split('\n'):
-        if line.strip():
-            match line.strip().split(' ', 1):
-                case [name, version]:
-                    versions[name] = version.lstrip('v')
+        match line.split(' ', 1):
+            case [name, version]:
+                versions[name] = version.removeprefix('v')
     return versions
 
 
 def generate_bundled_provides(submodule_versions):
     return "\n".join(
-        [f"Provides: bundled({lib_name}) = {lib_version}" for lib_name, lib_version in submodule_versions.items()]
+        f"Provides: bundled({lib_name}) = {lib_version}" for lib_name, lib_version in submodule_versions.items()
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate RPM spec files for different distributions")
     parser.add_argument("build_target", help="Target distribution (e.g., amzn2023)")
+    parser.add_argument("--template", help="Custom template file (default: {build_target}.spec.template)")
 
     args = parser.parse_args()
     build_target = args.build_target
-    template_file = f"{build_target}.spec.template"
 
-    # Checking if template exists
-    template_path = templates_dir / template_file
+    template_file = args.template or f'{build_target}.spec.template'
+
+    # Handling both relative and absolute template paths
+    if args.template and Path(args.template).is_absolute():
+        template_path = Path(args.template)
+        template_dir = template_path.parent
+    else:
+        template_path = templates_dir / template_file
+        template_dir = templates_dir
+
     if not template_path.exists():
-        print(f"Error: Template file {template_path} not found")
-        sys.exit(1)
+        raise Exception(f"Template file {template_path} not found")
 
     version = get_version()
     rust_version = get_rust_version()
     submodule_versions = get_submodule_versions()
     current_date = datetime.now().strftime("%a %b %d %Y")
 
-    template_data = {
-        'version': version,
-        'rust_version': rust_version,
-        'build_target': build_target,
-        'current_date': current_date,
-        'submodule_versions': submodule_versions,
-    }
+    env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
 
-    # Setting up template env
-    env = Environment(loader=FileSystemLoader(templates_dir), trim_blocks=True, lstrip_blocks=True)
+    template = env.get_template(template_path.name)
 
-    template = env.get_template(template_file)
-
-    spec_content = template.render(**template_data)
+    spec_content = template.render(
+        version=version, rust_version=rust_version, current_date=current_date, submodule_versions=submodule_versions
+    )
 
     output_file = f"{build_target}.spec"
     with open(output_file, "w") as f:
