@@ -1,6 +1,6 @@
 # Logging
 
-By default, Mountpoint for Amazon S3 emits INFO level and higher severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. Prior to version 1.20, only WARNING level and higher severity events were logged by default. Starting from version 1.21, the default logging level was changed to INFO. To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
+By default, Mountpoint for Amazon S3 emits INFO level and higher severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system (Note that for versions up to 1.20, only WARN level and higher severity events are logged by default). To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
 
     journalctl -e SYSLOG_IDENTIFIER=mount-s3
 
@@ -33,7 +33,7 @@ no effect on messages sent to the standard output. If no output is desired, cons
 
 ## Verbose logging
 
-By default, Mountpoint logs INFO and higher severity events(before v1.20 only WARNINGS were logged by default, changed to INFO from v1.21). For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
+By default, Mountpoint logs INFO level and higher severity events(WARN level and higher up to version 1.20). For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
 You can enable more verbose logging with the `--debug` command-line argument. We recommend logging to a file (the `-l, --log-directory` argument above) when using this option.
 
 ### Advanced logging verbosity options
