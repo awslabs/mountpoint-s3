@@ -298,7 +298,7 @@ To increase the maximum object size for writes, use the `--write-part-size` comm
 
 ### Automatically mounting an S3 bucket at boot
 
-Mountpoint supports automatically mounting an S3 bucket as a local filesystem when your EC2 instance boots up or restarts using the filesystem table file (`/etc/fstab`). Once you modify the fstab file to add a new entry for Mountpoint, your compute instance will read the configuration from the fstab file whenever it restarts to automatically mount the S3 bucket.
+Since v1.18, Mountpoint supports automatically mounting an S3 bucket as a local filesystem when your EC2 instance boots up or restarts using the filesystem table file (`/etc/fstab`). Once you modify the fstab file to add a new entry for Mountpoint, your compute instance will read the configuration from the fstab file whenever it restarts to automatically mount the S3 bucket.
 
 #### Example fstab entry
 
