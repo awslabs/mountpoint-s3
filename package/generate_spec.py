@@ -20,21 +20,21 @@ project_root = script_dir.parent
 templates_dir = script_dir / "templates"
 
 
-def get_version():
+def get_version() -> str:
     cargo_path = project_root / "mountpoint-s3" / "Cargo.toml"
     with open(cargo_path, "rb") as f:
         data = tomllib.load(f)
         return data["package"]["version"]
 
 
-def get_rust_version():
+def get_rust_version() -> str:
     rust_path = project_root / "rust-toolchain.toml"
     with open(rust_path, "rb") as f:
         data = tomllib.load(f)
         return data["toolchain"]["channel"]
 
 
-def get_submodule_versions():
+def get_submodule_versions() -> dict[str, str]:
     result = subprocess.run(
         'git submodule foreach -q \'echo $name `git describe --tags`\'', capture_output=True, text=True, shell=True
     )
@@ -46,13 +46,7 @@ def get_submodule_versions():
     return versions
 
 
-def generate_bundled_provides(submodule_versions):
-    return "\n".join(
-        f"Provides: bundled({lib_name}) = {lib_version}" for lib_name, lib_version in submodule_versions.items()
-    )
-
-
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Generate RPM spec files for different distributions")
     parser.add_argument("build_target", help="Target distribution (e.g., amzn2023)")
     parser.add_argument("--template", help="Custom template file (default: {build_target}.spec.template)")
@@ -65,7 +59,7 @@ def main():
     template_path = templates_dir / template_file
 
     if not template_path.exists():
-        raise Exception(f"Template file {template_path} not found")
+        raise FileNotFoundError(f"Template file {template_path} not found")
 
     version = get_version()
     rust_version = get_rust_version()

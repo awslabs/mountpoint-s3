@@ -71,7 +71,6 @@ cargo build --release
 %autosetup -n mountpoint-s3
 %cargo_prep -v vendor
 
-{% raw %}
 %install
 mkdir -p %{buildroot}/opt/aws/mountpoint-s3/bin
 mkdir -p %{buildroot}/%{_prefix}/sbin
@@ -81,14 +80,10 @@ install -m 644 NOTICE %{buildroot}/opt/aws/mountpoint-s3/
 install -m 644 LICENSE %{buildroot}/opt/aws/mountpoint-s3/
 install -m 644 THIRD_PARTY_LICENSES %{buildroot}/opt/aws/mountpoint-s3/
 install -m 644 cargo-vendor.txt %{buildroot}/opt/aws/mountpoint-s3/
-{% endraw %}
 echo "{{ version }}" > %{buildroot}/opt/aws/mountpoint-s3/VERSION
-{% raw %}
 ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
-{% endraw %}
 
-{% raw %}
 %files
 %defattr(-,root,root,-)
 %dir %attr(755,root,root) /opt/aws/mountpoint-s3
@@ -101,7 +96,6 @@ ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mo
 %attr(644,root,root) /opt/aws/mountpoint-s3/VERSION
 %attr(755,root,root) %{_bindir}/mount-s3
 %attr(755,root,root) %{_prefix}/sbin/mount.mount-s3
-{% endraw %}
 
 %changelog
 * {{ current_date }} Mountpoint-S3 Team <s3-opensource@amazon.com> - {{ version }}+amzn2023
