@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
-import tomllib
+import tomli as tomllib
 
 script_dir = Path(__file__).parent
 project_root = script_dir.parent
@@ -40,9 +40,10 @@ def get_submodule_versions() -> dict[str, str]:
     )
     versions = {}
     for line in result.stdout.strip().split('\n'):
-        match line.split(' ', 1):
-            case [name, version]:
-                versions[name] = version.removeprefix('v')
+        parts = line.split(' ', 1)
+        if len(parts) == 2:
+            name, version = parts
+            versions[name] = version.removeprefix('v')
     return versions
 
 
