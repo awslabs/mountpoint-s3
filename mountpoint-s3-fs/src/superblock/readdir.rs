@@ -141,12 +141,25 @@ impl ReaddirHandle {
                 };
                 let remote_lookup = self.remote_lookup_from_entry(inner, &next);
 
-                // If remote_lookup is None, the entry is invalid (deleted local inode)
-                if let Some(remote_lookup) = remote_lookup {
-                    let lookup = inner.update_from_remote(self.dir_ino, name, Some(remote_lookup))?;
-                    return Ok(Some(lookup));
+                match (&next, remote_lookup) {
+                    (ReaddirEntry::LocalInode { lookup }, Some(_)) => {
+                        // Valid local inode, return it directly
+                        return Ok(Some(lookup.clone()));
+                    }
+                    (ReaddirEntry::LocalInode { .. }, None) => {
+                        // Invalid local inode, skip it
+                        continue;
+                    }
+                    (_, Some(remote_lookup)) => {
+                        // Remote entry, use update_from_remote
+                        let lookup = inner.update_from_remote(self.dir_ino, name, Some(remote_lookup))?;
+                        return Ok(Some(lookup));
+                    }
+                    (_, None) => {
+                        // This shouldn't happen for remote entries
+                        continue;
+                    }
                 }
-                continue; // Skip invalid entries
             } else {
                 return Ok(None);
             }
