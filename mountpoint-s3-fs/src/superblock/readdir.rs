@@ -186,20 +186,19 @@ impl ReaddirHandle {
         match entry {
             ReaddirEntry::LocalInode { lookup } => {
                 // Validate local inode still exists in parent directory
-                if let Ok(parent_inode) = inner.get(self.dir_ino) {
-                    if let Ok(parent_state) = parent_inode.get_inode_state() {
-                        if let InodeKindData::Directory { children, .. } = &parent_state.kind_data {
-                            if children.contains_key(lookup.inode.name()) {
-                                // Return Some(RemoteLookup) for valid local inodes
-                                return Some(RemoteLookup {
-                                    stat: lookup.stat.clone(),
-                                    kind: lookup.inode.kind(),
-                                });
-                            }
-                        }
-                    }
+                if let Ok(parent_inode) = inner.get(self.dir_ino)
+                    && let Ok(parent_state) = parent_inode.get_inode_state()
+                    && let InodeKindData::Directory { children, .. } = &parent_state.kind_data
+                    && children.contains_key(lookup.inode.name())
+                {
+                    // Return Some(RemoteLookup) for valid local inodes
+                    Some(RemoteLookup {
+                        stat: lookup.stat.clone(),
+                        kind: lookup.inode.kind(),
+                    })
+                } else {
+                    None // Return None if validation fails
                 }
-                None // Return None if validation fails
             }
             ReaddirEntry::RemotePrefix { .. } => {
                 let stat = InodeStat::for_directory(inner.mount_time, inner.config.cache_config.dir_ttl);
