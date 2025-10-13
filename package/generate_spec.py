@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
-import tomli as tomllib
+import tomllib
 
 script_dir = Path(__file__).parent
 project_root = script_dir.parent
