@@ -490,10 +490,10 @@ mod tests {
 
         assert_eq!(range.start(), aligned_range.start());
         assert_eq!(range.object_size(), aligned_range.object_size());
-        if range.start() as usize % part_size == 0 {
+        if range.start().is_multiple_of(part_size as u64) {
             assert!(
-                aligned_range.end() as usize == aligned_range.object_size()
-                    || aligned_range.end() as usize % part_size == 0,
+                aligned_range.end().is_multiple_of(aligned_range.object_size() as u64)
+                    || aligned_range.end().is_multiple_of(part_size as u64),
                 "ranges starting on a part boundary should be aligned to another part boundary, or to the end of the object"
             );
         }
