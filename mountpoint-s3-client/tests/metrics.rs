@@ -20,6 +20,10 @@ use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::metrics::{
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_FAILURE, S3_REQUEST_FIRST_BYTE_LATENCY,
+    S3_REQUEST_TOTAL_LATENCY,
+};
 use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams};
 use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient, S3RequestError};
 use mountpoint_s3_crt::s3::client::RequestMetrics;
@@ -202,19 +206,27 @@ async fn test_get_object_metrics() {
 
     // Latency metrics should exist for get_object
     let (_, ttfb) = metrics
-        .get("s3.requests.first_byte_latency_us", Some("op"), Some("get_object"))
+        .get(S3_REQUEST_FIRST_BYTE_LATENCY, Some(ATTR_S3_REQUEST), Some("GetObject"))
         .expect("first byte latency should exist");
     let Metric::Histogram(ttfb) = ttfb else {
         panic!("expected histogram for first byte latency");
     };
     assert!(!ttfb.lock().unwrap().is_empty());
     let (_, total) = metrics
-        .get("s3.requests.total_latency_us", Some("op"), Some("get_object"))
+        .get(S3_REQUEST_TOTAL_LATENCY, Some(ATTR_S3_REQUEST), Some("GetObject"))
         .expect("total latency should exist");
     let Metric::Histogram(total) = total else {
         panic!("expected histogram for total latency");
     };
     assert!(!total.lock().unwrap().is_empty());
+
+    let (_, request_count) = metrics
+        .get(S3_REQUEST_COUNT, Some(ATTR_S3_REQUEST), Some("GetObject"))
+        .expect("request count should exist");
+    let Metric::Counter(request_count) = request_count else {
+        panic!("expected counter for request count");
+    };
+    assert_eq!(*request_count.lock().unwrap(), 1);
 }
 
 rusty_fork_test! {
@@ -222,6 +234,88 @@ rusty_fork_test! {
     fn get_object_metrics() {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(test_get_object_metrics());
+    }
+}
+
+/// Test metrics and log messages for a get object error
+async fn test_get_object_metrics_403() {
+    let (_bucket, prefix) = get_test_bucket_and_prefix("XXXXXXXXXXXXXXXXXXX");
+    let bucket = get_test_bucket_without_permissions();
+    let key = format!("{prefix}/nonexistent_key");
+
+    // Set up metrics recording
+    let recorder = TestRecorder::default();
+    metrics::set_global_recorder(recorder.clone()).unwrap();
+    let guard = TracingTestLayer::enable();
+
+    let client: S3CrtClient = get_test_client();
+
+    // Trigger a 403 error
+    let _err = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect_err("get_object should fail");
+
+    // Get metrics after the request
+    drop(guard);
+    let metrics = recorder.metrics.lock().unwrap().clone();
+
+    // Verify WARN-level message with failure and request ID
+    let events = TracingTestLayer::take_events();
+    let request_id = Regex::new(r"request_id=[^\s<]{10}").unwrap();
+    events
+        .iter()
+        .find(|(level, message)| {
+            *level <= Level::WARN && message.contains("meta request failed") && request_id.is_match(message)
+        })
+        .expect("request ID message not found");
+
+    // Verify S3 request failure metrics
+    let (key, request_failures) = metrics
+        .get(S3_REQUEST_FAILURE, Some(ATTR_S3_REQUEST), Some("GetObject"))
+        .expect("request failures metric should exist");
+
+    // Verify HTTP status code attribute exists and is correct
+    let status_code_label = key
+        .labels()
+        .find(|l| l.key() == ATTR_HTTP_STATUS)
+        .expect("HTTP status code label should exist");
+    assert_eq!(status_code_label.value(), "403");
+
+    let Metric::Counter(failures) = request_failures else {
+        panic!("expected counter for request failures");
+    };
+    assert_eq!(*failures.lock().unwrap(), 1);
+
+    // Verify meta request failure metrics with status code
+    let (status_code_key, meta_failures) = metrics
+        .get("s3.meta_requests.failures", Some("op"), Some("get_object"))
+        .expect("meta request failures metric should exist");
+    let status_code_label = status_code_key
+        .labels()
+        .find(|l| l.key() == "status")
+        .expect("status code should exist");
+    assert_eq!(status_code_label.value(), "403");
+    let Metric::Counter(failures) = meta_failures else {
+        panic!("expected counter for meta request failures");
+    };
+    assert!(*failures.lock().unwrap() > 0);
+
+    // Verify latency metrics are recorded even for failures
+    let (_, total_latency) = metrics
+        .get(S3_REQUEST_TOTAL_LATENCY, Some(ATTR_S3_REQUEST), Some("GetObject"))
+        .expect("total latency should exist");
+    let Metric::Histogram(total_latency) = total_latency else {
+        panic!("expected histogram for total latency");
+    };
+    assert!(!total_latency.lock().unwrap().is_empty());
+}
+
+rusty_fork_test! {
+    #[test]
+    fn get_object_metrics_403() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_get_object_metrics_403());
     }
 }
 

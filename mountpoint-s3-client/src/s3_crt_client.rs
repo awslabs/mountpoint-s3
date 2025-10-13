@@ -44,6 +44,10 @@ use crate::checksums::{crc32_to_base64, crc32c_to_base64, crc64nvme_to_base64, s
 use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
+use crate::metrics::{
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_CANCELED, S3_REQUEST_COUNT, S3_REQUEST_FAILURE,
+    S3_REQUEST_FIRST_BYTE_LATENCY, S3_REQUEST_TOTAL_LATENCY,
+};
 use crate::object_client::*;
 use crate::user_agent::UserAgent;
 
@@ -601,16 +605,15 @@ impl S3CrtClientInner {
                 debug!(%request_type, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
                 trace!(detailed_metrics=?metrics, "S3 request completed");
 
-                let op = span_telemetry.metadata().map(|m| m.name()).unwrap_or("unknown");
                 if let Some(ttfb) = ttfb {
-                    metrics::histogram!("s3.requests.first_byte_latency_us", "op" => op, "type" => request_type).record(ttfb.as_micros() as f64);
+                    metrics::histogram!(S3_REQUEST_FIRST_BYTE_LATENCY, ATTR_S3_REQUEST => request_type).record(ttfb.as_micros() as f64);
                 }
-                metrics::histogram!("s3.requests.total_latency_us", "op" => op, "type" => request_type).record(duration.as_micros() as f64);
-                metrics::counter!("s3.requests", "op" => op, "type" => request_type).increment(1);
+                metrics::histogram!(S3_REQUEST_TOTAL_LATENCY, ATTR_S3_REQUEST => request_type).record(duration.as_micros() as f64);
+                metrics::counter!(S3_REQUEST_COUNT, ATTR_S3_REQUEST => request_type).increment(1);
                 if request_failure {
-                    metrics::counter!("s3.requests.failures", "op" => op, "type" => request_type, "status" => http_status.unwrap_or(-1).to_string()).increment(1);
+                    metrics::counter!(S3_REQUEST_FAILURE, ATTR_S3_REQUEST => request_type, ATTR_HTTP_STATUS => http_status.unwrap_or(-1).to_string()).increment(1);
                 } else if request_canceled {
-                    metrics::counter!("s3.requests.canceled", "op" => op, "type" => request_type).increment(1);
+                    metrics::counter!(S3_REQUEST_CANCELED, ATTR_S3_REQUEST => request_type).increment(1);
                 }
 
                 if let Some(telemetry_callback) = &telemetry_callback {

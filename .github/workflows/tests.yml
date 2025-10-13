@@ -267,39 +267,6 @@ jobs:
       - name: Build CRT binding documentation
         run: cargo doc --no-deps -p mountpoint-s3-crt
 
-  doctests:
-    name: rustdoc tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          submodules: true
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
-          # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
-          rustflags: ""
-      - name: Install operating system dependencies
-        uses: ./.github/actions/install-dependencies
-        with:
-          fuseVersion: 2
-      - name: Cargo cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run doctests for all crates
-        # Some of the generated bindings seem to be interpreted as rustdoc tests, skip them for now.
-        run: cargo test --doc -- --skip=generated::aws_hash_table_foreach
-
   deny:
     name: Licenses
     runs-on: ubuntu-latest

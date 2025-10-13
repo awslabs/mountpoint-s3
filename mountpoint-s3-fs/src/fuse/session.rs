@@ -26,6 +26,14 @@ pub struct FuseSession {
 
 type OnClose = Box<dyn FnOnce() + Send>;
 
+struct SessionAndConfig<FS>
+where
+    FS: Filesystem + Send + Sync + 'static,
+{
+    session: Session<FS>,
+    clone_fuse_fd: bool,
+}
+
 impl FuseSession {
     /// Create a new multi-threaded FUSE session.
     pub fn new<FS: Filesystem + Send + Sync + 'static>(
@@ -43,13 +51,19 @@ impl FuseSession {
                 session_acl_from_mount_options(&fuse_session_config.options),
             ),
         };
-        Self::from_session(session, fuse_session_config.max_threads).context("Failed to start FUSE session")
+        Self::from_session(
+            session,
+            fuse_session_config.max_threads,
+            fuse_session_config.clone_fuse_fd,
+        )
+        .context("Failed to start FUSE session")
     }
 
     /// Create worker threads to dispatch requests for a FUSE session.
     pub fn from_session<FS: Filesystem + Send + Sync + 'static>(
         mut session: Session<FS>,
         max_worker_threads: usize,
+        clone_fuse_fd: bool,
     ) -> anyhow::Result<Self> {
         assert!(max_worker_threads > 0);
 
@@ -100,7 +114,9 @@ impl FuseSession {
                 .context("failed to spawn waiter thread")?
         };
 
-        WorkerPool::start(session, workers_tx, max_worker_threads).context("failed to start worker thread pool")?;
+        let session_and_config = SessionAndConfig { session, clone_fuse_fd };
+        WorkerPool::start(session_and_config, workers_tx, max_worker_threads)
+            .context("failed to start worker thread pool")?;
 
         Ok(Self {
             unmounter,
@@ -277,7 +293,7 @@ impl<W: Work> Clone for WorkerPool<W> {
     }
 }
 
-impl<FS> Work for Session<FS>
+impl<FS> Work for SessionAndConfig<FS>
 where
     FS: Filesystem + Send + Sync + 'static,
 {
@@ -288,7 +304,7 @@ where
         FB: FnMut(),
         FA: FnMut(),
     {
-        self.run_with_callbacks(
+        self.session.run_with_callbacks(
             |req| {
                 // Do not scale threads on bursts of forget messages.
                 if req.is_forget() {
@@ -303,7 +319,7 @@ where
                 }
                 after();
             },
-            false,
+            self.clone_fuse_fd,
         )
     }
 }
