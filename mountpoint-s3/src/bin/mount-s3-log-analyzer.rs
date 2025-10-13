@@ -27,7 +27,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    const MEM_USAGE_LOG_PATTERN: &str = "process\\.memory_usage:\\s\\d+$";
+    const MEM_USAGE_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
 
     let args = CliArgs::parse();
     let paths = fs::read_dir(args.log_dir)?;
