@@ -62,13 +62,7 @@ def main():
 
     template_file = args.template or f'{build_target}.spec.template'
 
-    # Handling both relative and absolute template paths
-    if args.template and Path(args.template).is_absolute():
-        template_path = Path(args.template)
-        template_dir = template_path.parent
-    else:
-        template_path = templates_dir / template_file
-        template_dir = templates_dir
+    template_path = templates_dir / template_file
 
     if not template_path.exists():
         raise Exception(f"Template file {template_path} not found")
@@ -78,9 +72,9 @@ def main():
     submodule_versions = get_submodule_versions()
     current_date = datetime.now().strftime("%a %b %d %Y")
 
-    env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
+    env = Environment(loader=FileSystemLoader(templates_dir), trim_blocks=True, lstrip_blocks=True)
 
-    template = env.get_template(template_path.name)
+    template = env.get_template(template_file)
 
     spec_content = template.render(
         version=version, rust_version=rust_version, current_date=current_date, submodule_versions=submodule_versions
