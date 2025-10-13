@@ -139,22 +139,14 @@ impl ReaddirHandle {
                     warn!("{} has an invalid name and will be unavailable", next.description());
                     continue;
                 };
-                // Fix for readdir race condition: When files are deleted concurrently during readdir,
-                // local inodes may become stale. Handle them separately to avoid update_from_remote.
-                // Validate local inode still exists in parent before proceeding
-                if let ReaddirEntry::LocalInode { lookup } = &next {
-                    let parent_inode = inner.get(self.dir_ino)?;
-                    let parent_state = parent_inode.get_inode_state()?;
-                    if let InodeKindData::Directory { children, .. } = &parent_state.kind_data {
-                        if !children.contains_key(lookup.inode.name()) {
-                            continue;
-                        }
-                    }
-                    return Ok(Some(lookup.clone()));
+                let remote_lookup = self.remote_lookup_from_entry(inner, &next);
+
+                // If remote_lookup is None, the entry is invalid (deleted local inode)
+                if let Some(remote_lookup) = remote_lookup {
+                    let lookup = inner.update_from_remote(self.dir_ino, name, Some(remote_lookup))?;
+                    return Ok(Some(lookup));
                 }
-                let remote_lookup = self.remote_lookup_from_entry(inner, &next); // Only call update_from_remote for remote entries
-                let lookup = inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
-                return Ok(Some(lookup));
+                continue; // Skip invalid entries
             } else {
                 return Ok(None);
             }
@@ -179,10 +171,23 @@ impl ReaddirHandle {
         entry: &ReaddirEntry,
     ) -> Option<RemoteLookup> {
         match entry {
-            // If we made it this far with a local inode, we know there's nothing on the remote with
-            // the same name, because [LocalInode] is last in the ordering and so otherwise would
-            // have been deduplicated by now.
-            ReaddirEntry::LocalInode { .. } => None,
+            ReaddirEntry::LocalInode { lookup } => {
+                // Validate local inode still exists in parent directory
+                if let Ok(parent_inode) = inner.get(self.dir_ino) {
+                    if let Ok(parent_state) = parent_inode.get_inode_state() {
+                        if let InodeKindData::Directory { children, .. } = &parent_state.kind_data {
+                            if children.contains_key(lookup.inode.name()) {
+                                // Return Some(RemoteLookup) for valid local inodes
+                                return Some(RemoteLookup {
+                                    stat: lookup.stat.clone(),
+                                    kind: lookup.inode.kind(),
+                                });
+                            }
+                        }
+                    }
+                }
+                None // Return None if validation fails
+            }
             ReaddirEntry::RemotePrefix { .. } => {
                 let stat = InodeStat::for_directory(inner.mount_time, inner.config.cache_config.dir_ttl);
                 Some(RemoteLookup {
@@ -660,12 +665,9 @@ mod tests {
     use crate::superblock::Superblock;
     use mountpoint_s3_client::mock_client::MockClient;
     use std::sync::Arc;
-    /// Test to reproduce a race condition in readdir operations.
-    /// This test creates a local file, obtains a readdir handle while the file exists,
-    /// then attempts to use that handle after the file has been deleted.
-    /// The race condition occurs when readdir handles contain stale references to
-    /// deleted local inodes, causing "file does not exist" errors during readdir iteration.
-
+    /// Verifies readdir handles gracefully skip deleted local inodes.
+    /// Creates a file, obtains a readdir handle, deletes the file, then uses the handle.
+    /// Should complete successfully when local inodes are deleted concurrently.
     #[tokio::test]
     async fn test_readdir_race_condition() {
         let bucket = crate::s3::Bucket::new("test-bucket").unwrap();
