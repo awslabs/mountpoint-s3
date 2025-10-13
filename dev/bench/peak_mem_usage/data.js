@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760377430274,
+  "lastUpdate": 1760384488790,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "sahityad@amazon.com",
-            "name": "Sahitya Damera",
-            "username": "sahityadg"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d598453968b10b55c01371f0f594d586fcd8be43",
-          "message": "Remove benchmark config parser (#1609)\n\nAs we shifted to using benchmark specific sweeper files, config.yaml\nwill define the defaults for all benchmark parameters and should not\nhave any overrides. So we don't need an additional parser to ensure\nbenchmarks are defaulting to appropriate values.\n\nAfter this change, all the default values except for\nnetwork.maximum_throughput_gbps. The config parser was defaulting to 100\nbut now picks the default resolved by Mountpoint.\n\n### Does this change impact existing behavior?\n\nNo benchmarks only\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo benchmarks only\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Sahitya Damera <sahityad@amazon.com>",
-          "timestamp": "2025-09-19T12:13:45Z",
-          "tree_id": "9bd334a5122cf64ce83e0cef3bcef8f8f2149c25",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d598453968b10b55c01371f0f594d586fcd8be43"
-        },
-        "date": 1758292087285,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3520.79296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4858.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8540.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 21.77734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 48.62890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 23.12890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 50.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 17.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 27.7421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 19.4140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 23.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8192.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 50.1484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8263.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 50.94140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2111.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 23.1484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2111.58984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2111.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 23.1328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 605.45703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 496.4453125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3909,6 +3775,140 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/awslabs/mountpoint-s3/commit/88d24b21f9b3e748d4868eac576f48de2431f823"
         },
         "date": 1760377430218,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 0,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 0,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1d0ffaf8aad5860cae440679c56af9fb8fde1b8",
+          "message": "Document fstab support introduced in v1.18 (#1651)\n\nClarify in `CONFIGURATION.md` that fstab support is only available since\nMountpoint v1.18.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-10-13T16:12:50Z",
+          "tree_id": "cc7f7b0998d82842efa4b55c2add65c8e6fe24f4",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/d1d0ffaf8aad5860cae440679c56af9fb8fde1b8"
+        },
+        "date": 1760384488735,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
