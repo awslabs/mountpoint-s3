@@ -45,7 +45,7 @@ use crate::endpoint_config::EndpointError;
 use crate::endpoint_config::{self, EndpointConfig};
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::metrics::{
-    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_CANCELED, S3_REQUEST_COUNT, S3_REQUEST_FAILURE,
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_CANCELED, S3_REQUEST_COUNT, S3_REQUEST_ERRORS,
     S3_REQUEST_FIRST_BYTE_LATENCY, S3_REQUEST_TOTAL_LATENCY,
 };
 use crate::object_client::*;
@@ -611,7 +611,7 @@ impl S3CrtClientInner {
                 metrics::histogram!(S3_REQUEST_TOTAL_LATENCY, ATTR_S3_REQUEST => operation_name).record(duration.as_micros() as f64);
                 metrics::counter!(S3_REQUEST_COUNT, ATTR_S3_REQUEST => operation_name).increment(1);
                 if request_failure {
-                    metrics::counter!(S3_REQUEST_FAILURE, ATTR_S3_REQUEST => operation_name, ATTR_HTTP_STATUS => http_status.unwrap_or(-1).to_string()).increment(1);
+                    metrics::counter!(S3_REQUEST_ERRORS, ATTR_S3_REQUEST => operation_name, ATTR_HTTP_STATUS => http_status.unwrap_or(-1).to_string()).increment(1);
                 } else if request_canceled {
                     metrics::counter!(S3_REQUEST_CANCELED, ATTR_S3_REQUEST => operation_name).increment(1);
                 }

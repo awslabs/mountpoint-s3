@@ -1,6 +1,6 @@
 use metrics::Unit;
 pub use mountpoint_s3_client::metrics::{
-    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_FAILURE, S3_REQUEST_FIRST_BYTE_LATENCY,
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_ERRORS, S3_REQUEST_FIRST_BYTE_LATENCY,
     S3_REQUEST_TOTAL_LATENCY,
 };
 
@@ -56,7 +56,7 @@ pub fn lookup_config(name: &str) -> MetricConfig {
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_S3_REQUEST],
         },
-        S3_REQUEST_FAILURE => MetricConfig {
+        S3_REQUEST_ERRORS => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_S3_REQUEST, ATTR_HTTP_STATUS],

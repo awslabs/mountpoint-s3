@@ -412,7 +412,7 @@ mod tests {
 mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
-    use crate::metrics::defs::{ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_FAILURE};
+    use crate::metrics::defs::{ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_ERRORS};
     use crate::metrics_otel::{OtlpConfig, OtlpMetricsExporter};
     use metrics::{Key, Unit};
     use opentelemetry::metrics::MeterProvider as _;
@@ -530,7 +530,7 @@ mod test_otlp_metrics {
             ],
         );
 
-        let config = defs::lookup_config(S3_REQUEST_FAILURE);
+        let config = defs::lookup_config(S3_REQUEST_ERRORS);
         let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
         counter.as_counter().increment(1);
 
