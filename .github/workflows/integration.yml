@@ -65,7 +65,7 @@ jobs:
       matrix:
         bucket-type:
         - name: S3
-          feature: 
+          feature:
         - name: S3XOZ
           feature: s3express_tests
         fuseVersion: [2, 3]
@@ -125,7 +125,7 @@ jobs:
       matrix:
         bucket-type:
         - name: S3
-          feature: 
+          feature:
         - name: S3XOZ
           feature: s3express_tests
         runner:
@@ -173,7 +173,7 @@ jobs:
       run: ./.github/actions/scripts/save-coredump.sh
 
   fstab:
-    name: fstab tests (${{ matrix.runner.name }}
+    name: fstab tests (${{ matrix.runner.name }})
     runs-on: ${{ matrix.runner.tags }}
 
     needs: approval
