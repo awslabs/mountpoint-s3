@@ -11,6 +11,7 @@ use tracing::{Instrument, field, instrument};
 use crate::fs::{
     DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno, error_metadata::MOUNTPOINT_EVENT_READY,
 };
+use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS};
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
@@ -53,7 +54,7 @@ macro_rules! fuse_error {
     ($name:literal, $reply:expr, $err:expr, $fs:expr, $request:expr) => {{
         let err = $err;
         event!(err.level, "{} failed with errno {}: {:#}", $name, err.to_errno(), err);
-        ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
+        ::metrics::counter!(FUSE_REQUEST_ERRORS, ATTR_FUSE_REQUEST => $name).increment(1);
         if let Some(error_logger) = $fs.error_logger.as_ref() {
             error_logger.error(&err, $name, $request.unique());
         }
@@ -65,7 +66,7 @@ macro_rules! fuse_error {
 macro_rules! fuse_unsupported {
     ($name:literal, $reply:expr, $err:expr, $level:expr) => {{
         event!($level, "{} failed: operation not supported by Mountpoint", $name);
-        ::metrics::counter!("fuse.op_failures", "op" => $name).increment(1);
+        ::metrics::counter!(FUSE_REQUEST_ERRORS, ATTR_FUSE_REQUEST => $name).increment(1);
         ::metrics::counter!("fuse.op_unimplemented","op" => $name).increment(1);
         $reply.error($err);
     }};
@@ -160,7 +161,7 @@ where
         }
 
         metrics::counter!("fuse.total_bytes", "type" => "read").increment(bytes_sent as u64);
-        metrics::histogram!("fuse.io_size", "type" => "read").record(bytes_sent as f64);
+        metrics::histogram!(FUSE_IO_SIZE, ATTR_FUSE_REQUEST => "read").record(bytes_sent as f64);
     }
 
     #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=parent, name=field::Empty))]
@@ -342,7 +343,7 @@ where
             Ok(bytes_written) => {
                 reply.written(bytes_written);
                 metrics::counter!("fuse.total_bytes", "type" => "write").increment(bytes_written as u64);
-                metrics::histogram!("fuse.io_size", "type" => "write").record(bytes_written as f64);
+                metrics::histogram!(FUSE_IO_SIZE, ATTR_FUSE_REQUEST => "write").record(bytes_written as f64);
             }
             Err(e) => fuse_error!("write", reply, e, self, req),
         }

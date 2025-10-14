@@ -14,6 +14,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use dashmap::DashMap;
+use defs::PROCESS_MEMORY_USAGE;
 use metrics::{Key, Metadata, Recorder};
 use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, System, get_current_pid};
 
@@ -98,7 +99,7 @@ fn poll_process_metrics(sys: &mut System) {
         if let Some(process) = sys.process(pid) {
             // update the metrics only when there is some change, otherwise it will be too spammy.
             if last_mem != process.memory() {
-                metrics::gauge!("process.memory_usage").set(process.memory() as f64);
+                metrics::gauge!(PROCESS_MEMORY_USAGE).set(process.memory() as f64);
                 metrics::gauge!("system.available_memory").set(sys.available_memory() as f64);
             }
         }
@@ -419,6 +420,7 @@ mod test_otlp_metrics {
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
     use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
+    use std::sync::Arc;
     struct TestContext {
         exporter: InMemoryMetricExporter,
         provider: SdkMeterProvider,
@@ -522,7 +524,7 @@ mod test_otlp_metrics {
         let ctx = TestContext::new();
 
         let key = Key::from_parts(
-            "s3.request_failure",
+            S3_REQUEST_ERRORS,
             vec![
                 metrics::Label::new(ATTR_S3_REQUEST, "GetObject"),
                 metrics::Label::new(ATTR_HTTP_STATUS, "403"),
@@ -542,7 +544,7 @@ mod test_otlp_metrics {
         let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
         let metric = scope_metrics[0]
             .metrics()
-            .find(|m| m.name() == "s3.request_failure")
+            .find(|m| m.name() == S3_REQUEST_ERRORS)
             .unwrap();
 
         match metric.data() {
