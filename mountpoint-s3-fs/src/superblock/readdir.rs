@@ -155,19 +155,18 @@ impl ReaddirHandle {
     ) -> Result<Option<LookedUpInode>, InodeError> {
         let remote_lookup = match entry {
             ReaddirEntry::LocalInode { lookup } => {
-                // Validate local inode still exists in parent directory
-                // If the file was deleted, we skip it instead of returning stale data.
+                // Check if local inode still exists
                 if let Ok(parent_inode) = inner.get(self.dir_ino)
                     && let Ok(parent_state) = parent_inode.get_inode_state()
-                    && let InodeKindData::Directory { children, .. } = &parent_state.kind_data
-                    && children.contains_key(lookup.inode.name())
+                    && let InodeKindData::Directory { writing_children, .. } = &parent_state.kind_data
+                    && writing_children.contains(&lookup.inode.ino())
                 {
                     Some(RemoteLookup {
                         stat: lookup.stat.clone(),
                         kind: lookup.inode.kind(),
                     })
                 } else {
-                    None
+                    None // This will cause the entry to be skipped
                 }
             }
             ReaddirEntry::RemotePrefix { .. } => {
@@ -212,11 +211,16 @@ impl ReaddirHandle {
             }
             (_, Some(remote_lookup)) => {
                 // Remote entry, use update_from_remote
-
-                let valid_name = ValidName::parse_os_str(&name)?;
-                let lookup = inner.update_from_remote(self.dir_ino, valid_name, Some(remote_lookup))?;
-
-                Ok(Some(lookup))
+                match ValidName::parse_os_str(&name) {
+                    Ok(valid_name) => {
+                        let lookup = inner.update_from_remote(self.dir_ino, valid_name, Some(remote_lookup))?;
+                        Ok(Some(lookup))
+                    }
+                    Err(_) => {
+                        // Invalid name, skip this entry
+                        Ok(None)
+                    }
+                }
             }
             (_, None) => {
                 // This shouldn't happen for remote entries
