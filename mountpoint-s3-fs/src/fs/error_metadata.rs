@@ -23,3 +23,4 @@ pub struct ErrorMetadata {
 pub const MOUNTPOINT_ERROR_CLIENT: &str = "error.client";
 pub const MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT: &str = "error.fs.lookup_nonexistent";
 pub const MOUNTPOINT_ERROR_INTERNAL: &str = "error.internal";
+pub const MOUNTPOINT_EVENT_READY: &str = "event.ready";
