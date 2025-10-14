@@ -33,7 +33,7 @@ no effect on messages sent to the standard output. If no output is desired, cons
 
 ## Verbose logging
 
-By default, Mountpoint logs INFO level and higher severity events(WARN level and higher up to version 1.20). For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
+By default, Mountpoint logs INFO level and higher severity events (WARN level and higher up to version 1.20). For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
 You can enable more verbose logging with the `--debug` command-line argument. We recommend logging to a file (the `-l, --log-directory` argument above) when using this option.
 
 ### Advanced logging verbosity options
