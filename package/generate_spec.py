@@ -40,10 +40,9 @@ def get_submodule_versions() -> dict[str, str]:
     )
     versions = {}
     for line in result.stdout.strip().split('\n'):
-        parts = line.split(' ', 1)
-        if len(parts) == 2:
-            name, version = parts
-            versions[name] = version.removeprefix('v')
+        match line.split(' ', 1):
+            case [name, version]:
+                versions[name] = version.removeprefix('v')
     return versions
 
 
