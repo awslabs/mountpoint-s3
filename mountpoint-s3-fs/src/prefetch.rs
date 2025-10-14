@@ -42,6 +42,7 @@ use tracing::trace;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
+use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
 
 mod backpressure_controller;
@@ -306,7 +307,7 @@ where
                     actual = offset,
                     "out-of-order read, resetting prefetch"
                 );
-                counter!("prefetch.out_of_order").increment(1);
+                counter!(PREFETCH_RESET_STATE).increment(1);
 
                 // This is an approximation, tolerating some seeking caused by concurrent readahead.
                 self.record_contiguous_read_metric();
