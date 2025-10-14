@@ -2711,6 +2711,7 @@ dependencies = [
  "mountpoint-s3-client",
  "mountpoint-s3-fuser",
  "nix 0.30.1",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

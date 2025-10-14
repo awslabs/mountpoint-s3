@@ -15,6 +15,8 @@ pub mod s3;
 #[cfg(all(test, feature = "manifest"))]
 pub mod manifest;
 
+pub mod test_recorder;
+
 use aws_credential_types::Credentials;
 use fuser::{FileAttr, FileType};
 use futures::executor::ThreadPool;
@@ -25,12 +27,16 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
 use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::metrics::metrics_tracing_span_layer;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Arc;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub fn make_test_filesystem(
     bucket: &str,
@@ -136,7 +142,14 @@ pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfi
 #[ctor::ctor]
 fn init_tracing_subscriber() {
     let _ = RustLogAdapter::try_init();
-    let _ = tracing_subscriber::fmt::try_init();
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+
+    let _ = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer())
+        .with(metrics_tracing_span_layer())
+        .try_init();
 }
 
 #[ctor::ctor]
