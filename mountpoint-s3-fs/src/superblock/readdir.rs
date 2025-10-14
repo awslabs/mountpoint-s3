@@ -45,7 +45,7 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 
 use super::{InodeKindData, LookedUpInode, RemoteLookup, SuperblockInner};
-use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
+use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat, ValidName};
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::{AsyncMutex, Mutex};
 use mountpoint_s3_client::ObjectClient;
@@ -114,9 +114,8 @@ impl ReaddirHandle {
         })
     }
 
-    /// Return the next inode for the directory stream. If the stream is finished, returns
-    /// `Ok(None)`. Does not increment the lookup count of the returned inodes: the caller
-    /// is responsible for calling [`remember()`] if required.
+    /// Get the next file or folder in the directory listing.
+    /// Returns None when no more items. Skips items with invalid names.
     pub(super) async fn next<OC: ObjectClient + Send + Sync>(
         &self,
         inner: &SuperblockInner<OC>,
@@ -134,70 +133,41 @@ impl ReaddirHandle {
             };
 
             if let Some(next) = next {
-                let Ok(name) = next.name().try_into() else {
-                    // Short-circuit the update if we know it'll fail because the name is invalid
-                    warn!("{} has an invalid name and will be unavailable", next.description());
-                    continue;
-                };
-                let remote_lookup = self.remote_lookup_from_entry(inner, &next);
+                let name: OsString = next.name().into();
 
-                match (&next, remote_lookup) {
-                    (ReaddirEntry::LocalInode { lookup }, Some(_)) => {
-                        // Valid local inode, return it directly
-                        return Ok(Some(lookup.clone()));
-                    }
-                    (ReaddirEntry::LocalInode { .. }, None) => {
-                        // Invalid local inode, skip it
-                        continue;
-                    }
-                    (_, Some(remote_lookup)) => {
-                        // Remote entry, use update_from_remote
-                        let lookup = inner.update_from_remote(self.dir_ino, name, Some(remote_lookup))?;
-                        return Ok(Some(lookup));
-                    }
-                    (_, None) => {
-                        // This shouldn't happen for remote entries
-                        continue;
-                    }
+                if let Some(result) = self.lookup_from_entry(inner, &next, name)? {
+                    return Ok(Some(result));
                 }
+                // Continue to next entry if None returned
             } else {
                 return Ok(None);
             }
         }
     }
 
-    /// Re-add an entry to the front of the queue if the consumer wasn't able to use it
-    pub fn readd(&self, entry: LookedUpInode) {
-        let old = self.readded.lock().unwrap().replace(entry);
-        assert!(old.is_none(), "cannot readd more than one entry");
-    }
-
-    /// Return the inode number of the parent directory of this directory handle
-    pub fn parent(&self) -> InodeNo {
-        self.parent_ino
-    }
-
-    /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
-    fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync>(
+    /// Process a ReaddirEntry and return the final LookedUpInode result.
+    /// Returns None if the entry should be skipped.
+    fn lookup_from_entry<OC: ObjectClient + Send + Sync>(
         &self,
         inner: &SuperblockInner<OC>,
         entry: &ReaddirEntry,
-    ) -> Option<RemoteLookup> {
-        match entry {
+        name: OsString,
+    ) -> Result<Option<LookedUpInode>, InodeError> {
+        let remote_lookup = match entry {
             ReaddirEntry::LocalInode { lookup } => {
                 // Validate local inode still exists in parent directory
+                // If the file was deleted, we skip it instead of returning stale data.
                 if let Ok(parent_inode) = inner.get(self.dir_ino)
                     && let Ok(parent_state) = parent_inode.get_inode_state()
                     && let InodeKindData::Directory { children, .. } = &parent_state.kind_data
                     && children.contains_key(lookup.inode.name())
                 {
-                    // Return Some(RemoteLookup) for valid local inodes
                     Some(RemoteLookup {
                         stat: lookup.stat.clone(),
                         kind: lookup.inode.kind(),
                     })
                 } else {
-                    None // Return None if validation fails
+                    None
                 }
             }
             ReaddirEntry::RemotePrefix { .. } => {
@@ -228,7 +198,42 @@ impl ReaddirHandle {
                     kind: InodeKind::File,
                 })
             }
+        };
+
+        // Handle the result based on entry type and lookup result
+        match (entry, remote_lookup) {
+            (ReaddirEntry::LocalInode { lookup }, Some(_)) => {
+                // Valid local inode, return it directly
+                Ok(Some(lookup.clone()))
+            }
+            (ReaddirEntry::LocalInode { .. }, None) => {
+                // Invalid local inode, skip it
+                Ok(None)
+            }
+            (_, Some(remote_lookup)) => {
+                // Remote entry, use update_from_remote
+
+                let valid_name = ValidName::parse_os_str(&name)?;
+                let lookup = inner.update_from_remote(self.dir_ino, valid_name, Some(remote_lookup))?;
+
+                Ok(Some(lookup))
+            }
+            (_, None) => {
+                // This shouldn't happen for remote entries
+                Ok(None)
+            }
         }
+    }
+
+    /// Re-add an entry to the front of the queue if the consumer wasn't able to use it
+    pub fn readd(&self, entry: LookedUpInode) {
+        let old = self.readded.lock().unwrap().replace(entry);
+        assert!(old.is_none(), "cannot readd more than one entry");
+    }
+
+    /// Return the inode number of the parent directory of this directory handle
+    pub fn parent(&self) -> InodeNo {
+        self.parent_ino
     }
 }
 
