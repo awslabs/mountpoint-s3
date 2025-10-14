@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_REQUEST_LATENCY};
 use metrics::histogram;
 use tracing::span::Attributes;
 use tracing::{Id, Level, Subscriber};
@@ -46,7 +47,8 @@ where
         if Self::should_instrument_request_time(ctx.span(&id)) {
             let data = ctx.span(&id).unwrap();
             let RequestTime(start_time) = *data.extensions().get::<RequestTime>().unwrap();
-            histogram!("fuse.op_latency_us", "op" => data.name()).record(start_time.elapsed().as_micros() as f64);
+            histogram!(FUSE_REQUEST_LATENCY, ATTR_FUSE_REQUEST => data.name())
+                .record(start_time.elapsed().as_micros() as f64);
         }
     }
 }
