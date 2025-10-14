@@ -261,3 +261,56 @@ jobs:
     - name: Save dump files
       if: ${{ failure() }}
       run: ./.github/actions/scripts/save-coredump.sh
+
+  metrics:
+    name: Metrics Tests (${{ matrix.runner.name }})
+    runs-on: ${{ matrix.runner.tags }}
+
+    needs: approval
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - name: Ubuntu x86
+          tags: [ubuntu-22.04]
+        - name: AL2 arm
+          tags: [self-hosted, linux, arm64]
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+          aws-region: ${{ vars.S3_REGION }}
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+          persist-credentials: false
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install operating system dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          fuseVersion: 2
+      - name: Install OpenTelemetry Collector
+        run: |
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          if [[ "$ARCH" == "x86_64" ]]; then
+            ARCH="amd64"
+          elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+            ARCH="arm64"
+          fi
+          VERSION=$(curl -s https://api.github.com/repos/open-telemetry/opentelemetry-collector-releases/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          curl -L "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${VERSION}/otelcol_${VERSION}_${OS}_${ARCH}.tar.gz" \
+            -o /tmp/otelcol.tar.gz
+          tar -xzf /tmp/otelcol.tar.gz -C /tmp
+          chmod +x /tmp/otelcol
+          rm /tmp/otelcol.tar.gz
+      - name: Run OTLP metrics tests
+        run: ./mountpoint-s3/tests/metrics/otel_export.sh
