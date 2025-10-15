@@ -10,7 +10,7 @@ permissions:
 jobs:
   integration:
     name: Integration
-    uses: ./.github/workflows/integration.yml
+    uses: awslabs/mountpoint-s3/.github/workflows/integration.yml@${{ github.event.pull_request.head.ref }}
     with:
       environment: PR integration tests
       ref: ${{ github.event.pull_request.head.sha }}
