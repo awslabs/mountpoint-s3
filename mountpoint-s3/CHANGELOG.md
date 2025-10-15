@@ -1,6 +1,7 @@
 ## Unreleased (v1.21.0)
 
 * Change default logging level from WARN to INFO to improve visibility of important operational messages. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605))
+* Mountpoint's prefetcher has an updated backpressure algorithm which advances the amount of data prefetched with each read rather than waiting for half of the read window to be consumed. The aim of the change is to achieve higher sequential-read throughput. ([#1453](https://github.com/awslabs/mountpoint-s3/pull/1453))
 
 ## v1.20.0 (Sep 12, 2025)
 

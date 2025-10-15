@@ -126,40 +126,33 @@ impl BackpressureController {
             BackpressureFeedbackEvent::DataRead { offset, length } => {
                 self.next_read_offset = offset + length as u64;
                 self.mem_limiter.release(BufferArea::Prefetch, length as u64);
-                let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
 
-                // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
-                // When memory is low the `preferred_read_window_size` will be scaled down so we have to keep trying
-                // until we have enough read window.
-                while remaining_window < (self.preferred_read_window_size / 2)
-                    && self.read_window_end_offset < self.request_end_offset
-                {
+                loop {
                     let new_read_window_end_offset = self
                         .next_read_offset
                         .saturating_add(self.preferred_read_window_size as u64)
                         .min(self.request_end_offset);
-                    // We can skip if the new `read_window_end_offset` is less than or equal to the current one, this
-                    // could happen after the read window is scaled down.
-                    if new_read_window_end_offset <= self.read_window_end_offset {
-                        break;
-                    }
                     let to_increase = new_read_window_end_offset.saturating_sub(self.read_window_end_offset) as usize;
 
-                    // Force incrementing read window regardless of available memory when we are already at minimum
-                    // read window size.
+                    if to_increase == 0 {
+                        // There's nothing to increment, just accept the feedback.
+                        // This can happen with random read patterns or prefetcher scale down.
+                        break;
+                    }
+
                     if self.preferred_read_window_size <= self.min_read_window_size {
+                        // Force incrementing window regardless of available memory when at minimum window size.
                         self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
-                    }
-
-                    // Try to reserve the memory for the length we want to increase before sending the request,
-                    // scale down the read window if it fails.
-                    if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
-                        self.increment_read_window(to_increase).await;
-                        break;
                     } else {
-                        self.scale_down();
+                        // Try to reserve memory and inc. read window, otherwise scale down and try again.
+                        if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                            self.increment_read_window(to_increase).await;
+                            break;
+                        } else {
+                            self.scale_down();
+                        }
                     }
                 }
             }
