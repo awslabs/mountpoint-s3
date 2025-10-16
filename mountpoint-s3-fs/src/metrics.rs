@@ -142,7 +142,7 @@ impl MetricsSink {
                         })
                     }
                     Err(e) => {
-                        tracing::error!("Failed to initialise OTLP exporter: {}", e);
+                        tracing::error!("Failed to initialize OTLP exporter: {}", e);
                         Err(anyhow::anyhow!(
                             "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.",
                             e
@@ -420,7 +420,7 @@ mod test_otlp_metrics {
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
     use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
-    use std::sync::Arc;
+
     struct TestContext {
         exporter: InMemoryMetricExporter,
         provider: SdkMeterProvider,
