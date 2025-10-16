@@ -2711,7 +2711,6 @@ dependencies = [
  "mountpoint-s3-client",
  "mountpoint-s3-fuser",
  "nix 0.30.1",
- "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -2722,6 +2721,7 @@ dependencies = [
  "rand 0.9.2",
  "regex",
  "rusqlite",
+ "rusty-fork",
  "serde",
  "serde_json",
  "serial_test",
@@ -3729,9 +3729,9 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rusty-fork"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb3dcc6e454c328bb824492db107ab7c0ae8fcffe4ad210136ef014458c1bc4f"
+checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
 dependencies = [
  "fnv",
  "quick-error",
