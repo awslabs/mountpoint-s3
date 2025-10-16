@@ -106,7 +106,9 @@ jobs:
     - name: Build tests
       run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
+      run: cargo test ${{ env.packages }} --features '${{ env.features }}' -- --skip fuse_tests::metrics_test
+    - name: Run metrics tests
+      run: cargo test --package mountpoint-s3-fs --features fuse_tests fuse_tests::metrics_test
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh

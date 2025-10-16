@@ -54,7 +54,7 @@ fn assert_metric_exists(recorder: &TestRecorder, name: &str, labels: &[(&str, &s
     let _ = get_metric(recorder, name, labels);
 }
 
-#[cfg_attr(test, serial_test::serial)]
+#[serial_test::serial]
 #[test]
 fn test_fuse_write_metrics() {
     let context = setup();
@@ -125,7 +125,7 @@ fn test_fuse_write_metrics() {
     verify_common_metrics(context);
 }
 
-#[cfg_attr(test, serial_test::serial)]
+#[serial_test::serial]
 #[test]
 fn test_fuse_read_metrics() {
     let context = setup();
@@ -172,7 +172,7 @@ fn test_fuse_read_metrics() {
     verify_common_metrics(context);
 }
 
-#[cfg_attr(test, serial_test::serial)]
+#[serial_test::serial]
 #[test]
 fn test_fuse_error_metrics() {
     let context = setup();
@@ -206,7 +206,7 @@ fn verify_common_metrics(context: TestContext) {
     assert_metric_exists(&context.recorder, "fuse.op_unimplemented", &[("op", "getxattr")]);
 }
 
-#[cfg_attr(test, serial_test::serial)]
+#[serial_test::serial]
 #[test]
 fn test_random_access_resets_prefetch_state() {
     let context = setup();
