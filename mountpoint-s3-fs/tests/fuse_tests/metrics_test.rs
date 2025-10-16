@@ -95,8 +95,6 @@ fn test_fuse_write_metrics() {
         drop(f);
     }
 
-    std::thread::sleep(Duration::from_millis(100));
-
     let write_io_size = get_histogram(&context.recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "write")]);
     assert_eq!(write_io_size.len(), 3, "should have 3 write operations");
 
@@ -163,8 +161,6 @@ fn test_fuse_read_metrics() {
 
     drop(read_file);
 
-    std::thread::sleep(Duration::from_millis(100));
-
     let read_io_size = get_histogram(&context.recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "read")]);
     assert!(read_io_size.contains(&1024.0));
     assert!(!read_io_size.is_empty(), "should have at least 1 io_size metric");
@@ -192,7 +188,6 @@ fn test_fuse_error_metrics() {
         .get(FUSE_REQUEST_ERRORS, &[(ATTR_FUSE_REQUEST, "lookup")])
         .unwrap_or_else(|| panic!("failure metric for lookup should exist"));
 
-    std::thread::sleep(Duration::from_millis(100));
     assert!(
         failure.counter() >= 1,
         "should have at least one failed lookup operation"
@@ -246,7 +241,6 @@ fn test_random_access_resets_prefetch_state() {
 
     drop(file);
 
-    std::thread::sleep(Duration::from_millis(100));
     let final_reset_state = context
         .recorder
         .get(PREFETCH_RESET_STATE, &[])
