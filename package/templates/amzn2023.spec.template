@@ -76,9 +76,9 @@ mkdir -p %{buildroot}/opt/aws/mountpoint-s3/bin
 mkdir -p %{buildroot}/%{_prefix}/sbin
 mkdir -p %{buildroot}/%{_bindir}
 install -m 755 target/release/mount-s3 %{buildroot}/opt/aws/mountpoint-s3/bin/mount-s3
-install -m 644 NOTICE %{buildroot}/opt/aws/mountpoint-s3/
-install -m 644 LICENSE %{buildroot}/opt/aws/mountpoint-s3/
-install -m 644 THIRD_PARTY_LICENSES %{buildroot}/opt/aws/mountpoint-s3/
+install -m 644 %{SOURCE2} %{buildroot}/opt/aws/mountpoint-s3/NOTICE
+install -m 644 %{SOURCE1} %{buildroot}/opt/aws/mountpoint-s3/LICENSE
+install -m 644 %{SOURCE3} %{buildroot}/opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
 install -m 644 cargo-vendor.txt %{buildroot}/opt/aws/mountpoint-s3/
 echo "{{ version }}" > %{buildroot}/opt/aws/mountpoint-s3/VERSION
 ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3

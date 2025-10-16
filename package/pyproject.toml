@@ -3,7 +3,7 @@ name = "mountpoint-s3-packaging"
 version = "0.1.0"
 description = "Packaging tools for Mountpoint-S3"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "jinja2>=3.0.0",
 ]
