@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-fs"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
