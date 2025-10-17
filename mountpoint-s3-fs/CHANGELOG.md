@@ -1,6 +1,9 @@
-## Unreleased (v0.8.1)
+## Unreleased
 
-* Upgrade toolchain to Rust 1.89. ([#1628](https://github.com/awslabs/mountpoint-s3/pull/1628))
+## v0.8.1 (October 17, 2025)
+
+* Upgrade toolchain to Rust 1.90. ([#1650](https://github.com/awslabs/mountpoint-s3/pull/1650))
+* Emit a `event.ready` when error logging is enabled. ([#1647](https://github.com/awslabs/mountpoint-s3/pull/1647))
 
 ## v0.8.0 (September 30, 2025)
 
