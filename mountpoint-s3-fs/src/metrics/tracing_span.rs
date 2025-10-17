@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_REQUEST_LATENCY};
+use super::defs::{ATTR_FUSE_REQUEST, FUSE_REQUEST_LATENCY};
 use metrics::histogram;
 use tracing::span::Attributes;
 use tracing::{Id, Level, Subscriber};

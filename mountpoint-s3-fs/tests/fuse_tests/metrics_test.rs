@@ -46,7 +46,7 @@ fn verify_common_metrics(recorder: &TestRecorder) {
     assert_metric_exists(recorder, "fuse.idle_threads", &[]);
 }
 
-rusty_fork::rusty_fork_test! {
+rusty_fork_test! {
     #[test]
     fn test_fuse_write_metrics() {
         let recorder = setup_recorder();

@@ -232,7 +232,7 @@ impl MetricsSink {
                 String::new()
             };
 
-            metrics.push(format!("{} {}{}: {}", key.name(), unit, labels, metric_str));
+            metrics.push(format!("{}{}{}: {}", key.name(), unit, labels, metric_str));
         }
 
         metrics.sort();
