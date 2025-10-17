@@ -266,7 +266,7 @@ impl BackpressureController {
     ) -> u64 {
         if align_read_window && read_window_end > second_req_start {
             let relative_end_offset = read_window_end - second_req_start;
-            if relative_end_offset % part_size != 0 {
+            if !relative_end_offset.is_multiple_of(part_size) {
                 let aligned_relative_offset = part_size * (relative_end_offset / part_size + 1);
                 second_req_start + aligned_relative_offset
             } else {

@@ -741,7 +741,7 @@ impl ClientBackpressureHandle for MockBackpressureHandle {
         let prev_read_window_end_offset = self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
         let read_window_end_offset = prev_read_window_end_offset + len as u64;
         let relative_read_window_end = read_window_end_offset - self.request_range.start;
-        if read_window_end_offset < self.request_range.end && (relative_read_window_end % self.part_size != 0) {
+        if read_window_end_offset < self.request_range.end && !relative_read_window_end.is_multiple_of(self.part_size) {
             tracing::warn!(
                 relative_read_window_end,
                 self.part_size,
