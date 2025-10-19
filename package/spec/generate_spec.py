@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 """
 This RPM spec generator creates a distribution-specific .spec file.
 It extracts versions from Cargo.toml/rust-toolchain.toml and scans git submodules for bundled library declarations.
@@ -16,7 +14,7 @@ from jinja2 import Environment, FileSystemLoader
 import tomllib
 
 script_dir = Path(__file__).parent
-project_root = script_dir.parent
+project_root = script_dir.parent.parent
 templates_dir = script_dir / "templates"
 
 

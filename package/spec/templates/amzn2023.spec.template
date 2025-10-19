@@ -1,4 +1,3 @@
-{# Amazon Linux 2023 Complete RPM Spec Template #}
 %bcond_without check
 
 Name:           mount-s3
@@ -13,7 +12,6 @@ Source1:        LICENSE
 Source2:        NOTICE
 Source3:        THIRD_PARTY_LICENSES
 
-{# Build dependencies #}
 BuildRequires:  clang
 BuildRequires:  clang-devel
 BuildRequires:  rust >= {{ rust_version }}      
@@ -34,15 +32,12 @@ BuildRequires:  which
 BuildRequires:  rust-packaging
 BuildRequires:  rust-toolset
 
-{# Supported architectures #}
 ExclusiveArch: x86_64 aarch64
 
-{# Bundled C/C++ libraries for security tracking #}
 {% for lib_name, lib_version in submodule_versions.items() %}
 Provides: bundled({{ lib_name }}) = {{ lib_version }}
 {% endfor %}
 
-{# Runtime dependencies #}
 Requires:       ca-certificates
 Requires:       fuse >= 2.9.0
 Requires:       fuse-libs >= 2.9.0
@@ -56,20 +51,18 @@ translates these operations into S3 object API calls, giving your applications
 access to the elastic storage and throughput of Amazon S3 through a file
 interface.
 
-{# Build commands #}
-%build
-export CFLAGS="${CFLAGS:-%{optflags}} -O2 -Wno-error=cpp"
-export CMAKE_C_FLAGS="$CFLAGS"
-
-export MOUNTPOINT_S3_AWS_RELEASE="amzn2023"
-
-cargo build --release
-
-%cargo_vendor_manifest
-
 %prep
 %autosetup -n mountpoint-s3
+
 %cargo_prep -v vendor
+
+%build
+export CFLAGS="%{optflags} -w" 
+export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
+
+cargo build --release --bin mount-s3
+
+%cargo_vendor_manifest
 
 %install
 mkdir -p %{buildroot}/opt/aws/mountpoint-s3/bin
@@ -98,6 +91,6 @@ ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mo
 %attr(755,root,root) %{_prefix}/sbin/mount.mount-s3
 
 %changelog
-* {{ current_date }} Mountpoint-S3 Team <s3-opensource@amazon.com> - {{ version }}+amzn2023
-- Mountpoint-S3 {{ version }} amzn2023 release
-- Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md
+* Thu Oct 16 2025 Mountpoint-S3 Team <mountpoint-s3@amazon.com> - amzn2023
+- Initial packaging of Mountpoint-S3 into AL2023
+- Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md for updates

@@ -47,3 +47,24 @@ Now run the build script:
 By default, the script will discover the Cargo workspace by walking up the directory hierarchy starting from the current working directory. You can manually specify the workspace root with the `--root-dir` argument.
 
 The script will create an `out` folder in the root of the Git repository containing the build artifacts.
+
+## Building Amazon Linux 2023 SRPM
+
+For Amazon Linux 2023 specifically, you can build an SRPM (Source RPM) package using the dedicated build script:
+
+    ./generate_amzn2023_srpm.sh
+
+This script will:
+1. Generate an RPM spec file using the spec generator in `spec/`
+2. Create a source tarball with all necessary files
+3. Build an SRPM package ready for `mock` or `rpmbuild`
+
+The SRPM will be created in `~/rpmbuild/SRPMS/` and can be used to build binary RPMs on Amazon Linux 2023 systems.
+
+You'll need the same dependencies as local building above, plus:
+- `uv` - Python package manager for the spec generator
+- `rpmdevtools` - For RPM build environment setup
+
+### Integration
+
+This SRPM build process is also used by GitHub Actions workflow for automated al2023 build testing
