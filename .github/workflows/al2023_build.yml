@@ -16,9 +16,65 @@ env:
   TEST_PREFIX: "github-actions-tmp/run-${{ github.run_id }}/rpm-test/"
 
 jobs:
-  al2023-package-test:
-    name: Amazon Linux 2023 RPM Build and Test
+  build-srpm:
+    name: Build SRPM
     runs-on: ubuntu-latest
+    container:
+      image: amazonlinux:2023
+
+    outputs:
+      version: ${{ steps.build-srpm.outputs.version }}
+
+    steps:
+    - name: Install build tools and dependencies
+      run: |
+        dnf -y install git rpm-build rpmdevtools rust cargo
+        cargo install cargo-about
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        submodules: true
+        persist-credentials: false
+
+    - name: Create SRPM
+      id: build-srpm
+      run: |
+        chmod +x package/generate_amzn2023_srpm.sh
+        ./package/generate_amzn2023_srpm.sh
+        
+        echo "## Generated Amazon Linux 2023 Spec File" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```spec' >> $GITHUB_STEP_SUMMARY
+        cat ~/rpmbuild/SPECS/amzn2023.spec >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload SRPM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: srpm-package
+        path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
+        retention-days: 1
+
+  test-rpm:
+    name: Test RPM on ${{ matrix.arch }}
+    needs: build-srpm
+    runs-on: ${{ matrix.runner }}
+
+    environment: PR integration tests
+    
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64  
+            runner: [self-hosted, linux, arm64]
+
     container:
       image: amazonlinux:2023
       options: --privileged
@@ -26,11 +82,7 @@ jobs:
     steps:
     - name: Install build tools and dependencies
       run: |
-        dnf -y install git rpm-build rpmdevtools make mock ca-certificates rust cargo sudo awscli
-        cargo install cargo-about
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v6
+        dnf -y install make mock ca-certificates sudo awscli
 
     - name: Preventing container PAM sudo errors
       run: |
@@ -43,45 +95,21 @@ jobs:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
 
-    - name: Checkout code
-      uses: actions/checkout@v5
+    - name: Download SRPM artifact
+      uses: actions/download-artifact@v4
       with:
-        submodules: true
-        persist-credentials: false
-
-    - name: Generate Amazon Linux 2023 spec file
-      run: |
-        cd package
-        uv run python generate_spec.py amzn2023 && mv amzn2023.spec ../
-        echo "## Generated Amazon Linux 2023 Spec File" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo '```spec' >> $GITHUB_STEP_SUMMARY
-        cat ../amzn2023.spec >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-
-    - name: Build source tarball and SRPM
-      run: |
-        VERSION=$(awk '/^Version:/ {print $2}' amzn2023.spec)
-        cargo vendor
-        cargo about generate --config package/attribution.toml --output-file THIRD_PARTY_LICENSES package/attribution.hbs
-        rpmdev-setuptree
-
-        cp amzn2023.spec ~/rpmbuild/SPECS/
-        cp LICENSE NOTICE THIRD_PARTY_LICENSES ~/rpmbuild/SOURCES
-
-        cd ..
-        tar -czf "mountpoint-s3-${VERSION}.tar.gz" mountpoint-s3
-        cp "mountpoint-s3-${VERSION}.tar.gz" ~/rpmbuild/SOURCES/
-        rpmbuild -bs ~/rpmbuild/SPECS/amzn2023.spec
-        echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+        name: srpm-package
+        path: /tmp/srpms
 
     - name: Test RPM build with Mock in Amazon Linux 2023 chroot
       run: |
-        sudo mock -r amazonlinux-2023-x86_64 --rebuild ~/rpmbuild/SRPMS/mount-s3-${VERSION}-amzn2023.src.rpm
+        VERSION="${{ needs.build-srpm.outputs.version }}"
+        sudo mock -r amazonlinux-2023-${{ matrix.arch }} --rebuild /tmp/srpms/mount-s3-${VERSION}-amzn2023.src.rpm
 
     - name: Test RPM installation
       run: |
-        dnf -y install /var/lib/mock/amazonlinux-2023-x86_64/result/mount-s3-${VERSION}-amzn2023.x86_64.rpm
+        VERSION="${{ needs.build-srpm.outputs.version }}"
+        dnf -y install /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/mount-s3-${VERSION}-amzn2023.${{ matrix.arch }}.rpm
         which mount-s3
         mount-s3 --version
         mount-s3 --help
@@ -100,7 +128,13 @@ jobs:
         aws s3 cp "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}write-test.txt" - | grep -q "Hello from RPM write test"
   
         sudo umount /mnt/s3-test
-
+    
+    - name: Build log on failure
+      if: failure()
+      run: |
+        echo "Build failed, showing mock build log:"
+        cat /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/build.log
+        
     - name: Cleanup test resources
       if: always()
       run: |
