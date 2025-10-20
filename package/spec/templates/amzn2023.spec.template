@@ -57,7 +57,7 @@ interface.
 %cargo_prep -v vendor
 
 %build
-export CFLAGS="%{optflags} -w" 
+export CFLAGS="%{optflags} -Wno-error=cpp"
 export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
 
 cargo build --release --bin mount-s3
