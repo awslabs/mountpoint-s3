@@ -1,0 +1,96 @@
+%bcond_without check
+
+Name:           mount-s3
+Version:        {{ version }}
+Release:        amzn2023
+Summary:        Mountpoint for Amazon S3
+
+License:        Apache-2.0
+URL:            https://github.com/awslabs/mountpoint-s3 
+Source0:        mountpoint-s3-{{ version }}.tar.gz
+Source1:        LICENSE
+Source2:        NOTICE
+Source3:        THIRD_PARTY_LICENSES
+
+BuildRequires:  clang
+BuildRequires:  clang-devel
+BuildRequires:  rust >= {{ rust_version }}      
+BuildRequires:  cargo >= {{ rust_version }}    
+BuildRequires:  cmake
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+BuildRequires:  git
+BuildRequires:  pkgconfig
+BuildRequires:  fuse-devel
+BuildRequires:  glibc-devel
+BuildRequires:  glibc-headers
+BuildRequires:  glibc-static
+BuildRequires:  libstdc++-devel
+BuildRequires:  nasm
+BuildRequires:  make
+BuildRequires:  which
+BuildRequires:  rust-packaging
+BuildRequires:  rust-toolset
+
+ExclusiveArch: x86_64 aarch64
+
+{% for lib_name, lib_version in submodule_versions.items() %}
+Provides: bundled({{ lib_name }}) = {{ lib_version }}
+{% endfor %}
+
+Requires:       ca-certificates
+Requires:       fuse >= 2.9.0
+Requires:       fuse-libs >= 2.9.0
+
+%description
+Mountpoint for Amazon S3 is a simple, high-throughput file client for
+mounting an Amazon S3 bucket as a local file system. With Mountpoint for Amazon
+S3, your applications can access objects stored in Amazon S3 through file
+operations like open and read. Mountpoint for Amazon S3 automatically
+translates these operations into S3 object API calls, giving your applications
+access to the elastic storage and throughput of Amazon S3 through a file
+interface.
+
+%prep
+%autosetup -n mountpoint-s3
+
+%cargo_prep -v vendor
+
+%build
+export CFLAGS="%{optflags} -w" 
+export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
+
+cargo build --release --bin mount-s3
+
+%cargo_vendor_manifest
+
+%install
+mkdir -p %{buildroot}/opt/aws/mountpoint-s3/bin
+mkdir -p %{buildroot}/%{_prefix}/sbin
+mkdir -p %{buildroot}/%{_bindir}
+install -m 755 target/release/mount-s3 %{buildroot}/opt/aws/mountpoint-s3/bin/mount-s3
+install -m 644 %{SOURCE2} %{buildroot}/opt/aws/mountpoint-s3/NOTICE
+install -m 644 %{SOURCE1} %{buildroot}/opt/aws/mountpoint-s3/LICENSE
+install -m 644 %{SOURCE3} %{buildroot}/opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
+install -m 644 cargo-vendor.txt %{buildroot}/opt/aws/mountpoint-s3/
+echo "{{ version }}" > %{buildroot}/opt/aws/mountpoint-s3/VERSION
+ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3
+ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
+
+%files
+%defattr(-,root,root,-)
+%dir %attr(755,root,root) /opt/aws/mountpoint-s3
+%dir %attr(755,root,root) /opt/aws/mountpoint-s3/bin
+%attr(755,root,root) /opt/aws/mountpoint-s3/bin/mount-s3
+%doc %attr(644,root,root) /opt/aws/mountpoint-s3/NOTICE
+%license %attr(644,root,root) /opt/aws/mountpoint-s3/LICENSE
+%license %attr(644,root,root) /opt/aws/mountpoint-s3/cargo-vendor.txt
+%attr(644,root,root) /opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
+%attr(644,root,root) /opt/aws/mountpoint-s3/VERSION
+%attr(755,root,root) %{_bindir}/mount-s3
+%attr(755,root,root) %{_prefix}/sbin/mount.mount-s3
+
+%changelog
+* Thu Oct 16 2025 Mountpoint-S3 Team <mountpoint-s3@amazon.com> - amzn2023
+- Initial packaging of Mountpoint-S3 into AL2023
+- Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md for updates
