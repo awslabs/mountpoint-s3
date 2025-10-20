@@ -60,12 +60,18 @@ jobs:
         path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
         retention-days: 1
 
+  approval:
+    name: Approval Gate
+    runs-on: ubuntu-latest
+    environment: PR integration tests
+    steps:
+      - name: Approval Gate
+        run: echo "Approved!"
+
   test-rpm:
     name: Test RPM on ${{ matrix.arch }}
-    needs: build-srpm
+    needs: [build-srpm, approval]
     runs-on: ${{ matrix.runner }}
-
-    environment: PR integration tests
     
     strategy:
       matrix:
