@@ -5,7 +5,7 @@ use const_format::formatcp;
 #[cfg(target_os = "linux")]
 use fuser::MountOption;
 use fuser::{Filesystem, Session, SessionUnmounter};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::config::{FuseSessionConfig, MountPoint};
 use crate::sync::Arc;
@@ -142,8 +142,14 @@ impl FuseSession {
     /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT.
     /// When that happens, unmount the file system (if it hasn't been already unmounted).
     pub fn join(mut self) -> anyhow::Result<()> {
-        let msg = self.receiver.recv();
-        trace!("received message {msg:?}, closing filesystem session");
+        match self.receiver.recv() {
+            Ok(Message::WorkersExited) => info!("all FUSE workers exited, shutting down Mountpoint"),
+            Ok(Message::Interrupted) => info!("received interrupt signal, shutting down Mountpoint"),
+            Err(_recv_err) => {
+                debug_assert!(false, "session channel must always send a message to signal shutdown");
+                error!("session channel closed without receiving message, shutting down anyway");
+            }
+        }
 
         trace!("executing {} handler(s) on close", self.on_close.len());
         for handler in self.on_close {
