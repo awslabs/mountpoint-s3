@@ -253,7 +253,6 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
             builder.define("DISABLE_PERL", "ON");
             builder.define("DISABLE_GO", "ON");
             builder.define("BUILD_TOOL", "OFF");
-            builder.define("ENABLE_SOURCE_MODIFICATION", "OFF");
 
             // cmake-rs has logic that strips Optimization/Debug options that are passed via CFLAGS:
             // https://github.com/rust-lang/cmake-rs/issues/240
