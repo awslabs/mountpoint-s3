@@ -29,7 +29,7 @@ use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
     BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
-    MetaRequestType, RequestMetrics, RequestType, init_signing_config,
+    MetaRequestType, RequestMetrics, init_signing_config,
 };
 
 use async_trait::async_trait;
@@ -589,7 +589,7 @@ impl S3CrtClientInner {
                 let request_canceled = metrics.is_canceled();
                 let request_failure = http_status.map(|status| !(200..299).contains(&status)).unwrap_or(!request_canceled);
                 let crt_error = Some(metrics.error()).filter(|e| e.is_err());
-                let request_type = request_type_to_metrics_string(metrics.request_type());
+                let operation_name = operation_name_to_static_metrics_string(metrics.operation_name());
                 let request_id = metrics.request_id().unwrap_or_else(|| "<unknown>".into());
                 let duration = metrics.total_duration();
                 let ttfb = metrics.time_to_first_byte();
@@ -602,18 +602,18 @@ impl S3CrtClientInner {
                 } else {
                     "S3 request finished"
                 };
-                debug!(%request_type, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
+                debug!(?operation_name, ?crt_error, http_status, ?range, ?duration, ?ttfb, %request_id, "{}", message);
                 trace!(detailed_metrics=?metrics, "S3 request completed");
 
                 if let Some(ttfb) = ttfb {
-                    metrics::histogram!(S3_REQUEST_FIRST_BYTE_LATENCY, ATTR_S3_REQUEST => request_type).record(ttfb.as_micros() as f64);
+                    metrics::histogram!(S3_REQUEST_FIRST_BYTE_LATENCY, ATTR_S3_REQUEST => operation_name).record(ttfb.as_micros() as f64);
                 }
-                metrics::histogram!(S3_REQUEST_TOTAL_LATENCY, ATTR_S3_REQUEST => request_type).record(duration.as_micros() as f64);
-                metrics::counter!(S3_REQUEST_COUNT, ATTR_S3_REQUEST => request_type).increment(1);
+                metrics::histogram!(S3_REQUEST_TOTAL_LATENCY, ATTR_S3_REQUEST => operation_name).record(duration.as_micros() as f64);
+                metrics::counter!(S3_REQUEST_COUNT, ATTR_S3_REQUEST => operation_name).increment(1);
                 if request_failure {
-                    metrics::counter!(S3_REQUEST_FAILURE, ATTR_S3_REQUEST => request_type, ATTR_HTTP_STATUS => http_status.unwrap_or(-1).to_string()).increment(1);
+                    metrics::counter!(S3_REQUEST_FAILURE, ATTR_S3_REQUEST => operation_name, ATTR_HTTP_STATUS => http_status.unwrap_or(-1).to_string()).increment(1);
                 } else if request_canceled {
-                    metrics::counter!(S3_REQUEST_CANCELED, ATTR_S3_REQUEST => request_type).increment(1);
+                    metrics::counter!(S3_REQUEST_CANCELED, ATTR_S3_REQUEST => operation_name).increment(1);
                 }
 
                 if let Some(telemetry_callback) = &telemetry_callback {
@@ -1246,24 +1246,51 @@ pub enum ConstructionError {
     InvalidEndpoint(#[from] EndpointError),
 }
 
-/// Return a string version of a [RequestType] for use in metrics
-///
-/// TODO: Replace this method with `aws_s3_request_metrics_get_operation_name`,
-///       and ensure all requests have an associated operation name.
-fn request_type_to_metrics_string(request_type: RequestType) -> &'static str {
-    match request_type {
-        RequestType::Unknown => "Default",
-        RequestType::HeadObject => "HeadObject",
-        RequestType::GetObject => "GetObject",
-        RequestType::ListParts => "ListParts",
-        RequestType::CreateMultipartUpload => "CreateMultipartUpload",
-        RequestType::UploadPart => "UploadPart",
-        RequestType::AbortMultipartUpload => "AbortMultipartUpload",
-        RequestType::CompleteMultipartUpload => "CompleteMultipartUpload",
-        RequestType::UploadPartCopy => "UploadPartCopy",
-        RequestType::CopyObject => "CopyObject",
-        RequestType::PutObject => "PutObject",
+/// Return a `&'static str` for a given non-static `&str`, as required by [metrics] crate.
+fn operation_name_to_static_metrics_string(operation_name: Option<&str>) -> &'static str {
+    const UNKNOWN_METRIC_STR: &str = "Unknown";
+
+    let Some(operation_name) = operation_name else {
+        return UNKNOWN_METRIC_STR;
+    };
+
+    // Take an input expression, and then a list of strings to map into their `&'static str` equivalent.
+    // Use macro to avoid typos in mapping.
+    macro_rules! map_to_static_str_for_known_str {
+        ($input:expr, $($str_literal:literal),* $(,)?) => {
+            match $input {
+                $(
+                    $str_literal => Some($str_literal),
+                )*
+                _ => None
+            }
+        };
     }
+
+    let static_str = map_to_static_str_for_known_str!(
+        operation_name,
+        "GetObject",
+        "HeadObject",
+        "ListParts",
+        "CreateMultipartUpload",
+        "UploadPart",
+        "AbortMultipartUpload",
+        "CompleteMultipartUpload",
+        "UploadPartCopy",
+        "CopyObject",
+        "PutObject",
+        "ListObjectsV2",
+        "DeleteObject",
+        "GetObjectAttributes",
+        "HeadBucket",
+        "RenameObject",
+    );
+
+    debug_assert!(
+        static_str.is_some(),
+        "input set as {operation_name:?} but no matcher, update required",
+    );
+    static_str.unwrap_or(UNKNOWN_METRIC_STR)
 }
 
 /// Extract the byte range from the Content-Range header if present and valid
@@ -1897,5 +1924,15 @@ mod tests {
             Some(value.to_owned()),
             "sha256 header should match"
         );
+    }
+
+    #[test]
+    fn test_operation_name_to_static_metrics_string() {
+        assert_eq!(operation_name_to_static_metrics_string(Some("GetObject")), "GetObject");
+        assert_eq!(
+            operation_name_to_static_metrics_string(Some("RenameObject")),
+            "RenameObject",
+        );
+        assert_eq!(operation_name_to_static_metrics_string(None), "Unknown");
     }
 }
