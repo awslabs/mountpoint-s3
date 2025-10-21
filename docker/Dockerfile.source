@@ -1,4 +1,4 @@
-FROM amazonlinux:2023 as builder
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS builder
 
 # Install build tools
 RUN dnf upgrade -y && \
@@ -23,7 +23,7 @@ RUN git clone --recurse-submodules https://github.com/awslabs/mountpoint-s3.git 
 
 
 
-FROM amazonlinux:2023 as release
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS release
 COPY --from=builder /mountpoint-s3/target/release/mount-s3 /mount-s3
 
 RUN dnf upgrade -y && \

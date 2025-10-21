@@ -318,3 +318,19 @@ jobs:
         run: uvx ruff format --diff .
       - name: Lint check
         run: uvx ruff check --output-format=github .
+
+  docker:
+    name: "Container build checks"
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Build Dockerfile using official release binaries
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          file: docker/Dockerfile
+      - name: Build Dockerfile using Mountpoint source code
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          file: docker/Dockerfile.source
