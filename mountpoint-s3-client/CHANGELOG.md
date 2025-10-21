@@ -5,7 +5,6 @@
 ## v0.19.2 (October 17, 2025)
 
 * Upgrade toolchain to Rust 1.90. ([#1650](https://github.com/awslabs/mountpoint-s3/pull/1650))
-* Update to latest CRT dependencies.
 
 ## v0.19.1 (September 15, 2025)
 
