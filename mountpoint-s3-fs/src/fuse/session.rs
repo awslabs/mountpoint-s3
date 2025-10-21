@@ -156,7 +156,7 @@ impl FuseSession {
             handler();
         }
 
-        trace!("unmounting filesystem");
+        info!("attempting unmount");
         self.unmounter.unmount().context("failed to unmount FUSE session")
     }
 }
