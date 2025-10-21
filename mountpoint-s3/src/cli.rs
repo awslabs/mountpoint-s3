@@ -670,7 +670,7 @@ impl CliArgs {
             let mut filter = if self.debug {
                 String::from("debug")
             } else {
-                format!("warn,{MOUNTPOINT_LOG_TARGET}=info"))
+                format!("warn,{MOUNTPOINT_LOG_TARGET}=info")
             };
             let crt_verbosity = if self.debug_crt { "debug" } else { "off" };
             filter.push_str(&format!(",{AWSCRT_LOG_TARGET}={crt_verbosity}"));
