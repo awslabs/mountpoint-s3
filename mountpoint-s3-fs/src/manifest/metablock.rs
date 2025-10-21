@@ -1,19 +1,19 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 
-use super::core::{Manifest, ManifestDirIter, ManifestError};
 use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
 use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL,
-    ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
+    CompletionHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock,
+    NEVER_EXPIRE_TTL, ROOT_INODE_NO, TryAddDirEntry, ValidName, WriteMode,
 };
 use crate::s3::S3Path;
-use crate::superblock::inode::CompletionHook;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
+
+use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 /// Implementation of the `Metablock` trait that provides a read-only view of the metadata store.
 ///
