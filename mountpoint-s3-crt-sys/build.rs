@@ -253,7 +253,6 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
             builder.define("DISABLE_PERL", "ON");
             builder.define("DISABLE_GO", "ON");
             builder.define("BUILD_TOOL", "OFF");
-            builder.define("ENABLE_SOURCE_MODIFICATION", "OFF");
         }
 
         // Force compiler optimizations for aws-checksums even in debug builds to improve throughput
