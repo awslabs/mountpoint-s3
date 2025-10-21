@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1760707896300,
+  "lastUpdate": 1761054783588,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "7854f020d9f31efaf0e392367cf844f059c30b47",
-          "message": "Use multi-threaded FuseSession in tests (#1462)\n\nTests for the `mountpoint-s3-fs` crates now use the multi-threaded\n`FuseSession` used in `mount-s3` rather than the single-threaded\n`BackgroundSession` from `fuser`.\n\n### Does this change impact existing behavior?\n\nNo, it only affects tests.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>\nSigned-off-by: Alessandro Passaro <alexpax@amazon.com>\nCo-authored-by: Alessandro Passaro <alexpax@amazon.com>",
-          "timestamp": "2025-09-25T17:22:01Z",
-          "tree_id": "7950e7c591b0f94d9ad587ff4aba8eb7581f993c",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7854f020d9f31efaf0e392367cf844f059c30b47"
-        },
-        "date": 1758822228283,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 46.543868620000005,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.025,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.129,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.605,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 5.793,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 6.7189255,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 1.2383791000000002,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 6.4466852999999995,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 6.032736,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e56881a32e22336ceacde1b7b904dcc167d0d3db",
+          "message": "Split mkdir tests to cover mkdir local visibility explicitly (#1657)\n\nSimple change to split out tests to explicitly cover two behaviors we're\ninterested in: promotion of local dir to remote dir after file creation,\nand visibility of local directories to operations immediately after.\n\n### Does this change impact existing behavior?\n\nNew tests only.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo behavior changes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2025-10-21T12:55:00Z",
+          "tree_id": "e9173f075c4bf319c9bf51b4cfd4bc6c8b59e5ea",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/e56881a32e22336ceacde1b7b904dcc167d0d3db"
+        },
+        "date": 1761054782515,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 45.130497770000005,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.029,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.132,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.597,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 5.76,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 6.3446324,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 1.2983234,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 5.9861597,
             "unit": "milliseconds"
           }
         ]
