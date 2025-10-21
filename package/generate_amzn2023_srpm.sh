@@ -2,6 +2,8 @@
 set -euo pipefail
 
 # Setup RPM build environment
+# This script uses the standard RPM build directory structure at ~/rpmbuild which is created by rpmdev-setuptree and is the RPM packaging convention.
+# The paths are hardcoded because this is the standard location expected by RPM build tools and cannot be easily configured.
 rpmdev-setuptree
 
 # Generate spec file

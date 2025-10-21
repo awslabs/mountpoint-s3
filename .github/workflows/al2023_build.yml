@@ -2,6 +2,9 @@ name: AL2023 RPM Build Tests
 
 on:
   pull_request_target:
+  push:
+    branches:
+      - "wf-changes/**"
 
 permissions:
   id-token: write
@@ -29,7 +32,13 @@ jobs:
     - name: Install build tools and dependencies
       run: |
         dnf -y install git rpm-build rpmdevtools rust cargo
-        cargo install cargo-about
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz.sha256" && \
+        echo -n "$(sha256sum cargo-about-*.tar.gz | cut -d' ' -f1)" > checksum.sha256 && \
+        diff cargo-about-*.tar.gz.sha256 checksum.sha256 && \
+        tar xzf cargo-about-*.tar.gz && \
+        cp cargo-about-*/cargo-about /usr/bin && \
+        rm -rf cargo-about-* checksum.sha256
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7

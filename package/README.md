@@ -50,9 +50,9 @@ The script will create an `out` folder in the root of the Git repository contain
 
 ## Building Amazon Linux 2023 SRPM
 
-For Amazon Linux 2023 specifically, you can build an SRPM (Source RPM) package using the dedicated build script:
+For Amazon Linux 2023 specifically, you can build an SRPM (Source RPM) package using the dedicated build script. **The script must be run from the repository root directory:**
 
-    ./generate_amzn2023_srpm.sh
+    ./package/generate_amzn2023_srpm.sh
 
 This script will:
 1. Generate an RPM spec file using the spec generator in `spec/`
