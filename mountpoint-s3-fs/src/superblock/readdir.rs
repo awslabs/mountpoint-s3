@@ -133,16 +133,20 @@ impl ReaddirHandle {
                 iter.next(&inner.client).await?
             };
 
-            if let Some(next) = next {
-                let name: OsString = next.name().into();
-
-                if let Some(result) = self.lookup_from_entry(inner, &next, name)? {
-                    return Ok(Some(result));
-                }
-                // Continue to next entry if None returned
-            } else {
+            let Some(next) = next else {
                 return Ok(None);
+            };
+
+            let Ok(name) = next.name().try_into() else {
+                //Short-circuit the update if we know it'll fail because the name is invalid
+                warn!("{} has an invalid name and will be unavailable", next.description());
+                continue;
+            };
+
+            if let Some(result) = self.lookup_from_entry(inner, &next, name)? {
+                return Ok(Some(result));
             }
+            // Continue to next entry if None returned
         }
     }
 
@@ -163,7 +167,7 @@ impl ReaddirHandle {
         &self,
         inner: &SuperblockInner<OC>,
         entry: &ReaddirEntry,
-        name: OsString,
+        name: ValidName,
     ) -> Result<Option<LookedUpInode>, InodeError> {
         let remote_lookup = match entry {
             ReaddirEntry::LocalInode { lookup } => {
@@ -200,11 +204,7 @@ impl ReaddirHandle {
         };
 
         // Remote entry, use update_from_remote
-        let Ok(valid_name) = ValidName::parse_os_str(&name) else {
-            return Ok(None);
-        };
-
-        let lookup = inner.update_from_remote(self.dir_ino, valid_name, Some(remote_lookup))?;
+        let lookup = inner.update_from_remote(self.dir_ino, name, Some(remote_lookup))?;
         Ok(Some(lookup))
     }
 }

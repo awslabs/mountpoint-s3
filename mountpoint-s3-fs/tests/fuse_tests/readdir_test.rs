@@ -6,6 +6,11 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread;
+use std::time::Duration;
 
 // Unit Tests
 // Generate a filesystem with many entries
@@ -155,4 +160,123 @@ fn readdir_while_writing_mock() {
         let rng_seed = rand::thread_rng().r#gen();
         readdir_while_writing(fuse::mock_session::new, "", rng_seed);
     }
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn stress_test_readdir_filesystem_s3() {
+    stress_test_readdir_filesystem(fuse::s3_session::new, "stress_test_readdir_filesystem_s3");
+}
+
+#[test]
+fn stress_test_readdir_filesystem_mock() {
+    stress_test_readdir_filesystem(fuse::mock_session::new, "stress_test_readdir_filesystem_mock");
+}
+
+fn stress_test_readdir_filesystem(creator_fn: impl TestSessionCreator, prefix: &str) {
+    let test_session = creator_fn(prefix, Default::default());
+
+    // Create initial files in the filesystem
+    for i in 0..20 {
+        let content = vec![i as u8; 50];
+        test_session
+            .client()
+            .put_object(&format!("base_{i}"), &content)
+            .unwrap();
+    }
+
+    let path = test_session.mount_path().to_path_buf();
+    let stop = Arc::new(AtomicBool::new(false));
+    let operations = Arc::new(AtomicUsize::new(0));
+
+    // Continuous readdir threads
+    let readdir_handles: Vec<_> = (0..5)
+        .map(|id| {
+            let path = path.clone();
+            let stop = stop.clone();
+            let operations = operations.clone();
+            thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    if let Ok(entries) = fs::read_dir(&path) {
+                        let count = read_dir_to_entry_names(entries).len();
+                        operations.fetch_add(1, Ordering::Relaxed);
+                        assert!(count >= 1, "Thread {id} saw {count} entries in {path:?}");
+                    }
+                    thread::sleep(Duration::from_millis(2));
+                }
+            })
+        })
+        .collect();
+
+    // File creation thread
+    let creator_handle = {
+        let path = path.clone();
+        let stop = stop.clone();
+        thread::spawn(move || {
+            let mut counter: u32 = 100;
+            while !stop.load(Ordering::Relaxed) {
+                let file_path = path.join(format!("created_{counter}"));
+                if let Ok(mut file) = fs::File::create(&file_path) {
+                    let _ = file.write_all(&counter.to_le_bytes());
+                }
+                counter += 1;
+                thread::sleep(Duration::from_millis(3));
+            }
+        })
+    };
+
+    // File reader thread
+    let reader_handle = {
+        let path = path.clone();
+        let stop = stop.clone();
+        thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                if let Ok(entries) = fs::read_dir(&path) {
+                    for entry in entries.flatten().take(5) {
+                        let _ = fs::read(entry.path());
+                    }
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+        })
+    };
+
+    // File deleter thread
+    let deleter_handle = {
+        let path = path.clone();
+        let stop = stop.clone();
+        thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                if let Ok(entries) = fs::read_dir(&path) {
+                    for entry in entries.flatten().take(5) {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+                thread::sleep(Duration::from_millis(3));
+            }
+        })
+    };
+
+    // Run the stress test for a few seconds
+    thread::sleep(Duration::from_secs(2));
+    stop.store(true, Ordering::Relaxed);
+
+    // Wait for all threads to finish
+    creator_handle.join().unwrap();
+    reader_handle.join().unwrap();
+    deleter_handle.join().unwrap();
+    for handle in readdir_handles {
+        handle.join().unwrap();
+    }
+
+    // Verify we had enough directory operations
+    assert!(
+        operations.load(Ordering::Relaxed) > 50,
+        "Too few directory operations completed"
+    );
+
+    println!(
+        "Stress test completed successfully with {} readdir operations",
+        operations.load(Ordering::Relaxed)
+    );
 }
