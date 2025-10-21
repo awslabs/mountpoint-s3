@@ -256,6 +256,8 @@ where
         mem_limiter: Arc<MemoryLimiter>,
     ) -> Self {
         let max_backward_seek_distance = config.max_backward_seek_distance as usize;
+        // a conservative memory reservation to avoid violating the memory limit with the large number of file handles
+        // note that this reservation is done in addition to the one in [PartQueue::push_front]
         let seek_window_reservation =
             Self::seek_window_reservation(part_stream.client().read_part_size(), max_backward_seek_distance);
         mem_limiter.reserve(BufferArea::Prefetch, seek_window_reservation);

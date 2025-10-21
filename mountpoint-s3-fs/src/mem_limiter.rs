@@ -156,10 +156,3 @@ impl MemoryLimiter {
         (self.pool.reserved_bytes(BufferKind::PutObject) + self.pool.reserved_bytes(BufferKind::Other)) as u64
     }
 }
-
-impl Drop for MemoryLimiter {
-    fn drop(&mut self) {
-        let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
-        debug_assert_eq!(mem_reserved, 0, "all reservations must be released");
-    }
-}

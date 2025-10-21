@@ -122,13 +122,8 @@ impl BackpressureController {
     /// will ensure that the read window size is enough to read this offset and that it is always close to `preferred_read_window_size`.
     pub async fn send_feedback<E>(&mut self, event: BackpressureFeedbackEvent) -> Result<(), PrefetchReadError<E>> {
         match event {
+            // Note, that this may come from a backwards seek, so offsets observed by this method are not necessarily ascending
             BackpressureFeedbackEvent::DataRead { offset, length } => {
-                debug_assert!(
-                    offset >= self.next_read_offset,
-                    "reads are always ascending: no feedback on backward seek reads, {}, {}",
-                    offset,
-                    self.next_read_offset,
-                );
                 self.next_read_offset = offset + length as u64;
                 self.mem_limiter.release(BufferArea::Prefetch, length as u64);
                 let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
@@ -422,22 +417,9 @@ mod tests {
             );
 
             // Send more than one increment.
-            let to_increase = 7 * MIB;
-            backpressure_controller
-                .mem_limiter
-                .reserve(BufferArea::Prefetch, to_increase as u64);
-            backpressure_controller.increment_read_window(to_increase).await;
-
-            let to_increase = 8 * MIB;
-            backpressure_controller
-                .mem_limiter
-                .reserve(BufferArea::Prefetch, to_increase as u64);
-            backpressure_controller.increment_read_window(to_increase).await;
-
-            backpressure_controller
-                .mem_limiter
-                .reserve(BufferArea::Prefetch, to_increase as u64);
-            backpressure_controller.increment_read_window(to_increase).await;
+            backpressure_controller.increment_read_window(7 * MIB).await;
+            backpressure_controller.increment_read_window(8 * MIB).await;
+            backpressure_controller.increment_read_window(8 * MIB).await;
 
             let curr_offset = backpressure_limiter
                 .wait_for_read_window_increment::<MockClientError>(0)

@@ -51,16 +51,13 @@ impl<Client: ObjectClient> RequestTask<Client> {
         debug_assert!(part.len() <= self.remaining);
         self.remaining -= part.len();
 
-        // We read some data out of the part queue so the read window should be moved, unless this part
-        // was read from a backwards seek window: such reads never move the read window.
-        if !part.is_backwards_window() {
-            self.backpressure_controller
-                .send_feedback(DataRead {
-                    offset: part.offset(),
-                    length: part.len(),
-                })
-                .await?;
-        }
+        // We read some data out of the part queue so the read window should be moved
+        self.backpressure_controller
+            .send_feedback(DataRead {
+                offset: part.offset(),
+                length: part.len(),
+            })
+            .await?;
 
         let next_offset = part.offset() + part.len() as u64;
         let remaining_in_queue = self.available_offset().saturating_sub(next_offset) as usize;
