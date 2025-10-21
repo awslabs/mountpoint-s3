@@ -1,6 +1,6 @@
 ## Unreleased (v1.21.0)
 
-* Change default logging level from WARN to INFO to improve visibility of important operational messages. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605))
+* Change default logging level from WARN to INFO to improve visibility of Mountpoint operational messages. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605), [#1668](https://github.com/awslabs/mountpoint-s3/pull/1668))
 
 ## v1.20.0 (Sep 12, 2025)
 
