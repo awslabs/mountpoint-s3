@@ -31,7 +31,7 @@ jobs:
     steps:
     - name: Install build tools and dependencies
       run: |
-        dnf -y install git rpm-build rpmdevtools rust cargo
+        dnf -y install git rpm-build rpmdevtools rust cargo wget
         wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz" && \
         wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz.sha256" && \
         echo -n "$(sha256sum cargo-about-*.tar.gz | cut -d' ' -f1)" > checksum.sha256 && \
