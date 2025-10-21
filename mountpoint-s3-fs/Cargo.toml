@@ -9,7 +9,7 @@ description = "Mountpoint S3 main library"
 
 [dependencies]
 mountpoint-s3-fuser = { path = "../mountpoint-s3-fuser", version = "0.1.1", features = ["abi-7-28", "libfuse"] }
-mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.2" }
+mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.3" }
 
 anyhow = { version = "1.0.100", features = ["backtrace"] }
 async-channel = "2.5.0"
