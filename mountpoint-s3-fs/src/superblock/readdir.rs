@@ -654,9 +654,12 @@ mod tests {
     use mountpoint_s3_client::mock_client::MockClient;
     use std::sync::Arc;
 
-    /// Verifies readdir handles gracefully skip deleted local inodes.
-    /// Creates a file, obtains a readdir handle, deletes the file, then uses the handle.
-    /// Should complete successfully when local inodes are deleted concurrently.
+    /// Verifies that `readdir` gracefully skips local inodes that are no longer tracked
+    /// in the parent’s `writing_children`.  
+    /// Creates a file, obtains a readdir handle, finishes writing the file (removing it
+    /// from `writing_children`), then uses the handle.  
+    /// The test passes if `readdir` completes successfully without panicking, even if the
+    /// entry is not returned.
     #[tokio::test]
     async fn test_readdir_race_condition() {
         let bucket = crate::s3::Bucket::new("test-bucket").unwrap();
