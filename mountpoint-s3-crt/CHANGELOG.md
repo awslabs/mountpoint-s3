@@ -5,7 +5,6 @@
 ## v0.13.2 (October 17, 2025)
 
 * Upgrade cargo dependencies.
-* Update to latest CRT dependencies.
 
 ## v0.13.1 (September 15, 2025)
 
