@@ -42,24 +42,22 @@ use tracing::{debug, error, trace, warn};
 
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
-use crate::metablock::Metablock;
-use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat, WriteMode};
-use crate::metablock::{InodeInformation, Lookup};
-use crate::metablock::{S3Location, TryAddDirEntry};
-use crate::metablock::{ValidKey, ValidName};
+use crate::metablock::{
+    CompletionHook, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, S3Location,
+    TryAddDirEntry, ValidKey, ValidName, WriteMode,
+};
 use crate::s3::{S3Path, S3Personality};
 use crate::sync::{Arc, RwLock};
 
 mod handles_map;
 use handles_map::InodeHandleMap;
 
-pub(crate) mod inode;
+mod inode;
 pub use inode::{Inode, InodeKindData, InodeLockedForWriting, InodeState, WriteStatus};
 
 mod negative_cache;
 use negative_cache::NegativeCache;
 mod readdir;
-use crate::superblock::inode::CompletionHook;
 pub use readdir::ReaddirHandle;
 use readdir::{DirHandle, DirectoryEntryReaddir};
 

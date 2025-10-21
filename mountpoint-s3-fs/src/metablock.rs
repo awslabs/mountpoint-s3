@@ -6,6 +6,7 @@ use std::ffi::{OsStr, OsString};
 use time::OffsetDateTime;
 
 // Import core types from submodules
+mod completion;
 mod error;
 mod expiry;
 mod lookup;
@@ -13,7 +14,7 @@ mod path;
 mod stat;
 
 // Re-export all the core types
-use crate::superblock::inode::CompletionHook;
+pub use completion::CompletionHook;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};

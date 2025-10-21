@@ -4,7 +4,7 @@ use bytes::Bytes;
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::time::{Duration, UNIX_EPOCH};
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -23,6 +23,7 @@ use crate::metablock::Metablock;
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
+use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{Uploader, UploaderConfig};
 
