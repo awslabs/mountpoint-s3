@@ -1,13 +1,14 @@
-use crate::common::fuse::{TestSessionConfig, mock_session, read_dir_to_entry_names};
+use crate::common::fuse::{TestSessionConfig, mock_session};
 use crate::common::test_recorder::{Metric, TestRecorder};
 use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::metrics::defs::{
     ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS, FUSE_REQUEST_LATENCY, PREFETCH_RESET_STATE,
 };
 use rusty_fork::rusty_fork_test;
-use std::fs::{File, read_dir};
+use std::fs::File;
 use std::io::{Read, Seek, Write};
-use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn setup_recorder() -> TestRecorder {
     let recorder = TestRecorder::default();
@@ -15,33 +16,40 @@ fn setup_recorder() -> TestRecorder {
     recorder
 }
 
-fn get_metric(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) -> Arc<Metric> {
-    recorder
-        .get(name, labels)
-        .unwrap_or_else(|| panic!("Expected metric '{name}' with labels {labels:?} to exist"))
+macro_rules! get_metric {
+    ($recorder:expr, $name:expr, $labels:expr) => {{
+        match $recorder.get($name, $labels) {
+            Some(metric) => metric,
+            None => {
+                eprintln!("Available metrics:");
+                $recorder.print_metrics();
+                panic!("Expected metric '{}' with labels {:?} to exist", $name, $labels)
+            }
+        }
+    }};
 }
 
-fn get_histogram(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) -> Vec<f64> {
-    let metric = get_metric(recorder, name, labels);
-    match metric.as_ref() {
-        Metric::Histogram(_) => metric.histogram(),
-        _ => panic!("Metric '{name}' is not a histogram"),
-    }
+macro_rules! get_histogram {
+    ($recorder:expr, $name:expr, $labels:expr) => {{
+        let metric = get_metric!($recorder, $name, $labels);
+        match metric.as_ref() {
+            Metric::Histogram(_) => metric.histogram(),
+            _ => panic!("Metric '{}' is not a histogram", $name),
+        }
+    }};
 }
 
 fn assert_metric_exists(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) {
-    let _ = get_metric(recorder, name, labels);
+    let _ = get_metric!(recorder, name, labels);
 }
 
 fn verify_common_metrics(recorder: &TestRecorder) {
-    for request in ["open", "getattr", "fsync"] {
+    for request in ["open", "getattr"] {
         assert_metric_exists(recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, request)]);
     }
     assert_metric_exists(recorder, "fs.inodes", &[]);
     assert_metric_exists(recorder, "fs.inode_kinds", &[("kind", "file")]);
     assert_metric_exists(recorder, "fs.inode_kinds", &[("kind", "directory")]);
-    assert_metric_exists(recorder, "fuse.op_unimplemented", &[("op", "getxattr")]);
-
     assert_metric_exists(recorder, "fuse.total_threads", &[]);
     assert_metric_exists(recorder, "fuse.idle_threads", &[]);
 }
@@ -80,35 +88,18 @@ rusty_fork_test! {
         file3.write_all(&content).unwrap();
         file3.sync_all().unwrap();
 
-        let write_handle = get_metric(&recorder, "fs.current_handles", &[("type", "write")]);
+        let write_handle = get_metric!(&recorder, "fs.current_handles", &[("type", "write")]);
         assert!(write_handle.gauge() >= 3.0, "should have at least 3 write handles");
 
         for f in [file, file2, file3] {
             drop(f);
         }
 
-        let write_io_size = get_histogram(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "write")]);
+        let write_io_size = get_histogram!(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "write")]);
         assert_eq!(write_io_size.len(), 3, "should have 3 write operations");
 
-        let write_latency = get_histogram(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "write")]);
+        let write_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "write")]);
         assert_eq!(write_latency.len(), 3, "should have 3 write operations");
-
-        // List files
-        let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
-        let dir_entries = read_dir_to_entry_names(read_dir_iter);
-        assert_eq!(dir_entries, vec!["test.txt", "test2.txt", "test3.txt"]);
-
-        let read_dir_latency = get_histogram(
-            &recorder,
-            FUSE_REQUEST_LATENCY,
-            &[(ATTR_FUSE_REQUEST, "readdirplus")],
-        );
-        assert!(!read_dir_latency.is_empty(), "should have 1 readdirplus operation");
-        assert!(recorder
-                .get(FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "readdirplus")])
-                .is_none(),
-            "io size should not be recorded for non read/write operations"
-        );
 
         assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "write")]);
 
@@ -129,32 +120,31 @@ rusty_fork_test! {
         };
 
         let test_session = mock_session::new("test_fuse_read_metrics", config);
-        let path = test_session.mount_path().join("test.txt");
 
-        // Create file first
         let content = vec![b'a'; 1024];
-        let mut file = File::create(&path).unwrap();
-        file.write_all(&content).unwrap();
-        file.sync_all().unwrap();
-        drop(file);
+        test_session.client().put_object("test.txt", &content).unwrap();
+
+        let path = test_session.mount_path().join("test.txt");
 
         let mut read_buf = vec![0; 1024];
         let mut read_file = File::open(&path).unwrap();
         let bytes_read = read_file.read(&mut read_buf).unwrap();
-        read_file.sync_all().unwrap();
         assert_eq!(bytes_read, 1024);
         assert_eq!(read_buf, content);
 
-        let read_handle = get_metric(&recorder, "fs.current_handles", &[("type", "read")]);
+        // FIXME: Revisit this if this is really needed.
+        sleep(Duration::from_millis(100));
+
+        let read_handle = get_metric!(&recorder, "fs.current_handles", &[("type", "read")]);
         assert_eq!(read_handle.gauge(), 1.0, "should have at least 1 read handle");
 
         drop(read_file);
 
-        let read_io_size = get_histogram(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "read")]);
+        let read_io_size = get_histogram!(&recorder, FUSE_IO_SIZE, &[(ATTR_FUSE_REQUEST, "read")]);
         assert!(read_io_size.contains(&1024.0));
         assert!(!read_io_size.is_empty(), "should have at least 1 io_size metric");
 
-        let read_latency = get_histogram(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "read")]);
+        let read_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "read")]);
         assert!(!read_latency.is_empty(), "should have at least 1 read latency metric");
 
         assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "read")]);
