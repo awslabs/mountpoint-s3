@@ -1,5 +1,5 @@
 # Download and verify the RPM in this container
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023 as builder
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS builder
 
 # We need the full version of GnuPG
 RUN dnf install -y --allowerasing wget gnupg2
@@ -17,7 +17,7 @@ RUN gpg --import KEYS && \
 RUN gpg --verify mount-s3.rpm.asc
 
 # Install the RPM in a fresh container to minimize dependencies
-FROM amazonlinux:2023
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS release
 COPY --from=builder /mount-s3.rpm /mount-s3.rpm
 
 RUN dnf upgrade -y && \
