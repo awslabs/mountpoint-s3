@@ -1,16 +1,16 @@
+use std::str::FromStr as _;
+
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::ETag;
-use std::str::FromStr as _;
 use tracing::{debug, error};
 
-use super::{Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
-use crate::metablock::S3Location;
-use crate::metablock::{Lookup, Metablock};
+use crate::metablock::{CompletionHook, Lookup, Metablock, S3Location};
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
-use crate::superblock::inode::CompletionHook;
 use crate::sync::{Arc, AsyncMutex};
 use crate::upload::{AppendUploadRequest, UploadRequest};
+
+use super::{Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 
 #[derive(Debug)]
 pub struct FileHandle<Client>
