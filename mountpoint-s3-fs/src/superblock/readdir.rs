@@ -46,6 +46,7 @@ use std::ffi::OsString;
 
 use super::{InodeKindData, LookedUpInode, RemoteLookup, SuperblockInner};
 use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
+use crate::superblock::ValidName;
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::{AsyncMutex, Mutex};
 use mountpoint_s3_client::ObjectClient;
@@ -133,18 +134,18 @@ impl ReaddirHandle {
                 iter.next(&inner.client).await?
             };
 
-            if let Some(next) = next {
-                let Ok(name) = next.name().try_into() else {
-                    // Short-circuit the update if we know it'll fail because the name is invalid
-                    warn!("{} has an invalid name and will be unavailable", next.description());
-                    continue;
-                };
-                let remote_lookup = self.remote_lookup_from_entry(inner, &next);
-                let lookup = inner.update_from_remote(self.dir_ino, name, remote_lookup)?;
-                return Ok(Some(lookup));
-            } else {
+            let Some(next) = next else {
                 return Ok(None);
-            }
+            };
+
+            let Ok(name) = next.name().try_into() else {
+                // Short-circuit the update if we know it'll fail because the name is invalid
+                warn!("{} has an invalid name and will be unavailable", next.description());
+                continue;
+            };
+
+            let lookup = self.lookup_from_entry(inner, &next, name)?;
+            return Ok(Some(lookup));
         }
     }
 
@@ -159,23 +160,23 @@ impl ReaddirHandle {
         self.parent_ino
     }
 
-    /// Create a [RemoteLookup] for the given ReaddirEntry if appropriate.
-    fn remote_lookup_from_entry<OC: ObjectClient + Send + Sync>(
+    /// Process a ReaddirEntry and return the final LookedUpInode result.
+    fn lookup_from_entry<OC: ObjectClient + Send + Sync>(
         &self,
         inner: &SuperblockInner<OC>,
         entry: &ReaddirEntry,
-    ) -> Option<RemoteLookup> {
-        match entry {
-            // If we made it this far with a local inode, we know there's nothing on the remote with
-            // the same name, because [LocalInode] is last in the ordering and so otherwise would
-            // have been deduplicated by now.
-            ReaddirEntry::LocalInode { .. } => None,
+        name: ValidName,
+    ) -> Result<LookedUpInode, InodeError> {
+        let remote_lookup = match entry {
+            ReaddirEntry::LocalInode { lookup } => {
+                return Ok(lookup.clone());
+            }
             ReaddirEntry::RemotePrefix { .. } => {
                 let stat = InodeStat::for_directory(inner.mount_time, inner.config.cache_config.dir_ttl);
-                Some(RemoteLookup {
+                RemoteLookup {
                     stat,
                     kind: InodeKind::Directory,
-                })
+                }
             }
             ReaddirEntry::RemoteObject {
                 size,
@@ -193,12 +194,15 @@ impl ReaddirHandle {
                     *restore_status,
                     inner.config.cache_config.file_ttl,
                 );
-                Some(RemoteLookup {
+                RemoteLookup {
                     stat,
                     kind: InodeKind::File,
-                })
+                }
             }
-        }
+        };
+
+        // Remote entry, update the superblock.
+        inner.update_from_remote(self.dir_ino, name, Some(remote_lookup))
     }
 }
 
@@ -636,5 +640,58 @@ impl DirHandle {
 
     pub fn rewind_offset(&self) {
         self.offset.store(0, Ordering::SeqCst);
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::fs::FUSE_ROOT_INODE;
+    use crate::metablock::{InodeKind, Metablock};
+    use crate::s3::{Bucket, S3Path};
+    use crate::superblock::Superblock;
+    use crate::sync::Arc;
+    use mountpoint_s3_client::mock_client::MockClient;
+
+    /// Verifies that `readdir` gracefully skips local inodes that are no longer tracked
+    /// in the parent’s `writing_children`.  
+    /// Creates a file, obtains a readdir handle, finishes writing the file (removing it
+    /// from `writing_children`), then uses the handle.  
+    /// The test passes if `readdir` completes successfully without panicking, even if the
+    /// entry is not returned.
+    #[tokio::test]
+    async fn test_readdir_race_condition() {
+        let bucket = Bucket::new("test-bucket").unwrap();
+        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).build());
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        let filename = "test_file.txt";
+
+        let lookup = superblock
+            .create(FUSE_ROOT_INODE, filename.as_ref(), InodeKind::File)
+            .await
+            .expect("Create failed");
+
+        superblock
+            .start_writing(lookup.ino(), &Default::default(), false)
+            .await
+            .expect("Start writing failed");
+
+        let handle_id = superblock
+            .new_readdir_handle(FUSE_ROOT_INODE)
+            .await
+            .expect("Failed to create readdir handle");
+
+        superblock
+            .finish_writing(lookup.ino(), None)
+            .await
+            .expect("Finish writing failed");
+
+        superblock
+            .readdir(FUSE_ROOT_INODE, handle_id, 0, false, Box::new(|_, _, _, _| false))
+            .await
+            .expect("Readdir failed");
     }
 }
