@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761061359098,
+  "lastUpdate": 1761094041959,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "sahityad@amazon.com",
-            "name": "Sahitya Damera",
-            "username": "sahityadg"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a67f2631964cca1892d4aa2bcc42afef6fa56c37",
-          "message": "Switch to real-time recording for OTLP metrics.  (#1615)\n\nSwitch OTLP metrics from batch recording to real-time recording directly\nto OTel SDK instruments. This eliminates the need for batch aggregation\nof histogram samples. This change also adds support for histogram export\nvia OTLP. Log-based metrics remain unchanged.\n\nWith this change, we are also removing the use of counter.absolute()\nmethod as OTel SDK doesn't provide an equivalent method to set absolute\nvalues for counters. We should use gauge or histogram to record absolute\nvalues.\n\n### Does this change impact existing behavior?\n\nNo, the changes are under a feature flag.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, the changes are under a feature flag. \n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Sahitya Damera <sahityad@amazon.com>",
-          "timestamp": "2025-09-26T13:12:37Z",
-          "tree_id": "6940a6ae0c872a312ec23baf17cf6fe42ac7f918",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a67f2631964cca1892d4aa2bcc42afef6fa56c37"
-        },
-        "date": 1758900465757,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 2852.6640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4575.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8429.78515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 23.8984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 52.3828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 41.484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 53.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 18.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 28.40234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 23.90625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 27.68359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8177.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 51.671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8197.2265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 50.18359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2088.4765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 23.94140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2092.09375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2089.20703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 23.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 383.15625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 236.15234375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 442.55859375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3821a489258eece0f5c8b9651e19c4e82a4d06a6",
+          "message": "Add Docker build (no publish) in CI, fix image sources, minor style changes (#1665)\n\nBuilding the container images had warnings due to style inconsistencies.\nAdditionally, the base image did not use the ECR images in all cases. On\ntop of addressing these two issues, this PR adds a job to CI to verify\nthat the container images are buildable.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2025-10-21T22:22:43Z",
+          "tree_id": "a5222ae996ef0ff431321d334251f932a0dec7ff",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/3821a489258eece0f5c8b9651e19c4e82a4d06a6"
+        },
+        "date": 1761094041903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 2887.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4551.9609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8513.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 26.26953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 51.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 57.01171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 50.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 21.828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 28.1015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 23.9765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 24.02734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8230.69921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 48.90625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8089.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 50.28515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2106.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 22.19140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2108.8515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2096.80859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 24.03125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 444.87109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 253.55859375,
             "unit": "MiB"
           }
         ]
