@@ -29,7 +29,7 @@ BuildRequires:  libstdc++-devel
 BuildRequires:  nasm
 BuildRequires:  make
 BuildRequires:  which
-BuildRequires:  rust-packaging
+BuildRequires:  rust-toolset-srpm-macros
 BuildRequires:  rust-toolset
 
 ExclusiveArch: x86_64 aarch64
@@ -57,7 +57,7 @@ interface.
 %cargo_prep -v vendor
 
 %build
-export CFLAGS="%{optflags} -Wno-error"
+export CFLAGS="%{optflags} -w"
 export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
 
 cargo build --release --bin mount-s3
