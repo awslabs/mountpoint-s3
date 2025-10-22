@@ -1,6 +1,6 @@
 use metrics::Unit;
 pub use mountpoint_s3_client::metrics::{
-    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_FAILURE, S3_REQUEST_FIRST_BYTE_LATENCY,
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_ERRORS, S3_REQUEST_FIRST_BYTE_LATENCY,
     S3_REQUEST_TOTAL_LATENCY,
 };
 
@@ -21,10 +21,13 @@ pub struct MetricConfig {
 // Metric name constants
 pub const FUSE_REQUEST_LATENCY: &str = "fuse.request_latency";
 pub const FUSE_IO_SIZE: &str = "fuse.io_size";
-pub const FUSE_REQUEST_FAILURE: &str = "fuse.request_failure";
+pub const FUSE_REQUEST_ERRORS: &str = "fuse.request_errors";
 pub const FUSE_IDLE_THREADS: &str = "fuse.idle_threads";
+pub const FUSE_TOTAL_THREADS: &str = "fuse.total_threads";
 
 pub const PROCESS_MEMORY_USAGE: &str = "process.memory_usage";
+
+pub const PREFETCH_RESET_STATE: &str = "prefetch.reset_state";
 
 // Attribute constants
 pub const ATTR_FUSE_REQUEST: &str = "fuse_request";
@@ -41,14 +44,19 @@ pub fn lookup_config(name: &str) -> MetricConfig {
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
-        FUSE_REQUEST_FAILURE => MetricConfig {
+        FUSE_REQUEST_ERRORS => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
         FUSE_IDLE_THREADS => MetricConfig {
             unit: Unit::Count,
-            stability: MetricStability::Stable,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[],
+        },
+        FUSE_TOTAL_THREADS => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
             otlp_attributes: &[],
         },
         S3_REQUEST_COUNT => MetricConfig {
@@ -56,7 +64,7 @@ pub fn lookup_config(name: &str) -> MetricConfig {
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_S3_REQUEST],
         },
-        S3_REQUEST_FAILURE => MetricConfig {
+        S3_REQUEST_ERRORS => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_S3_REQUEST, ATTR_HTTP_STATUS],
@@ -74,6 +82,11 @@ pub fn lookup_config(name: &str) -> MetricConfig {
         PROCESS_MEMORY_USAGE => MetricConfig {
             unit: Unit::Bytes,
             stability: MetricStability::Stable,
+            otlp_attributes: &[],
+        },
+        PREFETCH_RESET_STATE => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
             otlp_attributes: &[],
         },
         // Treat everything else as count metrics

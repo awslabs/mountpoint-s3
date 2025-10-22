@@ -21,7 +21,7 @@ use metrics::{
 };
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::metrics::{
-    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_FAILURE, S3_REQUEST_FIRST_BYTE_LATENCY,
+    ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_ERRORS, S3_REQUEST_FIRST_BYTE_LATENCY,
     S3_REQUEST_TOTAL_LATENCY,
 };
 use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams};
@@ -272,7 +272,7 @@ async fn test_get_object_metrics_403() {
 
     // Verify S3 request failure metrics
     let (key, request_failures) = metrics
-        .get(S3_REQUEST_FAILURE, Some(ATTR_S3_REQUEST), Some("GetObject"))
+        .get(S3_REQUEST_ERRORS, Some(ATTR_S3_REQUEST), Some("GetObject"))
         .expect("request failures metric should exist");
 
     // Verify HTTP status code attribute exists and is correct

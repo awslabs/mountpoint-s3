@@ -1,13 +1,13 @@
 use std::io;
 
 use anyhow::Context;
-use const_format::formatcp;
 #[cfg(target_os = "linux")]
 use fuser::MountOption;
 use fuser::{Filesystem, Session, SessionUnmounter};
 use tracing::{debug, error, info, trace, warn};
 
 use super::config::{FuseSessionConfig, MountPoint};
+use crate::metrics::defs::{FUSE_IDLE_THREADS, FUSE_TOTAL_THREADS};
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
@@ -200,10 +200,6 @@ struct WorkerPool<W: Work> {
     max_workers: usize,
 }
 
-const METRIC_NAME_PREFIX_WORKERS: &str = "fuse.mp_workers";
-const METRIC_NAME_FUSE_WORKERS_TOTAL: &str = formatcp!("{METRIC_NAME_PREFIX_WORKERS}.total_count");
-const METRIC_NAME_FUSE_WORKERS_IDLE: &str = formatcp!("{METRIC_NAME_PREFIX_WORKERS}.idle_count");
-
 #[derive(Debug)]
 struct WorkerPoolState<W: Work> {
     work: W,
@@ -254,8 +250,8 @@ impl<W: Work> WorkerPool<W> {
 
         let new_count = old_count + 1;
         let idle_worker_count = self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst) + 1;
-        metrics::gauge!(METRIC_NAME_FUSE_WORKERS_TOTAL).set(new_count as f64);
-        metrics::gauge!(METRIC_NAME_FUSE_WORKERS_IDLE).set(idle_worker_count as f64);
+        metrics::gauge!(FUSE_TOTAL_THREADS).set(new_count as f64);
+        metrics::histogram!(FUSE_IDLE_THREADS).record(idle_worker_count as f64);
 
         let worker_index = old_count;
         let clone = (*self).clone();
@@ -273,7 +269,7 @@ impl<W: Work> WorkerPool<W> {
         self.state.work.run(
             || {
                 let previous_idle_count = self.state.idle_worker_count.fetch_sub(1, Ordering::SeqCst);
-                metrics::gauge!(METRIC_NAME_FUSE_WORKERS_IDLE).decrement(1);
+                metrics::histogram!(FUSE_IDLE_THREADS).record((previous_idle_count - 1) as f64);
                 if previous_idle_count == 1 {
                     // This was the only idle thread, try to spawn a new one.
                     if let Err(error) = self.try_add_worker() {
@@ -282,8 +278,8 @@ impl<W: Work> WorkerPool<W> {
                 }
             },
             || {
-                self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);
-                metrics::gauge!(METRIC_NAME_FUSE_WORKERS_IDLE).increment(1);
+                let idle_worker_count = self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);
+                metrics::histogram!(FUSE_IDLE_THREADS).record((idle_worker_count + 1) as f64);
             },
         )
     }

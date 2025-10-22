@@ -14,6 +14,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use dashmap::DashMap;
+use defs::PROCESS_MEMORY_USAGE;
 use metrics::{Key, Metadata, Recorder};
 use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, System, get_current_pid};
 
@@ -98,7 +99,7 @@ fn poll_process_metrics(sys: &mut System) {
         if let Some(process) = sys.process(pid) {
             // update the metrics only when there is some change, otherwise it will be too spammy.
             if last_mem != process.memory() {
-                metrics::gauge!("process.memory_usage").set(process.memory() as f64);
+                metrics::gauge!(PROCESS_MEMORY_USAGE).set(process.memory() as f64);
                 metrics::gauge!("system.available_memory").set(sys.available_memory() as f64);
             }
         }
@@ -141,7 +142,7 @@ impl MetricsSink {
                         })
                     }
                     Err(e) => {
-                        tracing::error!("Failed to initialise OTLP exporter: {}", e);
+                        tracing::error!("Failed to initialize OTLP exporter: {}", e);
                         Err(anyhow::anyhow!(
                             "Failed to initialize OTLP metrics exporter: {}. If metrics export is not required, omit the OTLP configuration.",
                             e
@@ -231,7 +232,7 @@ impl MetricsSink {
                 String::new()
             };
 
-            metrics.push(format!("{} {}{}: {}", key.name(), unit, labels, metric_str));
+            metrics.push(format!("{}{}{}: {}", key.name(), unit, labels, metric_str));
         }
 
         metrics.sort();
@@ -412,13 +413,14 @@ mod tests {
 mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;
-    use crate::metrics::defs::{ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_FAILURE};
+    use crate::metrics::defs::{ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_ERRORS};
     use crate::metrics_otel::{OtlpConfig, OtlpMetricsExporter};
     use metrics::{Key, Unit};
     use opentelemetry::metrics::MeterProvider as _;
     use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData, ResourceMetrics};
     use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
     use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
+
     struct TestContext {
         exporter: InMemoryMetricExporter,
         provider: SdkMeterProvider,
@@ -522,7 +524,7 @@ mod test_otlp_metrics {
         let ctx = TestContext::new();
 
         let key = Key::from_parts(
-            "s3.request_failure",
+            S3_REQUEST_ERRORS,
             vec![
                 metrics::Label::new(ATTR_S3_REQUEST, "GetObject"),
                 metrics::Label::new(ATTR_HTTP_STATUS, "403"),
@@ -530,7 +532,7 @@ mod test_otlp_metrics {
             ],
         );
 
-        let config = defs::lookup_config(S3_REQUEST_FAILURE);
+        let config = defs::lookup_config(S3_REQUEST_ERRORS);
         let counter = Metric::counter_otlp(&ctx.otlp_exporter, &key, &config);
         counter.as_counter().increment(1);
 
@@ -542,7 +544,7 @@ mod test_otlp_metrics {
         let scope_metrics: Vec<_> = resource_metrics.scope_metrics().collect();
         let metric = scope_metrics[0]
             .metrics()
-            .find(|m| m.name() == "s3.request_failure")
+            .find(|m| m.name() == S3_REQUEST_ERRORS)
             .unwrap();
 
         match metric.data() {

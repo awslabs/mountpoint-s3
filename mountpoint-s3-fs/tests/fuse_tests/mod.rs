@@ -8,6 +8,7 @@ mod iam_perm_test;
 mod lookup_test;
 #[cfg(feature = "manifest")]
 mod manifest_test;
+mod metrics_test;
 mod mkdir_test;
 mod prefetch_test;
 mod read_test;
