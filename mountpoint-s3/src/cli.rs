@@ -746,6 +746,10 @@ impl CliArgs {
         if let Some(interfaces) = &self.bind {
             user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
         }
+        #[cfg(feature = "otlp_integration")]
+        if self.otlp_endpoint.is_some() {
+            user_agent.value("mp-otlp");
+        }
         user_agent
     }
 
