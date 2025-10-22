@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761134189842,
+  "lastUpdate": 1761149787134,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a911c7b46ed31de610a7f27e06be25f6f0109165",
-          "message": "Upgrade toolchain to Rust 1.89 (#1628)\n\nUpgrade toolchain to Rust 1.89. Address relevant clippy issues.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nUpdated crate versions as required.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-10-03T14:12:46Z",
-          "tree_id": "71a490a5005dcba0128e6af3573eb590ac5da550",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a911c7b46ed31de610a7f27e06be25f6f0109165"
-        },
-        "date": 1759502266921,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 43.85470954999998,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.029,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.13,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.604,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 5.638,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 6.2873805,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 1.1382045,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 5.9782314,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 6.1437824,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "87494144+tadiwa-aizen@users.noreply.github.com",
+            "name": "Tadiwa Magwenzi",
+            "username": "tadiwa-aizen"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "40be375ac43093f12d655f8368c540e889b19109",
+          "message": "Add AL2023 Packaging and CI (#1637)\n\n**What changed and why?**\n\nAdded AL2023 rpm packaging infrastructure allowing for al2023 rpm\nbuilds, and spec file creation.\n\nIn addition, added new GitHub Actions workflow that automatically tests\nRPM package builds for Amazon Linux 2023. The workflow creates both\nsource and binary RPMs using mock in a clean AL2023 container\nenvironment, then validates the installation and basic functionality of\nthe mount-s3 package.\n\n\n**Does this change impact existing behavior?**\n\nNo\n\n**Does this change need a changelog entry? Does it require a version\nchange?**\n\nNo\n\n---\n\n\n\n\n\n\n\n\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Tadiwa Magwenzi <tadiwaom@amazon.com>",
+          "timestamp": "2025-10-22T15:54:16Z",
+          "tree_id": "34dc0f852ccfef9581584c0243b5704f18da1b71",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/40be375ac43093f12d655f8368c540e889b19109"
+        },
+        "date": 1761149785992,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 46.75744804000001,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.027,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.131,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.614,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 5.7,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 7.2049012999999995,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 1.4276468,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 6.3795992,
             "unit": "milliseconds"
           }
         ]
