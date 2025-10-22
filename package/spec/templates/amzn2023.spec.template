@@ -29,6 +29,7 @@ BuildRequires:  libstdc++-devel
 BuildRequires:  nasm
 BuildRequires:  make
 BuildRequires:  which
+BuildRequires:  rust-packaging
 BuildRequires:  rust-toolset
 
 ExclusiveArch: x86_64 aarch64
