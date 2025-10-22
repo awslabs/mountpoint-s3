@@ -1,0 +1,157 @@
+name: AL2023 RPM Build Tests
+
+on:
+  pull_request_target:
+  push:
+    branches:
+      - "wf-changes/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+  S3_REGION: ${{ vars.S3_REGION }}
+  TEST_PREFIX: "github-actions-tmp/run-${{ github.run_id }}/rpm-test/"
+
+jobs:
+  build-srpm:
+    name: Build SRPM
+    runs-on: ubuntu-latest
+    container:
+      image: amazonlinux:2023
+
+    outputs:
+      version: ${{ steps.build-srpm.outputs.version }}
+
+    steps:
+    - name: Install build tools and dependencies
+      run: |
+        dnf -y install git rpm-build rpmdevtools rust cargo wget
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz.sha256" && \
+        echo -n "$(sha256sum cargo-about-*.tar.gz | cut -d' ' -f1)" > checksum.sha256 && \
+        diff cargo-about-*.tar.gz.sha256 checksum.sha256 && \
+        tar xzf cargo-about-*.tar.gz && \
+        cp cargo-about-*/cargo-about /usr/bin && \
+        rm -rf cargo-about-* checksum.sha256
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        submodules: true
+        persist-credentials: false
+
+    - name: Create SRPM
+      id: build-srpm
+      run: |
+        chmod +x package/generate_amzn2023_srpm.sh
+        ./package/generate_amzn2023_srpm.sh
+        
+        echo "## Generated Amazon Linux 2023 Spec File" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```spec' >> $GITHUB_STEP_SUMMARY
+        cat ~/rpmbuild/SPECS/amzn2023.spec >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload SRPM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: srpm-package
+        path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
+        retention-days: 1
+
+  approval:
+    name: Approval Gate
+    runs-on: ubuntu-latest
+    environment: PR integration tests
+    steps:
+      - name: Approval Gate
+        run: echo "Approved!"
+
+  test-rpm:
+    name: Test RPM on ${{ matrix.arch }}
+    needs: [build-srpm, approval]
+    runs-on: ${{ matrix.runner }}
+    
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64  
+            runner: [self-hosted, linux, arm64]
+
+    container:
+      image: amazonlinux:2023
+      options: --privileged
+
+    steps:
+    - name: Install build tools and dependencies
+      run: |
+        dnf -y install make mock ca-certificates sudo awscli
+
+    - name: Preventing container PAM sudo errors
+      run: |
+        # https://github.com/geerlingguy/docker-rockylinux9-ansible/issues/6
+        chmod 0400 /etc/shadow 
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v5
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+
+    - name: Download SRPM artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: srpm-package
+        path: /tmp/srpms
+
+    - name: Test RPM build with Mock in Amazon Linux 2023 chroot
+      run: |
+        VERSION="${{ needs.build-srpm.outputs.version }}"
+        sudo mock -r amazonlinux-2023-${{ matrix.arch }} --rebuild /tmp/srpms/mount-s3-${VERSION}-amzn2023.src.rpm
+
+    - name: Test RPM installation
+      run: |
+        VERSION="${{ needs.build-srpm.outputs.version }}"
+        dnf -y install /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/mount-s3-${VERSION}-amzn2023.${{ matrix.arch }}.rpm
+        which mount-s3
+        mount-s3 --version
+        mount-s3 --help
+
+    - name: Basic Functionality Tests
+      run: |
+        mkdir -p /mnt/s3-test
+
+        # Read Test
+        echo "Hello from RPM test" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt"
+        mount-s3 "${S3_BUCKET_NAME}" /mnt/s3-test --prefix="${TEST_PREFIX}" --region="${S3_REGION}"
+        cat /mnt/s3-test/test.txt | grep -q "Hello from RPM test"
+
+        # Write Test
+        echo "Hello from RPM write test" > /mnt/s3-test/write-test.txt
+        aws s3 cp "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}write-test.txt" - | grep -q "Hello from RPM write test"
+  
+        sudo umount /mnt/s3-test
+    
+    - name: Build log on failure
+      if: failure()
+      run: |
+        echo "Build failed, showing mock build log:"
+        cat /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/build.log
+        
+    - name: Cleanup test resources
+      if: always()
+      run: |
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}test.txt"
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${TEST_PREFIX}write-test.txt"
