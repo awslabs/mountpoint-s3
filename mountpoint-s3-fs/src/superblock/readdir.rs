@@ -46,9 +46,9 @@ use std::ffi::OsString;
 
 use super::{InodeKindData, LookedUpInode, RemoteLookup, SuperblockInner};
 use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
+use crate::superblock::ValidName;
 use crate::sync::atomic::{AtomicI64, Ordering};
 use crate::sync::{AsyncMutex, Mutex};
-use crate::superblock::ValidName;
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::RestoreStatus;
 use time::OffsetDateTime;
@@ -646,11 +646,11 @@ impl DirHandle {
 mod tests {
     use crate::fs::FUSE_ROOT_INODE;
     use crate::metablock::{InodeKind, Metablock};
-    use crate::s3::{S3Path, Bucket};
+    use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
-    use mountpoint_s3_client::mock_client::MockClient;
     use crate::sync::Arc;
-    
+    use mountpoint_s3_client::mock_client::MockClient;
+
     /// Verifies readdir handles gracefully skip deleted local inodes.
     /// Creates a file, obtains a readdir handle, deletes the file, then uses the handle.
     /// Should complete successfully when local inodes are deleted concurrently.
@@ -692,4 +692,3 @@ mod tests {
             .expect("Readdir failed");
     }
 }
-

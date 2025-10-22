@@ -2,6 +2,7 @@
 
 * Change default logging level from WARN to INFO to improve visibility of Mountpoint operational messages. ([#1605](https://github.com/awslabs/mountpoint-s3/pull/1605), [#1668](https://github.com/awslabs/mountpoint-s3/pull/1668))
 * Change FUSE and S3 request metric names in logs ([#1630](https://github.com/awslabs/mountpoint-s3/pull/1630), [#1653](https://github.com/awslabs/mountpoint-s3/pull/1653))
+* Fixed "file does not exist" errors during concurrent directory listing operations ([#1648](https://github.com/awslabs/mountpoint-s3/pull/1648))
 
 ## v1.20.0 (Sep 12, 2025)
 
