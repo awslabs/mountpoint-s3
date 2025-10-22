@@ -1390,6 +1390,26 @@ impl RequestMetrics {
         Some(Duration::from_nanos(receive_start.saturating_sub(send_end)))
     }
 
+    /// Get the S3 operation name of the request (e.g. "HeadObject").
+    ///
+    /// This is tied to the lifetime of the [RequestMetrics] struct.
+    pub fn operation_name(&self) -> Option<&str> {
+        let mut out: *const aws_string = std::ptr::null();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_operation_name(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        assert!(!out.is_null(), "operation name should be available if call succeeded");
+        // SAFETY: `out` is now a valid pointer to an aws_string that lives as long as the RequestMetrics
+        unsafe {
+            let byte_cursor = aws_byte_cursor_from_string(out);
+            let slice = aws_byte_cursor_as_slice(&byte_cursor);
+            std::str::from_utf8(slice).ok()
+        }
+    }
+
     /// Return whether the request was canceled according to its error code
     pub fn is_canceled(&self) -> bool {
         self.error().raw_error() == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_CANCELED as i32
@@ -1415,6 +1435,7 @@ impl Debug for RequestMetrics {
             .field("thread_id", &self.thread_id())
             .field("request_stream_id", &self.request_stream_id())
             .field("request_type", &self.request_type())
+            .field("operation_name", &self.operation_name())
             .field("error_code", &self.error())
             .finish()
     }
