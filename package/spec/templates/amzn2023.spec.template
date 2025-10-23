@@ -57,8 +57,6 @@ interface.
 %cargo_prep -v vendor
 
 %build
-# Using -w as a workaround for FORTIFY_SOURCE warnings
-export CFLAGS="%{optflags} -w"
 export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
 
 cargo build --release --bin mount-s3
