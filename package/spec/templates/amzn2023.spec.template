@@ -58,7 +58,7 @@ interface.
 
 %build
 export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
-
+export CFLAGS="${CFLAGS} -Wno-error"
 cargo build --release --bin mount-s3
 
 %cargo_vendor_manifest
