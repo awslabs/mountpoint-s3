@@ -668,6 +668,7 @@ mod tests {
         );
 
         let filename = "test_file.txt";
+        let write_file_handle = 1;
 
         let lookup = superblock
             .create(FUSE_ROOT_INODE, filename.as_ref(), InodeKind::File)
@@ -675,11 +676,11 @@ mod tests {
             .expect("Create failed");
 
         superblock
-            .start_writing(lookup.ino(), &Default::default(), false)
+            .start_writing(lookup.ino(), &Default::default(), false, write_file_handle)
             .await
             .expect("Start writing failed");
 
-        let handle_id = superblock
+        let readdir_handle = superblock
             .new_readdir_handle(FUSE_ROOT_INODE)
             .await
             .expect("Failed to create readdir handle");
@@ -690,7 +691,7 @@ mod tests {
             .expect("Finish writing failed");
 
         superblock
-            .readdir(FUSE_ROOT_INODE, handle_id, 0, false, Box::new(|_, _, _, _| false))
+            .readdir(FUSE_ROOT_INODE, readdir_handle, 0, false, Box::new(|_, _, _, _| false))
             .await
             .expect("Readdir failed");
     }
