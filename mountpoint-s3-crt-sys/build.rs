@@ -254,6 +254,20 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
             builder.define("DISABLE_GO", "ON");
             builder.define("BUILD_TOOL", "OFF");
             builder.define("ENABLE_SOURCE_MODIFICATION", "OFF");
+
+            // cmake-rs has logic that strips Optimization/Debug options that are passed via CFLAGS:
+            // https://github.com/rust-lang/cmake-rs/issues/240
+            // This breaks build configurations that generate warnings when optimizations
+            // are disabled.
+            if let Ok(cflags) = env::var("CFLAGS") {
+                let split = cflags.split_whitespace();
+                for arg in split {
+                    if arg.starts_with("-O") || arg.starts_with("/O") {
+                        println!("cargo:info=Preserving optimization flag: {arg}");
+                        builder.cflag(arg);
+                    }
+                }
+            }
         }
 
         // Force compiler optimizations for aws-checksums even in debug builds to improve throughput
