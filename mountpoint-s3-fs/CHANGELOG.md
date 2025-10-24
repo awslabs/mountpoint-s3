@@ -1,6 +1,7 @@
 ## Unreleased (v0.8.3)
 
 * Update to latest S3 client. ([#1683](https://github.com/awslabs/mountpoint-s3/pull/1683))
+* Change metric logging format to add metric units ([#1677](https://github.com/awslabs/mountpoint-s3/pull/1677))
 
 ## v0.8.2 (October 27, 2025)
 
