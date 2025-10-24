@@ -14,7 +14,7 @@ use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 
 use super::PrefetchReadError;
-use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_limiter};
 use super::part::Part;
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::part_stream::{
@@ -58,8 +58,8 @@ where
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
         };
-        let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+        let (backpressure_notifier, backpressure_limiter) =
+            new_backpressure_limiter(backpressure_config, self.mem_limiter.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -77,7 +77,7 @@ where
 
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
 
-        RequestTask::from_handle(task_handle, range, part_queue, backpressure_controller)
+        RequestTask::from_handle(task_handle, range, part_queue, backpressure_notifier)
     }
 
     fn client(&self) -> &Client {
