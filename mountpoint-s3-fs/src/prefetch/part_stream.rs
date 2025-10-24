@@ -14,7 +14,7 @@ use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 
 use super::PrefetchReadError;
-use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_limiter};
 use super::part::Part;
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::task::RequestTask;
@@ -225,8 +225,8 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
         };
-        let (backpressure_controller, mut backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+        let (backpressure_notifier, mut backpressure_limiter) =
+            new_backpressure_limiter(backpressure_config, self.mem_limiter.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -257,7 +257,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             )
             .unwrap();
 
-        RequestTask::from_handle(task_handle, range, part_queue, backpressure_controller)
+        RequestTask::from_handle(task_handle, range, part_queue, backpressure_notifier)
     }
 
     fn client(&self) -> &Client {
@@ -375,6 +375,9 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
             //   1st req start  increment threshold   2d req start             2d req window end      2d req end (object size)
             //                                        1st req end
             //                                        1st req window end
+            //
+            // We ignore read window end requested by limiter, we will start with the initial read window instead.
+            // If there is a mismatch (e.g. limiter wants a larger window) we will read from initial request and repeat this call.
             backpressure_limiter.wait_for_read_window_increment(range.start()).await?;
 
             // TODO: We currently wait for the first request data to be consumed
@@ -449,9 +452,8 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
             //   It does not make sense to 'block' here. In reality, we don't actually block here anyway.
             //   This serves instead as the point where we react to the backpressure, and send signals to the S3 client.
             //   Instead, the backpressure controller or an async task could communicate directly with the client.
-            if let Some(next_read_window_end_offset) = backpressure_limiter.wait_for_read_window_increment(next_offset).await? {
-                client_backpressure_handle.ensure_read_window(next_read_window_end_offset);
-            }
+            let read_window_end_offset = backpressure_limiter.wait_for_read_window_increment(next_offset).await?;
+            client_backpressure_handle.ensure_read_window(read_window_end_offset);
         }
         trace!("request finished");
     }

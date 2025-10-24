@@ -1029,9 +1029,8 @@ mod tests {
         run_random_read_test(PrefetcherType::Default, object_size, reads, config);
     }
 
-    // I don't understand this test. Ignore it for now.
-    // It is likely broken because of forward seek relying on `read_window_end_offset`,
-    // which is now incremented asyncronously.
+    // This test is likely broken because of forward seek relying on `read_window_end_offset`,
+    // which is now incremented asyncronously. Ignore for now.
     #[test]
     #[ignore]
     fn test_forward_seek_failure() {
