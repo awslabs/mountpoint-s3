@@ -75,4 +75,9 @@ impl SeekWindow {
         self.parts.drain(..);
         self.current_size = 0;
     }
+
+    /// Return the maximum size of this window
+    pub fn max_size(&self) -> usize {
+        self.max_size
+    }
 }
