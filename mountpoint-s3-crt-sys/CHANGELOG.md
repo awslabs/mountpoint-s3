@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Rollback underlying CRT client. ([#1666](https://github.com/awslabs/mountpoint-s3/pull/1666))
+
 ## v0.15.1 (October 17, 2025)
 
 * Upgrade cargo dependencies.
