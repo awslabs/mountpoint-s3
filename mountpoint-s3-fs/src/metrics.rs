@@ -222,17 +222,10 @@ impl MetricsSink {
                 )
             };
 
-            let unit = {
-                #[cfg(feature = "otlp_integration")]
-                match defs::lookup_config(key.name()).unit.as_canonical_label() {
-                    "" => String::new(),
-                    label => format!(" ({label})"),
-                }
-                #[cfg(not(feature = "otlp_integration"))]
-                String::new()
-            };
-
-            metrics.push(format!("{}{}{}: {}", key.name(), unit, labels, metric_str));
+            match defs::lookup_config(key.name()).unit.as_canonical_label() {
+                "" => metrics.push(format!("{}{}: {}", key.name(), labels, metric_str)),
+                unit => metrics.push(format!("{}({}){}: {}", key.name(), unit, labels, metric_str)),
+            }
         }
 
         metrics.sort();

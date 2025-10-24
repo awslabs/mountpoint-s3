@@ -70,9 +70,9 @@ To opt-in, use the `--log-metrics` command-line argument.
 Metrics will be collected by Mountpoint and flushed to the logs every five seconds.
 See below an example of what the emitted metrics may look like in the logs.
 
-    [INFO] mountpoint_s3_fs::metrics: fuse.io_size[fuse_request=read]: n=4: min=3184 p10=3199 p50=16511 avg=26494.00 p90=70143 p99=70143 p99.9=70143 max=70143
-    [INFO] mountpoint_s3_fs::metrics: fuse.request_latency[fuse_request=lookup]: n=8: min=22912 p10=23039 p50=65023 avg=62632.00 p90=95231 p99=95231 p99.9=95231 max=95231
-    [INFO] mountpoint_s3_fs::metrics: fuse.request_latency[fuse_request=open]: n=3: min=24448 p10=24575 p50=64255 avg=54037.33 p90=73727 p99=73727 p99.9=73727 max=73727
+    [INFO] mountpoint_s3_fs::metrics: fuse.io_size(B)[fuse_request=read]: n=4: min=3184 p10=3199 p50=16511 avg=26494.00 p90=70143 p99=70143 p99.9=70143 max=70143
+    [INFO] mountpoint_s3_fs::metrics: fuse.request_latency(ms)[fuse_request=lookup]: n=8: min=22912 p10=23039 p50=65023 avg=62632.00 p90=95231 p99=95231 p99.9=95231 max=95231
+    [INFO] mountpoint_s3_fs::metrics: fuse.request_latency(ms)[fuse_request=open]: n=3: min=24448 p10=24575 p50=64255 avg=54037.33 p90=73727 p99=73727 p99.9=73727 max=73727
 
 We recommend using the metrics only for debugging at this time.
 Metrics are currently output in an unstructured format and are subject to change in future releases.
