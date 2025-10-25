@@ -35,7 +35,7 @@ pub const ATTR_FUSE_REQUEST: &str = "fuse_request";
 pub fn lookup_config(name: &str) -> MetricConfig {
     match name {
         FUSE_REQUEST_LATENCY => MetricConfig {
-            unit: Unit::Milliseconds,
+            unit: Unit::Microseconds,
             stability: MetricStability::Stable,
             otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
@@ -99,13 +99,10 @@ pub fn lookup_config(name: &str) -> MetricConfig {
 }
 
 // UCUM units for OTel integration
-// https://opentelemetry.io/docs/specs/semconv/general/metrics/#instrument-units)
+// https://opentelemetry.io/docs/specs/semconv/general/metrics/#instrument-units
 pub fn to_ucum(unit: Unit) -> &'static str {
     match unit {
-        Unit::Nanoseconds => "ns",
         Unit::Microseconds => "us",
-        Unit::Milliseconds => "ms",
-        Unit::Seconds => "s",
         Unit::Bytes => "By",
         Unit::Count => "1",
         // Default everything else to Count

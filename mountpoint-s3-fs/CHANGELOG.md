@@ -1,6 +1,7 @@
 ## Unreleased (v0.8.2)
 
 * Change FUSE and S3 request metric names in logs ([#1630](https://github.com/awslabs/mountpoint-s3/pull/1630), [#1653](https://github.com/awslabs/mountpoint-s3/pull/1653))
+* Change metric logging format to add metric units ([#1677](https://github.com/awslabs/mountpoint-s3/pull/1677))
 
 ## v0.8.1 (October 17, 2025)
 
