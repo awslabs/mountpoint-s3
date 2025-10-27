@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v0.13.3 (October 27, 2025)
+
+* Update on_telemetry to use operation_name rather than request_type for metrics. ([#1669](https://github.com/awslabs/mountpoint-s3/pull/1669))
+
 ## v0.13.2 (October 17, 2025)
 
 * Upgrade cargo dependencies.

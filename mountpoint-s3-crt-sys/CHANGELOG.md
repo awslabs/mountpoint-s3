@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v0.15.2 (October 27, 2025)
+
+* Propagate -O flags when building aws-lc. ([#1673](https://github.com/awslabs/mountpoint-s3/pull/1673))
+
 ## v0.15.1 (October 17, 2025)
 
 * Upgrade cargo dependencies.

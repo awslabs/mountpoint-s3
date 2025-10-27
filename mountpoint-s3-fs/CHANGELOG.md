@@ -1,6 +1,9 @@
-## Unreleased (v0.8.2)
+## Unreleased
 
-* Change FUSE and S3 request metric names in logs ([#1630](https://github.com/awslabs/mountpoint-s3/pull/1630), [#1653](https://github.com/awslabs/mountpoint-s3/pull/1653))
+## v0.8.2 (October 27, 2025)
+
+* Change FUSE and S3 request metric names in logs. ([#1630](https://github.com/awslabs/mountpoint-s3/pull/1630), [#1653](https://github.com/awslabs/mountpoint-s3/pull/1653))
+* Keep a constant memory reservation for backwards seek for each file handle. ([#1631](https://github.com/awslabs/mountpoint-s3/pull/1631))
 
 ## v0.8.1 (October 17, 2025)
 
