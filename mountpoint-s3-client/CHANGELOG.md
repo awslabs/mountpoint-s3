@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v0.19.3 (October 27, 2025)
+
+* Change FUSE and S3 request metric names in logs. ([#1630](https://github.com/awslabs/mountpoint-s3/pull/1630), [#1653](https://github.com/awslabs/mountpoint-s3/pull/1653))
+
 ## v0.19.2 (October 17, 2025)
 
 * Upgrade toolchain to Rust 1.90. ([#1650](https://github.com/awslabs/mountpoint-s3/pull/1650))
