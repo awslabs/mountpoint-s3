@@ -2597,7 +2597,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-client"
-version = "0.19.3"
+version = "0.19.4"
 dependencies = [
  "async-io",
  "async-lock",
@@ -2642,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.15.2"
+version = "0.15.3"
 dependencies = [
  "bindgen 0.72.1",
  "cc",
@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-fs"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
