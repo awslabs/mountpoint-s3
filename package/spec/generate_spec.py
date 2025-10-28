@@ -49,6 +49,11 @@ def main() -> None:
     parser.add_argument("build_target", help="Target distribution (e.g., amzn2023)")
     parser.add_argument("--template", help="Custom template file (default: {build_target}.spec.template)")
     parser.add_argument("--output", "-o", help="Output file path (default: {build_target}.spec)")
+    parser.add_argument(
+        "--use-github-source",
+        action="store_true",
+        help="Use GitHub release tarball URL for Source0 instead of local tarball",
+    )
 
     args = parser.parse_args()
     build_target = args.build_target
@@ -70,7 +75,11 @@ def main() -> None:
     template = env.get_template(template_file)
 
     spec_content = template.render(
-        version=version, rust_version=rust_version, current_date=current_date, submodule_versions=submodule_versions
+        version=version,
+        rust_version=rust_version,
+        current_date=current_date,
+        submodule_versions=submodule_versions,
+        use_github_source=args.use_github_source,
     )
 
     output_file = args.output or f"{build_target}.spec"

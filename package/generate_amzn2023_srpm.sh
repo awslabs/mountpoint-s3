@@ -12,14 +12,16 @@ uv run --directory package/spec python generate_spec.py amzn2023 --output ~/rpmb
 # Extract version from spec file
 VERSION=$(awk '/^Version:/ {print $2}' ~/rpmbuild/SPECS/amzn2023.spec)
 
+cd .. 
+tar -czf "~/rpmbuild/SOURCES/mountpoint-s3-${VERSION}.tar.gz" mountpoint-s3
+
+cd mountpoint-s3
 cargo vendor
+tar -czf "~/rpmbuild/SOURCES/mountpoint-s3-${VERSION}-vendor.tar.gz" vendor
+rm -rf vendor
+
 cargo about generate --config package/attribution.toml --output-file ~/rpmbuild/SOURCES/THIRD_PARTY_LICENSES package/attribution.hbs
 cp LICENSE NOTICE ~/rpmbuild/SOURCES/
-
-# Create source tarball
-cd ..
-tar -czf "mountpoint-s3-${VERSION}.tar.gz" mountpoint-s3
-cp "mountpoint-s3-${VERSION}.tar.gz" ~/rpmbuild/SOURCES/
 
 # Build SRPM
 rpmbuild -bs ~/rpmbuild/SPECS/amzn2023.spec
