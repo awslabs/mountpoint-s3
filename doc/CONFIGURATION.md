@@ -10,6 +10,7 @@ We've tried hard to make this simple command adopt good defaults for most scenar
 * [File system configuration](#file-system-configuration), including making a bucket read-only or allowing file deletion
 * [Caching configuration](#caching-configuration), where metadata and object data can be served from a cache
 * [Logging](#logging) for troubleshooting Mountpoint
+* [Metrics](#metrics) for monitoring Mountpoint
 
 ## AWS credentials
 
@@ -642,6 +643,10 @@ We welcome feedback on how this works for your applications and workloads.
 ## Logging
 
 By default, Mountpoint emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. You can change what level of information is logged, and to where it is logged. See [LOGGING.md](LOGGING.md) for more details on configuring logging.
+
+## Metrics
+
+Mountpoint supports exporting metrics using OTLP protocol to provide insights into operations such as FUSE requests, S3 requests, and throughput. Use the `--otlp-endpoint` command-line argument to export metrics to CloudWatch Agent or other OTLP-compatible collectors. See [METRICS.md](METRICS.md) for more details.
 
 ## Unstable configurations
 
