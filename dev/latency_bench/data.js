@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761606051059,
+  "lastUpdate": 1761642285206,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0a84b07f3e5f759de17b50f9236b52f135ae9efa",
-          "message": "Fix instructions for updating CRT dependencies (#1644)\n\nThe command to fetch tags could fail in case of conflict and bail out\nbefore upgrading the remaining submodules.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-10-09T12:41:41Z",
-          "tree_id": "f3dbc9776d94d3fac2487f917acb4e89ac1cb1d0",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/0a84b07f3e5f759de17b50f9236b52f135ae9efa"
-        },
-        "date": 1760015216665,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 310.70799278000004,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.081,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.146,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.935,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 9.407,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 37.1694159,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 20.8803221,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 21.3891127,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 22.3344601,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "8590e4e6abbbcf4593bc5925c760f743c8e8fac4",
+          "message": "Remove CFLAGS workaround from al2023 spec (#1674)\n\nRemove CFLAGS workaround from al2023 spec.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-10-28T08:41:45Z",
+          "tree_id": "80279ea98baf5bae6d38f46ee2f472cafa75796c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8590e4e6abbbcf4593bc5925c760f743c8e8fac4"
+        },
+        "date": 1761642284073,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 304.76943039,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.055,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.155,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.883,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.386,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 34.6607913,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 16.2151595,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 20.4292877,
             "unit": "milliseconds"
           }
         ]
