@@ -1,14 +1,10 @@
 use crate::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex};
 
-#[cfg(feature = "otlp_integration")]
 use crate::metrics::defs::MetricConfig;
-#[cfg(feature = "otlp_integration")]
 use crate::metrics_otel::OtlpMetricsExporter;
-#[cfg(feature = "otlp_integration")]
 use opentelemetry::KeyValue;
 
-#[cfg(feature = "otlp_integration")]
 fn filter_attributes(key: &metrics::Key, allowed: &[&str]) -> Vec<KeyValue> {
     key.labels()
         .filter(|label| allowed.contains(&label.key()))
@@ -16,7 +12,6 @@ fn filter_attributes(key: &metrics::Key, allowed: &[&str]) -> Vec<KeyValue> {
         .collect()
 }
 
-#[cfg(feature = "otlp_integration")]
 #[derive(Debug)]
 pub(crate) struct OtlpData<T> {
     // TODO: Currently, each unique key+labels creates separate OTel
@@ -47,7 +42,6 @@ impl Metric {
         Self::Counter(Default::default())
     }
 
-    #[cfg(feature = "otlp_integration")]
     pub fn counter_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
         let filtered_attributes = filter_attributes(key, config.otlp_attributes);
         let instrument = exporter.create_counter_instrument(key.name(), config.unit, config.stability);
@@ -65,7 +59,6 @@ impl Metric {
         Self::Gauge(Default::default())
     }
 
-    #[cfg(feature = "otlp_integration")]
     pub fn gauge_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
         let filtered_attributes = filter_attributes(key, config.otlp_attributes);
         let instrument = exporter.create_gauge_instrument(key.name(), config.unit, config.stability);
@@ -83,7 +76,6 @@ impl Metric {
         Self::Histogram(Arc::new(Histogram::new()))
     }
 
-    #[cfg(feature = "otlp_integration")]
     pub fn histogram_otlp(exporter: &OtlpMetricsExporter, key: &metrics::Key, config: &MetricConfig) -> Self {
         let filtered_attributes = filter_attributes(key, config.otlp_attributes);
         let instrument = exporter.create_histogram_instrument(key.name(), config.unit, config.stability);
@@ -133,7 +125,6 @@ impl Metric {
 pub struct ValueAndCount {
     pub sum: AtomicU64,
     pub n: AtomicUsize,
-    #[cfg(feature = "otlp_integration")]
     otlp_data: Option<OtlpData<opentelemetry::metrics::Counter<u64>>>,
 }
 
@@ -142,7 +133,6 @@ impl metrics::CounterFn for ValueAndCount {
         self.sum.fetch_add(value, Ordering::SeqCst);
         self.n.fetch_add(1, Ordering::SeqCst);
 
-        #[cfg(feature = "otlp_integration")]
         if let Some(otlp_data) = &self.otlp_data {
             otlp_data.instrument.add(value, &otlp_data.attributes);
         }
@@ -155,7 +145,6 @@ impl metrics::CounterFn for ValueAndCount {
 }
 
 impl ValueAndCount {
-    #[cfg(feature = "otlp_integration")]
     pub fn with_otlp(otlp_counter: opentelemetry::metrics::Counter<u64>, attributes: Vec<KeyValue>) -> Self {
         Self {
             sum: AtomicU64::new(0),
@@ -167,7 +156,7 @@ impl ValueAndCount {
         }
     }
 
-    #[cfg(all(feature = "otlp_integration", test))]
+    #[cfg(test)]
     pub fn otlp_data(&self) -> Option<&OtlpData<opentelemetry::metrics::Counter<u64>>> {
         self.otlp_data.as_ref()
     }
@@ -187,7 +176,6 @@ impl ValueAndCount {
 pub struct AtomicGauge {
     bits: AtomicU64,
     changed: AtomicBool,
-    #[cfg(feature = "otlp_integration")]
     otlp_data: Option<OtlpData<opentelemetry::metrics::Gauge<f64>>>,
 }
 
@@ -217,7 +205,6 @@ impl AtomicGauge {
             .expect("closure always returns Some");
         self.changed.store(true, Ordering::SeqCst);
 
-        #[cfg(feature = "otlp_integration")]
         if let Some(otlp_data) = &self.otlp_data {
             otlp_data.instrument.record(new_value, &otlp_data.attributes);
         }
@@ -234,7 +221,6 @@ impl AtomicGauge {
         }
     }
 
-    #[cfg(feature = "otlp_integration")]
     pub fn with_otlp(otlp_gauge: opentelemetry::metrics::Gauge<f64>, attributes: Vec<KeyValue>) -> Self {
         Self {
             bits: AtomicU64::new(0.0_f64.to_bits()),
@@ -246,7 +232,7 @@ impl AtomicGauge {
         }
     }
 
-    #[cfg(all(feature = "otlp_integration", test))]
+    #[cfg(test)]
     pub fn otlp_data(&self) -> Option<&OtlpData<opentelemetry::metrics::Gauge<f64>>> {
         self.otlp_data.as_ref()
     }
@@ -256,7 +242,6 @@ impl AtomicGauge {
 #[derive(Debug)]
 pub struct Histogram {
     histogram: Mutex<hdrhistogram::Histogram<u64>>,
-    #[cfg(feature = "otlp_integration")]
     otlp_data: Option<OtlpData<opentelemetry::metrics::Histogram<f64>>>,
 }
 
@@ -268,7 +253,6 @@ impl metrics::HistogramFn for Histogram {
             .record(value as u64)
             .expect("histogram should always resize when value is too large");
 
-        #[cfg(feature = "otlp_integration")]
         if let Some(otlp_data) = &self.otlp_data {
             otlp_data.instrument.record(value, &otlp_data.attributes);
         }
@@ -280,12 +264,10 @@ impl Histogram {
         let histogram = hdrhistogram::Histogram::new(2).unwrap();
         Self {
             histogram: Mutex::new(histogram),
-            #[cfg(feature = "otlp_integration")]
             otlp_data: None,
         }
     }
 
-    #[cfg(feature = "otlp_integration")]
     pub fn with_otlp(otlp_histogram: opentelemetry::metrics::Histogram<f64>, attributes: Vec<KeyValue>) -> Self {
         let histogram = hdrhistogram::Histogram::new(2).unwrap();
         Self {
@@ -297,7 +279,7 @@ impl Histogram {
         }
     }
 
-    #[cfg(all(feature = "otlp_integration", test))]
+    #[cfg(test)]
     pub fn otlp_data(&self) -> Option<&OtlpData<opentelemetry::metrics::Histogram<f64>>> {
         self.otlp_data.as_ref()
     }
@@ -321,7 +303,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(feature = "otlp_integration")]
     fn test_labels_to_attributes() {
         use metrics::{Key, Label};
 
@@ -340,7 +321,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "otlp_integration")]
     fn test_counter_otlp_recording() {
         use opentelemetry::metrics::MeterProvider as _;
         use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
@@ -407,7 +387,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "otlp_integration")]
     fn test_gauge_otlp_recording() {
         use opentelemetry::metrics::MeterProvider as _;
         use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;
@@ -475,7 +454,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "otlp_integration")]
     fn test_histogram_otlp_recording() {
         use opentelemetry::metrics::MeterProvider as _;
         use opentelemetry_sdk::metrics::in_memory_exporter::InMemoryMetricExporter;

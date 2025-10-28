@@ -50,9 +50,9 @@ time = { version = "0.3.44", features = ["macros", "formatting", "serde-well-kno
 tracing = { version = "0.1.41", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
-opentelemetry = { version = "0.31.0", features = ["metrics"], optional = true }
-opentelemetry_sdk = { version = "0.31.0", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"], optional = true }
-opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"], optional = true }
+opentelemetry = { version = "0.31.0", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.31.0", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
+opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.18.0", default-features = false }
@@ -89,7 +89,7 @@ block_size = []
 event_log = []
 mem_limiter = []
 manifest = ["csv", "rusqlite"]
-otlp_integration = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp"]
+
 # Features for choosing tests
 fips_tests = []
 fuse_tests = []

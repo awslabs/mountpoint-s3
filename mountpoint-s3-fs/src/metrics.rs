@@ -3,11 +3,8 @@
 //! This module hooks up the [metrics](https://docs.rs/metrics) facade to a metrics sink that
 //! currently just emits them to a tracing log entry.
 
-#[cfg(feature = "otlp_integration")]
 pub use crate::metrics_otel::OtlpConfig;
-#[cfg(feature = "otlp_integration")]
 use crate::metrics_otel::OtlpMetricsExporter;
-#[cfg(feature = "otlp_integration")]
 use defs::MetricStability;
 
 use std::thread::{self, JoinHandle};
@@ -38,8 +35,7 @@ pub const TARGET_NAME: &str = "mountpoint_s3_fs::metrics";
 
 /// Configuration for metrics collection
 pub enum MetricsConfig {
-    /// OpenTelemetry configuration (only available with "otlp_integration" feature)
-    #[cfg(feature = "otlp_integration")]
+    /// OpenTelemetry configuration
     Otlp(OtlpConfig),
 }
 
@@ -109,7 +105,6 @@ fn poll_process_metrics(sys: &mut System) {
 #[derive(Debug)]
 struct MetricsSink {
     metrics: DashMap<Key, Metric>,
-    #[cfg(feature = "otlp_integration")]
     otlp_exporter: Option<OtlpMetricsExporter>,
 }
 
@@ -119,12 +114,10 @@ impl MetricsSink {
         match config {
             None => Ok(Self {
                 metrics: DashMap::with_capacity(64),
-                #[cfg(feature = "otlp_integration")]
                 otlp_exporter: None,
             }),
 
-            // OTLP configuration (only available with "otlp_integration" feature)
-            #[cfg(feature = "otlp_integration")]
+            // OTLP configuration
             Some(MetricsConfig::Otlp(config)) => {
                 // Basic validation of the endpoint URL
                 if !config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://") {
@@ -155,7 +148,6 @@ impl MetricsSink {
 
     fn counter(&self, key: &Key) -> metrics::Counter {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
-            #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
                 let config = defs::lookup_config(key.name());
                 if config.stability != MetricStability::Internal {
@@ -169,7 +161,6 @@ impl MetricsSink {
 
     fn gauge(&self, key: &Key) -> metrics::Gauge {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
-            #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
                 let config = defs::lookup_config(key.name());
                 if config.stability != MetricStability::Internal {
@@ -183,7 +174,6 @@ impl MetricsSink {
 
     fn histogram(&self, key: &Key) -> metrics::Histogram {
         let metric = self.metrics.entry(key.clone()).or_insert_with(move || {
-            #[cfg(feature = "otlp_integration")]
             if let Some(exporter) = &self.otlp_exporter {
                 let config = defs::lookup_config(key.name());
                 if config.stability != MetricStability::Internal {
@@ -402,7 +392,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "otlp_integration"))]
+#[cfg(test)]
 mod test_otlp_metrics {
     use super::*;
     use crate::metrics::data::Metric;

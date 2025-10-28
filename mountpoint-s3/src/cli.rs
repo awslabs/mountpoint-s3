@@ -280,7 +280,6 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     #[clap(long, help = "Enable logging of summarized performance metrics", help_heading = LOGGING_OPTIONS_HEADER)]
     pub log_metrics: bool,
 
-    #[cfg(feature = "otlp_integration")]
     #[clap(
         long,
         help = "OTLP endpoint for publishing metrics",
@@ -289,7 +288,6 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub otlp_endpoint: Option<String>,
 
-    #[cfg(feature = "otlp_integration")]
     #[clap(
         long,
         help = "OTLP metrics export interval in seconds [default: 60]",
@@ -746,7 +744,6 @@ impl CliArgs {
         if let Some(interfaces) = &self.bind {
             user_agent.key_value("mp-nw-interfaces", &interfaces.len().to_string());
         }
-        #[cfg(feature = "otlp_integration")]
         if self.otlp_endpoint.is_some() {
             user_agent.value("mp-otlp");
         }
