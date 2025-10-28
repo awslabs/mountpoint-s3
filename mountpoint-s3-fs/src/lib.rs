@@ -14,7 +14,6 @@ pub mod mem_limiter;
 pub mod memory;
 pub mod metablock;
 pub mod metrics;
-#[cfg(feature = "otlp_integration")]
 pub mod metrics_otel;
 pub mod object;
 pub mod prefetch;

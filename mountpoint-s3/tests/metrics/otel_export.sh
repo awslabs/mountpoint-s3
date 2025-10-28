@@ -122,7 +122,7 @@ setup_mount() {
       ;;
   esac
   
-  cargo run --quiet --release --features otlp_integration -- "${args[@]}"
+  cargo run --quiet --release -- "${args[@]}"
   if [ $? -ne 0 ]; then
     echo "Failed to mount file system"
     exit 1
