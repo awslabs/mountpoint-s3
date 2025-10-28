@@ -1,6 +1,5 @@
-use async_stream::try_stream;
 use futures::task::SpawnExt;
-use futures::{Stream, StreamExt, pin_mut};
+use futures::{Stream, StreamExt, join, pin_mut};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use std::marker::{Send, Sync};
@@ -12,6 +11,7 @@ use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::sync::async_channel::{Sender, unbounded};
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_limiter};
@@ -237,7 +237,11 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             .spawn_with_handle(
                 async move {
                     let first_read_window_end_offset = config.range.start() + config.initial_read_window_size as u64;
-                    let request_stream = read_from_client_stream(
+
+                    let (tx, rx) = unbounded();
+
+                    let request_stream_fut = try_read_from_client_stream(
+                        tx,
                         &mut backpressure_limiter,
                         &client,
                         config.bucket,
@@ -251,7 +255,9 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
                         object_id: config.object_id,
                         preferred_part_size: config.preferred_part_size,
                     };
-                    part_composer.try_compose_parts(request_stream).await;
+                    let part_compuser_fut = part_composer.try_compose_parts(rx);
+
+                    join!(request_stream_fut, part_compuser_fut);
                 }
                 .instrument(span),
             )
@@ -317,146 +323,183 @@ where
 /// This is a workaround for a specific issue where initial read window size could be very small (~1MB), but the CRT only returns data
 /// in chunks of part size (default to 8MB) even if initial read window is smaller than that, which make time to first byte much higher
 /// than expected.
-pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
+pub async fn try_read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
+    sender: Sender<RequestReaderOutput<Client::ClientError>>,
     backpressure_limiter: &'a mut BackpressureLimiter,
     client: &'a Client,
     bucket: String,
     object_id: ObjectId,
     first_read_window_end_offset: u64,
     range: RequestRange,
-) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
-    try_stream! {
-        // Let's start by issuing the first request with a range trimmed to initial read window offset
-        let first_req_range = range.trim_end(first_read_window_end_offset);
-        let mut current_offset = first_req_range.start();
-        if !first_req_range.is_empty() {
-            let first_request_stream = read_from_request(
-                backpressure_limiter,
-                client,
-                bucket.clone(),
-                object_id.clone(),
-                first_req_range.into(),
-            );
-            pin_mut!(first_request_stream);
-            while let Some(next) = first_request_stream.next().await {
-                let next = next?;
-                current_offset = next.offset + next.data.len() as u64;
-                yield(next);
-            }
-        }
-
-        // After the first request is completed we will create the second request for the rest of the stream,
-        // but only if there is something left to be fetched.
-        let range = range.trim_start(first_read_window_end_offset);
-        if !range.is_empty() {
-            if current_offset < range.start() {
-                // We got less data than we requested. We assume the consumer will consume
-                // all the data up to `range.start()` and will increase the read window,
-                // thus, the next line, `wait_for_read_window_increment(range.start())` will eventually be satisfied.
-                // However, if we get less data than we expected, the consumer wouldn't consume
-                // enough data and wouldn't increase the read window, and the next await would block forever
-                // as there is no one to increase the read window.
-                //
-                // This is an runtime error instead of an `assert!` because the prefetcher resets the
-                // prefetch to the offset again in case of an error, and that would cause a new stream
-                // to be created which in turn would succeed in the next try if this was a transient issue.
-                error!(key=object_id.key(), current_range=?range, current_offset, "Previous GetObject request terminated unexpectedly");
-                Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)?;
-            }
-
-            // To optimize random reads we don't start the second request until half of the first one was read as the second
-            // request may not be needed. After increment threshold is reached `backpressure_limiter` will receive a diff to
-            // add to the window. This diff will be the initial read window size of the second request and we use it as
-            // a signal to start the request. This is how it looks when the start offset is 1000 KiB and caching is not
-            // enabled (i.e. 1st request size is 1152 KiB):
-            //
-            //  KiB: 1000             1576             2152                             3304                    10 000
-            //       |________________|________________|________________________________|________  ...  ________|
-            //   1st req start  increment threshold   2d req start             2d req window end      2d req end (object size)
-            //                                        1st req end
-            //                                        1st req window end
-            //
-            // We ignore read window end requested by limiter, we will start with the initial read window instead.
-            // If there is a mismatch (e.g. limiter wants a larger window) we will read from initial request and repeat this call.
-            backpressure_limiter.wait_for_read_window_increment(range.start()).await?;
-
-            // TODO: We currently wait for the first request data to be consumed
-            //       before starting the request for the remainder of the object.
-            //       However, we could start this in parallel to potentially accelerate medium-sized reads,
-            //       where medium-sized is roughly larger than 1MiB+1KiB but smaller than a few parts,
-            //       since we expect impact due to round-trip time latency.
-            let request_stream = read_from_request(
-                backpressure_limiter,
-                client,
-                bucket.clone(),
-                object_id.clone(),
-                range.into(),
-            );
-            pin_mut!(request_stream);
-            while let Some(next) = request_stream.next().await {
-                yield(next?);
-            }
+) {
+    if let Err(err) = read_from_client_stream(
+        sender.clone(),
+        backpressure_limiter,
+        client,
+        bucket,
+        object_id,
+        first_read_window_end_offset,
+        range,
+    )
+    .await
+    {
+        trace!(error=?err, "part stream task failed");
+        if sender.send(Err(err)).await.is_err() {
+            // If the receiver is gone, we're expecting the async task to be cancelled soon, but continue running until then.
+            trace!("closed channel");
         }
     }
+}
+
+async fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
+    sender: Sender<RequestReaderOutput<Client::ClientError>>,
+    backpressure_limiter: &'a mut BackpressureLimiter,
+    client: &'a Client,
+    bucket: String,
+    object_id: ObjectId,
+    first_read_window_end_offset: u64,
+    range: RequestRange,
+) -> Result<(), PrefetchReadError<Client::ClientError>> {
+    // Let's start by issuing the first request with a range trimmed to initial read window offset
+    let first_req_range = range.trim_end(first_read_window_end_offset);
+    if !first_req_range.is_empty() {
+        read_from_request(
+            sender.clone(),
+            backpressure_limiter,
+            client,
+            bucket.clone(),
+            object_id.clone(),
+            first_req_range.into(),
+        )
+        .await?;
+    }
+
+    // After the first request is completed we will create the second request for the rest of the stream,
+    // but only if there is something left to be fetched.
+    let range = range.trim_start(first_read_window_end_offset);
+    if !range.is_empty() {
+        // To optimize random reads we don't start the second request until half of the first one was read as the second
+        // request may not be needed. After increment threshold is reached `backpressure_limiter` will receive a diff to
+        // add to the window. This diff will be the initial read window size of the second request and we use it as
+        // a signal to start the request. This is how it looks when the start offset is 1000 KiB and caching is not
+        // enabled (i.e. 1st request size is 1152 KiB):
+        //
+        //  KiB: 1000             1576             2152                             3304                    10 000
+        //       |________________|________________|________________________________|________  ...  ________|
+        //   1st req start  increment threshold   2d req start             2d req window end      2d req end (object size)
+        //                                        1st req end
+        //                                        1st req window end
+        //
+        // We ignore read window end requested by limiter, we will start with the initial read window instead.
+        // If there is a mismatch (e.g. limiter wants a larger window) we will read from initial request and repeat this call.
+        backpressure_limiter
+            .wait_for_read_window_increment(range.start())
+            .await?;
+
+        // TODO: We currently wait for the first request data to be consumed
+        //       before starting the request for the remainder of the object.
+        //       However, we could start this in parallel to potentially accelerate medium-sized reads,
+        //       where medium-sized is roughly larger than 1MiB+1KiB but smaller than a few parts,
+        //       since we expect impact due to round-trip time latency.
+        read_from_request(
+            sender,
+            backpressure_limiter,
+            client,
+            bucket.clone(),
+            object_id.clone(),
+            range.into(),
+        )
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// Creates a meta GetObject request with the specified range and sends received body parts via the returned [Stream].
 ///
 /// A [PrefetchReadError] is returned when something goes wrong in the underlying meta GetObject request.
-fn read_from_request<'a, Client: ObjectClient + 'a>(
+async fn read_from_request<'a, Client: ObjectClient + 'a>(
+    sender: Sender<RequestReaderOutput<Client::ClientError>>,
     backpressure_limiter: &'a mut BackpressureLimiter,
     client: &'a Client,
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
-) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
-    try_stream! {
-        let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
-            .await
-            .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
+) -> Result<(), PrefetchReadError<Client::ClientError>> {
+    let mut request = client
+        .get_object(
+            &bucket,
+            id.key(),
+            &GetObjectParams::new()
+                .range(Some(request_range.clone()))
+                .if_match(Some(id.etag().clone())),
+        )
+        .await
+        .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
+        .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
+
+    let mut client_backpressure_handle = request
+        .backpressure_handle()
+        .expect("S3 client backpressure should always be enabled in Mountpoint")
+        .clone();
+    client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
+
+    pin_mut!(request);
+    let mut next_offset = request_range.start;
+    while let Some(next) = request.next().await {
+        let part = next
+            .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
 
-        let mut client_backpressure_handle = request.backpressure_handle()
-            .expect("S3 client backpressure should always be enabled in Mountpoint")
-            .clone();
-        client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
+        let length = part.data.len() as u64;
+        trace!(offset = part.offset, length, "received GetObject part");
+        metrics::counter!("s3.client.total_bytes", "type" => "read").increment(length);
 
-        pin_mut!(request);
-        while let Some(next) = request.next().await {
-            let part = next
-                .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject body part failed"))
-                .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
-
-            let length = part.data.len() as u64;
-            trace!(offset=part.offset, length, "received GetObject part");
-            metrics::counter!("s3.client.total_bytes", "type" => "read").increment(length);
-
-            let next_offset = part.offset + length;
-            yield part;
-
-            // We are reaching the end so don't have to wait for more read window
-            if next_offset == request_range.end {
-                break;
-            }
-
-            // The CRT could return data more than what we have requested in the read window
-            // which means unaccounted memory, so we want to record them here.
-            let excess_bytes = next_offset.saturating_sub(backpressure_limiter.read_window_end_offset());
-            if excess_bytes > 0 {
-                metrics::histogram!("s3.client.read_window_excess_bytes").record(excess_bytes as f64);
-            }
-
-            // When we detect an updated read window end offset, pass this signal on to the S3 client.
-            // TODO:
-            //   It does not make sense to 'block' here. In reality, we don't actually block here anyway.
-            //   This serves instead as the point where we react to the backpressure, and send signals to the S3 client.
-            //   Instead, the backpressure controller or an async task could communicate directly with the client.
-            let read_window_end_offset = backpressure_limiter.wait_for_read_window_increment(next_offset).await?;
-            client_backpressure_handle.ensure_read_window(read_window_end_offset);
+        next_offset = part.offset + length;
+        if sender.send(Ok(part)).await.is_err() {
+            // If the receiver is gone, we're expecting the async task to be cancelled soon, but continue running until then.
+            trace!("closed channel");
         }
-        trace!("request finished");
+
+        // We are reaching the end so don't have to wait for more read window
+        if next_offset == request_range.end {
+            break;
+        }
+
+        // The CRT could return data more than what we have requested in the read window
+        // which means unaccounted memory, so we want to record them here.
+        let excess_bytes = next_offset.saturating_sub(backpressure_limiter.read_window_end_offset());
+        if excess_bytes > 0 {
+            metrics::histogram!("s3.client.read_window_excess_bytes").record(excess_bytes as f64);
+        }
+
+        // When we detect an updated read window end offset, pass this signal on to the S3 client.
+        // TODO:
+        //   It does not make sense to 'block' here. In reality, we don't actually block here anyway.
+        //   This serves instead as the point where we react to the backpressure, and send signals to the S3 client.
+        //   Instead, the backpressure controller or an async task could communicate directly with the client.
+        let read_window_end_offset = backpressure_limiter.wait_for_read_window_increment(next_offset).await?;
+        client_backpressure_handle.ensure_read_window(read_window_end_offset);
     }
+
+    if next_offset < request_range.end {
+        // We got less data than we requested. We assume the consumer will consume
+        // all the data up to `range.start()` and will increase the read window,
+        // thus, the next line, `wait_for_read_window_increment(range.start())` will eventually be satisfied.
+        // However, if we get less data than we expected, the consumer wouldn't consume
+        // enough data and wouldn't increase the read window, and the next await would block forever
+        // as there is no one to increase the read window.
+        //
+        // This is an runtime error instead of an `assert!` because the prefetcher resets the
+        // prefetch to the offset again in case of an error, and that would cause a new stream
+        // to be created which in turn would succeed in the next try if this was a transient issue.
+        error!(key=id.key(), current_range=?request_range, next_offset, "Previous GetObject request terminated unexpectedly");
+        Err(PrefetchReadError::GetRequestTerminatedUnexpectedly)?;
+    }
+
+    trace!("request finished");
+
+    Ok(())
 }
 
 #[cfg(test)]

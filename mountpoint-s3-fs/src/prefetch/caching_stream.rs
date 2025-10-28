@@ -2,7 +2,7 @@ use std::time::Instant;
 use std::{ops::Range, sync::Arc};
 
 use futures::task::{Spawn, SpawnExt};
-use futures::{Stream, StreamExt, pin_mut};
+use futures::{Stream, StreamExt, join, pin_mut};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::GetBodyPart;
 use tracing::{Instrument, debug_span, trace, warn};
@@ -12,13 +12,14 @@ use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::sync::async_channel::unbounded;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_limiter};
 use super::part::Part;
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::part_stream::{
-    ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, read_from_client_stream,
+    ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, try_read_from_client_stream,
 };
 use super::task::RequestTask;
 
@@ -214,7 +215,10 @@ where
             "fetching data from client"
         );
 
-        let request_stream = read_from_client_stream(
+        let (tx, rx) = unbounded();
+
+        let request_stream_fut = try_read_from_client_stream(
+            tx,
             &mut self.backpressure_limiter,
             &self.client,
             bucket.clone(),
@@ -232,7 +236,9 @@ where
             cache: self.cache.clone(),
             runtime: self.runtime.clone(),
         };
-        part_composer.try_compose_parts(request_stream, range).await;
+        let part_composer_fut = part_composer.try_compose_parts(rx, range);
+
+        join!(request_stream_fut, part_composer_fut);
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
