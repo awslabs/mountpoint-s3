@@ -26,5 +26,9 @@ rpmbuild -bs ~/rpmbuild/SPECS/amzn2023.spec
 
 # For GitHub Actions (if running in CI)
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    # Required by current workflow - TODO: remove later
     echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+    # TODO: replace "amzn2023" with the release field from the spec file
+    echo "version-tag=${VERSION}-amzn2023" >> "$GITHUB_OUTPUT"
 fi
