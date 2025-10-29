@@ -599,7 +599,7 @@
         "metrics": [
           [
             "CWAgent",
-            "prefetch.reset_state"
+            "experimental.prefetch.reset_state"
           ]
         ],
         "view": "timeSeries",
