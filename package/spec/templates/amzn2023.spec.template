@@ -85,6 +85,6 @@ ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 %license cargo-vendor.txt
 
 %changelog
-* Thu Oct 16 2025 Mountpoint-S3 Team <mountpoint-s3@amazon.com> - amzn2023
-- Initial packaging of Mountpoint-S3 into AL2023
+* Thu Oct 30 2025 Mountpoint-S3 Team <mountpoint-s3@amazon.com> - amzn2023
+- Packaging of Mountpoint for Amazon S3 into AL2023
 - Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md for updates
