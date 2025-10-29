@@ -58,8 +58,8 @@ interface.
 
 %build
 export MOUNTPOINT_S3_AWS_RELEASE_TARGET="%{release}"
-
-cargo build --profile rpm --bin mount-s3
+export RUSTFLAGS="%build_rustflags"
+cargo build --release --bin mount-s3
 
 %cargo_license_summary
 %{cargo_license} > LICENSE.dependencies
@@ -72,7 +72,7 @@ mkdir -p %{buildroot}/%{_docdir}/%{name}
 mkdir -p %{buildroot}/%{_licensedir}/%{name}
 install -m 644 %{SOURCE3} %{buildroot}/%{_docdir}/%{name}/NOTICE
 install -m 644 %{SOURCE2} %{buildroot}/%{_licensedir}/%{name}/LICENSE
-install -m 755 %{_builddir}/target/rpm/mount-s3 %{buildroot}/%{_bindir}/mount-s3
+install -m 755 %{_builddir}/mountpoint-s3/target/release/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
 %files
