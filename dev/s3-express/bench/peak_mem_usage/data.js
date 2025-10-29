@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1761766633898,
+  "lastUpdate": 1761776180532,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d1d0ffaf8aad5860cae440679c56af9fb8fde1b8",
-          "message": "Document fstab support introduced in v1.18 (#1651)\n\nClarify in `CONFIGURATION.md` that fstab support is only available since\nMountpoint v1.18.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-10-13T16:12:50Z",
-          "tree_id": "cc7f7b0998d82842efa4b55c2add65c8e6fe24f4",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/d1d0ffaf8aad5860cae440679c56af9fb8fde1b8"
-        },
-        "date": 1760384445778,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 0,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 0,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 237.82421875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prikaru@amazon.com",
+            "name": "Priyankakarumuru1",
+            "username": "Priyankakarumuru1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "613e4676d25d59e2621c41c4c141097dcc2cf00a",
+          "message": "docs: Update LOGGING.md for default INFO level and metrics behavior (#1620)\n\nUpdate documentation to reflect new default logging level\n\n### What changed and why?\n- Updated LOGGING.md to reflect the new default INFO logging level\n(changed from WARN)\n- Added explanation of metrics logging behavior with --log-metrics and\n--debug flags\n- Clarified verbosity levels in documentation\n\nThese changes align the documentation with the implementation changes\nmade in PR #1605.\n\n### Does this change impact existing behavior?\nNo, this is a documentation-only change that reflects already merged\nchanges from PR #1605\n\n### Does this change need a changelog entry? Does it require a version\nchange?\nNo changelog entry or version change needed as this is only updating\ndocumentation to match existing behavior.\n\n---\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Priyanka Karumuru <prikaru@amazon.com>\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
+          "timestamp": "2025-10-29T19:58:55Z",
+          "tree_id": "d68c93d36fc4038ba611232771d126ed7e598cec",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/613e4676d25d59e2621c41c4c141097dcc2cf00a"
+        },
+        "date": 1761776180475,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 2856.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4544.8125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8462.00390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 26.71875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 52.95703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 42.84375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 53.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 22.6171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 29.875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 23.3203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 29.34765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8232.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 50.33984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8193.8203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 51.078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2088.0234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 24.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2093.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2112.60546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 24.09375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 397.8984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 255.1171875,
             "unit": "MiB"
           }
         ]
