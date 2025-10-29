@@ -33,7 +33,7 @@ To send us a pull request, please:
 2. Modify the source. Please focus on the specific change you are contributing; we value multiple small pull requests that are easier to review.
 3. Ensure local tests pass by running: `make pre-pr-checks`
 4. Commit to your fork using clear commit messages.
-     * We require all contributors to agree to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/),and to indicate this agreement by signing their commits using [Git's `Signed-off-by` support](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff).
+     * We require all contributors to agree to the terms of the [Developer Certificate of Origin (DCO)](https://developercertificate.org/), and to indicate this agreement by signing their commits using [Git's `Signed-off-by` support](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt---signoff).
      * To add this trailer to your commits, use the `-s, --sign-off` option to `git commit`.
 5. Send us a pull request, answering the default questions in the pull request interface.
 6. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
