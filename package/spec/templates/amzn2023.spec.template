@@ -72,7 +72,7 @@ mkdir -p %{buildroot}/%{_docdir}/%{name}
 mkdir -p %{buildroot}/%{_licensedir}/%{name}
 install -m 644 %{SOURCE3} %{buildroot}/%{_docdir}/%{name}/NOTICE
 install -m 644 %{SOURCE2} %{buildroot}/%{_licensedir}/%{name}/LICENSE
-install -m 755 %{_builddir}/mountpoint-s3/target/release/mount-s3 %{buildroot}/%{_bindir}/mount-s3
+install -m 755 target/release/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
 %files

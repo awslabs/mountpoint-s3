@@ -22,10 +22,11 @@ echo "spec version=${VERSION}"
 echo "spec release=${RELEASE}"
 
 echo Source tarball
-tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}.tar.gz" -C "${MOUNTPOINT_DIR}" .
+cd "${MOUNTPOINT_DIR}"/..
+tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}.tar.gz" mountpoint-s3
 
 echo Vendor tarball
-cd "${MOUNTPOINT_DIR}"
+cd mountpoint-s3
 cargo vendor
 tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}-vendor.tar.gz" vendor
 rm -rf vendor
