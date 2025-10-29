@@ -61,7 +61,7 @@ interface.
 %build
 export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
 
-cargo build --release --bin mount-s3
+cargo build --profile rpm --bin mount-s3
 
 %cargo_license_summary
 %{cargo_license} > LICENSE.dependencies
@@ -72,10 +72,10 @@ mkdir -p %{buildroot}/%{_bindir}
 mkdir -p %{buildroot}/%{_prefix}/sbin
 mkdir -p %{buildroot}/%{_docdir}/%{name}
 mkdir -p %{buildroot}/%{_licensedir}/%{name}
-install -m 755 target/release/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 install -m 644 %{SOURCE3} %{buildroot}/%{_docdir}/%{name}/NOTICE
 install -m 644 %{SOURCE2} %{buildroot}/%{_licensedir}/%{name}/LICENSE
 install -m 644 %{SOURCE4} %{buildroot}/%{_licensedir}/%{name}/THIRD_PARTY_LICENSES
+install -m 755 %{_builddir}/target/rpm/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
 %files

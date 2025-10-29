@@ -6,25 +6,32 @@ set -euo pipefail
 # The paths are hardcoded because this is the standard location expected by RPM build tools and cannot be easily configured.
 rpmdev-setuptree
 
+SPECS_DIR=~/rpmbuild/SPECS
+SOURCES_DIR=~/rpmbuild/SOURCES
+
+PACKAGE_DIR="$(dirname "$0")"
+MOUNTPOINT_DIR="$(realpath "${PACKAGE_DIR}/..")"
+
 # Generate spec file
-uv run --directory package/spec python generate_spec.py amzn2023 --output ~/rpmbuild/SPECS/amzn2023.spec
+uv run --directory "${MOUNTPOINT_DIR}/package/spec" python generate_spec.py amzn2023 --output "${SPECS_DIR}/amzn2023.spec"
 
 # Extract version from spec file
-VERSION=$(awk '/^Version:/ {print $2}' ~/rpmbuild/SPECS/amzn2023.spec)
+VERSION=$(awk '/^Version:/ {print $2}' "${SPECS_DIR}/amzn2023.spec")
 
-cd .. 
-tar -czf "~/rpmbuild/SOURCES/mountpoint-s3-${VERSION}.tar.gz" mountpoint-s3
+echo Source tarball
+tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}.tar.gz" -C "${MOUNTPOINT_DIR}" .
 
-cd mountpoint-s3
+echo Vendor tarball
+cd "${MOUNTPOINT_DIR}"
 cargo vendor
-tar -czf "~/rpmbuild/SOURCES/mountpoint-s3-${VERSION}-vendor.tar.gz" vendor
+tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}-vendor.tar.gz" vendor
 rm -rf vendor
 
-cargo about generate --config package/attribution.toml --output-file ~/rpmbuild/SOURCES/THIRD_PARTY_LICENSES package/attribution.hbs
-cp LICENSE NOTICE ~/rpmbuild/SOURCES/
+cargo about generate --config package/attribution.toml --output-file "${SOURCES_DIR}/THIRD_PARTY_LICENSES" package/attribution.hbs
+cp LICENSE NOTICE "${SOURCES_DIR}/"
 
 # Build SRPM
-rpmbuild -bs ~/rpmbuild/SPECS/amzn2023.spec
+rpmbuild -bs "${SPECS_DIR}/amzn2023.spec"
 
 # For GitHub Actions (if running in CI)
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
