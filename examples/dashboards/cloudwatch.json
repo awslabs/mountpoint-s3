@@ -354,7 +354,8 @@
             "experimental.fuse.total_threads",
             {
               "id": "m2",
-              "visible": false
+              "stat": "Maximum",
+              "label": "Total threads (LAST: ${LAST})"
             }
           ]
         ],
@@ -544,7 +545,7 @@
         "view": "timeSeries",
         "stacked": false,
         "region": "us-east-1",
-        "title": "S3 UploadPart latency",
+        "title": "S3 UploadPart request latency",
         "period": 60,
         "stat": "p99.9"
       }
@@ -607,7 +608,7 @@
         "region": "us-east-1",
         "title": "Prefetch reset state",
         "period": 60,
-        "stat": "Sum"
+        "stat": "p100"
       }
     },
     {
