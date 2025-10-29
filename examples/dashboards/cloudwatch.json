@@ -1,0 +1,647 @@
+{
+  "variables": [],
+  "widgets": [
+    {
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# FUSE request metrics",
+        "background": "transparent"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 2,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,fuse_request} MetricName=\"fuse.request_latency\"', 'SampleCount', 60)/60",
+              "id": "e3",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "stat": "SampleCount",
+        "period": 60,
+        "title": "FUSE request rate",
+        "yAxis": {
+          "left": {
+            "label": "Requests/second"
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 2,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,fuse_request} MetricName=\"fuse.io_size\"', 'Sum', 60)/60",
+              "id": "e1",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "title": "FUSE bytes transfer rate",
+        "yAxis": {
+          "left": {
+            "label": "Bytes/second"
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 2,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,fuse_request} MetricName=\"fuse.request_errors\"', 'Sum', 60)/60",
+              "id": "e1",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE request error rate",
+        "period": 60,
+        "yAxis": {
+          "left": {
+            "label": "Errors/second"
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 8,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "fuse.request_latency",
+            "fuse_request",
+            "read",
+            {
+              "stat": "p0"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p100"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE READ request latency",
+        "period": 60,
+        "stat": "p99.9"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 8,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "fuse.request_latency",
+            "fuse_request",
+            "write",
+            {
+              "stat": "p0"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p100"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE WRITE request latency",
+        "period": 60,
+        "stat": "p99.9"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 8,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,fuse_request} NOT fuse_request=\"read\" NOT fuse_request=\"write\" MetricName=\"fuse.request_latency\"', 'p99', 60)",
+              "id": "e1",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE other requests latency (P99)",
+        "period": 60,
+        "stat": "p99",
+        "yAxis": {
+          "left": {
+            "label": "Microseconds"
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 14,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "fuse.io_size",
+            "fuse_request",
+            "read",
+            {
+              "stat": "p0"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p100"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE READ request size",
+        "period": 60,
+        "stat": "p100"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 14,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "fuse.io_size",
+            "fuse_request",
+            "write",
+            {
+              "stat": "p0"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "Average"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE WRITE request size",
+        "period": 60
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 14,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "100*(1 - m1/LAST(m2))",
+              "label": "Thread utilization %",
+              "id": "e1"
+            }
+          ],
+          [
+            "CWAgent",
+            "experimental.fuse.idle_threads",
+            {
+              "id": "m1",
+              "stat": "Minimum",
+              "visible": false
+            }
+          ],
+          [
+            ".",
+            "experimental.fuse.total_threads",
+            {
+              "id": "m2",
+              "stat": "Maximum",
+              "label": "Total threads (LAST: ${LAST})"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "FUSE thread utilization",
+        "period": 60,
+        "stat": "Maximum",
+        "yAxis": {
+          "left": {
+            "label": "%"
+          }
+        }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 20,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# S3 request metrics",
+        "background": "transparent"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 22,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,s3_request} MetricName=\"s3.request_count\"', 'Sum', 60)/60",
+              "id": "e1",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "S3 request rate",
+        "yAxis": {
+          "left": {
+            "label": "Requests/second"
+          }
+        },
+        "period": 60
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 22,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,s3_request,http_status} MetricName=\"s3.request_errors\"', 'Sum', 60)/60",
+              "id": "e2",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "S3 request error rate",
+        "yAxis": {
+          "left": {
+            "label": "Requests/second"
+          }
+        },
+        "period": 60
+      }
+    },
+    {
+      "type": "text",
+      "x": 16,
+      "y": 22,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "markdown": "",
+        "background": "transparent"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 28,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "s3.request_total_latency",
+            "s3_request",
+            "GetObject",
+            {
+              "stat": "p0"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p100"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "S3 GetObject request latency",
+        "period": 60,
+        "stat": "p99.9"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 28,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "s3.request_total_latency",
+            "s3_request",
+            "UploadPart",
+            {
+              "stat": "p0"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p100"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "S3 UploadPart request latency",
+        "period": 60,
+        "stat": "p99.9"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 28,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('{CWAgent,s3_request} NOT s3_request=\"GetObject\" NOT s3_request=\"UploadPart\" MetricName=\"s3.request_total_latency\"', 'p99', 60)",
+              "id": "e1",
+              "period": 60
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "S3 other requests latency (P99)",
+        "period": 60,
+        "stat": "p99",
+        "yAxis": {
+          "left": {
+            "label": "Microseconds"
+          }
+        }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 34,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# Prefetch metrics",
+        "background": "transparent"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 36,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "experimental.prefetch.reset_state"
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Prefetch reset state",
+        "period": 60,
+        "stat": "p100"
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 42,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# Memory usage",
+        "background": "transparent"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 44,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "process.memory_usage"
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Memory usage",
+        "period": 60,
+        "stat": "Maximum"
+      }
+    }
+  ]
+}
