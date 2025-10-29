@@ -646,7 +646,7 @@ By default, Mountpoint emits high-severity log information to [syslog](https://d
 
 ## Metrics
 
-Mountpoint supports exporting metrics using OTLP protocol to provide insights into operations such as FUSE requests, S3 requests, and throughput. Use the `--otlp-endpoint` command-line argument to export metrics to CloudWatch Agent or other OTLP-compatible collectors. See [METRICS.md](METRICS.md) for more details.
+Mountpoint supports exporting metrics using OpenTelemetry protocol (OTLP) to provide insights into operations such as FUSE requests, S3 requests, and throughput. Use the `--otlp-endpoint` command-line argument to export metrics to CloudWatch Agent or other OTLP-compatible collectors. See [METRICS.md](METRICS.md) for more details.
 
 ## Unstable configurations
 

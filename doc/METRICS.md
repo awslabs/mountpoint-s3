@@ -2,7 +2,7 @@
 
 Mountpoint for Amazon S3 can export metrics using OpenTelemetry Protocol (OTLP) to provide visibility into FUSE requests, S3 API calls, Mountpoint throughput, etc. These metrics can be collected by CloudWatch Agent or other OTLP-compatible collectors to publish to observability backends for monitoring.
 
-Metrics can also be logged to files using the existing `--log-metrics` option (see [LOGGING.md](LOGGING.md#metrics)).
+Metrics can also be logged to files using the `--log-metrics` option (see [LOGGING.md](LOGGING.md#metrics)).
 
 ## Enabling metrics
 
@@ -10,13 +10,13 @@ To export Mountpoint metrics using OTLP, configure Mountpoint with an OTLP endpo
 
     mount-s3 --otlp-endpoint http://localhost:4318 --otlp-export-interval 60 <BUCKET> <MOUNT_PATH>
 
-Replace `http://localhost:4318` with the actual endpoint of your OTLP collector. The `--otlp-export-interval` option is optional (default is 60 seconds).
+Replace `http://localhost:4318` with the actual endpoint of your OTLP collector. By default, Mountpoint exports metrics every 60 seconds. Use `--otlp-export-interval` to change this interval.
 
 ## Publishing metrics to observability backends
 
 Mountpoint exports metrics using OTLP protocol in HTTP binary format. It uses [exponential histograms](https://opentelemetry.io/docs/specs/otel/metrics/data-model/#exponentialhistogram) and [delta temporality](https://opentelemetry.io/docs/specs/otel/metrics/data-model/#temporality).
 
-Not all observability backends natively support this format. Here are a few ways to publish Mountpoint metrics.
+Not all observability backends natively support these features. Here are a few ways to publish Mountpoint metrics:
 
 ### CloudWatch
 
@@ -29,7 +29,7 @@ Here is the minimal CloudWatch Agent configuration to receive OTLP metrics from 
   "metrics": {
     "metrics_collected": {
       "otlp": {
-        "http_endpoint": "0.0.0.0:4318"
+        "http_endpoint": "127.0.0.1:4318"
       }
     }
   }
@@ -67,7 +67,7 @@ receivers:
   otlp:
     protocols:
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: 127.0.0.1:4318
 
 exporters:
   otlphttp:
@@ -103,10 +103,13 @@ Mountpoint emits the following metrics:
 
 ### Sample dashboard
 
-To visualize these metrics, here is a sample CloudWatch dashboard template: [cloudwatch.json](../examples/dashboards/cloudwatch.json). Update the region and import the template using the AWS CLI or the CloudWatch console to create a dashboard.
+To visualize these metrics, here is a sample CloudWatch dashboard template: [cloudwatch.json](../examples/dashboards/cloudwatch.json). Update the region in the template and create a dashboard using the AWS CLI or CloudWatch console:
 
-For comprehensive monitoring, the dashboard can be extended to include S3 server-side metrics, EC2 instance metrics, and CloudWatch procstat metrics.
+```bash
+aws cloudwatch put-dashboard --region <region> --dashboard-name <dashboard-name> --dashboard-body file://examples/dashboards/cloudwatch.json
+```
 
-Additional attributes like EC2 instance ID can be added using the CloudWatch Agent or OTel collector to troubleshoot instance-specific issues.
+For comprehensive monitoring, the dashboard can be extended to include [S3 server-side metrics](https://docs.aws.amazon.com/AmazonS3/latest/userguide/metrics-dimensions.html#s3-request-cloudwatch-metrics), [EC2 instance metrics](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/viewing_metrics_with_cloudwatch.html), and [CloudWatch procstat metrics](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-procstat-process-metrics.html). Additional metric dimensions like EC2 instance ID can also be added using the CloudWatch Agent or OTel collector for troubleshooting.
+
 
 
