@@ -1,6 +1,6 @@
 Name:           mount-s3
 Version:        {{ version }}
-Release:        amzn2023
+Release:        1%{?dist}
 Summary:        Mountpoint for Amazon S3
 
 License:        Apache-2.0
@@ -57,7 +57,7 @@ interface.
 %cargo_prep -v vendor
 
 %build
-export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
+export MOUNTPOINT_S3_AWS_RELEASE_TARGET="%{release}"
 
 cargo build --profile rpm --bin mount-s3
 
