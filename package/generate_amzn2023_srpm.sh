@@ -27,7 +27,6 @@ cargo vendor
 tar -czf "${SOURCES_DIR}/mountpoint-s3-${VERSION}-vendor.tar.gz" vendor
 rm -rf vendor
 
-cargo about generate --config package/attribution.toml --output-file "${SOURCES_DIR}/THIRD_PARTY_LICENSES" package/attribution.hbs
 cp LICENSE NOTICE "${SOURCES_DIR}/"
 
 # Build SRPM

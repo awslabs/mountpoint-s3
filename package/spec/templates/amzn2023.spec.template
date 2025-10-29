@@ -11,8 +11,6 @@ Source0:        {% if use_github_source %}https://github.com/awslabs/mountpoint-
 Source1:        mountpoint-s3-{{ version }}-vendor.tar.gz
 Source2:        LICENSE
 Source3:        NOTICE
-Source4:        THIRD_PARTY_LICENSES
-
 
 BuildRequires:  clang
 BuildRequires:  clang-devel
@@ -74,7 +72,6 @@ mkdir -p %{buildroot}/%{_docdir}/%{name}
 mkdir -p %{buildroot}/%{_licensedir}/%{name}
 install -m 644 %{SOURCE3} %{buildroot}/%{_docdir}/%{name}/NOTICE
 install -m 644 %{SOURCE2} %{buildroot}/%{_licensedir}/%{name}/LICENSE
-install -m 644 %{SOURCE4} %{buildroot}/%{_licensedir}/%{name}/THIRD_PARTY_LICENSES
 install -m 755 %{_builddir}/target/rpm/mount-s3 %{buildroot}/%{_bindir}/mount-s3
 ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
@@ -84,7 +81,6 @@ ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 %{_prefix}/sbin/mount.mount-s3
 %doc %{_docdir}/%{name}/NOTICE
 %license %{_licensedir}/%{name}/LICENSE
-%license %{_licensedir}/%{name}/THIRD_PARTY_LICENSES
 %license LICENSE.dependencies
 %license cargo-vendor.txt
 
