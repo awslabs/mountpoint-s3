@@ -71,6 +71,12 @@ pub struct BackpressureLimiter {
     backwards_seek_size: u64,
 }
 
+#[derive(Copy, Clone)]
+pub struct AlignmentOptions {
+    pub align_relative_to: u64,
+    pub align_with_part_size: u64,
+}
+
 pub fn new_backpressure_limiter(
     config: BackpressureConfig,
     mem_limiter: Arc<MemoryLimiter>,
@@ -129,12 +135,25 @@ impl BackpressureLimiter {
         self.read_window_end_offset
     }
 
+    /// Helps rounding up read window end for the S3 request following reads from cache.
+    pub fn rounded_up_read_window_end_offset(&mut self, alignment_options: AlignmentOptions) -> u64 {
+        let rounded_up = Self::round_up_to_part_boundary(self.read_window_end_offset, alignment_options)
+            .min(self.request_end_offset);
+        if rounded_up > self.read_window_end_offset {
+            self.mem_limiter
+                .reserve(BufferArea::Prefetch, rounded_up - self.read_window_end_offset);
+            self.increment_read_window(rounded_up);
+        }
+        self.read_window_end_offset
+    }
+
     /// Wait until the backpressure window moves ahead of the given offset.
     ///
     /// Returns the new read window offset.
     pub async fn wait_for_read_window_increment<E>(
         &mut self,
         next_request_offset: u64,
+        alignment_options: AlignmentOptions,
     ) -> Result<u64, PrefetchReadError<E>> {
         // If there is no more data to download return immediatelly.
         if self.request_end_offset <= next_request_offset {
@@ -159,12 +178,13 @@ impl BackpressureLimiter {
                 }
             };
             // This call updates read_window_end_offset if the reader advanced far enough (at least half of read window must be read already).
-            self.process_event(event);
+            self.process_event(event, alignment_options);
         }
         Ok(self.read_window_end_offset)
     }
 
-    fn process_event(&mut self, event: BackpressureFeedbackEvent) {
+    fn process_event(&mut self, event: BackpressureFeedbackEvent, alignment_options: AlignmentOptions) {
+        trace!(?event, "got backpressure feedback");
         match event {
             // Note, that this may come from a backwards seek, so offsets observed by this method are not necessarily ascending
             BackpressureFeedbackEvent::DataRead { offset, length } => {
@@ -188,8 +208,11 @@ impl BackpressureLimiter {
                 {
                     let new_read_window_end_offset = self
                         .next_read_offset
-                        .saturating_add(self.preferred_read_window_size as u64)
-                        .min(self.request_end_offset);
+                        .saturating_add(self.preferred_read_window_size as u64);
+                    // NOTE: in the end of the object we still have up to "part_size" of unaccounted memory.
+                    let new_read_window_end_offset =
+                        Self::round_up_to_part_boundary(new_read_window_end_offset, alignment_options)
+                            .min(self.request_end_offset);
                     // We can skip if the new `read_window_end_offset` is less than or equal to the current one, this
                     // could happen after the read window is scaled down.
                     if new_read_window_end_offset <= self.read_window_end_offset {
@@ -201,14 +224,14 @@ impl BackpressureLimiter {
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
                         self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
-                        self.read_window_end_offset = new_read_window_end_offset;
+                        self.increment_read_window(new_read_window_end_offset);
                         break;
                     }
 
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
                     if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
-                        self.read_window_end_offset = new_read_window_end_offset;
+                        self.increment_read_window(new_read_window_end_offset);
                         break;
                     } else {
                         self.scale_down();
@@ -222,9 +245,6 @@ impl BackpressureLimiter {
                 self.backwards_seek_size += length as u64;
             }
         }
-        // Share new read window end with [BackpressureNotifier]
-        self.read_window_end_offset_shared
-            .store(self.read_window_end_offset, Ordering::SeqCst);
     }
 
     /// Scale up preferred read window size with a multiplier configured at initialization.
@@ -271,6 +291,33 @@ impl BackpressureLimiter {
             metrics::histogram!("prefetch.window_after_decrease_mib")
                 .record((self.preferred_read_window_size / 1024 / 1024) as f64);
         }
+    }
+
+    fn round_up_to_part_boundary(read_window_end: u64, alignment_options: AlignmentOptions) -> u64 {
+        let part_size = alignment_options.align_with_part_size;
+        if read_window_end > alignment_options.align_relative_to {
+            let relative_end_offset = read_window_end - alignment_options.align_relative_to;
+            if !relative_end_offset.is_multiple_of(part_size) {
+                let aligned_relative_offset = part_size * (relative_end_offset / part_size + 1);
+                alignment_options.align_relative_to + aligned_relative_offset
+            } else {
+                read_window_end
+            }
+        } else {
+            read_window_end
+        }
+    }
+
+    fn increment_read_window(&mut self, new_read_window_end_offset: u64) {
+        trace!(
+            prev_read_window_end_offset = self.read_window_end_offset,
+            read_window_end_offset = new_read_window_end_offset,
+            "incremented read window"
+        );
+        self.read_window_end_offset = new_read_window_end_offset;
+        // Share new read window end with [BackpressureNotifier]
+        self.read_window_end_offset_shared
+            .store(self.read_window_end_offset, Ordering::SeqCst);
     }
 }
 
@@ -385,15 +432,21 @@ mod tests {
             );
 
             // Send more than one increment.
+
+            // Usually part queue stall will occur while waiting for first byte, read_window_end = 1MB.
+            backpressure_notifier
+                .send_feedback(BackpressureFeedbackEvent::PartQueueStall)
+                .await;
+
+            // Consume whole initial request, read_window_end = 9MB.
             backpressure_notifier
                 .send_feedback(BackpressureFeedbackEvent::DataRead {
                     offset: 0,
                     length: 1 * MIB,
                 })
                 .await;
-            backpressure_notifier
-                .send_feedback(BackpressureFeedbackEvent::PartQueueStall)
-                .await;
+
+            // Consume some data which is not enough to increment the window, read_window_end = 9MB.
             backpressure_notifier
                 .send_feedback(BackpressureFeedbackEvent::DataRead {
                     offset: (1 * MIB) as u64,
@@ -403,26 +456,53 @@ mod tests {
             backpressure_notifier
                 .send_feedback(BackpressureFeedbackEvent::DataRead {
                     offset: (2 * MIB) as u64,
-                    length: 8 * MIB,
-                })
-                .await;
-            backpressure_notifier
-                .send_feedback(BackpressureFeedbackEvent::DataRead {
-                    offset: (10 * MIB) as u64,
-                    length: 4 * MIB,
+                    length: 2 * MIB,
                 })
                 .await;
 
+            // Consume enough data to increment the window, read_window_end = 17MB.
+            backpressure_notifier
+                .send_feedback(BackpressureFeedbackEvent::DataRead {
+                    offset: (4 * MIB) as u64,
+                    length: 2 * MIB,
+                })
+                .await;
+
+            // Assert that all events were consumed and the produced read_window_end is as expected.
             let curr_offset = backpressure_limiter
-                .wait_for_read_window_increment::<MockClientError>(0)
+                .wait_for_read_window_increment::<MockClientError>(
+                    0,
+                    AlignmentOptions {
+                        align_relative_to: (1 * MIB) as u64,
+                        align_with_part_size: (8 * MIB) as u64,
+                    },
+                )
                 .await
                 .expect("should return OK as we have new values to increment before channels are closed");
             assert_eq!(
-                18 * MIB as u64,
+                17 * MIB as u64,
                 curr_offset,
                 "expected offset did not match offset reported by limiter",
             );
         });
+    }
+
+    #[test_case(500, 1000, 100, 500; "offset before second request start")]
+    #[test_case(1000, 1000, 512, 1000; "offset at second request start")]
+    #[test_case(1500, 1000, 512, 1512; "offset after second request start, needs rounding up")]
+    #[test_case(2024, 1000, 512, 2024; "offset after second request start, already aligned")]
+    #[test_case(1001, 1000, 512, 1512; "offset just after second request start, needs rounding up")]
+    #[test_case(1512, 1000, 512, 1512; "offset exactly at part boundary")]
+    #[test_case(1513, 1000, 512, 2024; "offset just past part boundary")]
+    fn test_round_up_to_part_boundary(offset: u64, align_relative_to: u64, align_with_part_size: u64, expected: u64) {
+        let result = BackpressureLimiter::round_up_to_part_boundary(
+            offset,
+            AlignmentOptions {
+                align_relative_to,
+                align_with_part_size,
+            },
+        );
+        assert_eq!(result, expected);
     }
 
     fn new_backpressure_limiter_for_test(

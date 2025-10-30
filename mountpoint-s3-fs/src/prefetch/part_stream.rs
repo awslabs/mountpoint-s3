@@ -11,6 +11,7 @@ use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::AlignmentOptions;
 use crate::sync::async_channel::{Sender, unbounded};
 
 use super::PrefetchReadError;
@@ -345,7 +346,6 @@ pub async fn try_read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     {
         trace!(error=?err, "part stream task failed");
         if sender.send(Err(err)).await.is_err() {
-            // If the receiver is gone, we're expecting the async task to be cancelled soon, but continue running until then.
             trace!("closed channel");
         }
     }
@@ -360,6 +360,13 @@ async fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     first_read_window_end_offset: u64,
     range: RequestRange,
 ) -> Result<(), PrefetchReadError<Client::ClientError>> {
+    // Aligning offsets starting from second request (and relative to its start).
+    // Read window of the initial request equals to its size, and is not modified by backpressure_handle.
+    let alignment_options = AlignmentOptions {
+        align_relative_to: first_read_window_end_offset,
+        align_with_part_size: client.read_part_size() as u64,
+    };
+
     // Let's start by issuing the first request with a range trimmed to initial read window offset
     let first_req_range = range.trim_end(first_read_window_end_offset);
     if !first_req_range.is_empty() {
@@ -370,6 +377,7 @@ async fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
             bucket.clone(),
             object_id.clone(),
             first_req_range.into(),
+            alignment_options,
         )
         .await?;
     }
@@ -393,7 +401,7 @@ async fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
         // We ignore read window end requested by limiter, we will start with the initial read window instead.
         // If there is a mismatch (e.g. limiter wants a larger window) we will read from initial request and repeat this call.
         backpressure_limiter
-            .wait_for_read_window_increment(range.start())
+            .wait_for_read_window_increment(range.start(), alignment_options)
             .await?;
 
         // TODO: We currently wait for the first request data to be consumed
@@ -408,6 +416,7 @@ async fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
             bucket.clone(),
             object_id.clone(),
             range.into(),
+            alignment_options,
         )
         .await?;
     }
@@ -425,6 +434,7 @@ async fn read_from_request<'a, Client: ObjectClient + 'a>(
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
+    alignment_options: AlignmentOptions,
 ) -> Result<(), PrefetchReadError<Client::ClientError>> {
     let mut request = client
         .get_object(
@@ -442,7 +452,12 @@ async fn read_from_request<'a, Client: ObjectClient + 'a>(
         .backpressure_handle()
         .expect("S3 client backpressure should always be enabled in Mountpoint")
         .clone();
-    client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
+    // NOTE: there may be various cases when read window end is not aligned with part boundaries at the beginning of the request:
+    // 1. when initial_read_window > part_size, backpressure_limiter.read_window_end_offset() may return a value less than current window and will be ignored
+    // 2. also in case of cache, read_window_end produced while reading from cache may be large enough to start the request without waiting for increments
+    // We accept the innacuracy from 1. and fix 2. by rounding up here.
+    client_backpressure_handle
+        .ensure_read_window(backpressure_limiter.rounded_up_read_window_end_offset(alignment_options));
 
     pin_mut!(request);
     let mut next_offset = request_range.start;
@@ -457,8 +472,8 @@ async fn read_from_request<'a, Client: ObjectClient + 'a>(
 
         next_offset = part.offset + length;
         if sender.send(Ok(part)).await.is_err() {
-            // If the receiver is gone, we're expecting the async task to be cancelled soon, but continue running until then.
             trace!("closed channel");
+            return Ok(());
         }
 
         // We are reaching the end so don't have to wait for more read window
@@ -478,7 +493,9 @@ async fn read_from_request<'a, Client: ObjectClient + 'a>(
         //   It does not make sense to 'block' here. In reality, we don't actually block here anyway.
         //   This serves instead as the point where we react to the backpressure, and send signals to the S3 client.
         //   Instead, the backpressure controller or an async task could communicate directly with the client.
-        let read_window_end_offset = backpressure_limiter.wait_for_read_window_increment(next_offset).await?;
+        let read_window_end_offset = backpressure_limiter
+            .wait_for_read_window_increment(next_offset, alignment_options)
+            .await?;
         client_backpressure_handle.ensure_read_window(read_window_end_offset);
     }
 
