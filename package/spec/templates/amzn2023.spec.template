@@ -1,16 +1,16 @@
-%bcond_without check
-
 Name:           mount-s3
 Version:        {{ version }}
-Release:        amzn2023
+Release:        1%{?dist}
 Summary:        Mountpoint for Amazon S3
 
 License:        Apache-2.0
 URL:            https://github.com/awslabs/mountpoint-s3 
-Source0:        mountpoint-s3-{{ version }}.tar.gz
-Source1:        LICENSE
-Source2:        NOTICE
-Source3:        THIRD_PARTY_LICENSES
+Source0:        {% if use_github_source %}https://github.com/awslabs/mountpoint-s3/archive/refs/tags/mountpoint-s3-{{ version }}.tar.gz
+{% else %}mountpoint-s3-{{ version }}.tar.gz
+{% endif %}
+Source1:        mountpoint-s3-{{ version }}-vendor.tar.gz
+Source2:        LICENSE
+Source3:        NOTICE
 
 BuildRequires:  clang
 BuildRequires:  clang-devel
@@ -52,44 +52,39 @@ access to the elastic storage and throughput of Amazon S3 through a file
 interface.
 
 %prep
-%autosetup -n mountpoint-s3
+%autosetup -n mountpoint-s3 -a1
 
 %cargo_prep -v vendor
 
 %build
-export MOUNTPOINT_S3_AWS_RELEASE_TARGET="amzn2023"
-
+export MOUNTPOINT_S3_AWS_RELEASE_TARGET="%{release}"
+export RUSTFLAGS="%build_rustflags"
 cargo build --release --bin mount-s3
 
+%cargo_license_summary
+%{cargo_license} > LICENSE.dependencies
 %cargo_vendor_manifest
 
 %install
-mkdir -p %{buildroot}/opt/aws/mountpoint-s3/bin
-mkdir -p %{buildroot}/%{_prefix}/sbin
 mkdir -p %{buildroot}/%{_bindir}
-install -m 755 target/release/mount-s3 %{buildroot}/opt/aws/mountpoint-s3/bin/mount-s3
-install -m 644 %{SOURCE2} %{buildroot}/opt/aws/mountpoint-s3/NOTICE
-install -m 644 %{SOURCE1} %{buildroot}/opt/aws/mountpoint-s3/LICENSE
-install -m 644 %{SOURCE3} %{buildroot}/opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
-install -m 644 cargo-vendor.txt %{buildroot}/opt/aws/mountpoint-s3/
-echo "{{ version }}" > %{buildroot}/opt/aws/mountpoint-s3/VERSION
-ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_bindir}/mount-s3
-ln -sf /opt/aws/mountpoint-s3/bin/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
+mkdir -p %{buildroot}/%{_prefix}/sbin
+mkdir -p %{buildroot}/%{_docdir}/%{name}
+mkdir -p %{buildroot}/%{_licensedir}/%{name}
+install -m 644 %{SOURCE3} %{buildroot}/%{_docdir}/%{name}/NOTICE
+install -m 644 %{SOURCE2} %{buildroot}/%{_licensedir}/%{name}/LICENSE
+install -m 755 target/release/mount-s3 %{buildroot}/%{_bindir}/mount-s3
+ln -sf %{_bindir}/mount-s3 %{buildroot}/%{_prefix}/sbin/mount.mount-s3
 
 %files
 %defattr(-,root,root,-)
-%dir %attr(755,root,root) /opt/aws/mountpoint-s3
-%dir %attr(755,root,root) /opt/aws/mountpoint-s3/bin
-%attr(755,root,root) /opt/aws/mountpoint-s3/bin/mount-s3
-%doc %attr(644,root,root) /opt/aws/mountpoint-s3/NOTICE
-%license %attr(644,root,root) /opt/aws/mountpoint-s3/LICENSE
-%license %attr(644,root,root) /opt/aws/mountpoint-s3/cargo-vendor.txt
-%attr(644,root,root) /opt/aws/mountpoint-s3/THIRD_PARTY_LICENSES
-%attr(644,root,root) /opt/aws/mountpoint-s3/VERSION
-%attr(755,root,root) %{_bindir}/mount-s3
-%attr(755,root,root) %{_prefix}/sbin/mount.mount-s3
+%{_bindir}/mount-s3
+%{_prefix}/sbin/mount.mount-s3
+%doc %{_docdir}/%{name}/NOTICE
+%license %{_licensedir}/%{name}/LICENSE
+%license LICENSE.dependencies
+%license cargo-vendor.txt
 
 %changelog
-* Thu Oct 16 2025 Mountpoint-S3 Team <mountpoint-s3@amazon.com> - amzn2023
-- Initial packaging of Mountpoint-S3 into AL2023
+* Thu Oct 30 2025 Mountpoint-S3 Team <mountpoint-s3@amazon.com> - amzn2023
+- Packaging of Mountpoint for Amazon S3 into AL2023
 - Refer to https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/CHANGELOG.md for updates
