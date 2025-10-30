@@ -1,4 +1,6 @@
-## Unreleased (v0.19.4)
+## Unreleased
+
+## v0.19.4 (October 30, 2025)
 
 * Update to latest `mountpoint-s3-crt` dependency. ([#1683](https://github.com/awslabs/mountpoint-s3/pull/1683))
 

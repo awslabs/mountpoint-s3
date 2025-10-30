@@ -1,4 +1,6 @@
-## Unreleased (v0.15.3)
+## Unreleased
+
+## v0.15.3 (October 30, 2025)
 
 * Upgrade `aws-lc` to 1.62.1. ([#1683](https://github.com/awslabs/mountpoint-s3/pull/1683))
 
