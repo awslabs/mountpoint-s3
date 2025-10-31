@@ -1,5 +1,15 @@
 {
-  "variables": [],
+  "variables": [
+    {
+      "type": "property",
+      "property": "region",
+      "inputType": "input",
+      "id": "region",
+      "label": "AWS Region",
+      "defaultValue": "us-east-1",
+      "visible": true
+    }
+  ],
   "widgets": [
     {
       "type": "text",
@@ -30,7 +40,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "stat": "SampleCount",
         "period": 60,
         "title": "FUSE request rate",
@@ -59,7 +69,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "period": 60,
         "title": "FUSE bytes transfer rate",
         "yAxis": {
@@ -87,7 +97,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE request error rate",
         "period": 60,
         "yAxis": {
@@ -141,7 +151,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE READ request latency",
         "period": 60,
         "stat": "p99.9"
@@ -191,7 +201,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE WRITE request latency",
         "period": 60,
         "stat": "p99.9"
@@ -215,7 +225,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE other requests latency (P99)",
         "period": 60,
         "stat": "p99",
@@ -270,7 +280,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE READ request size",
         "period": 60,
         "stat": "p100"
@@ -320,7 +330,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE WRITE request size",
         "period": 60
       }
@@ -361,7 +371,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "FUSE thread utilization",
         "period": 60,
         "stat": "Maximum",
@@ -401,7 +411,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "S3 request rate",
         "yAxis": {
           "left": {
@@ -429,7 +439,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "S3 request error rate",
         "yAxis": {
           "left": {
@@ -494,7 +504,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "S3 GetObject request latency",
         "period": 60,
         "stat": "p99.9"
@@ -544,7 +554,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "S3 UploadPart request latency",
         "period": 60,
         "stat": "p99.9"
@@ -568,7 +578,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "S3 other requests latency (P99)",
         "period": 60,
         "stat": "p99",
@@ -605,7 +615,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "Prefetch reset state",
         "period": 60,
         "stat": "p100"
@@ -637,7 +647,7 @@
         ],
         "view": "timeSeries",
         "stacked": false,
-        "region": "us-east-1",
+        "region": "${region}",
         "title": "Memory usage",
         "period": 60,
         "stat": "Maximum"

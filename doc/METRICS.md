@@ -103,7 +103,7 @@ Mountpoint emits the following metrics:
 
 ### Sample dashboard
 
-To visualize these metrics, here is a sample CloudWatch dashboard template: [cloudwatch.json](../examples/dashboards/cloudwatch.json). Update the region in the template and create a dashboard using the AWS CLI or CloudWatch console:
+To visualize these metrics, here is a sample CloudWatch dashboard template: [cloudwatch.json](../examples/dashboards/cloudwatch.json). Create a dashboard using the AWS CLI or CloudWatch console, and then input the region when viewing.
 
 ```bash
 aws cloudwatch put-dashboard --region <region> --dashboard-name <dashboard-name> --dashboard-body file://examples/dashboards/cloudwatch.json
