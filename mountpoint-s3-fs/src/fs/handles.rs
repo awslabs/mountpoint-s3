@@ -77,6 +77,7 @@ where
                 request,
                 initial_etag,
                 written_bytes: 0,
+                previously_flushed: false,
             })
         } else {
             let request = fs
@@ -119,6 +120,7 @@ pub enum UploadState<Client: ObjectClient + Send + Sync> {
         request: AppendUploadRequest<Client>,
         initial_etag: Option<ETag>,
         written_bytes: usize,
+        previously_flushed: bool,
     },
     MPUInProgress {
         request: UploadRequest<Client>,
@@ -196,6 +198,7 @@ where
                 request,
                 initial_etag,
                 written_bytes,
+                ..
             } => {
                 let current_offset = request.current_offset();
                 match Self::commit_append(request, &handle.location).await {
@@ -212,6 +215,7 @@ where
                             request,
                             initial_etag,
                             written_bytes,
+                            previously_flushed: true, // Mark that the "append" has seen a Flush at least once
                         };
                         Ok(())
                     }
@@ -240,8 +244,12 @@ where
         open_pid: u32,
     ) -> Result<(), Error> {
         match self {
-            UploadState::AppendInProgress { written_bytes, .. } => {
-                if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
+            UploadState::AppendInProgress {
+                written_bytes,
+                previously_flushed,
+                ..
+            } => {
+                if (*written_bytes == 0 && !*previously_flushed) || !are_from_same_process(open_pid, pid) {
                     // Commit current changes, but do not close the write handle.
                     return self.commit(fs, handle).await;
                 }
@@ -296,8 +304,16 @@ where
     ) -> Result<bool, Error> {
         match self {
             UploadState::AppendInProgress {
-                request, initial_etag, ..
+                request,
+                initial_etag,
+                written_bytes,
+                previously_flushed,
             } => {
+                // No data upload should be pending completion as part of the release - if we have not written anything locally AND we already committed on a preceding Flush
+                if written_bytes == 0 && previously_flushed {
+                    Self::finish(fs, ino, initial_etag).await;
+                    return Ok(false);
+                }
                 Self::complete_append(fs, ino, key, request, initial_etag).await?;
                 Ok(true)
             }
