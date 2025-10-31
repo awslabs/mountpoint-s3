@@ -1,5 +1,5 @@
-use std::sync::Arc;
-use std::sync::Mutex;
+use crate::sync::Arc;
+use crate::sync::Mutex;
 
 #[derive(Debug, Clone, Default)]
 pub struct LockedWriter {
@@ -7,9 +7,9 @@ pub struct LockedWriter {
 }
 
 impl LockedWriter {
-    pub fn into_string(self) -> String {
-        let buf = Arc::try_unwrap(self.inner).unwrap().into_inner().unwrap();
-        String::from_utf8(buf).unwrap()
+    pub fn get_string(&self) -> String {
+        let buf = self.inner.lock().unwrap();
+        str::from_utf8(&buf).unwrap().to_owned()
     }
 }
 
