@@ -2,7 +2,7 @@ use std::time::Instant;
 use std::{ops::Range, sync::Arc};
 
 use futures::task::{Spawn, SpawnExt};
-use futures::{Stream, StreamExt, pin_mut};
+use futures::{Stream, StreamExt, join, pin_mut};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::GetBodyPart;
 use tracing::{Instrument, debug_span, trace, warn};
@@ -12,13 +12,15 @@ use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::AlignmentOptions;
+use crate::sync::async_channel::unbounded;
 
 use super::PrefetchReadError;
-use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_limiter};
 use super::part::Part;
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::part_stream::{
-    ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, read_from_client_stream,
+    ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, try_read_from_client_stream,
 };
 use super::task::RequestTask;
 
@@ -58,9 +60,9 @@ where
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
         };
-        let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
+        let (backpressure_notifier, backpressure_limiter) =
+            new_backpressure_limiter(backpressure_config, self.mem_limiter.clone());
+        let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
         let request_task = {
@@ -77,7 +79,7 @@ where
 
         let task_handle = self.runtime.spawn_with_handle(request_task).unwrap();
 
-        RequestTask::from_handle(task_handle, range, part_queue, backpressure_controller)
+        RequestTask::from_handle(task_handle, range, part_queue, backpressure_notifier)
     }
 
     fn client(&self) -> &Client {
@@ -157,7 +159,13 @@ where
 
                     if let Err(e) = self
                         .backpressure_limiter
-                        .wait_for_read_window_increment(block_offset)
+                        .wait_for_read_window_increment(
+                            block_offset,
+                            AlignmentOptions {
+                                align_relative_to: range.start(),
+                                align_with_part_size: block_size,
+                            },
+                        )
                         .await
                     {
                         part_queue_producer.push(Err(e));
@@ -197,13 +205,15 @@ where
     ) {
         let bucket = &self.config.bucket;
         let cache_key = &self.config.object_id;
+        // NOTE: if initial_read_window_size < cache_reservation, then we can use more memory than reserved here.
+        // (with initial_window=1.125 and block_size=1, it is just 0.125 overuse at most).
         let first_read_window_end_offset = self.config.range.start() + self.config.initial_read_window_size as u64;
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
         // Always request a range aligned with block boundaries (or to the end of the object).
-        let start_offset = block_range.start * block_size;
-        let end_offset = (block_range.end * block_size).min(range.object_size() as u64);
+        let start_offset = block_range.start * block_size; // NOTE: additional data for this alignment is not accounted in memory limiter.
+        let end_offset = (block_range.end * block_size).min(range.object_size() as u64); // TODO: remove redundant computation (this will always equal to range.object_size()).
         let request_len = (end_offset - start_offset) as usize;
         let block_aligned_byte_range = RequestRange::new(range.object_size(), start_offset, request_len);
 
@@ -214,7 +224,10 @@ where
             "fetching data from client"
         );
 
-        let request_stream = read_from_client_stream(
+        let (tx, rx) = unbounded();
+
+        let request_stream_fut = try_read_from_client_stream(
+            tx,
             &mut self.backpressure_limiter,
             &self.client,
             bucket.clone(),
@@ -232,7 +245,9 @@ where
             cache: self.cache.clone(),
             runtime: self.runtime.clone(),
         };
-        part_composer.try_compose_parts(request_stream, range).await;
+        let part_composer_fut = part_composer.try_compose_parts(rx, range);
+
+        join!(request_stream_fut, part_composer_fut);
     }
 
     fn block_indices_for_byte_range(&self, range: &RequestRange) -> Range<BlockIndex> {
@@ -431,7 +446,7 @@ mod tests {
         client_part_size: usize,
         object_size: usize,
         offset: usize,
-        preferred_size: usize,
+        _preferred_size: usize, // TODO: remove? (prefetcher always spawns request till the end of the object)
     ) {
         let key = "object";
         let seed = 0xaa;
@@ -460,7 +475,7 @@ mod tests {
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let stream = CachingPartStream::new(runtime, mock_client.clone(), mem_limiter.clone(), cache);
-        let range = RequestRange::new(object_size, offset as u64, preferred_size);
+        let range = RequestRange::new(object_size, offset as u64, object_size);
         let expected_start_block = (range.start() as usize).div_euclid(block_size);
         let expected_end_block = (range.end() as usize).div_ceil(block_size);
 
@@ -545,11 +560,12 @@ mod tests {
         let stream = CachingPartStream::new(runtime, mock_client, mem_limiter.clone(), cache);
 
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
-            for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
+            for _ in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
+                // TODO: remove? (prefetcher always spawns request till the end of the object)
                 let config = RequestTaskConfig {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
-                    range: RequestRange::new(object_size, offset as u64, preferred_size),
+                    range: RequestRange::new(object_size, offset as u64, object_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
                     initial_read_window_size,
