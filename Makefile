@@ -65,3 +65,6 @@ fmt-check:
 clippy:
 	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	cargo clippy $$packages --no-deps --all-targets --all-features -- -D warnings -D clippy::all
+
+.PHONY: pre-pr-checks
+pre-pr-checks: fmt clippy test
