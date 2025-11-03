@@ -5,9 +5,8 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
-use std::ops::Range;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
@@ -121,7 +120,6 @@ pub struct MockClient {
     objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
     operation_counts: Arc<RwLock<HashMap<Operation, u64>>>,
-    read_window_increment_failed: Arc<AtomicBool>,
 }
 
 fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, value: MockObject) {
@@ -131,13 +129,11 @@ fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, va
 impl MockClient {
     /// Create a new [MockClient] with the given config
     pub fn new(config: MockClientConfig) -> Self {
-        let read_window_increment_failed = Arc::new(AtomicBool::new(false));
         Self {
             config,
             objects: Default::default(),
             in_progress_uploads: Default::default(),
             operation_counts: Default::default(),
-            read_window_increment_failed,
         }
     }
 
@@ -724,39 +720,16 @@ fn validate_checksum(
 #[derive(Clone, Debug)]
 pub struct MockBackpressureHandle {
     read_window_end_offset: Arc<AtomicU64>,
-    request_range: Range<u64>,
-    part_size: u64,
-    read_window_increment_failed: Arc<AtomicBool>,
 }
 
 impl ClientBackpressureHandle for MockBackpressureHandle {
     fn increment_read_window(&mut self, len: usize) {
-        let prev_read_window_end_offset = self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
-        let read_window_end_offset = prev_read_window_end_offset + len as u64;
-        let relative_read_window_end = read_window_end_offset - self.request_range.start;
-        if read_window_end_offset < self.request_range.end && !relative_read_window_end.is_multiple_of(self.part_size) {
-            tracing::error!(
-                new_read_window_end_offset = read_window_end_offset,
-                relative_read_window_end,
-                request_start = self.request_range.start,
-                request_end = self.request_range.end,
-                part_size = self.part_size,
-                "read window is not aligned with part boundaries",
-            );
-            self.read_window_increment_failed.store(true, Ordering::SeqCst);
-        }
-        tracing::trace!(
-            prev_read_window_end_offset,
-            read_window_end_offset,
-            "incremented read window"
-        )
+        self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
     }
 
     fn ensure_read_window(&mut self, desired_end_offset: u64) {
         let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
-        if diff > 0 {
-            self.increment_read_window(diff);
-        }
+        self.increment_read_window(diff);
     }
 
     fn read_window_end_offset(&self) -> u64 {
@@ -771,7 +744,6 @@ pub struct MockGetObjectResponse {
     length: usize,
     part_size: usize,
     backpressure_handle: Option<MockBackpressureHandle>,
-    read_window_increment_failed: Arc<AtomicBool>,
 }
 
 impl MockGetObjectResponse {
@@ -811,15 +783,6 @@ impl Stream for MockGetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.read_window_increment_failed.load(Ordering::SeqCst) {
-            // Return an error for this and all future requests made by this client.
-            // This ensures the error is observed by the user, since errors that occur
-            // during readahead are not propagated to userspace and may otherwise be missed.
-            return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
-                "read window increment failed".into(),
-            )))));
-        }
-
         if self.length == 0 {
             return Poll::Ready(None);
         }
@@ -967,12 +930,7 @@ impl ObjectClient for MockClient {
                 let read_window_end_offset = Arc::new(AtomicU64::new(
                     next_offset + self.config.initial_read_window_size as u64,
                 ));
-                Some(MockBackpressureHandle {
-                    read_window_end_offset,
-                    request_range: next_offset..next_offset + length as u64,
-                    part_size: self.read_part_size() as u64,
-                    read_window_increment_failed: self.read_window_increment_failed.clone(),
-                })
+                Some(MockBackpressureHandle { read_window_end_offset })
             } else {
                 None
             };
@@ -982,7 +940,6 @@ impl ObjectClient for MockClient {
                 length,
                 part_size: self.config.part_size,
                 backpressure_handle,
-                read_window_increment_failed: self.read_window_increment_failed.clone(),
             })
         } else {
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(
