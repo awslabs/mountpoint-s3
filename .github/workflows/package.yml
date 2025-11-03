@@ -9,7 +9,6 @@ on:
     types: [ "checks_requested" ]
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
