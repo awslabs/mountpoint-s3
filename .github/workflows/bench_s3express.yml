@@ -16,6 +16,10 @@ on:
       s3_bench_results_prefix:
         type: string
 
+permissions:
+  id-token: write
+  contents: read
+
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
