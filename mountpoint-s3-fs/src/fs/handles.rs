@@ -198,7 +198,7 @@ where
         }
     }
 
-    pub async fn commit(&mut self, fs: &S3Filesystem<Client>, handle: Arc<FileHandle<Client>>) -> Result<(), Error> {
+    pub async fn commit(&mut self, fs: &S3Filesystem<Client>, handle: Arc<FileHandle<Client>>, fh: u64) -> Result<(), Error> {
         match &self {
             UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => {
@@ -229,7 +229,7 @@ where
                             initial_etag: initial_etag.clone(),
                             written_bytes,
                         };
-                        let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone()).await;
+                        let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await;
                         let mut state = handle.state.lock().await;
                         match &mut *state {
                             FileHandleState::Read { .. } => {
@@ -239,6 +239,7 @@ where
                                 *flushed = handle_flushed;
                             }
                         }
+                        drop(state);
                         Ok(())
                     }
                     Err(e) => {
@@ -264,18 +265,29 @@ where
         handle: Arc<FileHandle<Client>>,
         pid: u32,
         open_pid: u32,
+        fh: u64,
     ) -> Result<(), Error> {
         match self {
             UploadState::AppendInProgress { written_bytes, .. } => {
                 if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
                     // Commit current changes, but do not close the write handle.
-                    return self.commit(fs, handle).await;
+                    return self.commit(fs, handle, fh).await;
                 }
             }
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
                     debug!(key=%handle.location, "not completing upload because nothing was written yet");
-                    Self::flush(fs, handle.ino, &handle.location, handle.clone()).await;
+                    let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await;
+                    let mut state = handle.state.lock().await;
+                    match &mut *state {
+                        FileHandleState::Read { .. } => {
+                            unreachable!("checked above")
+                        }
+                        FileHandleState::Write { flushed, .. } => {
+                            *flushed = handle_flushed;
+                        }
+                    }
+                    drop(state);
                     return Ok(());
                 }
                 if !are_from_same_process(open_pid, pid) {
@@ -283,7 +295,17 @@ where
                         key=%handle.location,
                         pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
-                    Self::flush(fs, handle.ino, &handle.location, handle.clone()).await;
+                    let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await;
+                    let mut state = handle.state.lock().await;
+                    match &mut *state {
+                        FileHandleState::Read { .. } => {
+                            unreachable!("checked above")
+                        }
+                        FileHandleState::Write { flushed, .. } => {
+                            *flushed = handle_flushed;
+                        }
+                    }
+                    drop(state);
                     return Ok(());
                 }
             }
@@ -409,16 +431,16 @@ where
         ino: InodeNo,
         s3location: &S3Location,
         handle: Arc<FileHandle<Client>>,
+        fh: u64,
     ) -> bool {
         let completion_handle = CompletionHook::new(fs.metablock.clone(), handle);
-        match fs.metablock.flush_writer(ino, completion_handle).await {
+        match fs.metablock.flush_writer(ino, fh, completion_handle, false).await {
             // Log the issue but still return put_result.
             Err(err) => {
                 error!(?err, key=?s3location.full_key(), "error updating the inode status");
                 false
             }
-            Ok(true) => true,
-            Ok(false) => false,
+            Ok(result) => result,
         }
     }
 }

@@ -56,8 +56,7 @@ impl CompletionHook {
         }
 
         let future = std::mem::replace(&mut state.future, Box::pin(std::future::ready(())));
-        future.await;
-
+        future.await; // todo mansi how to return result of the upload?
         state.result = true;
     }
 }

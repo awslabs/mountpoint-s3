@@ -19,7 +19,7 @@ use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
-use crate::metablock::Metablock;
+use crate::metablock::{CompletionHook, Metablock};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
@@ -40,7 +40,7 @@ use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
-mod handles;
+pub(crate) mod handles;
 pub use handles::{FileHandle, FileHandleState};
 
 mod sse;
@@ -454,13 +454,13 @@ where
         };
 
         if *flushed {
-            *flushed = false;
-            if !self.metablock.is_valid_handle(ino, fh, "Read").await? {
+            if !self.metablock.validate_handle(ino, fh, "Read").await? {
                 return Err(err!(
                     libc::EBADF,
                     "file handle has been invalidated by a newer handle opened"
                 ));
             }
+            *flushed = false;
         }
         request
             .read(offset as u64, size as usize)
@@ -541,7 +541,7 @@ where
             };
 
             if *flushed {
-                if !self.metablock.is_valid_handle(ino, fh, "Write").await? {
+                if !self.metablock.validate_handle(ino, fh, "Write").await? {
                     return Err(err!(
                         libc::EBADF,
                         "file handle has been invalidated by a newer handle opened"
@@ -635,7 +635,7 @@ where
             }
             FileHandleState::Write { state, .. } => state,
         };
-        match write_state.commit(self, file_handle.clone()).await {
+        match write_state.commit(self, file_handle.clone(), fh).await {
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
@@ -673,7 +673,7 @@ where
             }
             FileHandleState::Write { state, .. } => {
                 state
-                    .complete(self, file_handle.clone(), pid, file_handle.open_pid)
+                    .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
                     .await
             }
         }
@@ -697,29 +697,18 @@ where
         };
         logging::record_name(file_handle.file_name());
 
-        // Unwrap the atomic reference to have full ownership.
-        // The kernel should make a release call when there is no more references to the file handle,
-        // if that's not the case we will add it back to the hash table and return an error to the kernel.
-        let file_handle = match Arc::try_unwrap(file_handle) {
-            Ok(handle) => handle,
-            Err(handle) => {
-                self.file_handles.write().await.insert(fh, handle);
-                return Err(err!(libc::EINVAL, "unable to unwrap file handle reference"));
-            }
-        };
-
-        let mut write_state = match file_handle.state.into_inner() {
+        match &*file_handle.state.lock().await {
             FileHandleState::Read { .. } => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
                 self.metablock.finish_reading(file_handle.ino, fh).await?;
                 return Ok(());
             }
-            FileHandleState::Write { state, .. } => state,
+            FileHandleState::Write { .. } => {},
         };
 
-        let complete_result = write_state
-            .complete_if_in_progress(self.metablock.clone(), file_handle.ino, &file_handle.location)
-            .await;
+        let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone());
+        let complete_result = self.metablock.flush_writer(ino, fh, completion_hook, true).await;
+        
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {
@@ -732,7 +721,7 @@ where
             Err(e) => {
                 // Errors won't actually be seen by the user because `release` is async,
                 // but it's the right thing to do so we'll return it.
-                Err(e)
+                Err(Error::from(e))
             }
         }
     }
