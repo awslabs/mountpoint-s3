@@ -82,7 +82,7 @@ pub trait Metablock: Send + Sync {
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
 
     /// Updates status of the inode and of containing "local" directories.
-    async fn flush_writer(&self, ino: InodeNo, completion_handle: CompletionHook) -> Result<bool, InodeError>;
+    async fn flush_writer(&self, ino: InodeNo, fh: u64, completion_handle: CompletionHook, release: bool) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
@@ -121,7 +121,7 @@ pub trait Metablock: Send + Sync {
     /// Unlink the entry described by `parent_ino` and `name`.
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
 
-    async fn is_valid_handle(&self, ino: InodeNo, fh: u64, op: &str) -> Result<bool, InodeError>;
+    async fn validate_handle(&self, ino: InodeNo, fh: u64, op: &str) -> Result<bool, InodeError>;
 }
 
 /// A callback function used to pass information to the filesystem.

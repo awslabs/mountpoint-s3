@@ -283,7 +283,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn is_valid_handle(&self, _ino: InodeNo, _fh: u64, _op: &str) -> Result<bool, InodeError> {
+    async fn validate_handle(&self, _ino: InodeNo, _fh: u64, _op: &str) -> Result<bool, InodeError> {
         Ok(true)
     }
 
@@ -291,7 +291,7 @@ impl Metablock for ManifestMetablock {
         Ok(true)
     }
 
-    async fn flush_writer(&self, _ino: InodeNo, _completion_handle: CompletionHook) -> Result<bool, InodeError> {
+    async fn flush_writer(&self, _ino: InodeNo, _fh: u64, _completion_handle: CompletionHook, _release: bool) -> Result<bool, InodeError> {
         Ok(false)
     }
 }

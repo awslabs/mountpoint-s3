@@ -61,25 +61,25 @@ impl InodeHandleMap {
         }
     }
 
-    pub fn add_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
+    pub fn set_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
         let mut handles = self.handles.write().unwrap();
         handles.entry(locked_inode.ino).or_default().writer = Some(fh);
     }
 
     pub fn flush_readers(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
         let mut handles = self.handles.write().unwrap();
-        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino)
-            && entry.get_mut().active_readers.remove(&fh)
-        {
-            entry.get_mut().flushed_readers.insert(fh);
+        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
+            if entry.get_mut().active_readers.remove(&fh) {
+                entry.get_mut().flushed_readers.insert(fh);
 
-            // If the handle and all other readers have been flushed
-            return entry.get().active_readers.is_empty();
+                // If the handle and all other readers have been flushed
+                return entry.get().active_readers.is_empty();
+            }
         }
         false
     }
 
-    pub fn clear_flushed_readers(&self, locked_inode: &InodeLockedForWriting<'_>) {
+    pub fn deactivate_flushed_readers(&self, locked_inode: &InodeLockedForWriting<'_>) {
         let mut handles = self.handles.write().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
             entry.get_mut().flushed_readers.clear(); // todo mansi also flush active_readers? should it ever happen?
@@ -89,19 +89,22 @@ impl InodeHandleMap {
         }
     }
 
-    pub fn clear_flushed_writer(&self, locked_inode: &InodeLockedForWriting<'_>) {
-        self.remove_writer(locked_inode);
+    pub fn is_handle_valid(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+        let handles = self.handles.read().unwrap();
+        if let Some(inode_handles) = handles.get(&locked_inode.ino) {
+            return inode_handles.active_readers.contains(&fh) 
+                || inode_handles.flushed_readers.contains(&fh)
+                || inode_handles.writer == Some(fh);
+        }
+        false
     }
 
-    pub fn is_handle_active(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
+    pub fn activate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
         let mut handles = self.handles.write().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
             if entry.get_mut().flushed_readers.remove(&fh) {
                 entry.get_mut().active_readers.insert(fh);
-                return true;
             }
-            return entry.get().writer.is_some();
         }
-        false
     }
 }
