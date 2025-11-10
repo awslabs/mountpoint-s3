@@ -51,7 +51,7 @@ jobs:
       - name: Approval Gate
         run: echo "Approved!"
 
-  test:
+  fs-test:
     name: FS Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
     runs-on: ${{ matrix.runner.tags }}
 
@@ -338,7 +338,7 @@ jobs:
       run: |
         chmod +x package/generate_amzn2023_srpm.sh
         ./package/generate_amzn2023_srpm.sh
-        
+
         echo "## Generated Amazon Linux 2023 Spec File" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo '```spec' >> $GITHUB_STEP_SUMMARY
@@ -359,13 +359,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       test-prefix: "${S3_BUCKET_TEST_PREFIX}test-rpm/${{ matrix.arch }}/"
-    
+
     strategy:
       matrix:
         include:
           - arch: x86_64
             runner: ubuntu-latest
-          - arch: aarch64  
+          - arch: aarch64
             runner: [self-hosted, linux, arm64]
 
     container:
@@ -380,7 +380,7 @@ jobs:
     - name: Preventing container PAM sudo errors
       run: |
         # https://github.com/geerlingguy/docker-rockylinux9-ansible/issues/6
-        chmod 0400 /etc/shadow 
+        chmod 0400 /etc/shadow
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v5
@@ -425,11 +425,24 @@ jobs:
         # Write Test
         echo "Hello from RPM write test" > /mnt/s3-test/write-test.txt
         aws s3 cp "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}write-test.txt" - | grep -q "Hello from RPM write test"
-  
+
         sudo umount /mnt/s3-test
-        
+
     - name: Cleanup test resources
       if: always()
       run: |
         aws s3 rm "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}test.txt"
         aws s3 rm "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}write-test.txt"
+
+  workflow-complete:
+    name: "Integration Tests Complete"
+    runs-on: ubuntu-latest
+    needs:
+      - fs-test
+      - client-test
+      - fstab
+      - asan
+      - metrics
+      - test-rpm
+    steps:
+      - run: echo "Workflow complete"
