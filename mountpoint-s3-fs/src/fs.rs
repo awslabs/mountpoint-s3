@@ -703,12 +703,12 @@ where
                 self.metablock.finish_reading(file_handle.ino, fh).await?;
                 return Ok(());
             }
-            FileHandleState::Write { .. } => {},
+            FileHandleState::Write { .. } => {}
         };
 
         let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone());
         let complete_result = self.metablock.flush_writer(ino, fh, completion_hook, true).await;
-        
+
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
 
         match complete_result {

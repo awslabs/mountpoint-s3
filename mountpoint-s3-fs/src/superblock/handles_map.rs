@@ -68,13 +68,13 @@ impl InodeHandleMap {
 
     pub fn flush_readers(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
         let mut handles = self.handles.write().unwrap();
-        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
-            if entry.get_mut().active_readers.remove(&fh) {
-                entry.get_mut().flushed_readers.insert(fh);
+        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino)
+            && entry.get_mut().active_readers.remove(&fh)
+        {
+            entry.get_mut().flushed_readers.insert(fh);
 
-                // If the handle and all other readers have been flushed
-                return entry.get().active_readers.is_empty();
-            }
+            // If the handle and all other readers have been flushed
+            return entry.get().active_readers.is_empty();
         }
         false
     }
@@ -92,7 +92,7 @@ impl InodeHandleMap {
     pub fn is_handle_valid(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
         let handles = self.handles.read().unwrap();
         if let Some(inode_handles) = handles.get(&locked_inode.ino) {
-            return inode_handles.active_readers.contains(&fh) 
+            return inode_handles.active_readers.contains(&fh)
                 || inode_handles.flushed_readers.contains(&fh)
                 || inode_handles.writer == Some(fh);
         }
@@ -101,10 +101,10 @@ impl InodeHandleMap {
 
     pub fn activate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
         let mut handles = self.handles.write().unwrap();
-        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
-            if entry.get_mut().flushed_readers.remove(&fh) {
-                entry.get_mut().active_readers.insert(fh);
-            }
+        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino)
+            && entry.get_mut().flushed_readers.remove(&fh)
+        {
+            entry.get_mut().active_readers.insert(fh);
         }
     }
 }
