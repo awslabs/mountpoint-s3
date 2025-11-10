@@ -82,7 +82,13 @@ pub trait Metablock: Send + Sync {
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
 
     /// Updates status of the inode and of containing "local" directories.
-    async fn flush_writer(&self, ino: InodeNo, fh: u64, completion_handle: CompletionHook, release: bool) -> Result<bool, InodeError>;
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        completion_handle: CompletionHook,
+        release: bool,
+    ) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///

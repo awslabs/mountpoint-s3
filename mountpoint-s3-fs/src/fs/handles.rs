@@ -198,7 +198,12 @@ where
         }
     }
 
-    pub async fn commit(&mut self, fs: &S3Filesystem<Client>, handle: Arc<FileHandle<Client>>, fh: u64) -> Result<(), Error> {
+    pub async fn commit(
+        &mut self,
+        fs: &S3Filesystem<Client>,
+        handle: Arc<FileHandle<Client>>,
+        fh: u64,
+    ) -> Result<(), Error> {
         match &self {
             UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => {

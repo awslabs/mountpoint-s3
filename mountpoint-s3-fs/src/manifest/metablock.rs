@@ -291,7 +291,13 @@ impl Metablock for ManifestMetablock {
         Ok(true)
     }
 
-    async fn flush_writer(&self, _ino: InodeNo, _fh: u64, _completion_handle: CompletionHook, _release: bool) -> Result<bool, InodeError> {
+    async fn flush_writer(
+        &self,
+        _ino: InodeNo,
+        _fh: u64,
+        _completion_handle: CompletionHook,
+        _release: bool,
+    ) -> Result<bool, InodeError> {
         Ok(false)
     }
 }

@@ -143,7 +143,7 @@ impl<'a> PendingRenameGuard<'a> {
             | WriteStatus::PendingRename => {
                 return Err(InodeError::RenameNotPermittedWhileWriting(inode.err()));
             }
-            WriteStatus::Remote => {}  // All OK. // todo mansi error on cases when read handles active?
+            WriteStatus::Remote => {} // All OK. // todo mansi error on cases when read handles active?
         }
 
         locked.write_status = WriteStatus::PendingRename;
@@ -337,7 +337,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             return Some(Err(InodeError::InodeNotWritable(inode.err())));
         }
         state.write_status = WriteStatus::LocalOpenForWriting;
-        inode_handle_map.set_writer(&state, handle_id);
+        inode_handle_map.set_writer(state, handle_id);
         if is_truncate {
             state.stat.size = 0;
         }
@@ -767,7 +767,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     return Err(InodeError::InodeAlreadyWriting(inode.err()));
                 }
                 WriteStatus::LastFlushed => {
-                    if let Some(err) = Self::mark_as_writing(mode, is_truncate, &inode, &mut state, inode_handle_map, handle_id) {
+                    if let Some(err) =
+                        Self::mark_as_writing(mode, is_truncate, &inode, &mut state, inode_handle_map, handle_id)
+                    {
                         return err;
                     }
                     inode_handle_map.deactivate_flushed_readers(&state);
@@ -779,7 +781,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     if inode_handle_map.has_readers(&state) {
                         return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
                     }
-                    if let Some(err) = Self::mark_as_writing(mode, is_truncate, &inode, &mut state, inode_handle_map, handle_id) {
+                    if let Some(err) =
+                        Self::mark_as_writing(mode, is_truncate, &inode, &mut state, inode_handle_map, handle_id)
+                    {
                         return err;
                     }
                     None
@@ -880,7 +884,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     }
 
     /// Updates status of the inode
-    async fn flush_writer(&self, ino: InodeNo, fh: u64, hook: CompletionHook, release: bool) -> Result<bool, InodeError> {
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        hook: CompletionHook,
+        release: bool,
+    ) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let completion_hook = {
             let mut locked_inode = inode.get_mut_inode_state()?;
@@ -889,18 +899,14 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     if self.inner.inode_handles.is_handle_valid(&locked_inode, fh) {
                         locked_inode.write_status = WriteStatus::LastFlushed;
                         locked_inode.completion_hook = Some(hook.clone());
-                        if !release {
-                            return Ok(true)
-                        } else {
-                            hook
-                        }
+                        if !release { return Ok(true) } else { hook }
                     } else {
-                        return Ok(false)
+                        return Ok(false);
                     }
                 }
                 WriteStatus::LastFlushed => {
                     if !release {
-                        return Ok(true)
+                        return Ok(true);
                     } else {
                         locked_inode.clone().completion_hook.unwrap()
                     }
