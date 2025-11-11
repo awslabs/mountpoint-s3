@@ -51,13 +51,16 @@ where
 
         match &params.default_checksum_algorithm {
             Some(ChecksumAlgorithm::Crc32c) => {
-                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
+                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c));
+            }
+            Some(ChecksumAlgorithm::Sha256) => {
+                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Sha256));
             }
             Some(unsupported) => {
                 unimplemented!("checksum algorithm not supported: {:?}", unsupported);
             }
             None => {
-                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
+                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c));
             }
         }
 

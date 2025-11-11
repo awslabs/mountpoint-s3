@@ -1542,6 +1542,28 @@ impl ChecksumConfig {
         }
     }
 
+    /// Create a [ChecksumConfig] enabling Sha256 trailing checksums in PUT requests.
+    pub fn trailing_sha256() -> Self {
+        Self {
+            inner: aws_s3_checksum_config {
+                location: aws_s3_checksum_location::AWS_SCL_TRAILER,
+                checksum_algorithm: aws_s3_checksum_algorithm::AWS_SCA_SHA256,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Create a [ChecksumConfig] enabling Sha256 trailing checksums only for upload review.
+    pub fn upload_review_sha256() -> Self {
+        Self {
+            inner: aws_s3_checksum_config {
+                location: aws_s3_checksum_location::AWS_SCL_NONE,
+                checksum_algorithm: aws_s3_checksum_algorithm::AWS_SCA_SHA256,
+                ..Default::default()
+            },
+        }
+    }
+
     /// Get out the inner pointer to the checksum config
     pub(crate) fn to_inner_ptr(&self) -> *const aws_s3_checksum_config {
         &self.inner
