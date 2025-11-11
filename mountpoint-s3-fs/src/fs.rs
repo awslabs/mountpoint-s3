@@ -40,8 +40,8 @@ use error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT};
 mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
-pub(crate) mod handles;
-pub use handles::{FileHandle, FileHandleState};
+mod handles;
+pub use handles::{CompletionError, FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};

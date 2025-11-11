@@ -792,7 +792,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         if let Some(hook) = completion_hook {
-            hook.trigger().await;
+            _ = hook.trigger().await?;
         }
         Ok(())
     }
@@ -914,8 +914,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 _ => return Ok(false),
             }
         };
-        completion_hook.trigger().await;
-        Ok(true)
+        Ok(completion_hook.trigger().await?)
     }
 
     async fn start_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError> {
@@ -945,7 +944,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         if let Some(hook) = completion_hook {
-            hook.trigger().await;
+            _ = hook.trigger().await?;
         }
         Ok(())
     }
