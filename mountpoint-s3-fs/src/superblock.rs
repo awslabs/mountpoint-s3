@@ -41,11 +41,10 @@ use tracing::{debug, error, trace, warn};
 
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
-use crate::metablock::Metablock;
-use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat, WriteMode};
-use crate::metablock::{InodeInformation, Lookup};
-use crate::metablock::{S3Location, TryAddDirEntry};
-use crate::metablock::{ValidKey, ValidName};
+use crate::metablock::{
+    AddDirEntry, AddDirEntryResult, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock,
+    S3Location, ValidKey, ValidName, WriteMode,
+};
 use crate::s3::{S3Path, S3Personality};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
@@ -850,7 +849,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
-        mut try_add: TryAddDirEntry<'a>,
+        mut add: AddDirEntry<'a>,
     ) -> Result<(), InodeError> {
         let dir_handle = {
             let dir_handles = self.inner.dir_handles.read().unwrap();
@@ -893,12 +892,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 if (last_offset..last_offset + entries.len()).contains(&offset) {
                     trace!(offset, "repeating readdir response");
                     for entry in entries[offset - last_offset..].iter() {
-                        if try_add(
+                        if add(
                             entry.lookup.clone().into(),
                             entry.name.clone(),
                             entry.offset,
                             entry.generation,
-                        ) {
+                        ) == AddDirEntryResult::ReplyBufferFull
+                        {
                             break;
                         }
                         // We are returning this result a second time, so the contract is that we
@@ -921,7 +921,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
         /// we can re-use them if the directory handle rewinds
         struct Reply<'a> {
-            try_add: TryAddDirEntry<'a>,
+            add: AddDirEntry<'a>,
             entries: Vec<DirectoryEntryReaddir>,
         }
 
@@ -929,24 +929,21 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             async fn finish(self, offset: i64, dir_handle: &DirHandle) {
                 *dir_handle.last_response.lock().await = Some((offset, self.entries));
             }
-            fn add(&mut self, entry: DirectoryEntryReaddir) -> bool {
-                let result = (self.try_add)(
+            fn add(&mut self, entry: DirectoryEntryReaddir) -> AddDirEntryResult {
+                let result = (self.add)(
                     entry.lookup.clone().into(),
                     entry.name.clone(),
                     entry.offset,
                     entry.generation,
                 );
-                if !result {
+                if result == AddDirEntryResult::EntryAdded {
                     self.entries.push(entry);
                 }
                 result
             }
         }
 
-        let mut reply = Reply {
-            try_add,
-            entries: vec![],
-        };
+        let mut reply = Reply { add, entries: vec![] };
 
         if dir_handle.offset() < 1 {
             let lookup = self.getattr_with_inode(parent, false).await?;
@@ -956,7 +953,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 generation: 0,
                 lookup,
             };
-            if reply.add(entry) {
+            if reply.add(entry) == AddDirEntryResult::ReplyBufferFull {
                 reply.finish(offset, &dir_handle).await;
                 return Ok(());
             }
@@ -970,7 +967,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 generation: 0,
                 lookup,
             };
-            if reply.add(entry) {
+            if reply.add(entry) == AddDirEntryResult::ReplyBufferFull {
                 reply.finish(offset, &dir_handle).await;
                 return Ok(());
             }
@@ -993,7 +990,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 lookup: next.clone(),
             };
 
-            if reply.add(entry) {
+            if reply.add(entry) == AddDirEntryResult::ReplyBufferFull {
                 readdir_handle.readd(next);
                 reply.finish(offset, &dir_handle).await;
                 return Ok(());
@@ -1797,6 +1794,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
 
     use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
+    use crate::metablock::AddDirEntryResult;
     use crate::s3::{Bucket, Prefix};
 
     use super::*;
@@ -2196,7 +2194,7 @@ mod tests {
                     if name != OsStr::new(".") && name != OsStr::new("..") {
                         entries.push((entry, name.to_owned()));
                     }
-                    false // Continue collecting entries
+                    AddDirEntryResult::EntryAdded // Continue collecting entries
                 }),
             )
             .await
@@ -2382,7 +2380,7 @@ mod tests {
                 0,
                 true,
                 Box::new(|_entry, _name, _offset, _generation| {
-                    false // Continue collecting entries
+                    AddDirEntryResult::EntryAdded // Continue collecting entries
                 }),
             )
             .await

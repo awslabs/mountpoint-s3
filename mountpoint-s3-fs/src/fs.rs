@@ -18,9 +18,8 @@ use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
-use crate::metablock::Metablock;
+use crate::metablock::{AddDirEntry, AddDirEntryResult, InodeInformation, Metablock};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
-use crate::metablock::{InodeInformation, TryAddDirEntry};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
@@ -579,15 +578,19 @@ where
         is_readdirplus: bool,
         mut reply: R,
     ) -> Result<(), Error> {
-        let adder: TryAddDirEntry = Box::new(move |information, name, offset, generation| {
-            reply.add(DirectoryEntry {
+        let adder: AddDirEntry = Box::new(move |information, name, offset, generation| {
+            if reply.add(DirectoryEntry {
                 ino: information.ino(),
                 offset,
                 name,
                 attr: self.make_attr(&information),
                 generation,
                 ttl: information.validity(),
-            })
+            }) {
+                AddDirEntryResult::ReplyBufferFull
+            } else {
+                AddDirEntryResult::EntryAdded
+            }
         });
 
         self.metablock
