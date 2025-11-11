@@ -4,6 +4,7 @@ use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use tracing::Level;
 
 use crate::fs::error_metadata::ErrorMetadata;
+use crate::fs::handles::CompletionError;
 use crate::metablock::InodeError;
 use crate::prefetch::PrefetchReadError;
 use crate::upload::UploadError;
@@ -122,6 +123,21 @@ impl<E: std::error::Error + Send + Sync + 'static> From<UploadError<E>> for Erro
     }
 }
 
+impl From<CompletionError> for Error {
+    fn from(err: CompletionError) -> Self {
+        let errno = err.to_errno();
+        let metadata = err.metadata();
+        Error {
+            errno,
+            message: err.to_string(),
+            source: Some(anyhow::anyhow!(err)),
+            // We are having WARN as the default level of logging for fuse errors
+            level: Level::WARN,
+            metadata,
+        }
+    }
+}
+
 impl<E: std::error::Error + Send + Sync + 'static> From<PrefetchReadError<E>> for Error {
     fn from(err: PrefetchReadError<E>) -> Self {
         match err {
@@ -152,6 +168,12 @@ pub trait ToErrno {
 impl ToErrno for Error {
     fn to_errno(&self) -> libc::c_int {
         self.errno
+    }
+}
+
+impl ToErrno for CompletionError {
+    fn to_errno(&self) -> libc::c_int {
+        libc::EIO
     }
 }
 
