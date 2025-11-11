@@ -1206,7 +1206,7 @@ impl MockPutObjectRequest {
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len();
-                let checksum = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
+                let checksum = if !matches!(self.params.trailing_checksums, PutObjectTrailingChecksums::Disabled) {
                     let checksum = crc32c::checksum(part);
                     Some(crc32c_to_base64(&checksum))
                 } else {
@@ -1227,7 +1227,7 @@ impl MockPutObjectRequest {
         object.set_object_metadata(self.params.object_metadata.clone());
 
         // For S3 Standard, part attributes are only available when additional checksums are used
-        if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
+        if matches!(self.params.trailing_checksums, PutObjectTrailingChecksums::Enabled(_)) {
             let whole_obj_checksum = {
                 let mut whole_obj_checksum = Checksum::empty();
                 let part_checksums = parts
@@ -1290,10 +1290,9 @@ impl PutObjectRequest for MockPutObjectRequest {
         self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let checksum_algorithm = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
-            Some(ChecksumAlgorithm::Crc32c)
-        } else {
-            None
+        let checksum_algorithm = match self.params.trailing_checksums {
+            PutObjectTrailingChecksums::Enabled(algo) | PutObjectTrailingChecksums::ReviewOnly(algo) => Some(algo),
+            PutObjectTrailingChecksums::Disabled => None,
         };
         let parts = self.parts();
         let review_parts = parts
@@ -2041,8 +2040,8 @@ mod tests {
         );
     }
 
-    #[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-    #[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+    #[test_case(PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c); "enabled")]
+    #[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksums_set_after_meta_put(trailing_checksums: PutObjectTrailingChecksums) {
@@ -2085,20 +2084,20 @@ mod tests {
         {
             MockObjectParts::Parts(_) => {
                 assert!(
-                    matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled),
+                    matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled(_)),
                     "checksums should only be set if trailing checksums were sent to S3",
                 );
             }
             MockObjectParts::Count(_) => {
                 assert!(
-                    !matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled),
+                    !matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled(_)),
                     "checksums should be set if trailing checksums were sent to S3",
                 );
             }
         }
 
         let mut expected_obj_checksum = Checksum::empty();
-        if let PutObjectTrailingChecksums::Enabled = trailing_checksums {
+        if let PutObjectTrailingChecksums::Enabled(_) = trailing_checksums {
             // Only if the checksums should be persisted should we check part-level checksums were set.
             let Some(MockObjectParts::Parts(parts)) = stored_object.parts.as_ref() else {
                 unreachable!("we know checksums were enabled for this upload");
@@ -2303,8 +2302,8 @@ mod tests {
         assert_eq!(1, head_counter_2.count());
     }
 
-    #[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-    #[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+    #[test_case(PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c); "enabled")]
+    #[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksum_attributes(trailing_checksums: PutObjectTrailingChecksums) {
@@ -2359,7 +2358,7 @@ mod tests {
         let expected_parts = OBJECT_SIZE.div_ceil(PART_SIZE);
         assert_eq!(parts.total_parts_count, Some(expected_parts));
 
-        if trailing_checksums == PutObjectTrailingChecksums::Enabled {
+        if matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled(_)) {
             let part_attributes = parts
                 .parts
                 .expect("part attributes should be returned if checksums enabled");
