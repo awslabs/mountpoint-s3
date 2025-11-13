@@ -200,14 +200,15 @@ where
         }
     }
 
+    /// Commit and return whether the handle should be set to "flushed".
     pub async fn commit(
         &mut self,
         fs: &S3Filesystem<Client>,
         handle: Arc<FileHandle<Client>>,
         fh: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         match &self {
-            UploadState::Completed => return Ok(()),
+            UploadState::Completed => return Ok(true),
             UploadState::Failed(e) => {
                 return Err(err!(*e, "upload already aborted for key {}", handle.location));
             }
@@ -238,24 +239,14 @@ where
                     initial_etag: initial_etag.clone(),
                     written_bytes,
                 };
-                let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await;
-                let mut state = handle.state.lock().await;
-                match &mut *state {
-                    FileHandleState::Read { .. } => {
-                        unreachable!("checked above")
-                    }
-                    FileHandleState::Write { flushed, .. } => {
-                        *flushed = handle_flushed;
-                    }
-                }
-                drop(state);
-                Ok(())
+                Ok(Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await)
             }
             UploadState::MPUInProgress { request, .. } => {
-                Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request)
-                    .await
-                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?;
-                Ok(())
+                Ok(
+                    Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request)
+                        .await
+                        .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?,
+                )
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         }
@@ -268,7 +259,7 @@ where
         pid: u32,
         open_pid: u32,
         fh: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         match self {
             UploadState::AppendInProgress { written_bytes, .. } => {
                 if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
@@ -279,39 +270,17 @@ where
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
                     debug!(key=%handle.location, "not completing upload because nothing was written yet");
-                    let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await;
-                    let mut state = handle.state.lock().await;
-                    match &mut *state {
-                        FileHandleState::Read { .. } => {
-                            unreachable!("checked above")
-                        }
-                        FileHandleState::Write { flushed, .. } => {
-                            *flushed = handle_flushed;
-                        }
-                    }
-                    drop(state);
-                    return Ok(());
+                    return Ok(Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await);
                 }
                 if !are_from_same_process(open_pid, pid) {
                     debug!(
                         key=%handle.location,
                         pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
-                    let handle_flushed = Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await;
-                    let mut state = handle.state.lock().await;
-                    match &mut *state {
-                        FileHandleState::Read { .. } => {
-                            unreachable!("checked above")
-                        }
-                        FileHandleState::Write { flushed, .. } => {
-                            *flushed = handle_flushed;
-                        }
-                    }
-                    drop(state);
-                    return Ok(());
+                    return Ok(Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await);
                 }
             }
-            UploadState::Completed => return Ok(()),
+            UploadState::Completed => return Ok(true),
             UploadState::Failed(e) => {
                 return Err(err!(
                     *e,
@@ -340,8 +309,7 @@ where
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         };
 
-        result.inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?;
-        Ok(())
+        Ok(result.inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?)
     }
 
     /// Check state of upload, and complete the upload if it is still in-progress.
@@ -373,12 +341,12 @@ where
         ino: InodeNo,
         key: &S3Location,
         upload: UploadRequest<Client>,
-    ) -> Result<(), CompletionError> {
+    ) -> Result<bool, CompletionError> {
         let size = upload.size();
         let (put_result, etag) = match upload.complete().await {
             Ok(result) => {
                 debug!(etag=?result.etag.as_str(), %key, size, "put succeeded");
-                (Ok(()), Some(result.etag))
+                (Ok(true), Some(result.etag))
             }
             Err(e) => (Err(CompletionError::new(e, key.clone())), None),
         };
@@ -392,11 +360,11 @@ where
         key: &S3Location,
         upload: AppendUploadRequest<Client>,
         initial_etag: Option<ETag>,
-    ) -> Result<(), CompletionError> {
+    ) -> Result<bool, CompletionError> {
         match Self::commit_append(upload, key).await {
             Ok(etag) => {
                 Self::finish(metablock, ino, key, etag.or(initial_etag)).await;
-                Ok(())
+                Ok(true)
             }
             Err(err) => {
                 Self::finish(metablock, ino, key, None).await;

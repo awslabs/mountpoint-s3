@@ -628,19 +628,21 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let write_state = match &mut *state {
+        let (write_state, flushed) = match &mut *state {
             FileHandleState::Read { flushed, .. } => {
                 *flushed = self.metablock.flush_reader(ino, fh).await?;
                 return Ok(());
             }
-            FileHandleState::Write { state, .. } => state,
+            FileHandleState::Write { state, flushed } => (state, flushed),
         };
-        match write_state.commit(self, file_handle.clone(), fh).await {
+        let handle_flushed = write_state.commit(self, file_handle.clone(), fh).await.map_err(|e|
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
-            Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
-            ret => ret,
-        }
+            if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
+        )?;
+
+        *flushed = handle_flushed;
+        Ok(())
     }
 
     pub async fn flush(&self, ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
@@ -669,14 +671,15 @@ where
         match &mut *state {
             FileHandleState::Read { flushed, .. } => {
                 *flushed = self.metablock.flush_reader(ino, fh).await?;
-                Ok(())
             }
-            FileHandleState::Write { state, .. } => {
-                state
+            FileHandleState::Write { state, flushed } => {
+                let handle_flushed = state
                     .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
-                    .await
+                    .await?;
+                *flushed = handle_flushed;
             }
         }
+        Ok(())
     }
 
     pub async fn release(
