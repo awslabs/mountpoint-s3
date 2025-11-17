@@ -326,25 +326,6 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         trace!("Added handle with id: {}", handle_id);
         Ok(handle_id)
     }
-
-    fn mark_as_writing(
-        mode: &WriteMode,
-        is_truncate: bool,
-        inode: &Inode,
-        state: &mut InodeLockedForWriting,
-        inode_handle_map: &InodeHandleMap,
-        handle_id: u64,
-    ) -> Option<Result<(), InodeError>> {
-        if !mode.is_inode_writable(is_truncate) {
-            return Some(Err(InodeError::InodeNotWritable(inode.err())));
-        }
-        state.write_status = WriteStatus::LocalOpenForWriting;
-        inode_handle_map.set_writer(state, handle_id);
-        if is_truncate {
-            state.stat.size = 0;
-        }
-        None
-    }
 }
 
 #[async_trait]
@@ -754,39 +735,31 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     ) -> Result<(), InodeError> {
         trace!(?ino, "write");
         let inode = self.inner.get(ino)?;
-        let inode_handle_map = &self.inner.inode_handles;
-
         let completion_hook = {
             let mut state = inode.get_mut_inode_state()?;
-
             match state.write_status {
                 WriteStatus::LocalUnopened => {
                     state.write_status = WriteStatus::LocalOpenForWriting;
                     state.stat.size = 0;
-                    inode_handle_map.set_writer(&state, handle_id);
+                    if !self.inner.inode_handles.try_set_writer(&state, handle_id) {
+                        return Err(InodeError::InodeNotWritable(inode.err()));
+                    }
                     None
                 }
                 WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename => {
                     return Err(InodeError::InodeAlreadyWriting(inode.err()));
                 }
-                WriteStatus::LastFlushed => {
-                    if let Some(err) =
-                        Self::mark_as_writing(mode, is_truncate, &inode, &mut state, inode_handle_map, handle_id)
+                WriteStatus::LastFlushed | WriteStatus::Remote => {
+                    if !mode.is_inode_writable(is_truncate)
+                        || !self.inner.inode_handles.try_set_writer(&state, handle_id)
                     {
-                        return err;
+                        return Err(InodeError::InodeNotWritable(inode.err()));
+                    }
+                    state.write_status = WriteStatus::LocalOpenForWriting;
+                    if is_truncate {
+                        state.stat.size = 0;
                     }
                     state.completion_hook.clone()
-                }
-                WriteStatus::Remote => {
-                    if inode_handle_map.has_active_readers(&state) {
-                        return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
-                    }
-                    if let Some(err) =
-                        Self::mark_as_writing(mode, is_truncate, &inode, &mut state, inode_handle_map, handle_id)
-                    {
-                        return err;
-                    }
-                    None
                 }
             }
         };
@@ -886,7 +859,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             let mut locked_inode = inode.get_mut_inode_state()?;
             match locked_inode.write_status {
                 WriteStatus::LocalOpenForWriting => {
-                    if self.inner.inode_handles.is_handle_valid(&locked_inode, fh) {
+                    if self.inner.inode_handles.is_current_writer(&locked_inode, fh) {
                         locked_inode.write_status = WriteStatus::LastFlushed;
                         locked_inode.completion_hook = Some(hook.clone());
                         if !release { return Ok(true) } else { hook }
@@ -916,21 +889,21 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             if !matches!(
                 locked_inode.write_status,
                 WriteStatus::Remote | WriteStatus::PendingRename | WriteStatus::LastFlushed
+            ) || !self.inner.inode_handles.try_add_reader(
+                &locked_inode,
+                fh,
+                locked_inode.write_status == WriteStatus::LastFlushed,
             ) {
                 return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
             }
-            let inode_handle_map = &self.inner.inode_handles;
 
             // todo mansi why inode status not changed when write_status = PendingRename?
-            let hook = if locked_inode.write_status == WriteStatus::LastFlushed {
+            if locked_inode.write_status == WriteStatus::LastFlushed {
                 locked_inode.write_status = WriteStatus::Remote;
-                inode_handle_map.remove_writer(&locked_inode);
                 locked_inode.completion_hook.clone()
             } else {
                 None
-            };
-            inode_handle_map.add_reader(&locked_inode, fh);
-            hook
+            }
         };
 
         if let Some(hook) = completion_hook {
@@ -1232,16 +1205,22 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     async fn validate_handle(&self, ino: InodeNo, fh: u64, op: &str) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let mut locked_inode = inode.get_mut_inode_state()?;
-        let handle_valid = self.inner.inode_handles.is_handle_valid(&locked_inode, fh);
-        if handle_valid {
-            if op == "Read" {
-                self.inner.inode_handles.activate_reader(&locked_inode, fh);
-            } else if op == "Write" {
-                locked_inode.write_status = WriteStatus::LocalOpenForWriting;
-                locked_inode.completion_hook = None;
+        match op {
+            "Read" => {
+                if self.inner.inode_handles.try_activate_reader(&locked_inode, fh) {
+                    return Ok(true);
+                }
             }
+            "Write" => {
+                if self.inner.inode_handles.is_current_writer(&locked_inode, fh) {
+                    locked_inode.write_status = WriteStatus::LocalOpenForWriting;
+                    locked_inode.completion_hook = None;
+                    return Ok(true);
+                }
+            }
+            _ => {}
         }
-        Ok(handle_valid)
+        Ok(false)
     }
 }
 
