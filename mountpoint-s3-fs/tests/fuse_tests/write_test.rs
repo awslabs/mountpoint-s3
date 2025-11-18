@@ -1668,3 +1668,58 @@ fn append_fails_on_object_replaced_s3() {
 fn append_fails_on_object_replaced_mock() {
     append_fails_on_object_replaced(fuse::mock_session::new);
 }
+
+const MOCK: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::mock_session::new;
+const S3: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::s3_session::new;
+
+enum Open {
+    ForReading,
+    ForWriting,
+}
+
+#[cfg_attr(feature = "s3_tests", test_matrix(S3, [Open::ForReading, Open::ForWriting], [ATOMIC_UPLOAD]))]
+#[cfg_attr(feature = "s3express_tests", test_matrix(S3, [Open::ForReading, Open::ForWriting], [INCREMENTAL_UPLOAD]))]
+#[test_matrix(MOCK, [Open::ForReading, Open::ForWriting], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn open_after_closing_empty_file_test(
+    creator_fn: impl TestSessionCreator,
+    second_open_type: Open,
+    upload_mode: UploadMode,
+) {
+    const KEY: &str = "empty.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            allow_overwrite: true,
+            ..Default::default()
+        }
+        .upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("open_after_closing_empty_file_test", config);
+
+    let path = test_session.mount_path().join(KEY);
+
+    // Create a new file but do not write anything to it.
+    let f1 = File::options()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+        .expect("first open should succeed");
+    // Close the file without writing.
+    drop(f1);
+
+    // Open it again
+    let f2 = {
+        let mut options = File::options();
+        match second_open_type {
+            Open::ForReading => options.read(true),
+            Open::ForWriting => options.write(true).truncate(true),
+        };
+        options
+    }
+    .open(&path)
+    .expect("second open should succeed");
+    // Close the file.
+    drop(f2);
+}
