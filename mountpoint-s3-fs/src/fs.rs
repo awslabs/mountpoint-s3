@@ -17,7 +17,7 @@ use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
-use crate::metablock::{AddDirEntry, AddDirEntryResult, CompletionHook, InodeInformation, Metablock};
+use crate::metablock::{AddDirEntry, AddDirEntryResult, CompletionHook, InodeInformation, Metablock, ReadWriteMode};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -38,7 +38,7 @@ mod flags;
 pub use flags::{OpenFlags, RenameFlags};
 
 mod handles;
-pub use handles::{CompletionError, FileHandle, FileHandleState};
+pub use handles::{FileHandle, FileHandleState};
 
 mod sse;
 pub use sse::{ServerSideEncryption, SseCorruptedError};
@@ -356,12 +356,7 @@ where
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
-        trace!("fs:open with ino {:?} flags {} pid {:?}", ino, flags, pid);
-
-        #[cfg(not(target_os = "linux"))]
-        let direct_io = false;
-        #[cfg(target_os = "linux")]
-        let direct_io = flags.contains(OpenFlags::O_DIRECT);
+        trace!("open with ino {:?} flags {} pid {:?}", ino, flags, pid);
 
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
@@ -369,47 +364,20 @@ where
             return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
-        let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
-        let lookup = self.metablock.getattr(ino, force_revalidate).await?;
-
-        match lookup.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
-            InodeKind::File => (),
-        }
-
-        let fh = self.next_handle();
-
-        let state = if flags.contains(OpenFlags::O_RDWR) {
-            if !lookup.is_remote()
-                || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
-                || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
-            {
-                // If the file is new or if it was opened in truncate or in append mode,
-                // we know it must be a write handle.
-                debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self, fh).await?
-            } else {
-                // Otherwise, it must be a read handle.
-                debug!("fs:open choosing read handle for O_RDWR");
-                FileHandleState::new_read_handle(&lookup, self, fh).await?
-            }
-        } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self, fh).await?
-        } else {
-            FileHandleState::new_read_handle(&lookup, self, fh).await?
-        };
-
+        let fh = self.next_handle(); // TODO: can we delay obtaining the next handle until we know we are creating a new file handle?
+        let write_mode = self.config.write_mode();
+        let new_handle = self.metablock.open_handle(ino, fh, &write_mode, flags).await?;
+        let state = FileHandleState::new(&new_handle, flags, self).await?;
         let handle = FileHandle {
             ino,
-            location: lookup.try_into_s3_location()?,
+            location: new_handle.lookup.try_into_s3_location()?,
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
         debug!(fh, ino, "new file handle created");
         self.file_handles.write().await.insert(fh, Arc::new(handle));
 
-        let reply_flags = if direct_io { FOPEN_DIRECT_IO } else { 0 };
-
+        let reply_flags = if flags.direct_io() { FOPEN_DIRECT_IO } else { 0 };
         Ok(Opened { fh, flags: reply_flags })
     }
 
@@ -451,7 +419,7 @@ where
         };
 
         if *flushed {
-            if !self.metablock.validate_handle(ino, fh, "Read").await? {
+            if !self.metablock.validate_handle(ino, fh, ReadWriteMode::Read).await? {
                 return Err(err!(
                     libc::EBADF,
                     "file handle has been invalidated by a newer handle opened"
@@ -538,7 +506,7 @@ where
             };
 
             if *flushed {
-                if !self.metablock.validate_handle(ino, fh, "Write").await? {
+                if !self.metablock.validate_handle(ino, fh, ReadWriteMode::Write).await? {
                     return Err(err!(
                         libc::EBADF,
                         "file handle has been invalidated by a newer handle opened"

@@ -979,19 +979,17 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
 
     // We can't write to the file that is being read
     // from both the same file handle or a new one
-    let mut options = File::options();
-    let mut fh = options.read(true).write(true).open(&path).unwrap();
+    let mut fh = File::options().read(true).write(true).open(&path).unwrap();
     let mut hello_contents = String::new();
     fh.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
 
     let err = fh
         .write(b"hello world")
-        .expect_err("writing to a file is being read should fail");
+        .expect_err("writing to a read file handle should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
-    let mut options = File::options();
-    let err = options
+    let err = File::options()
         .write(true)
         .truncate(true)
         .open(&path)
@@ -1167,14 +1165,12 @@ fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) 
 
 #[cfg(feature = "s3_tests")]
 #[test]
-#[ignore = "due to a race condition on release of a read handle, overwrite after read may occasionally fail on open"]
 fn overwrite_after_read_test_s3() {
     overwrite_after_read_test(fuse::s3_session::new, "overwrite_after_read_test");
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("overwrite_after_read_test"; "prefix")]
-#[ignore = "due to a race condition on release of a read handle, overwrite after read may occasionally fail on open"]
 fn overwrite_after_read_test_mock(prefix: &str) {
     overwrite_after_read_test(fuse::mock_session::new, prefix);
 }

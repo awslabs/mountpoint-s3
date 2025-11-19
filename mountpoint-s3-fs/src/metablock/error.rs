@@ -3,21 +3,21 @@ use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use std::ffi::OsString;
 use thiserror::Error;
 
-use crate::fs::{
-    CompletionError,
-    error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT},
-};
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 #[cfg(feature = "manifest")]
 use crate::manifest::ManifestError;
+use crate::metablock::S3Location;
+use crate::sync::Arc;
+use crate::upload::UploadError;
 
 use super::InodeNo;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InodeError {
     /// Avoid constructing this directly, but use `InodeError::client_error` instead
     #[error("error from ObjectClient")]
     ClientError {
-        source: anyhow::Error,
+        source: Arc<anyhow::Error>,
         metadata: Box<ErrorMetadata>,
     },
     #[error("file {0:?} does not exist in parent inode {1}")]
@@ -73,13 +73,15 @@ pub enum InodeError {
     },
     #[cfg(feature = "manifest")]
     #[error("manifest error")]
-    ManifestError(#[from] ManifestError),
+    ManifestError(#[source] Arc<ManifestError>),
     #[error("operation not supported on virtual inode {ino}")]
     OperationNotSupportedOnSyntheticInode { ino: InodeNo },
     #[error("out-of-order readdir, expected offset {expected} but got {actual} on dir handle {fh}")]
     OutOfOrderReadDir { expected: i64, actual: i64, fh: u64 },
     #[error("invalid directory handle {fh}")]
     NoSuchDirHandle { fh: u64 },
+    #[error("objects in flexible retrieval storage classes are not accessible")]
+    FlexibleRetrievalObjectNotAccessible(InodeErrorInfo),
 }
 
 impl InodeError {
@@ -101,7 +103,24 @@ impl InodeError {
         };
         let metadata = Box::new(metadata);
         InodeError::ClientError {
-            source: anyhow!(err).context(context),
+            source: Arc::new(anyhow!(err).context(context)),
+            metadata,
+        }
+    }
+
+    pub fn upload_error<E>(err: UploadError<E>, key: S3Location) -> Self
+    where
+        E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+    {
+        let metadata = ErrorMetadata {
+            client_error_meta: err.meta(),
+            error_code: Some(MOUNTPOINT_ERROR_CLIENT.to_string()),
+            s3_bucket_name: Some(key.bucket_name().to_string()),
+            s3_object_key: Some(key.full_key().to_string()),
+        };
+        let metadata = Box::new(metadata);
+        InodeError::ClientError {
+            source: Arc::new(anyhow!(err)),
             metadata,
         }
     }
@@ -116,20 +135,16 @@ impl InodeError {
     }
 }
 
-impl From<CompletionError> for InodeError {
-    fn from(err: CompletionError) -> Self {
-        let metadata = err.metadata().into();
-        let context = err.to_string();
-        InodeError::ClientError {
-            source: anyhow!(err).context(context),
-            metadata,
-        }
+#[cfg(feature = "manifest")]
+impl From<ManifestError> for InodeError {
+    fn from(value: ManifestError) -> Self {
+        Self::ManifestError(Arc::new(value))
     }
 }
 
 /// A wrapper that prints useful customer-facing error messages for inodes by including the object
 /// key and bucket rather than just the inode number.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InodeErrorInfo {
     pub ino: InodeNo,
     pub key: Box<str>,
