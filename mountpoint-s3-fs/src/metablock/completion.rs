@@ -2,19 +2,21 @@ use std::pin::Pin;
 
 use mountpoint_s3_client::ObjectClient;
 
-use crate::fs::{CompletionError, FileHandle, FileHandleState};
+use crate::fs::{FileHandle, FileHandleState};
 use crate::sync::{Arc, AsyncMutex};
 
-use super::Metablock;
+use super::{InodeError, Lookup, Metablock};
 
 #[derive(Clone, Debug)]
 pub struct CompletionHook {
     state: Arc<AsyncMutex<CompletionHookState>>,
 }
 
+type CompletionResult = Result<Option<Lookup>, InodeError>;
+
 struct CompletionHookState {
-    future: Pin<Box<dyn Future<Output = Result<bool, CompletionError>> + Send>>,
-    result: Option<Result<bool, CompletionError>>,
+    future: Pin<Box<dyn Future<Output = CompletionResult> + Send>>,
+    result: Option<CompletionResult>,
 }
 
 impl std::fmt::Debug for CompletionHookState {
@@ -37,7 +39,7 @@ impl CompletionHook {
             future: Box::pin(async move {
                 let mut fh_state = handle.state.lock().await;
                 let FileHandleState::Write { state, .. } = &mut *fh_state else {
-                    return Ok(false); // Nothing to do for read handles.
+                    return Ok(None); // Nothing to do for read handles.
                 };
                 state.complete_if_in_progress(metablock, ino, &location).await
             }),
@@ -47,13 +49,13 @@ impl CompletionHook {
         Self { state }
     }
 
-    pub async fn trigger(&self) -> Result<bool, CompletionError> {
+    pub async fn trigger(&self) -> CompletionResult {
         let mut state = self.state.lock().await;
         if let Some(result) = &state.result {
             return result.clone();
         }
 
-        let future = std::mem::replace(&mut state.future, Box::pin(std::future::ready(Ok(false))));
+        let future = std::mem::replace(&mut state.future, Box::pin(std::future::ready(Ok(None))));
         let result = future.await;
         state.result = Some(result.clone());
         result
