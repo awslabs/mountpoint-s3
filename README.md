@@ -32,11 +32,6 @@ On Amazon Linux 2023, you can install Mountpoint for Amazon S3 directly from the
 
     sudo dnf install mount-s3
 
-On other Amazon Linux versions, run these two commands (for Graviton instances, replace `x86_64` with `arm64` in the URL):
-
-    wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
-    sudo yum install -y ./mount-s3.rpm
-
 On Ubuntu, use these commands instead (for Graviton instances, replace `x86_64` with `arm64` in the URL):
 
     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.deb
