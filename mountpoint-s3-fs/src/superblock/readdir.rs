@@ -645,7 +645,7 @@ impl DirHandle {
 }
 #[cfg(test)]
 mod tests {
-    use crate::fs::FUSE_ROOT_INODE;
+    use crate::fs::{FUSE_ROOT_INODE, OpenFlags};
     use crate::metablock::{AddDirEntryResult, InodeKind, Metablock};
     use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
@@ -677,7 +677,12 @@ mod tests {
             .expect("Create failed");
 
         superblock
-            .start_writing(lookup.ino(), &Default::default(), false, write_file_handle)
+            .open_handle(
+                lookup.ino(),
+                write_file_handle,
+                &Default::default(),
+                OpenFlags::O_WRONLY,
+            )
             .await
             .expect("Start writing failed");
 

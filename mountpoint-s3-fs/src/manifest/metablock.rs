@@ -5,9 +5,10 @@ use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
+use crate::fs::OpenFlags;
 use crate::metablock::{
     AddDirEntry, AddDirEntryResult, CompletionHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo,
-    InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidName, WriteMode,
+    InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL, NewHandle, ROOT_INODE_NO, ReadWriteMode, ValidName, WriteMode,
 };
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -185,9 +186,20 @@ impl Metablock for ManifestMetablock {
         Ok(())
     }
 
-    async fn start_reading(&self, _ino: InodeNo, _fh: u64) -> Result<(), InodeError> {
-        // Assume getattr was just called to check for inode existence, so this is a no-op
-        Ok(())
+    async fn open_handle(
+        &self,
+        ino: InodeNo,
+        _fh: u64,
+        _write_mode: &WriteMode,
+        flags: OpenFlags,
+    ) -> Result<NewHandle, InodeError> {
+        let lookup = self.getattr(ino, false).await?;
+        if flags.contains(OpenFlags::O_WRONLY) {
+            // For a read-only view, don't allow writing
+            return Err(InodeError::InodeNotWritable(lookup.inode_err()));
+        }
+
+        Ok(NewHandle::read(lookup))
     }
 
     async fn finish_reading(&self, _ino: InodeNo, _file_handle: u64) -> Result<(), InodeError> {
@@ -208,21 +220,6 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn start_writing(
-        &self,
-        ino: InodeNo,
-        _mode: &WriteMode,
-        _is_truncate: bool,
-        _handle_id: u64,
-    ) -> Result<(), InodeError> {
-        // For a read-only view, don't allow writing
-        Err(InodeError::InodeNotWritable(InodeErrorInfo {
-            ino,
-            key: "".into(),
-            bucket: None,
-        }))
-    }
-
     async fn inc_file_size(&self, ino: InodeNo, _len: usize) -> Result<usize, InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
@@ -231,7 +228,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>) -> Result<(), InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>) -> Result<Lookup, InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
             key: "".into(),
@@ -285,7 +282,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn validate_handle(&self, _ino: InodeNo, _fh: u64, _op: &str) -> Result<bool, InodeError> {
+    async fn validate_handle(&self, _ino: InodeNo, _fh: u64, _mode: ReadWriteMode) -> Result<bool, InodeError> {
         Ok(true)
     }
 
