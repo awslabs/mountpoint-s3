@@ -12,7 +12,7 @@ The instructions for downloading and installing Mountpoint for Amazon S3 depend 
 
 ### Amazon Linux 2023 (AL2023)
 
-Mountpoint is available directly in the Amazon Linux 2023 repository.
+Mountpoint is available directly in the Amazon Linux 2023 repository since AL2023 version 2023.9.20251110.
 
 1. Install it by entering the following command:
    ```
