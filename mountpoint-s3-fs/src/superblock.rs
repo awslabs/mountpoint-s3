@@ -272,11 +272,13 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             let sync = inode.get_inode_state()?;
             if sync.stat.is_valid() {
                 let stat = sync.stat.clone();
+                let is_remote = sync.is_remote();
                 drop(sync);
                 return Ok(LookedUpInode {
                     inode,
                     stat,
                     path: self.inner.s3_path.clone(),
+                    is_remote,
                 });
             }
         }
@@ -703,11 +705,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         let stat = sync.stat.clone();
+        let is_remote = sync.is_remote();
         drop(sync);
         Ok(LookedUpInode {
             inode,
             stat,
             path: self.inner.s3_path.clone(),
+            is_remote,
         }
         .into())
     }
@@ -1064,6 +1068,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 inode,
                 stat,
                 path: self.inner.s3_path.clone(),
+                is_remote: false,
             }
         };
 
@@ -1198,12 +1203,13 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                 InodeKindData::File { .. } => unreachable!("parent should be a directory!"),
                 InodeKindData::Directory { children, .. } => {
                     if let Some(inode) = children.get(name) {
-                        let inode_stat = &inode.get_inode_state().ok()?.stat;
-                        if inode_stat.is_valid() {
+                        let locked = inode.get_inode_state().ok()?;
+                        if locked.stat.is_valid() {
                             let lookup = LookedUpInode {
                                 inode: inode.clone(),
-                                stat: inode_stat.clone(),
+                                stat: locked.stat.clone(),
                                 path: superblock.s3_path.clone(),
+                                is_remote: locked.is_remote(),
                             };
                             return Some(Ok(lookup));
                         }
@@ -1423,6 +1429,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode.clone(),
                         stat: remote.stat.clone(),
                         path: s3_path.clone(),
+                        is_remote: true,
                     }))
                 } else {
                     Ok(None)
@@ -1472,6 +1479,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode,
                         stat,
                         path: self.s3_path.clone(),
+                        is_remote: false,
                     })
                 } else {
                     // This existing inode is local-only (because `remote` is None), but is not
@@ -1488,6 +1496,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode,
                         stat: remote.stat,
                         path: self.s3_path.clone(),
+                        is_remote: true,
                     })
             }
             (Some(remote), Some(existing_inode)) => {
@@ -1505,6 +1514,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode.clone(),
                         stat: existing_state.stat.clone(),
                         path: self.s3_path.clone(),
+                        is_remote: false,
                     });
                 }
 
@@ -1528,6 +1538,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode.clone(),
                         stat: remote.stat,
                         path: self.s3_path.clone(),
+                        is_remote: true,
                     });
                 }
 
@@ -1556,6 +1567,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                     inode: new_inode,
                     stat: remote.stat,
                     path: self.s3_path.clone(),
+                    is_remote: true,
                 })
             }
         }
@@ -1613,14 +1625,15 @@ pub struct RemoteLookup {
     stat: InodeStat,
 }
 
-/// Result of a call to [Superblock::lookup] or [Superblock::getattr]. `stat` is a copy of the
-/// inode's `stat` field that has already had its expiry checked and so is guaranteed to be valid
-/// until `stat.expiry`.
+/// Result of an internal "lookup" for an [Inode], containing a "snapshot" of its internal state.
+/// `stat` is a copy of the inode's `stat` field that has already had its expiry checked and
+/// so is guaranteed to be valid until `stat.expiry`.
 #[derive(Debug, Clone)]
 pub struct LookedUpInode {
     pub inode: Inode,
     pub stat: InodeStat,
     pub path: Arc<S3Path>,
+    pub is_remote: bool,
 }
 
 impl LookedUpInode {
@@ -1632,12 +1645,7 @@ impl LookedUpInode {
 
 impl From<LookedUpInode> for InodeInformation {
     fn from(val: LookedUpInode) -> Self {
-        InodeInformation::new(
-            val.inode.ino(),
-            val.stat,
-            val.inode.kind(),
-            val.inode.is_remote().unwrap_or_default(),
-        )
+        InodeInformation::new(val.inode.ino(), val.stat, val.inode.kind(), val.is_remote)
     }
 }
 
