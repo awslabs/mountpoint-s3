@@ -301,8 +301,6 @@ pub enum WriteStatus {
     LocalUnopened,
     /// Local inode already opened for writing
     LocalOpenForWriting,
-    /// Inode flushed (maybe released later)
-    LastFlushed,
     /// Remote inode
     Remote,
     /// Pending rename for inode
