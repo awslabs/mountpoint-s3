@@ -36,7 +36,7 @@ On other RPM-based distributions (Amazon Linux 2, Fedora, CentOS, RHEL; excludin
 
     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.rpm
     sudo yum install -y ./mount-s3.rpm
-    
+
 On Ubuntu, use these commands instead (for Graviton instances, replace `x86_64` with `arm64` in the URL):
 
     wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.deb
