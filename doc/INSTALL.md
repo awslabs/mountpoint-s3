@@ -10,7 +10,24 @@ Mountpoint for Amazon S3 is only available for Linux operating systems.
 
 The instructions for downloading and installing Mountpoint for Amazon S3 depend on which Linux operating system you are using.
 
-### RPM-based distributions (Amazon Linux, Fedora, CentOS, RHEL; excluding SUSE)
+### Amazon Linux 2023 (AL2023)
+
+Mountpoint is available directly in the Amazon Linux 2023 repository since AL2023 version 2023.9.20251110.
+
+1. Install it by entering the following command:
+   ```
+   sudo dnf install mount-s3
+   ```
+2. Verify that Mountpoint for Amazon S3 is successfully installed:
+   ```
+   mount-s3 --version
+   ```
+   You should see output similar to the following:
+   ```
+   mount-s3 1.21.0+1.amzn2023
+   ```
+
+### Other RPM-based distributions (Amazon Linux 2, Fedora, CentOS, RHEL; excluding SUSE)
 
 To download and install Mountpoint for Amazon S3 on RPM-based distributions, including Amazon Linux, follow these steps:
 
