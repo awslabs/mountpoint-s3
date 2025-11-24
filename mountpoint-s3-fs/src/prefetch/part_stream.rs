@@ -418,6 +418,10 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
         let mut client_backpressure_handle = request.backpressure_handle()
             .expect("S3 client backpressure should always be enabled in Mountpoint")
             .clone();
+        // NOTE: We don't rely at all on the initial read window configured on the client. Here we ensure read window is of the desired (non-zero) size
+        // by fetching the desired window end from the BackpressureLimiter, which uses the `PrefetcherConfig::initial_request_size` value.
+        // That means that even if the initial window configured on the client is smaller than the initial request size, we'll get all the data
+        // for the initial request.
         client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
 
         pin_mut!(request);
