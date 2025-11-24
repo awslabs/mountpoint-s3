@@ -158,7 +158,7 @@ impl ClientConfig {
             .read_part_size(self.part_config.read_size_bytes)
             .write_part_size(self.part_config.write_size_bytes)
             .read_backpressure(true)
-            .initial_read_window(INITIAL_READ_WINDOW_SIZE)
+            .initial_read_window(self.part_config.read_size_bytes)
             .user_agent(self.user_agent)
             .memory_pool(memory_pool);
         if let Some(interfaces) = self.bind {
