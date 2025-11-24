@@ -45,6 +45,7 @@ use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
 use crate::object::ObjectId;
+use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
 use crate::sync::Arc;
 
 mod backpressure_controller;
@@ -114,6 +115,9 @@ pub struct PrefetcherConfig {
     /// The maximum distance the prefetcher will seek backwards before resetting and starting a new
     /// S3 request. We keep this much data in memory in addition to any inflight requests.
     pub max_backward_seek_distance: u64,
+    /// Size of the initial request. This request, of size possibly smaller than part_size,
+    /// is made to lower the latency in small-random-reads usage pattern.
+    pub initial_request_size: usize,
 }
 
 impl Default for PrefetcherConfig {
@@ -128,6 +132,7 @@ impl Default for PrefetcherConfig {
             // just start a new request instead.
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 1 * 1024 * 1024,
+            initial_request_size: INITIAL_READ_WINDOW_SIZE,
         }
     }
 }
@@ -402,13 +407,12 @@ where
         let range = RequestRange::new(object_size, start, object_size);
 
         // The prefetcher now relies on backpressure mechanism so it must be enabled
-        let initial_read_window_size = match self.part_stream.client().initial_read_window_size() {
+        match self.part_stream.client().initial_read_window_size() {
             Some(value) => {
                 // Also, make sure that we don't get blocked from the beginning
-                if value == 0 {
+                if value == 0 || self.config.initial_request_size == 0 {
                     return Err(PrefetchReadError::BackpressurePreconditionFailed);
                 }
-                value
             }
             None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
         };
@@ -419,7 +423,7 @@ where
             range,
             read_part_size,
             preferred_part_size: self.preferred_part_size,
-            initial_read_window_size,
+            initial_read_window_size: self.config.initial_request_size,
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
@@ -629,6 +633,7 @@ mod tests {
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
+            ..Default::default()
         };
 
         let prefetcher = build_prefetcher(client.clone(), prefetcher_type, prefetcher_config);
@@ -793,6 +798,7 @@ mod tests {
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
+            initial_request_size: test_config.initial_read_window_size,
             ..Default::default()
         };
 
@@ -923,6 +929,7 @@ mod tests {
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
+            ..Default::default()
         };
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
@@ -1145,7 +1152,11 @@ mod tests {
                 ..Default::default()
             },
         ));
-        let prefetcher = build_prefetcher(client, prefetcher_type, Default::default());
+        let prefetcher_config = PrefetcherConfig {
+            initial_request_size: PART_SIZE,
+            ..Default::default()
+        };
+        let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
 
         block_on(async {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
@@ -1306,6 +1317,7 @@ mod tests {
                 sequential_prefetch_multiplier,
                 max_forward_seek_wait_distance,
                 max_backward_seek_distance,
+                ..Default::default()
             };
 
             let prefetcher =
@@ -1367,6 +1379,7 @@ mod tests {
                 sequential_prefetch_multiplier,
                 max_forward_seek_wait_distance,
                 max_backward_seek_distance,
+                ..Default::default()
             };
 
             let prefetcher =

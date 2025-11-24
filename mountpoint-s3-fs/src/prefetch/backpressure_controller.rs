@@ -113,6 +113,8 @@ pub fn new_backpressure_controller(
         align_read_window: config.align_read_window,
     };
 
+    tracing::debug!(?controller, "initialising backpressure controller");
+
     let limiter = BackpressureLimiter {
         read_window_increment_queue,
         read_window_end_offset,
@@ -166,6 +168,7 @@ impl BackpressureController {
                     // Force incrementing read window regardless of available memory when we are already at minimum
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
+                        tracing::debug!(new_read_window_end_offset, "sending a read window increment");
                         self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
@@ -174,6 +177,7 @@ impl BackpressureController {
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
                     if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                        tracing::debug!(new_read_window_end_offset, "sending a read window increment");
                         self.increment_read_window(to_increase).await;
                         break;
                     } else {
