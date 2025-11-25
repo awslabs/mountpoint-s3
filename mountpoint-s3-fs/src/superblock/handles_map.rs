@@ -142,6 +142,11 @@ impl InodeHandleMap {
             }
         }
     }
+
+    pub fn remove_inode(&self, ino: u64) -> bool {
+        let mut handles = self.handles.write().unwrap();
+        handles.remove(&ino).is_some()
+    }
 }
 
 #[derive(Debug)]
