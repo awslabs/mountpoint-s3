@@ -49,13 +49,13 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     assert_eq!(dir_entry_names, vec!["hello.txt", "test2MiB.bin"]);
 
     let hello_path = test_session.mount_path().join("hello.txt");
-    let mut hello_fh1 = File::options().read(true).write(read_only).open(&hello_path).unwrap();
+    let mut hello_fh1 = File::options().read(true).write(!read_only).open(&hello_path).unwrap();
     let mut hello_contents = String::new();
     hello_fh1.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
 
     // We can read from a file more than once at the same time.
-    let mut hello_fh2 = File::options().read(true).write(read_only).open(&hello_path).unwrap();
+    let mut hello_fh2 = File::options().read(true).write(!read_only).open(&hello_path).unwrap();
     let mut hello_contents = String::new();
     hello_fh2.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
@@ -67,7 +67,7 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     // so we can make it weird.
     let mut bin = File::options()
         .read(true)
-        .write(read_only)
+        .write(!read_only)
         .open(test_session.mount_path().join("test2MiB.bin"))
         .unwrap();
     let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
@@ -358,7 +358,7 @@ fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     test_session.client().put_object(KEY, &two_mib_body).unwrap();
 
     let path = test_session.mount_path().join(KEY);
-    let mut f = File::options().read(true).write(true).open(path).unwrap();
+    let mut f = File::options().read(true).open(path).unwrap();
 
     let mut content = vec![0; 128];
     f.read_exact(&mut content).unwrap();
