@@ -140,7 +140,7 @@ impl<'a> PendingRenameGuard<'a> {
             WriteStatus::LocalUnopened | WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename => {
                 return Err(InodeError::RenameNotPermittedWhileWriting(inode.err()));
             }
-            WriteStatus::Remote => {} // All OK. // todo mansi error on cases when read handles active?
+            WriteStatus::Remote => {} // All OK.
         }
 
         locked.write_status = WriteStatus::PendingRename;
@@ -332,7 +332,6 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             {
                 return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
             }
-            // todo mansi why inode status not changed when write_status = PendingRename?
             locked_inode.completion_hook.clone()
         };
 
@@ -709,7 +708,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
             }
             WriteStatus::Remote => {
-                // todo mansi exclude case of active read handles here?
                 let bucket = &self.inner.s3_path.bucket;
                 let s3_key = self.inner.full_key_for_inode(&inode);
                 debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
@@ -952,28 +950,22 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         ino: InodeNo,
         fh: u64,
         hook: CompletionHook,
-        release: bool,
-    ) -> Result<bool, InodeError> {
+    ) -> Result<Option<CompletionHook>, InodeError> {
         let inode = self.inner.get(ino)?;
         let completion_hook = {
             let mut locked_inode = inode.get_mut_inode_state()?;
             match locked_inode.write_status {
                 WriteStatus::LocalOpenForWriting => {
                     if self.inner.inode_handles.try_deactivate_writer(&locked_inode, fh) {
-                        let completion_hook = locked_inode.completion_hook.get_or_insert(hook);
-                        if !release {
-                            return Ok(true);
-                        } else {
-                            completion_hook.clone()
-                        }
+                        Some(locked_inode.completion_hook.get_or_insert(hook).clone())
                     } else {
-                        return Ok(true); // todo mansi is there any point returning Ok(false) and reverting handle's flushed flag?
+                        None
                     }
                 }
-                _ => return Ok(true), // todo mansi is there any point returning Ok(false) and reverting handle's flushed flag?
+                _ => None
             }
         };
-        Ok(completion_hook.trigger().await?.is_some())
+        Ok(completion_hook)
     }
 
     /// Update status of the inode to reflect the read being finished
@@ -981,6 +973,23 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let inode = self.inner.get(ino)?;
         let state = inode.get_mut_inode_state()?;
         self.inner.inode_handles.remove_reader(&state, fh);
+        Ok(())
+    }
+
+    async fn release_writer(&self, ino: InodeNo, fh: u64, completion_handle: CompletionHook, location: &S3Location) -> Result<(), InodeError> {
+        let completion_hook = self.flush_writer(ino, fh, completion_handle).await;
+        match completion_hook {
+            Ok(Some(completion_hook)) => {
+                let complete_result = completion_hook.trigger().await?;
+                if complete_result.is_some() {
+                    debug!(key = %location, "upload completed async after file was closed");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                debug!(key = %location, "failed to flush open file handle during release: {e}");
+            }
+        }
         Ok(())
     }
 
@@ -1225,6 +1234,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         match inodes.decrease_lookup_count(ino, n) {
             Ok(Some(removed_inode)) => {
                 trace!(ino, "removing inode from superblock");
+                if self.inner.inode_handles.remove_inode(ino) {
+                    debug!("File handles found for forgotten inode")
+                }
                 let parent_ino = removed_inode.parent();
 
                 // Remove from the parent. Nothing to do if the parent has already been removed,
@@ -1894,7 +1906,6 @@ impl InodeMap {
                 if *count == 0 {
                     trace!(ino, "removing inode from superblock");
                     let (inode, _) = self.map.remove(&ino).unwrap();
-                    // todo mansi should remove from InodeHandleMap too?
                     Ok(Some(inode))
                 } else {
                     Ok(None)

@@ -6,10 +6,7 @@ use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
 use crate::fs::OpenFlags;
-use crate::metablock::{
-    AddDirEntry, AddDirEntryResult, CompletionHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo,
-    InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL, NewHandle, ROOT_INODE_NO, ReadWriteMode, ValidName, WriteMode,
-};
+use crate::metablock::{AddDirEntry, AddDirEntryResult, CompletionHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL, NewHandle, ROOT_INODE_NO, ReadWriteMode, ValidName, WriteMode, S3Location};
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
@@ -295,8 +292,17 @@ impl Metablock for ManifestMetablock {
         _ino: InodeNo,
         _fh: u64,
         _completion_handle: CompletionHook,
-        _release: bool,
-    ) -> Result<bool, InodeError> {
-        Ok(false)
+    ) -> Result<Option<CompletionHook>, InodeError> {
+        Ok(None)
+    }
+
+    async fn release_writer(
+        &self,
+        _ino: InodeNo,
+        _fh: u64,
+        _completion_handle: CompletionHook,
+        _location: &S3Location,
+    ) -> Result<(), InodeError> {
+        Ok(())
     }
 }
