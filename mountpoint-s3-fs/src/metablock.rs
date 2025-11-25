@@ -86,8 +86,9 @@ pub trait Metablock: Send + Sync {
         ino: InodeNo,
         fh: u64,
         completion_handle: CompletionHook,
-        release: bool,
-    ) -> Result<bool, InodeError>;
+    ) -> Result<Option<CompletionHook>, InodeError>;
+
+    async fn release_writer(&self, ino: InodeNo, fh: u64, completion_handle: CompletionHook, location: &S3Location) -> Result<(), InodeError>;
 
     async fn validate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
