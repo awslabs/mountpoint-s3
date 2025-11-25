@@ -597,20 +597,19 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let (write_state, flushed) = match &mut *state {
+        let (write_state, ..) = match &mut *state {
             FileHandleState::Read { flushed, .. } => {
                 *flushed = self.metablock.flush_reader(ino, fh).await?;
                 return Ok(());
             }
             FileHandleState::Write { state, flushed } => (state, flushed),
         };
-        let handle_flushed = write_state.commit(self, file_handle.clone(), fh).await.map_err(|e|
+        write_state.commit(self, file_handle.clone()).await.map_err(|e|
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
         )?;
 
-        *flushed = handle_flushed;
         Ok(())
     }
 
@@ -642,10 +641,10 @@ where
                 *flushed = self.metablock.flush_reader(ino, fh).await?;
             }
             FileHandleState::Write { state, flushed } => {
-                let handle_flushed = state
+                state
                     .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
                     .await?;
-                *flushed = handle_flushed;
+                *flushed = true;
             }
         }
         Ok(())
@@ -683,13 +682,9 @@ where
         };
 
         let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone());
-        let complete_result = self.metablock.flush_writer(ino, fh, completion_hook, true).await;
+        self.metablock.release_writer(ino, fh, completion_hook, &file_handle.location).await?;
 
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
-
-        if complete_result? {
-            debug!(key = %file_handle.location, "upload completed async after file was closed");
-        }
         Ok(())
     }
 

@@ -192,10 +192,9 @@ where
         &mut self,
         fs: &S3Filesystem<Client>,
         handle: Arc<FileHandle<Client>>,
-        fh: u64,
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         match &self {
-            UploadState::Completed => return Ok(true),
+            UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => {
                 return Err(err!(*e, "upload already aborted for key {}", handle.location));
             }
@@ -226,16 +225,15 @@ where
                     initial_etag: initial_etag.clone(),
                     written_bytes,
                 };
-                Ok(Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await) // todo mansi should flush here or not? add if-else for when flush with 0 writes vs fsync?
             }
             UploadState::MPUInProgress { request, .. } => {
                 Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request)
                     .await
                     .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?;
-                Ok(false)
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         }
+        Ok(())
     }
 
     pub async fn complete(
@@ -245,28 +243,29 @@ where
         pid: u32,
         open_pid: u32,
         fh: u64,
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         match self {
             UploadState::AppendInProgress { written_bytes, .. } => {
                 if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
                     // Commit current changes, but do not close the write handle.
-                    return self.commit(fs, handle, fh).await;
+                    self.commit(fs, handle.clone()).await?;
+                    return Self::flush(fs, handle.ino, handle.clone(), fh).await;
                 }
             }
             UploadState::MPUInProgress { request, .. } => {
                 if request.size() == 0 {
                     debug!(key=%handle.location, "not completing upload because nothing was written yet");
-                    return Ok(Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await);
+                    return Self::flush(fs, handle.ino, handle.clone(), fh).await;
                 }
                 if !are_from_same_process(open_pid, pid) {
                     debug!(
                         key=%handle.location,
                         pid, open_pid, "not completing upload because current PID differs from PID at open",
                     );
-                    return Ok(Self::flush(fs, handle.ino, &handle.location, handle.clone(), fh).await);
+                    return Self::flush(fs, handle.ino, handle.clone(), fh).await;
                 }
             }
-            UploadState::Completed => return Ok(true),
+            UploadState::Completed => return Ok(()),
             UploadState::Failed(e) => {
                 return Err(err!(
                     *e,
@@ -298,7 +297,7 @@ where
         if let Err(e) = result {
             *self = UploadState::Failed(e.to_errno());
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Check state of upload, and complete the upload if it is still in-progress.
@@ -385,19 +384,12 @@ where
     async fn flush(
         fs: &S3Filesystem<Client>,
         ino: InodeNo,
-        s3location: &S3Location,
         handle: Arc<FileHandle<Client>>,
         fh: u64,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let completion_handle = CompletionHook::new(fs.metablock.clone(), handle);
-        match fs.metablock.flush_writer(ino, fh, completion_handle, false).await {
-            Err(err) => {
-                // Log the issue but still return put_result.
-                error!(?err, key=?s3location.full_key(), "error updating the inode status");
-                false
-            }
-            Ok(result) => result,
-        }
+        fs.metablock.flush_writer(ino, fh, completion_handle).await?;
+        Ok(())
     }
 }
 
