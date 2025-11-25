@@ -101,11 +101,6 @@ impl Inode {
         &self.inner.valid_key
     }
 
-    pub fn is_remote(&self) -> Result<bool, InodeError> {
-        let state = self.get_inode_state()?;
-        Ok(state.write_status == WriteStatus::Remote)
-    }
-
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
     pub fn get_inode_state(&self) -> Result<InodeLockedForReading<'_>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
@@ -254,6 +249,10 @@ impl InodeState {
             kind_data: InodeKindData::default_for(kind),
             write_status,
         }
+    }
+
+    pub fn is_remote(&self) -> bool {
+        self.write_status == WriteStatus::Remote
     }
 }
 

@@ -84,6 +84,7 @@ impl ReaddirHandle {
                             inode,
                             stat,
                             path: inner.s3_path.clone(),
+                            is_remote: false,
                         },
                     })
                 }),
