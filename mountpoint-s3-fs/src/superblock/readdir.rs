@@ -692,7 +692,7 @@ mod tests {
             .expect("Failed to create readdir handle");
 
         superblock
-            .finish_writing(lookup.ino(), None)
+            .finish_writing(lookup.ino(), None, write_file_handle)
             .await
             .expect("Finish writing failed");
 

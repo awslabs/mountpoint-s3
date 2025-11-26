@@ -515,7 +515,7 @@ where
                 *flushed = false;
             }
 
-            request.write(self, &handle, offset, data).await?
+            request.write(self, &handle, offset, data, fh).await?
         };
         Ok(len)
     }
@@ -604,7 +604,7 @@ where
             }
             FileHandleState::Write { state, flushed } => (state, flushed),
         };
-        write_state.commit(self, file_handle.clone()).await.map_err(|e|
+        write_state.commit(self, file_handle.clone(), fh).await.map_err(|e|
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
             // space-related failure.
             if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
@@ -681,7 +681,7 @@ where
             FileHandleState::Write { .. } => {}
         };
 
-        let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone());
+        let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone(), fh);
         self.metablock.release_writer(ino, fh, completion_hook, &file_handle.location).await?;
 
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
