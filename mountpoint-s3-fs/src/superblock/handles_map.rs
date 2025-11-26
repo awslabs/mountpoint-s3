@@ -133,14 +133,20 @@ impl InodeHandleMap {
     }
 
     /// Remove the current writer.
-    pub fn remove_writer(&self, locked_inode: &InodeLockedForWriting<'_>) {
+    pub fn try_remove_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
         let mut handles = self.handles.write().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
-            entry.get_mut().writer = None;
-            if entry.get().is_empty() {
-                entry.remove();
+            if let Some((writer, _)) = &entry.get().writer {
+                if fh == *writer {
+                    entry.get_mut().writer = None;
+                    if entry.get().is_empty() {
+                        entry.remove();
+                    }
+                    return true;
+                }
             }
         }
+        false
     }
 
     pub fn remove_inode(&self, ino: u64) -> bool {

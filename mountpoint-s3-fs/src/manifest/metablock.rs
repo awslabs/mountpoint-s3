@@ -225,7 +225,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>) -> Result<Lookup, InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
             key: "".into(),
