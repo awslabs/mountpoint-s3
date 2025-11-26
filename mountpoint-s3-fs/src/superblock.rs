@@ -326,11 +326,14 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 
     async fn start_reading(&self, looked_up_inode: LookedUpInode, fh: u64) -> Result<Lookup, InodeError> {
         let completion_hook = {
-            let locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
+            let mut locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
             if matches!(locked_inode.write_status, WriteStatus::LocalUnopened)
                 || !self.inner.inode_handles.try_add_reader(&locked_inode, fh)
             {
                 return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
+            }
+            if matches!(locked_inode.write_status, WriteStatus::LocalOpenForWriting) {
+                locked_inode.write_status = WriteStatus::Remote;
             }
             locked_inode.completion_hook.clone()
         };
@@ -864,7 +867,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     }
 
     /// Updates status of the inode and of containing "local" directories.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<Lookup, InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError> {
         let inode = self.inner.get(ino)?;
         // Collect ancestor inodes that may need updating,
         // from parent to first remote ancestor.
@@ -895,8 +898,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let mut locked_inode = inode.get_mut_inode_state()?;
         match locked_inode.write_status {
             WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
-                self.inner.inode_handles.remove_writer(&locked_inode);
-                locked_inode.write_status = WriteStatus::Remote;
+                if self.inner.inode_handles.try_remove_writer(&locked_inode, fh) {
+                    locked_inode.write_status = WriteStatus::Remote;
+                }
                 locked_inode.completion_hook = None;
 
                 if let Some(etag) = etag {
@@ -2839,7 +2843,7 @@ mod tests {
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        superblock.finish_writing(new_inode.ino(), None).await.unwrap();
+        superblock.finish_writing(new_inode.ino(), None, 0).await.unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -3016,7 +3020,7 @@ mod tests {
 
         // Invoke [finish_writing] to make the file remote
         superblock
-            .finish_writing(new_inode.ino(), Some(ETag::for_tests()))
+            .finish_writing(new_inode.ino(), Some(ETag::for_tests()), 0)
             .await
             .unwrap();
 

@@ -72,7 +72,7 @@ pub trait Metablock: Send + Sync {
 
     /// Called when the filesystem has finished writing to the inode refernced by `ino`.
     /// Allows the implementor to make necessary adjustments / update its internal structure.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<Lookup, InodeError>;
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError>;
 
     /// Finish reading from the inode (referenced by `ino`)
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;

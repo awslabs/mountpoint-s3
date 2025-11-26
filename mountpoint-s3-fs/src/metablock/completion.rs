@@ -28,7 +28,7 @@ impl std::fmt::Debug for CompletionHookState {
 }
 
 impl CompletionHook {
-    pub(crate) fn new<Client>(metablock: Arc<dyn Metablock>, handle: Arc<FileHandle<Client>>) -> Self
+    pub(crate) fn new<Client>(metablock: Arc<dyn Metablock>, handle: Arc<FileHandle<Client>>, fh: u64) -> Self
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
@@ -41,7 +41,7 @@ impl CompletionHook {
                 let FileHandleState::Write { state, .. } = &mut *fh_state else {
                     return Ok(None); // Nothing to do for read handles.
                 };
-                state.complete_if_in_progress(metablock, ino, &location).await
+                state.complete_if_in_progress(metablock, ino, &location, fh).await
             }),
             result: None,
         }));
