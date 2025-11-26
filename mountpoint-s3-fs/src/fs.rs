@@ -587,7 +587,7 @@ where
         Ok(())
     }
 
-    pub async fn fsync(&self, ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
+    pub async fn fsync(&self, _ino: InodeNo, fh: u64, _datasync: bool) -> Result<(), Error> {
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -597,12 +597,11 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let (write_state, ..) = match &mut *state {
-            FileHandleState::Read { flushed, .. } => {
-                *flushed = self.metablock.flush_reader(ino, fh).await?;
+        let write_state = match &mut *state {
+            FileHandleState::Read { .. } => {
                 return Ok(());
             }
-            FileHandleState::Write { state, flushed } => (state, flushed),
+            FileHandleState::Write { state, .. } => state,
         };
         write_state.commit(self, file_handle.clone(), fh).await.map_err(|e|
             // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
@@ -638,7 +637,8 @@ where
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { flushed, .. } => {
-                *flushed = self.metablock.flush_reader(ino, fh).await?;
+                self.metablock.flush_reader(ino, fh).await?;
+                *flushed = true;
             }
             FileHandleState::Write { state, flushed } => {
                 state
