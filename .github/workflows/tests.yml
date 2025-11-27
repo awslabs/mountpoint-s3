@@ -40,6 +40,10 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -51,9 +55,40 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-fuse${{ matrix.fuseVersion }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build tests
-      run: cargo test --features $RUST_FEATURES --no-run
+      run: cargo nextest run --profile ci --features $RUST_FEATURES --no-run
     - name: Run tests
-      run: cargo test --features $RUST_FEATURES
+      run: cargo nextest run --profile ci --features $RUST_FEATURES
+
+  doc-tests:
+    name: Doc-Tests
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        submodules: true
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        rustflags: ""
+    - name: Cargo cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Run doc-tests
+      # Skip `mountpoint-s3-fuser` and `mountpoint-s3-crt-sys` (prevents C docs being interpreted as rustdoc tests).
+      run: cargo test --doc --workspace --exclude mountpoint-s3-crt-sys --exclude mountpoint-s3-fuser --features $RUST_FEATURES
 
   macos-test:
     name: Tests (MacOS)
@@ -79,6 +114,10 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Cargo cache
       uses: actions/cache@v3
       with:
@@ -90,10 +129,10 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build tests
-      run: cargo test --no-run
+      run: cargo nextest run --profile ci --no-run
     - name: Run tests
       # Skip `mountpoint-s3-fuser` tests on macOS.
-      run: cargo test --workspace --exclude mountpoint-s3-fuser
+      run: cargo nextest run --profile ci --workspace --exclude mountpoint-s3-fuser
 
   check:
     name: Check all targets
@@ -174,6 +213,10 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -189,7 +232,7 @@ jobs:
           target/
         key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Run Shuttle tests
-      run: cargo test -p mountpoint-s3-fs --features shuttle -- shuttle
+      run: cargo nextest run --profile ci -p mountpoint-s3-fs --features shuttle -- shuttle
 
   rustfmt:
     name: Formatting
@@ -343,6 +386,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test
+      - doc-tests
       - macos-test
       - check
       - bench
