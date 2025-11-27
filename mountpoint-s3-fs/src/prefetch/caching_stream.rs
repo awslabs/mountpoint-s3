@@ -152,6 +152,9 @@ where
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
                     let part = try_make_part(&block, block_offset, cache_key, &range).unwrap();
+
+                    metrics::counter!("prefetch.cache_hit").increment(part.len() as u64);
+
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
 
@@ -175,8 +178,6 @@ where
                 ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
-            metrics::counter!("prefetch.blocks_served_from_cache").increment(block_index - block_range.start);
-            metrics::counter!("prefetch.blocks_requested_to_client").increment(block_range.end - block_index);
             return self
                 .get_from_client(
                     range.trim_start(block_offset),
@@ -185,8 +186,6 @@ where
                 )
                 .await;
         }
-        // We served the whole range from cache.
-        metrics::counter!("prefetch.blocks_served_from_cache").increment(block_range.end - block_range.start);
     }
 
     async fn get_from_client(
@@ -364,6 +363,7 @@ where
         self.runtime
             .spawn(async move {
                 let start = Instant::now();
+                let block_size = block.len() as u64;
                 if let Err(error) = cache
                     .put_block(object_id.clone(), block_index, block_offset, block, range.object_size())
                     .await
