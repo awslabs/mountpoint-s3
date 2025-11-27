@@ -9,6 +9,8 @@ use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::thread::sleep;
 use std::time::Duration;
+use tempfile;
+
 
 fn setup_recorder() -> TestRecorder {
     let recorder = TestRecorder::default();
@@ -212,5 +214,50 @@ rusty_fork_test! {
             final_reset_state > initial_reset_state,
             "Random access should increment reset_state metric"
         );
+    }
+
+    #[test]
+    fn test_cache_metrics() {
+        let recorder = setup_recorder();
+
+        let config = TestSessionConfig::default();
+        
+        let test_session = mock_session::new_with_cache(|block_size, pool| {
+            use mountpoint_s3_fs::data_cache::{DiskDataCache, DiskDataCacheConfig};
+            let cache_dir = tempfile::tempdir().unwrap();
+            let cache_config = DiskDataCacheConfig {
+                cache_directory: cache_dir.path().to_path_buf(),
+                block_size,
+                limit: Default::default(),
+            };
+            DiskDataCache::new(cache_config, pool)
+        })("test_cache_metrics", config);
+
+        let content = vec![b'x'; 2 * 1024 * 1024];
+        test_session.client().put_object("cached_file.txt", &content).unwrap();
+
+        let path = test_session.mount_path().join("cached_file.txt");
+
+        // First read to populate cache
+        let mut file = File::open(&path).unwrap();
+        let mut read_buf = vec![0; content.len()];
+        let bytes_read = file.read(&mut read_buf).unwrap();
+        assert_eq!(bytes_read, content.len());
+        drop(file);
+
+        // Verify cache_update metrics after first read (should be ~2MB for 2 blocks)
+        let cache_update = get_metric!(&recorder, "prefetch.cache_update", &[] as &[(&str, &str)]);
+        assert_eq!(cache_update.counter(), content.len() as u64, "cache_update should equal file size");
+
+        // Second read should hit cache
+        let mut file = File::open(&path).unwrap();
+        let mut read_buf = vec![0; content.len()];
+        let bytes_read = file.read(&mut read_buf).unwrap();
+        assert_eq!(bytes_read, content.len());
+        drop(file);
+
+        // Verify cache hit metrics
+        let cache_hit = get_metric!(&recorder, "prefetch.cache_hit", &[] as &[(&str, &str)]);
+        assert_eq!(cache_hit.counter(), content.len() as u64, "cache_hit should equal file size");
     }
 }
