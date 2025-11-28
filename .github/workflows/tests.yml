@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "wf-changes/**" ]
   pull_request:
   merge_group:
     types: [ "checks_requested" ]
