@@ -188,50 +188,47 @@ def main() -> None:
 
     # Aggregated results table
     aggregated_headers = varying_params + [
+        "Metric_Type",
         "Count",
-        "Median (Gbps)",
+        "Value (Gbps)",
         "Std Dev (Gbps)",
         "Min (Gbps)",
         "Max (Gbps)",
     ]
     aggregated_rows = []
     for config_key, throughputs in grouped_results.items():
+        # Add aggregate statistics
         row = []
         for _, value in config_key:
             row.append(value)
+        row.append("aggregate")
         row.append(len(throughputs))
         row.append(f"{statistics.median(throughputs):.2f}")
-        if len(throughputs) > 1:
-            row.append(f"{statistics.stdev(throughputs):.2f}")
-        else:
-            row.append("N/A")
+        row.append(f"{statistics.stdev(throughputs):.2f}" if len(throughputs) > 1 else "N/A")
         row.append(f"{min(throughputs):.2f}")
         row.append(f"{max(throughputs):.2f}")
         aggregated_rows.append(row)
 
-    # Custom sorting function for benchmark types
-    def benchmark_type_sort_key(value: str) -> int:
-        benchmark_order = {'crt': 0, 'client': 1, 'client-bp': 2, 'prefetch': 3, 'fio': 4}
-        return benchmark_order.get(value, 999)  # Unknown types go to end
-
-    # Sort rows by all columns
-    def sort_key(row: List[str]) -> List[Union[int, float, str]]:
-        key_parts = []
-        for value, header in zip(row, aggregated_headers):
-            if header == 'benchmark_type':
-                # Use custom ordering for benchmark type
-                key_parts.append(benchmark_type_sort_key(value))
-            else:
-                # For other columns, sort alphabetically/numerically
+        # Add percentiles
+        if len(throughputs) > 0:
+            percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+            for p in percentiles:
+                percentile_row = []
+                for _, value in config_key:
+                    percentile_row.append(value)
+                
                 try:
-                    # Try to convert to float for numeric sorting
-                    key_parts.append(float(value))
-                except (ValueError, TypeError):
-                    # If not numeric, sort as string
-                    key_parts.append(str(value))
-        return key_parts
-
-    aggregated_rows.sort(key=sort_key)
+                    percentile_value = statistics.quantiles(throughputs, n=100)[p-1] if p < 100 else max(throughputs)
+                except (IndexError, ValueError):
+                    percentile_value = statistics.median(throughputs)
+                
+                percentile_row.append(f"p{p}")
+                percentile_row.append(len(throughputs))
+                percentile_row.append(f"{percentile_value:.2f}")
+                percentile_row.append("N/A")
+                percentile_row.append(f"{percentile_value:.2f}")
+                percentile_row.append(f"{percentile_value:.2f}")
+                aggregated_rows.append(percentile_row)
 
     print("\nResults Summary:")
     print(tabulate(aggregated_rows, headers=aggregated_headers, tablefmt="grid"))
