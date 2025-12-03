@@ -204,7 +204,10 @@ def main() -> None:
         row.append("aggregate")
         row.append(len(throughputs))
         row.append(f"{statistics.median(throughputs):.2f}")
-        row.append(f"{statistics.stdev(throughputs):.2f}" if len(throughputs) > 1 else "N/A")
+        if len(throughputs) > 1:
+            row.append(f"{statistics.stdev(throughputs):.2f}")
+        else:
+            row.append("N/A")
         row.append(f"{min(throughputs):.2f}")
         row.append(f"{max(throughputs):.2f}")
         aggregated_rows.append(row)
@@ -216,12 +219,12 @@ def main() -> None:
                 percentile_row = []
                 for _, value in config_key:
                     percentile_row.append(value)
-                
+
                 try:
-                    percentile_value = statistics.quantiles(throughputs, n=100)[p-1] if p < 100 else max(throughputs)
+                    percentile_value = statistics.quantiles(throughputs, n=100)[p - 1] if p < 100 else max(throughputs)
                 except (IndexError, ValueError):
                     percentile_value = statistics.median(throughputs)
-                
+
                 percentile_row.append(f"p{p}")
                 percentile_row.append(len(throughputs))
                 percentile_row.append(f"{percentile_value:.2f}")
@@ -229,6 +232,28 @@ def main() -> None:
                 percentile_row.append(f"{percentile_value:.2f}")
                 percentile_row.append(f"{percentile_value:.2f}")
                 aggregated_rows.append(percentile_row)
+
+    # Custom sorting function for benchmark types
+    def benchmark_type_sort_key(value: str) -> int:
+        benchmark_order = {'crt': 0, 'client': 1, 'client-bp': 2, 'prefetch': 3, 'fio': 4}
+        return benchmark_order.get(value, 999)
+
+    # Sort rows by all columns
+    def sort_key(row: List[str]) -> List[Union[int, float, str]]:
+        key_parts = []
+        for value, header in zip(row, aggregated_headers):
+            if header == 'benchmark_type':
+                key_parts.append(benchmark_type_sort_key(value))
+            else:
+                try:
+                    # Try to convert to float for numeric sorting
+                    key_parts.append(float(value))
+                except (ValueError, TypeError):
+                    # If not numeric, sort as string
+                    key_parts.append(str(value))
+        return key_parts
+
+    aggregated_rows.sort(key=sort_key)
 
     print("\nResults Summary:")
     print(tabulate(aggregated_rows, headers=aggregated_headers, tablefmt="grid"))
