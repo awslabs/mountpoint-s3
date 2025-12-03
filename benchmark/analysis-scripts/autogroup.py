@@ -156,6 +156,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Print benchmark throughput data automatically grouped')
     parser.add_argument('--base-dir', required=True, help='Base directory containing benchmark results')
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
+    parser.add_argument(
+        '--json-output', help='Optional JSON file to write raw values per iteration for CloudWatch metrics'
+    )
+
     args = parser.parse_args()
 
     # List to store all results
@@ -243,6 +247,23 @@ def main() -> None:
             writer.writerow(aggregated_headers)
             writer.writerows(aggregated_rows)
         print(f"\nResults written to CSV: {args.csv_output}")
+
+    # Write raw values JSON if requested
+    if args.json_output:
+        raw_data = []
+        for config, throughput, iter_num in all_results:
+            raw_entry = {
+                "iteration": iter_num,
+                "throughput_gbps": float(f"{throughput:.6f}"),
+            }
+            # Add each parameter as a separate key
+            for param in sorted(varying_params):
+                raw_entry[param] = str(config.get(param, 'N/A'))
+            raw_data.append(raw_entry)
+
+        with open(args.json_output, 'w') as jsonfile:
+            json.dump(raw_data, jsonfile, indent=2)
+        print(f"Raw values written to JSON: {args.json_output}")
 
 
 if __name__ == "__main__":
