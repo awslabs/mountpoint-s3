@@ -197,7 +197,6 @@ def main() -> None:
     ]
     aggregated_rows = []
     for config_key, throughputs in grouped_results.items():
-        # Add aggregate statistics
         row = []
         for _, value in config_key:
             row.append(value)
@@ -236,15 +235,17 @@ def main() -> None:
     # Custom sorting function for benchmark types
     def benchmark_type_sort_key(value: str) -> int:
         benchmark_order = {'crt': 0, 'client': 1, 'client-bp': 2, 'prefetch': 3, 'fio': 4}
-        return benchmark_order.get(value, 999)
+        return benchmark_order.get(value, 999) # Unknown types go to end
 
     # Sort rows by all columns
     def sort_key(row: List[str]) -> List[Union[int, float, str]]:
         key_parts = []
         for value, header in zip(row, aggregated_headers):
             if header == 'benchmark_type':
+                # Use custom ordering for benchmark type
                 key_parts.append(benchmark_type_sort_key(value))
             else:
+                # For other columns, sort alphabetically/numerically
                 try:
                     # Try to convert to float for numeric sorting
                     key_parts.append(float(value))
