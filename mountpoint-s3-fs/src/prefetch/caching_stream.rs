@@ -151,9 +151,7 @@ where
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
-                    let part = try_make_part(&block, block_offset, cache_key, &range).unwrap();
-
-                    metrics::counter!("prefetch.cache_hit").increment(part.len() as u64);
+                    let part = try_make_part(&block, block_offset, cache_key, &range, true).unwrap();
 
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
@@ -317,7 +315,7 @@ where
                 //
                 // A side effect from this is the delay on cache updating which makes testing a bit more complicated because
                 // the cache is not updated synchronously.
-                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range) {
+                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range, false) {
                     self.part_queue_producer.push(Ok(part));
                 }
                 offset += chunk.len() as u64;
@@ -363,7 +361,6 @@ where
         self.runtime
             .spawn(async move {
                 let start = Instant::now();
-                let block_size = block.len() as u64;
                 if let Err(error) = cache
                     .put_block(object_id.clone(), block_index, block_offset, block, range.object_size())
                     .await
@@ -378,7 +375,13 @@ where
 
 /// Creates a Part that can be streamed to the prefetcher if the given bytes
 /// are in the request range, otherwise return None.
-fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, range: &RequestRange) -> Option<Part> {
+fn try_make_part(
+    bytes: &ChecksummedBytes,
+    offset: u64,
+    object_id: &ObjectId,
+    range: &RequestRange,
+    from_cache: bool,
+) -> Option<Part> {
     let part_range = range.trim_start(offset).trim_end(offset + bytes.len() as u64);
     if part_range.is_empty() {
         return None;
@@ -390,6 +393,7 @@ fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, ra
         object_id.clone(),
         part_range.start(),
         bytes.slice(trim_start..trim_end),
+        from_cache,
     ))
 }
 

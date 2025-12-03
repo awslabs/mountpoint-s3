@@ -10,14 +10,16 @@ pub struct Part {
     id: ObjectId,
     offset: u64,
     checksummed_bytes: ChecksummedBytes,
+    from_cache: bool,
 }
 
 impl Part {
-    pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes) -> Self {
+    pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes, from_cache: bool) -> Self {
         Self {
             id,
             offset,
             checksummed_bytes,
+            from_cache,
         }
     }
 
@@ -41,6 +43,7 @@ impl Part {
             id: self.id.clone(),
             offset: self.offset + at as u64,
             checksummed_bytes: new_bytes,
+            from_cache: self.from_cache,
         }
     }
 
@@ -54,6 +57,10 @@ impl Part {
 
     pub(super) fn is_empty(&self) -> bool {
         self.checksummed_bytes.is_empty()
+    }
+
+    pub(super) fn is_from_cache(&self) -> bool {
+        self.from_cache
     }
 
     fn check(&self, id: &ObjectId, offset: u64) -> Result<(), PartOperationError> {
@@ -104,7 +111,7 @@ mod tests {
             .take(first_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes);
+        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, false);
 
         let second_part_len = 512;
         let second_offset = first_offset + first_part_len as u64;
@@ -114,7 +121,7 @@ mod tests {
             .take(second_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes);
+        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, false);
 
         first.extend(&second).expect("should be able to extend");
         assert_eq!(first_part_len + second_part_len, first.len());
@@ -132,7 +139,7 @@ mod tests {
             .take(first_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes);
+        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, false);
 
         let second_object_id = ObjectId::new("other".to_owned(), ETag::for_tests());
         let second_part_len = 512;
@@ -143,7 +150,7 @@ mod tests {
             .take(second_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(second_object_id.clone(), second_offset, checksummed_bytes);
+        let second = Part::new(second_object_id.clone(), second_offset, checksummed_bytes, false);
 
         let result = first.extend(&second);
         assert!(matches!(
@@ -166,7 +173,7 @@ mod tests {
             .take(first_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes);
+        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, false);
 
         let second_part_len = 512;
         let second_offset = first_offset;
@@ -176,7 +183,7 @@ mod tests {
             .take(second_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes);
+        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, false);
 
         let result = first.extend(&second);
         assert!(matches!(
