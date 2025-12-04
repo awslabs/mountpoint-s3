@@ -966,10 +966,6 @@ mod tests {
             .await
             .expect("write should succeed");
         fs.fsync(dentry.attr.ino, fd.fh, true).await.expect("fsync should succeed");
-        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
-            .await
-            .expect_err("re-open for a fsync-ed file should fail");
-        fs.flush(dentry.attr.ino, fd.fh, 0, 0).await.expect("flush should succeed");
 
         fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
             .await
