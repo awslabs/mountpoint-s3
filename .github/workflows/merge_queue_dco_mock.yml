@@ -6,6 +6,8 @@ name: DCO
 "on":
   merge_group:
 
+permissions: {}
+
 jobs:
   DCO:
     runs-on: ubuntu-latest

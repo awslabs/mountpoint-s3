@@ -1242,6 +1242,78 @@ impl RequestMetrics {
         Some(out)
     }
 
+    /// Get the time when the request started being signed
+    pub fn sign_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_sign_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    ///Get the time when the request finished being signed
+    pub fn sign_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_sign_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request started to acquire memory
+    pub fn mem_acquire_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_mem_acquire_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request finished acquiring memory
+    pub fn mem_acquire_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_mem_acquire_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request started to be delivered (i.e. on body callback is invoked)
+    pub fn delivery_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_delivery_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the response finished being delivered
+    pub fn delivery_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_delivery_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
     /// Return the response status code for this request, or None if unavailable (e.g. the
     /// request failed before sending).
     pub fn status_code(&self) -> Option<i32> {
@@ -1426,6 +1498,12 @@ impl Debug for RequestMetrics {
             .field("send_end_timestamp_ns", &self.send_end_timestamp_ns())
             .field("receive_start_timestamp_ns", &self.receive_start_timestamp_ns())
             .field("receive_end_timestamp_ns", &self.receive_end_timestamp_ns())
+            .field("sign_start_timestamp_ns", &self.sign_start_timestamp_ns())
+            .field("sign_end_timestamp_ns", &self.sign_end_timestamp_ns())
+            .field("mem_acquire_start_timestamp_ns", &self.mem_acquire_start_timestamp_ns())
+            .field("mem_acquire_end_timestamp_ns", &self.mem_acquire_end_timestamp_ns())
+            .field("delivery_start_timestamp_ns", &self.delivery_start_timestamp_ns())
+            .field("delivery_end_timestamp_ns", &self.delivery_end_timestamp_ns())
             .field("response_status_code", &self.status_code())
             .field("response_headers", &self.response_headers())
             .field("request_path_query", &self.request_path_query())

@@ -41,11 +41,10 @@ use tracing::{debug, error, trace, warn};
 
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
 use crate::logging;
-use crate::metablock::Metablock;
-use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat, WriteMode};
-use crate::metablock::{InodeInformation, Lookup};
-use crate::metablock::{S3Location, TryAddDirEntry};
-use crate::metablock::{ValidKey, ValidName};
+use crate::metablock::{
+    AddDirEntry, AddDirEntryResult, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock,
+    S3Location, ValidKey, ValidName, WriteMode,
+};
 use crate::s3::{S3Path, S3Personality};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
@@ -273,11 +272,13 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             let sync = inode.get_inode_state()?;
             if sync.stat.is_valid() {
                 let stat = sync.stat.clone();
+                let is_remote = sync.is_remote();
                 drop(sync);
                 return Ok(LookedUpInode {
                     inode,
                     stat,
                     path: self.inner.s3_path.clone(),
+                    is_remote,
                 });
             }
         }
@@ -704,11 +705,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         let stat = sync.stat.clone();
+        let is_remote = sync.is_remote();
         drop(sync);
         Ok(LookedUpInode {
             inode,
             stat,
             path: self.inner.s3_path.clone(),
+            is_remote,
         }
         .into())
     }
@@ -850,7 +853,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         fh: u64,
         offset: i64,
         is_readdirplus: bool,
-        mut try_add: TryAddDirEntry<'a>,
+        mut add: AddDirEntry<'a>,
     ) -> Result<(), InodeError> {
         let dir_handle = {
             let dir_handles = self.inner.dir_handles.read().unwrap();
@@ -893,12 +896,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 if (last_offset..last_offset + entries.len()).contains(&offset) {
                     trace!(offset, "repeating readdir response");
                     for entry in entries[offset - last_offset..].iter() {
-                        if try_add(
+                        if add(
                             entry.lookup.clone().into(),
                             entry.name.clone(),
                             entry.offset,
                             entry.generation,
-                        ) {
+                        ) == AddDirEntryResult::ReplyBufferFull
+                        {
                             break;
                         }
                         // We are returning this result a second time, so the contract is that we
@@ -921,7 +925,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         /// Wrap a replier to duplicate the entries and store them in `dir_handle.last_response` so
         /// we can re-use them if the directory handle rewinds
         struct Reply<'a> {
-            try_add: TryAddDirEntry<'a>,
+            add: AddDirEntry<'a>,
             entries: Vec<DirectoryEntryReaddir>,
         }
 
@@ -929,24 +933,21 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             async fn finish(self, offset: i64, dir_handle: &DirHandle) {
                 *dir_handle.last_response.lock().await = Some((offset, self.entries));
             }
-            fn add(&mut self, entry: DirectoryEntryReaddir) -> bool {
-                let result = (self.try_add)(
+            fn add(&mut self, entry: DirectoryEntryReaddir) -> AddDirEntryResult {
+                let result = (self.add)(
                     entry.lookup.clone().into(),
                     entry.name.clone(),
                     entry.offset,
                     entry.generation,
                 );
-                if !result {
+                if result == AddDirEntryResult::EntryAdded {
                     self.entries.push(entry);
                 }
                 result
             }
         }
 
-        let mut reply = Reply {
-            try_add,
-            entries: vec![],
-        };
+        let mut reply = Reply { add, entries: vec![] };
 
         if dir_handle.offset() < 1 {
             let lookup = self.getattr_with_inode(parent, false).await?;
@@ -956,7 +957,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 generation: 0,
                 lookup,
             };
-            if reply.add(entry) {
+            if reply.add(entry) == AddDirEntryResult::ReplyBufferFull {
                 reply.finish(offset, &dir_handle).await;
                 return Ok(());
             }
@@ -970,7 +971,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 generation: 0,
                 lookup,
             };
-            if reply.add(entry) {
+            if reply.add(entry) == AddDirEntryResult::ReplyBufferFull {
                 reply.finish(offset, &dir_handle).await;
                 return Ok(());
             }
@@ -993,7 +994,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 lookup: next.clone(),
             };
 
-            if reply.add(entry) {
+            if reply.add(entry) == AddDirEntryResult::ReplyBufferFull {
                 readdir_handle.readd(next);
                 reply.finish(offset, &dir_handle).await;
                 return Ok(());
@@ -1067,6 +1068,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 inode,
                 stat,
                 path: self.inner.s3_path.clone(),
+                is_remote: false,
             }
         };
 
@@ -1201,12 +1203,13 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                 InodeKindData::File { .. } => unreachable!("parent should be a directory!"),
                 InodeKindData::Directory { children, .. } => {
                     if let Some(inode) = children.get(name) {
-                        let inode_stat = &inode.get_inode_state().ok()?.stat;
-                        if inode_stat.is_valid() {
+                        let locked = inode.get_inode_state().ok()?;
+                        if locked.stat.is_valid() {
                             let lookup = LookedUpInode {
                                 inode: inode.clone(),
-                                stat: inode_stat.clone(),
+                                stat: locked.stat.clone(),
                                 path: superblock.s3_path.clone(),
+                                is_remote: locked.is_remote(),
                             };
                             return Some(Ok(lookup));
                         }
@@ -1426,6 +1429,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode.clone(),
                         stat: remote.stat.clone(),
                         path: s3_path.clone(),
+                        is_remote: true,
                     }))
                 } else {
                     Ok(None)
@@ -1475,6 +1479,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode,
                         stat,
                         path: self.s3_path.clone(),
+                        is_remote: false,
                     })
                 } else {
                     // This existing inode is local-only (because `remote` is None), but is not
@@ -1491,6 +1496,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode,
                         stat: remote.stat,
                         path: self.s3_path.clone(),
+                        is_remote: true,
                     })
             }
             (Some(remote), Some(existing_inode)) => {
@@ -1508,6 +1514,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode.clone(),
                         stat: existing_state.stat.clone(),
                         path: self.s3_path.clone(),
+                        is_remote: false,
                     });
                 }
 
@@ -1531,6 +1538,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         inode: existing_inode.clone(),
                         stat: remote.stat,
                         path: self.s3_path.clone(),
+                        is_remote: true,
                     });
                 }
 
@@ -1559,6 +1567,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                     inode: new_inode,
                     stat: remote.stat,
                     path: self.s3_path.clone(),
+                    is_remote: true,
                 })
             }
         }
@@ -1616,14 +1625,15 @@ pub struct RemoteLookup {
     stat: InodeStat,
 }
 
-/// Result of a call to [Superblock::lookup] or [Superblock::getattr]. `stat` is a copy of the
-/// inode's `stat` field that has already had its expiry checked and so is guaranteed to be valid
-/// until `stat.expiry`.
+/// Result of an internal "lookup" for an [Inode], containing a "snapshot" of its internal state.
+/// `stat` is a copy of the inode's `stat` field that has already had its expiry checked and
+/// so is guaranteed to be valid until `stat.expiry`.
 #[derive(Debug, Clone)]
 pub struct LookedUpInode {
     pub inode: Inode,
     pub stat: InodeStat,
     pub path: Arc<S3Path>,
+    pub is_remote: bool,
 }
 
 impl LookedUpInode {
@@ -1635,12 +1645,7 @@ impl LookedUpInode {
 
 impl From<LookedUpInode> for InodeInformation {
     fn from(val: LookedUpInode) -> Self {
-        InodeInformation::new(
-            val.inode.ino(),
-            val.stat,
-            val.inode.kind(),
-            val.inode.is_remote().unwrap_or_default(),
-        )
+        InodeInformation::new(val.inode.ino(), val.stat, val.inode.kind(), val.is_remote)
     }
 }
 
@@ -1797,6 +1802,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
 
     use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
+    use crate::metablock::AddDirEntryResult;
     use crate::s3::{Bucket, Prefix};
 
     use super::*;
@@ -2196,7 +2202,7 @@ mod tests {
                     if name != OsStr::new(".") && name != OsStr::new("..") {
                         entries.push((entry, name.to_owned()));
                     }
-                    false // Continue collecting entries
+                    AddDirEntryResult::EntryAdded // Continue collecting entries
                 }),
             )
             .await
@@ -2382,7 +2388,7 @@ mod tests {
                 0,
                 true,
                 Box::new(|_entry, _name, _offset, _generation| {
-                    false // Continue collecting entries
+                    AddDirEntryResult::EntryAdded // Continue collecting entries
                 }),
             )
             .await
