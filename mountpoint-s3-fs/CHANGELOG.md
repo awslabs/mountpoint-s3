@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.8.4)
+
+* Add metric to track cache hit rate and remove redundant cache merics in logs.
 
 ## v0.8.3 (October 30, 2025)
 
