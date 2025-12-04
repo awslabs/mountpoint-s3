@@ -1,5 +1,5 @@
 use std::pin::Pin;
-
+use tracing::debug;
 use mountpoint_s3_client::ObjectClient;
 
 use crate::fs::{FileHandle, FileHandleState};
@@ -50,14 +50,32 @@ impl CompletionHook {
     }
 
     pub async fn trigger(&self) -> CompletionResult {
+        //debug!("completion hook: trigger");
         let mut state = self.state.lock().await;
         if let Some(result) = &state.result {
             return result.clone();
         }
-
+        //debug!("completion hook: starts");
         let future = std::mem::replace(&mut state.future, Box::pin(std::future::ready(Ok(None))));
         let result = future.await;
         state.result = Some(result.clone());
+        //debug!("completion hook: done");
         result
+
+        /*let future = {
+              let mut state = self.state.lock().await;
+              if let Some(result) = &state.result {
+                  return result.clone();
+              }
+              std::mem::replace(&mut state.future, Box::pin(std::future::ready(Ok(None))))
+          };
+
+          let result = future.await;
+
+          let mut state = self.state.lock().await;
+          state.result = Some(result.clone());
+          state.future = Box::pin(std::future::ready(result.clone()));
+          result
+      }*/
     }
 }
