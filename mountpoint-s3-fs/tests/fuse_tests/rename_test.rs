@@ -1219,7 +1219,7 @@ fn rename_same_ino_s3(prefix: &str) {
 }
 
 /// Tests that a file can be appended after and before a rename, and that the content is as expected.
-fn rename_append_test<F>(creator_fn: F, prefix: &str)
+fn rename_append_test<F>(creator_fn: F, prefix: &str, test_name: &str)
 where
     F: FnOnce(&str, TestSessionConfig) -> TestSession,
 {
@@ -1238,49 +1238,49 @@ where
     // Create file a.txt
     {
         let data = "Some data!";
-        let mut f = File::create(mount_point.join("a.txt")).expect("Unable to create file");
+        let mut f = File::create(mount_point.join(&format!("{test_name}1.txt"))).expect("Unable to create file");
         f.write_all(data.as_bytes()).expect("Unable to write data");
         drop(f);
     }
     // Append to it
     {
         let data = "append";
-        let mut file = OpenOptions::new().append(true).open(mount_point.join("a.txt")).unwrap();
+        let mut file = OpenOptions::new().append(true).open(mount_point.join(&format!("{test_name}1.txt"))).unwrap();
         file.write_all(data.as_bytes()).expect("Unable to write data");
         file.sync_all().unwrap();
         drop(file);
     }
     // Rename it
     {
-        fs::rename(mount_point.join("a.txt"), mount_point.join("dir/b.txt")).expect("rename successfull");
+        fs::rename(mount_point.join(&format!("{test_name}1.txt")), mount_point.join(&format!("dir/{test_name}2.txt"))).expect("rename successful");
     }
     // Append to it again
     {
         let data = "append";
         let mut file = OpenOptions::new()
             .append(true)
-            .open(mount_point.join("dir/b.txt"))
+            .open(mount_point.join(&format!("dir/{test_name}2.txt")))
             .unwrap();
         file.write_all(data.as_bytes()).expect("Unable to write data");
         file.sync_all().unwrap();
         drop(file);
     }
-    fs::rename(mount_point.join("dir/b.txt"), mount_point.join("dir/c.txt")).expect("rename successfull");
+    fs::rename(mount_point.join(&format!("dir/{test_name}2.txt")), mount_point.join(&format!("dir/{test_name}3.txt"))).expect("rename successful");
     // Verify the contents
     // Wait for a few seconds
-    let contents = fs::read_to_string(mount_point.join("dir/c.txt")).expect("read should succeed");
+    let contents = fs::read_to_string(mount_point.join(&format!("dir/{test_name}3.txt"))).expect("read should succeed");
     assert_eq!(contents, "Some data!appendappend");
 }
 
 #[test_case(""; "no prefix")]
 fn rename_append_mock(prefix: &str) {
-    rename_append_test(fuse::mock_session::new, prefix);
+    rename_append_test(fuse::mock_session::new, prefix, "rename_append_mock");
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test_case(""; "no prefix")]
 fn rename_append_s3(prefix: &str) {
-    rename_append_test(fuse::s3_session::new, prefix);
+    rename_append_test(fuse::s3_session::new, prefix, "rename_append_s3");
 }
 
 fn rename_out_of_topdir_regression<F>(creator_fn: F, prefix: &str)

@@ -356,6 +356,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     ) -> Result<Lookup, InodeError> {
         let completion_hook = {
             let mut state = looked_up_inode.inode.get_mut_inode_state()?;
+            //debug!("Open: got inode state lock for writing");
             match state.write_status {
                 WriteStatus::LocalUnopened => {
                     state.write_status = WriteStatus::LocalOpenForWriting;
@@ -371,6 +372,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                                 InodeError::InodeNotWritableWhileReading(looked_up_inode.inode.err())
                             }
                         })?;
+                    //debug!("Open: set writer and status");
                     None
                 }
                 WriteStatus::PendingRename => {
@@ -392,6 +394,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                             }
                         })?;
                     state.write_status = WriteStatus::LocalOpenForWriting;
+                    //debug!("Open: replaced writer and status");
                     if is_truncate {
                         state.stat.size = 0;
                     }
@@ -400,11 +403,14 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             }
         };
 
+        //debug!("Open before hook, fh: {}", handle_id);
         if let Some(hook) = completion_hook
             && let Some(lookup) = hook.trigger().await?
         {
+            //debug!("Open inside hook , fh: {}", handle_id);
             Ok(lookup)
         } else {
+            //debug!("Open without hook, fh: {}", handle_id);
             Ok(looked_up_inode.into())
         }
     }
@@ -811,7 +817,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         flags: OpenFlags,
     ) -> Result<NewHandle, InodeError> {
         let force_revalidate = !self.inner.config.cache_config.serve_lookup_from_cache || flags.direct_io();
+        //debug!("Open: do lookup");
         let looked_up_inode = self.getattr_with_inode(ino, force_revalidate).await?;
+        //debug!("Open: done lookup");
         match looked_up_inode.inode.kind() {
             InodeKind::Directory => return Err(InodeError::IsDirectory(looked_up_inode.inode.err())),
             InodeKind::File => (),
@@ -848,6 +856,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             }
             ReadWriteMode::Write => {
                 let is_truncate = flags.contains(OpenFlags::O_TRUNC);
+                //debug!("Open: start_writing");
                 Ok(NewHandle::write(
                     self.start_writing(looked_up_inode, write_mode, is_truncate, fh).await?,
                 ))
@@ -900,6 +909,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
                 if self.inner.inode_handles.try_remove_writer(&locked_inode, fh) {
                     locked_inode.write_status = WriteStatus::Remote;
+                    //debug!("inode marked remote");
                 }
                 locked_inode.completion_hook = None;
 
@@ -981,8 +991,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     }
 
     async fn release_writer(&self, ino: InodeNo, fh: u64, completion_handle: CompletionHook, location: &S3Location) -> Result<(), InodeError> {
-        let completion_hook = self.flush_writer(ino, fh, completion_handle).await;
-        match completion_hook {
+        let completion_hook = self.flush_writer(ino, fh, completion_handle.clone()).await;
+        match completion_hook.clone() {
             Ok(Some(completion_hook)) => {
                 let complete_result = completion_hook.trigger().await?;
                 if complete_result.is_some() {
@@ -994,6 +1004,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 debug!(key = %location, "failed to flush open file handle during release: {e}");
             }
         }
+        drop(completion_handle);
+        drop(completion_hook);
         Ok(())
     }
 

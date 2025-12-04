@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-
+use tracing::debug;
 use crate::metablock::InodeNo;
 use crate::sync::RwLock;
 
@@ -45,6 +45,7 @@ impl InodeHandleMap {
         }
         entry.writer = None;
         entry.readers.insert(fh, HandleState::Active);
+        //debug!("added reader");
         true
     }
 
@@ -55,6 +56,7 @@ impl InodeHandleMap {
             && let Some(reader) = entry.readers.get_mut(&fh)
         {
             *reader = HandleState::Inactive;
+            //debug!("deactivated reader");
         }
     }
 
@@ -67,6 +69,7 @@ impl InodeHandleMap {
             && let Some(reader) = entry.readers.get_mut(&fh)
         {
             *reader = HandleState::Active;
+            //debug!("reactivated reader");
             return true;
         }
         false
@@ -80,6 +83,7 @@ impl InodeHandleMap {
             if entry.get().is_empty() {
                 entry.remove();
             }
+            //debug!("removed reader");
         }
     }
 
@@ -98,7 +102,9 @@ impl InodeHandleMap {
             return Err(SetWriterError::ActiveWriter);
         }
         entry.writer = Some((fh, HandleState::Active));
+        //debug!("added writer");
         entry.readers.clear();
+        //debug!("cleared readers");
         Ok(())
     }
 
@@ -112,6 +118,7 @@ impl InodeHandleMap {
             && fh == *writer
         {
             *state = HandleState::Active;
+            //debug!("reactivated writer");
             return true;
         }
         false
@@ -127,6 +134,7 @@ impl InodeHandleMap {
             && fh == *writer
         {
             *state = HandleState::Inactive;
+            //debug!("deactivated writer");
             return true;
         }
         false
@@ -142,6 +150,7 @@ impl InodeHandleMap {
                     if entry.get().is_empty() {
                         entry.remove();
                     }
+                    //debug!("removed writer");
                     return true;
                 }
             }

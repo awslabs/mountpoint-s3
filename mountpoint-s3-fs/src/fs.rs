@@ -11,7 +11,7 @@ use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use thiserror::Error;
 use time::OffsetDateTime;
-use tracing::{Level, debug, trace};
+use tracing::{debug, trace, Level};
 
 use crate::async_util::Runtime;
 use crate::logging;
@@ -357,7 +357,7 @@ where
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
         trace!("open with ino {:?} flags {} pid {:?}", ino, flags, pid);
-
+        //debug!("Open: starts");
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
         if flags.intersects(OpenFlags::O_SYNC | OpenFlags::O_DSYNC) {
@@ -374,10 +374,11 @@ where
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
-        debug!(fh, ino, "new file handle created");
+        //debug!(fh, ino, "new {:?} file handle created", new_handle.mode);
         self.file_handles.write().await.insert(fh, Arc::new(handle));
-
+        //debug!("added fh to map");
         let reply_flags = if flags.direct_io() { FOPEN_DIRECT_IO } else { 0 };
+        //debug!("finished open");
         Ok(Opened { fh, flags: reply_flags })
     }
 
@@ -517,6 +518,7 @@ where
 
             request.write(self, &handle, offset, data, fh).await?
         };
+        //debug!("finished write");
         Ok(len)
     }
 
@@ -597,18 +599,18 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let write_state = match &mut *state {
+        match &mut *state {
             FileHandleState::Read { .. } => {
                 return Ok(());
             }
-            FileHandleState::Write { state, .. } => state,
+            FileHandleState::Write { state, .. } => {
+                state.commit(self, file_handle.clone(), fh).await.map_err(|e|
+                    // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
+                    // space-related failure.
+                    if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
+                )?;
+            },
         };
-        write_state.commit(self, file_handle.clone(), fh).await.map_err(|e|
-            // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
-            // space-related failure.
-            if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
-        )?;
-
         Ok(())
     }
 
@@ -626,6 +628,7 @@ where
         //   process. In many cases, the child will then immediately close (flush) the duplicated
         //   file descriptors. We will not complete the upload if we can detect that the process
         //   invoking flush is different from the one that originally opened the file.
+        //debug!("Flush: starts");
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -634,6 +637,7 @@ where
             }
         };
         logging::record_name(file_handle.file_name());
+        //debug!("Flush: started for {}", file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
             FileHandleState::Read { flushed, .. } => {
@@ -641,12 +645,15 @@ where
                 *flushed = true;
             }
             FileHandleState::Write { state, flushed } => {
+                //debug!("Flush: got fh lock");
                 state
                     .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
                     .await?;
                 *flushed = true;
+                //debug!("Flush: completed holding fh lock");
             }
         }
+        //debug!("Flush: ended");
         Ok(())
     }
 
@@ -663,7 +670,7 @@ where
         _flush: bool,
     ) -> Result<(), Error> {
         trace!("fs:release with ino {:?} fh {:?}", ino, fh);
-
+        //debug!("Release: starts");
         let file_handle = {
             let mut file_handles = self.file_handles.write().await;
             file_handles
@@ -843,4 +850,360 @@ mod tests {
             "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)"
         );
     }
+
+    #[tokio::test]
+    async fn test_open_after_close_without_release() {
+        let test_name = "test_open_after_close_without_release";
+        let mut fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(&test_name, &mut fs).await;
+
+        let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123).await.expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released handle should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_with_release() {
+        let test_name = "test_open_after_close_with_release";
+        let mut fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(&test_name, &mut fs).await;
+
+        let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123).await.expect("flush should succeed");
+        fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+            .await
+            .expect("release for a flushed handle should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_open_after_close_with_concurrent_release() {
+        let test_name = "test_open_after_close_with_release";
+        let fs_orig = setup_mock_fs(test_name, true, false);
+        let fs = Arc::new(fs_orig);
+        let dentry = setup_file(&test_name, &fs).await;
+
+        let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123).await.expect("flush should succeed");
+
+        let (fs1, fs2) = (fs.clone(), fs.clone());
+        let (ino1, ino2) = (dentry.attr.ino, dentry.attr.ino);
+        let fh = fd.fh;
+
+        let (fd2_result, release_result) = tokio::join!(
+            tokio::spawn(async move { fs1.open(ino2, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123).await }),
+            tokio::spawn(async move { fs2.release(ino1, fh, 0, Some(0), false).await })
+        );
+
+        release_result.unwrap().expect("release for a flushed handle should succeed");
+        fd2_result.unwrap().expect("re-open for a released file should succeed");
+    }
+
+
+    #[tokio::test]
+    async fn test_open_after_release_without_close() {
+        let test_name = "test_open_after_release_without_close";
+        let mut fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(test_name, &mut fs).await;
+
+        let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+            .await
+            .expect("release for a flushed handle should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_after_write() {
+        let test_name = "test_open_after_close_after_write";
+        let mut fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(&test_name, &mut fs).await;
+
+        let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open for a local file should succeed");
+        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+            .await
+            .expect("write should succeed");
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123).await.expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_fsync_after_write() {
+        let test_name = "test_open_after_close_after_write";
+        let mut fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(&test_name, &mut fs).await;
+
+        let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open for a local file should succeed");
+        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+            .await
+            .expect("write should succeed");
+        fs.fsync(dentry.attr.ino, fd.fh, true).await.expect("fsync should succeed");
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect_err("re-open for a fsync-ed file should fail");
+        fs.flush(dentry.attr.ino, fd.fh, 0, 0).await.expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    async fn setup_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> Entry {
+        // Lookup inode of the dir1 directory
+        let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+        assert_eq!(entry.attr.kind, FileType::Directory);
+        let dir_ino = entry.attr.ino;
+
+        // Open a file for write in "dir1"
+        let dentry = fs
+            .mknod(dir_ino, &format!("{}2.txt", test_name).as_ref(), libc::S_IFREG | libc::S_IRWXU, 0, 0)
+            .await
+            .unwrap();
+        assert_eq!(dentry.attr.size, 0);
+        dentry
+    }
+
+    fn setup_mock_fs(test_name: &str, allow_overwrite: bool, incremental_upload: bool) -> S3Filesystem<MockClient> {
+        let bucket = Bucket::new("bucket").unwrap();
+        let client =
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .enable_backpressure(true)
+                .initial_read_window_size(1024 * 1024)
+                .part_size(1024 * 1024)
+                .build();
+        // Create "dir1" in the client to avoid creating it locally
+        client.add_object(&format!("dir1/{}1.txt", test_name), MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(10).create().unwrap());
+        let pool = PagedPool::new_with_candidate_sizes([32]);
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
+        let fs_config = S3FilesystemConfig {
+            allow_overwrite,
+            incremental_upload,
+            ..Default::default()
+        };
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            SuperblockConfig {
+                cache_config: fs_config.cache_config.clone(),
+                s3_personality: fs_config.s3_personality,
+            },
+        );
+        S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config)
+    }
+
+    /*
+    #[cfg(feature = "shuttle")]
+    mod shuttle_tests {
+        use super::*;
+        use crate::s3::{Bucket, S3Path};
+        use crate::{Superblock, SuperblockConfig};
+        use futures::task::{FutureObj, Spawn, SpawnError};
+        use mountpoint_s3_client::mock_client::{MockClient, MockObject};
+        use mountpoint_s3_client::types::ETag;
+        use shuttle::{check_dfs, check_pct, check_random};
+        use shuttle::future::block_on;
+        use fuser::FileType;
+
+        use std::sync::{Arc, Mutex};
+        use async_lock::RwLock;
+        use futures::future;
+        use shuttle::future::JoinHandle;
+
+        #[derive(Clone)]
+        struct ShuttleRuntimeCustom {
+            //tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
+        }
+
+        impl ShuttleRuntimeCustom {
+            fn new() -> Self {
+                Self {
+                    //tasks: Arc::new(Mutex::new(Vec::new())),
+                }
+            }
+
+            /*async fn join_all(&self) {
+                let handles = {
+                    let mut tasks = self.tasks.lock().unwrap();
+                    tasks.drain(..).collect::<Vec<_>>()
+                };
+
+                for handle in handles {
+                    handle.await;
+                }
+            }*/
+        }
+
+        impl Spawn for ShuttleRuntimeCustom {
+            fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
+                let handle = shuttle::future::spawn(future);
+                //self.tasks.lock().unwrap().push(handle);
+                Ok(())
+            }
+        }
+
+        async fn setup_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> Entry {
+            // Lookup inode of the dir1 directory
+            let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref(), ).await.unwrap();
+            assert_eq!(entry.attr.kind, FileType::Directory);
+            let dir_ino = entry.attr.ino;
+
+            // Open a file for write in "dir1"
+            let dentry = fs
+                .mknod(dir_ino, &format!("{}2.txt", test_name).as_ref(), libc::S_IFREG | libc::S_IRWXU, 0, 0)
+                .await
+                .unwrap();
+            assert_eq!(dentry.attr.size, 0);
+            dentry
+        }
+
+        fn shuttle_mockfs_helper(test_name: &str, allow_overwrite: bool, incremental_upload: bool) -> S3Filesystem<MockClient> {
+            let bucket = Bucket::new("bucket").unwrap();
+            let client =
+                MockClient::config()
+                    .bucket(bucket.to_string())
+                    .enable_backpressure(true)
+                    .initial_read_window_size(1024 * 1024)
+                    .part_size(1024 * 1024)
+                    .build();
+            // Create "dir1" in the client to avoid creating it locally
+            client.add_object(&format!("dir1/{}1.txt", test_name), MockObject::constant(0xa1, 15, ETag::for_tests()));
+
+            let runtime_impl = ShuttleRuntimeCustom::new();
+            let runtime = Runtime::new(runtime_impl.clone());
+            //let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+            let pool = PagedPool::new_with_candidate_sizes([32]);
+            let prefetcher_builder = Prefetcher::default_builder(client.clone());
+            let fs_config = S3FilesystemConfig {
+                allow_overwrite,
+                incremental_upload,
+                ..Default::default()
+            };
+            let superblock = Superblock::new(
+                client.clone(),
+                S3Path::new(bucket, Default::default()),
+                SuperblockConfig {
+                    cache_config: fs_config.cache_config.clone(),
+                    s3_personality: fs_config.s3_personality,
+                },
+            );
+            S3Filesystem::new(client, prefetcher_builder, pool, runtime.clone(), superblock, fs_config)
+        }
+
+        fn shuttle_open_after_close_sequential_test() {
+            let test_name = "shuttle_open_after_close_test";
+            let fs_orig = shuttle_mockfs_helper(test_name, true, false);
+            let fs = &fs_orig;
+            block_on( async move {
+                debug!("starting iteration!");
+                let dentry = setup_file(&test_name, fs).await;
+
+                let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 123)
+                    .await
+                    .expect("open a local file should succeed");
+                fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+                    .await
+                    .expect("write should succeed");
+                fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+                    .await.expect("flush should succeed");
+                /*fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+                    .await
+                    .expect("release for a flushed handle should succeed");*/
+                //debug!("starting second open");
+                let fd2 = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+                    .await
+                    .expect("re-open for a released file should succeed");
+                /*fs.flush(dentry.attr.ino, fd2.fh, 0, 123)
+                    .await.expect("flush should succeed");*/
+                //shuttle::future::yield_now().await;
+                //debug!("dropping fs!");
+                //drop(fs);
+                //runtime.join_all().await;
+                debug!("ending iteration!");
+            });
+            debug!("end");
+            drop(fs_orig);
+            debug!("end2"); }
+
+        /*fn shuttle_open_after_close_parallel_test() {
+            let test_name = "shuttle_open_after_close_test";
+            block_on( async move  {
+                //debug!("starting iteration!");
+                let mut fs = shuttle_mockfs_helper(test_name, true, false);
+                let dentry = setup_file(&test_name, &mut fs).await;
+                let mut fs_arc = Arc::new(fs);
+
+                let fs1 = fs_arc.clone();
+                let fs2 = fs_arc.clone();
+
+                let fd = fs.open(dentry.attr.ino, OpenFlags::O_WRONLY, 123)
+                    .await
+                    .expect("open a local file should succeed");
+                /*fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+                    .await
+                    .expect("write should succeed");*/
+                fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+                    .await.expect("flush should succeed");
+                /*fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+                    .await
+                    .expect("release for a flushed handle should succeed");*/
+                //debug!("starting second open");
+                //shuttle::future::yield_now().await;
+                let (release_result, fd2_result) = futures::join!(
+                    async move { fs1.release(dentry.attr.ino, fd.fh, 0, Some(0), false).await },
+                    async move {fs2.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123).await }
+                );
+                release_result.expect("release should succeed");
+                let fd2 = fd2_result.expect("re-open for a released file should succeed");
+                //debug!("dropping fs!");
+                //drop(fs);
+                //runtime.join_all().await;
+                debug!("ending iteration!");
+            });
+        }*/
+
+        #[test]
+        fn shuttle_open_after_close_sequential_test_stress() {
+            check_random(shuttle_open_after_close_sequential_test, 1000);
+            check_pct(shuttle_open_after_close_sequential_test, 100, 3);
+        }
+
+        #[test]
+        fn shuttle_open_after_close_parallel_test_stress() {
+            //check_random(shuttle_open_after_close_parallel_test, 1000);
+            //check_pct(shuttle_open_after_close_parallel_test, 100, 3);
+        }
+    }
+*/
+
 }
