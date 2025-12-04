@@ -151,7 +151,8 @@ where
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
-                    let part = try_make_part(&block, block_offset, cache_key, &range).unwrap();
+                    let part = try_make_part(&block, block_offset, cache_key, &range, true).unwrap();
+
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
 
@@ -175,8 +176,6 @@ where
                 ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
-            metrics::counter!("prefetch.blocks_served_from_cache").increment(block_index - block_range.start);
-            metrics::counter!("prefetch.blocks_requested_to_client").increment(block_range.end - block_index);
             return self
                 .get_from_client(
                     range.trim_start(block_offset),
@@ -185,8 +184,6 @@ where
                 )
                 .await;
         }
-        // We served the whole range from cache.
-        metrics::counter!("prefetch.blocks_served_from_cache").increment(block_range.end - block_range.start);
     }
 
     async fn get_from_client(
@@ -318,7 +315,7 @@ where
                 //
                 // A side effect from this is the delay on cache updating which makes testing a bit more complicated because
                 // the cache is not updated synchronously.
-                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range) {
+                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range, false) {
                     self.part_queue_producer.push(Ok(part));
                 }
                 offset += chunk.len() as u64;
@@ -378,7 +375,13 @@ where
 
 /// Creates a Part that can be streamed to the prefetcher if the given bytes
 /// are in the request range, otherwise return None.
-fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, range: &RequestRange) -> Option<Part> {
+fn try_make_part(
+    bytes: &ChecksummedBytes,
+    offset: u64,
+    object_id: &ObjectId,
+    range: &RequestRange,
+    from_cache: bool,
+) -> Option<Part> {
     let part_range = range.trim_start(offset).trim_end(offset + bytes.len() as u64);
     if part_range.is_empty() {
         return None;
@@ -390,6 +393,7 @@ fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, ra
         object_id.clone(),
         part_range.start(),
         bytes.slice(trim_start..trim_end),
+        from_cache,
     ))
 }
 

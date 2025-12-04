@@ -301,7 +301,7 @@ where
                 // S3 doesn't provide checksum for us if the request range is not aligned to
                 // object part boundaries, so we're computing our own checksum here.
                 let checksum_bytes = ChecksummedBytes::new(chunk);
-                let part = Part::new(self.object_id.clone(), curr_offset, checksum_bytes);
+                let part = Part::new(self.object_id.clone(), curr_offset, checksum_bytes, false);
                 curr_offset += part.len() as u64;
                 self.part_queue_producer.push(Ok(part));
             }

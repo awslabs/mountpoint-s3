@@ -40,7 +40,7 @@ macro_rules! get_histogram {
 }
 
 fn assert_metric_exists(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) {
-    let _ = get_metric!(recorder, name, labels);
+    let _: std::sync::Arc<Metric> = get_metric!(recorder, name, labels);
 }
 
 fn verify_common_metrics(recorder: &TestRecorder) {
@@ -212,5 +212,91 @@ rusty_fork_test! {
             final_reset_state > initial_reset_state,
             "Random access should increment reset_state metric"
         );
+    }
+
+    #[test]
+    fn test_cache_metrics() {
+        let recorder = setup_recorder();
+
+        let test_session = mock_session::new_with_cache(|block_size, pool| {
+            use mountpoint_s3_fs::data_cache::{DiskDataCache, DiskDataCacheConfig};
+            let cache_dir = tempfile::tempdir().unwrap();
+            let cache_config = DiskDataCacheConfig {
+                cache_directory: cache_dir.path().to_path_buf(),
+                block_size,
+                limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
+            };
+            DiskDataCache::new(cache_config, pool)
+        })("test_cache_metrics", TestSessionConfig::default());
+
+        let content = vec![b'x'; 1024 * 1024];
+        test_session.client().put_object("file.txt", &content).unwrap();
+        let path = test_session.mount_path().join("file.txt");
+
+        // First read - populate cache
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+
+        // No cache hits but cache should be updated
+        assert!(recorder.get("fs.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
+
+        // Second read - cache hit
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+
+        // Verify cache hit metrics
+        assert_metric_exists(&recorder, "fs.cache_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
+
+        // Read a large file to trigger eviction metrics
+        let large_content = vec![b'z'; 2 * 1024 * 1024];
+        test_session.client().put_object("large_file.txt", &large_content).unwrap();
+        let large_path = test_session.mount_path().join("large_file.txt");
+        File::open(&large_path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+
+        // Verify eviction metrics
+        assert_metric_exists(&recorder, "disk_data_cache.eviction_duration_us", &[]);
+    }
+
+    #[test]
+    fn test_multi_level_cache_metrics() {
+        let recorder = setup_recorder();
+
+        let test_session = mock_session::new_with_cache(|block_size, pool| {
+            use mountpoint_s3_fs::data_cache::{DiskDataCache, DiskDataCacheConfig};
+            let cache_dir = tempfile::tempdir().unwrap();
+            let cache_config = DiskDataCacheConfig {
+                cache_directory: cache_dir.path().to_path_buf(),
+                block_size,
+                limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
+            };
+            DiskDataCache::new(cache_config, pool)
+        })("test_multi_level_cache_metrics", TestSessionConfig::default());
+
+        let content = vec![b'x'; 1024 * 1024];
+        test_session.client().put_object("file.txt", &content).unwrap();
+        let path = test_session.mount_path().join("file.txt");
+
+        // First read - populate both caches
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        // Express updates seem to take time. So adding a delay
+        sleep(Duration::from_millis(500));
+
+        // Verify cache population metrics
+        assert!(recorder.get("fs.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
+        assert_metric_exists(&recorder, "express_cache.write_duration_us", &[]);
+        assert_metric_exists(&recorder, "express_cache.total_bytes", &[("type", "write")]);
+
+        // Second read - should hit disk cache
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+
+        assert_metric_exists(&recorder, "fs.cache_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
     }
 }
