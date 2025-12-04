@@ -971,11 +971,11 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object("dir/hello.txt", b"hello world")
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
-    let path = test_session.mount_path().join("dir/hello.txt");
+    let path = test_session.mount_path().join(&format!("dir/{}.txt", prefix));
 
     // We can't write to the file that is being read
     // from both the same file handle or a new one
@@ -1002,14 +1002,14 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
 #[cfg(feature = "s3_tests")]
 #[test]
 fn overwrite_disallowed_on_concurrent_read_test_s3() {
-    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test");
+    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test_s3");
 }
 
 #[test]
 fn overwrite_disallowed_on_concurrent_read_test_mock() {
     overwrite_disallowed_on_concurrent_read_test(
         fuse::mock_session::new,
-        "overwrite_disallowed_on_concurrent_read_test",
+        "overwrite_disallowed_on_concurrent_read_test_mock",
     );
 }
 
@@ -1719,3 +1719,101 @@ fn open_after_closing_empty_file_test(
     // Close the file.
     drop(f2);
 }
+
+#[test]
+fn write_allowed_on_flushed_handle() {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+
+    let prefix = "write_allowed_on_flushed_handle";
+    let test_session = fuse::s3_session::new(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join(&format!("dir/{}.txt", prefix));
+
+    let fh = File::options().write(true).truncate(true).open(&path).unwrap();
+    let mut dup_fh = fh.try_clone().unwrap();
+
+    drop(fh);
+
+    let mut hello_contents = String::new();
+    dup_fh.read_to_string(&mut hello_contents).expect_err("reading from a write file handle should fail");
+
+    dup_fh.write(b"hello world3").unwrap();
+    drop(dup_fh);
+}
+
+#[test]
+fn open_allowed_only_after_all_readers_flushed() {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+
+    let prefix = "open_allowed_only_after_all_readers_flushed";
+    let test_session = fuse::s3_session::new(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join(&format!("dir/{}.txt", prefix));
+
+    let mut fh1 = File::options().read(true).open(&path).unwrap();
+    let fh2 = File::options().read(true).open(&path).unwrap();
+
+    let mut hello_contents = String::new();
+    fh1.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello world");
+
+    let err1 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is being read should fail");
+    assert_eq!(err1.raw_os_error(), Some(libc::EPERM));
+
+    drop(fh1);
+    let err2 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is being read should fail");
+    assert_eq!(err2.raw_os_error(), Some(libc::EPERM));
+
+    let mut dup_fh2 = fh2.try_clone().unwrap();
+    drop(fh2);
+
+    // should be able to read from a flushed handle's duplicate FD
+    dup_fh2.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello worldhello world");
+    drop(dup_fh2);
+
+    // should be able to open a new write handle and write to it after the last open reader flushed
+    let mut write_fh = File::options().write(true).truncate(true).open(&path).unwrap();
+    write_fh.write(b"hello world2").unwrap();
+
+    drop(write_fh);
+}
+
+//#[test]
+//fn
