@@ -1666,6 +1666,7 @@ fn append_fails_on_object_replaced_mock() {
 }
 
 const MOCK: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::mock_session::new;
+#[cfg(feature = "s3_tests")]
 const S3: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::s3_session::new;
 
 enum Open {
