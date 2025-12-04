@@ -6,6 +6,7 @@ use std::ffi::{OsStr, OsString};
 use time::OffsetDateTime;
 
 // Import core types from submodules
+mod completion;
 mod error;
 mod expiry;
 mod lookup;
@@ -13,11 +14,14 @@ mod path;
 mod stat;
 
 // Re-export all the core types
+pub use completion::CompletionHook;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
 pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
 pub use stat::{InodeKind, InodeNo, InodeStat};
+
+use crate::fs::OpenFlags;
 
 pub const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
@@ -52,8 +56,14 @@ pub trait Metablock: Send + Sync {
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     async fn forget(&self, ino: InodeNo, n: u64);
 
-    /// Start writing to an inode.
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
+    /// Open a new file handle for the given inode in read or write mode depending on flags and inode state.
+    async fn open_handle(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        write_mode: &WriteMode,
+        flags: OpenFlags,
+    ) -> Result<NewHandle, InodeError>;
 
     /// Increase the size of a file open for writing.
     /// Parameter `len` refers to the additional
@@ -62,13 +72,25 @@ pub trait Metablock: Send + Sync {
 
     /// Called when the filesystem has finished writing to the inode refernced by `ino`.
     /// Allows the implementor to make necessary adjustments / update its internal structure.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
-
-    /// Prepare an inode (referenced by `ino`) to start reading.
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError>;
 
     /// Finish reading from the inode (referenced by `ino`)
-    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
+
+    /// Updates status of the inode and of containing "local" directories.
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
+
+    /// Updates status of the inode and of containing "local" directories.
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        completion_handle: CompletionHook,
+    ) -> Result<Option<CompletionHook>, InodeError>;
+
+    async fn release_writer(&self, ino: InodeNo, fh: u64, completion_handle: CompletionHook, location: &S3Location) -> Result<(), InodeError>;
+
+    async fn validate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
@@ -160,6 +182,34 @@ impl WriteMode {
                 );
             }
             false
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ReadWriteMode {
+    Read,
+    Write,
+}
+
+#[derive(Debug)]
+pub struct NewHandle {
+    pub lookup: Lookup,
+    pub mode: ReadWriteMode,
+}
+
+impl NewHandle {
+    pub fn read(lookup: Lookup) -> Self {
+        Self {
+            lookup,
+            mode: ReadWriteMode::Read,
+        }
+    }
+
+    pub fn write(lookup: Lookup) -> Self {
+        Self {
+            lookup,
+            mode: ReadWriteMode::Write,
         }
     }
 }
