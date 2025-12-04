@@ -99,14 +99,18 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Build tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
@@ -159,15 +163,19 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
         # not required for client tests. TODO: make it optional.
         fuseVersion: 2
     - name: Build tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
@@ -249,6 +257,10 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
         components: rust-src
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:

@@ -4,6 +4,7 @@
 
 CRATES = mountpoint-s3-crt-sys mountpoint-s3-crt mountpoint-s3-client mountpoint-s3-fs mountpoint-s3
 RUST_FEATURES ?= fuse_tests
+PACKAGES = $(shell echo "${CRATES}" | sed -E 's/(^| )/ -p /g')
 
 .PHONY: all
 all:
@@ -19,29 +20,26 @@ check:
 
 .PHONY: test
 test:
-	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
-	cargo test $$packages
+	cargo nextest run ${PACKAGES}
 
 # Run a test that we know should fail if ASan is enabled
 .PHONY: test-asan-working
 test-asan-working:
-	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	RUSTFLAGS="-Zsanitizer=address" \
 	RUSTC_BOOTSTRAP=1 \
-	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` --lib --features $(RUST_FEATURES) $$packages -- --ignored test_asan_working 2>&1 \
+	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` --lib --features ${RUST_FEATURES} ${PACKAGES} -- --ignored test_asan_working 2>&1 \
 	| tee /dev/stderr \
 	| grep "heap-use-after-free" \
 	  && echo "ASan is working" || (echo "ASan did not find the use-after-free; something's wrong"; exit 1)
 
 .PHONY: test-asan
 test-asan:
-	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
 	LSAN_OPTIONS=suppressions="$$(pwd)/lsan-suppressions.txt" \
 	RUSTFLAGS="-Zsanitizer=address" \
 	RUSTC_BOOTSTRAP=1 \
 	cargo test -Z build-std --target `rustc -vV | grep 'host:' | cut -f2 -d' '` \
 	--lib --bins --tests \
-	--features $(RUST_FEATURES) $$packages -- \
+	--features ${RUST_FEATURES} ${PACKAGES} -- \
 	--skip reftest_ \
 	--skip proptest_ \
 	--skip fork_test \
@@ -49,19 +47,18 @@ test-asan:
 
 .PHONY: fmt
 fmt:
-	@for crate in $(CRATES); do \
+	@for crate in ${CRATES}; do \
 		cargo fmt --manifest-path $$crate/Cargo.toml; \
 	done
 
 .PHONY: fmt-check
 fmt-check:
 	@fail=0; \
-	for crate in $(CRATES); do \
+	for crate in ${CRATES}; do \
 		cargo fmt --manifest-path $$crate/Cargo.toml -- --check || fail=1; \
 	done; \
 	exit $$fail
 
 .PHONY: clippy
 clippy:
-	@packages=`echo "$(CRATES)" | sed -E 's/(^| )/ -p /g'`; \
-	cargo clippy $$packages --no-deps --all-targets --all-features -- -D warnings -D clippy::all
+	cargo clippy ${PACKAGES} --no-deps --all-targets --all-features -- -D warnings -D clippy::all
