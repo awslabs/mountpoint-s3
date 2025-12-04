@@ -1732,7 +1732,7 @@ fn write_allowed_on_flushed_handle() {
     };
 
     let prefix = "write_allowed_on_flushed_handle";
-    let test_session = fuse::s3_session::new(prefix, test_config);
+    let test_session = fuse::mock_session::new(prefix, test_config);
 
     // Make sure there's an existing directory and a file
     test_session
@@ -1755,6 +1755,7 @@ fn write_allowed_on_flushed_handle() {
     drop(dup_fh);
 }
 
+
 #[test]
 fn open_allowed_only_after_all_readers_flushed() {
     let filesystem_config = S3FilesystemConfig {
@@ -1767,7 +1768,7 @@ fn open_allowed_only_after_all_readers_flushed() {
     };
 
     let prefix = "open_allowed_only_after_all_readers_flushed";
-    let test_session = fuse::s3_session::new(prefix, test_config);
+    let test_session = fuse::mock_session::new(prefix, test_config);
 
     // Make sure there's an existing directory and a file
     test_session
