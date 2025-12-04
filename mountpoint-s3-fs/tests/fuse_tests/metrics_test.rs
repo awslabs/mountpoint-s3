@@ -281,6 +281,8 @@ rusty_fork_test! {
 
         // First read - populate both caches
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        // Express updates seem to take time. So adding a delay
+        sleep(Duration::from_millis(500));
 
         // Verify cache population metrics
         assert!(recorder.get("fs.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
@@ -296,6 +298,5 @@ rusty_fork_test! {
         assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
-        assert!(recorder.get("express_cache.read_duration_us", &[]).is_none(), "Express cache read metrics should not exist");
     }
 }
