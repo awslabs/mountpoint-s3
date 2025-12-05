@@ -156,6 +156,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Print benchmark throughput data automatically grouped')
     parser.add_argument('--base-dir', required=True, help='Base directory containing benchmark results')
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
+    parser.add_argument('--raw-values-csv', help='Optional CSV file to write raw values per iteration for CloudWatch metrics')
+
     args = parser.parse_args()
 
     # List to store all results
@@ -188,9 +190,8 @@ def main() -> None:
 
     # Aggregated results table
     aggregated_headers = varying_params + [
-        "Metric_Type",
         "Count",
-        "Value (Gbps)",
+        "Median (Gbps)",
         "Std Dev (Gbps)",
         "Min (Gbps)",
         "Max (Gbps)",
@@ -200,7 +201,6 @@ def main() -> None:
         row = []
         for _, value in config_key:
             row.append(value)
-        row.append("aggregate")
         row.append(len(throughputs))
         row.append(f"{statistics.median(throughputs):.2f}")
         if len(throughputs) > 1:
@@ -210,27 +210,6 @@ def main() -> None:
         row.append(f"{min(throughputs):.2f}")
         row.append(f"{max(throughputs):.2f}")
         aggregated_rows.append(row)
-
-        # Add percentiles
-        if len(throughputs) > 0:
-            percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
-            for p in percentiles:
-                percentile_row = []
-                for _, value in config_key:
-                    percentile_row.append(value)
-
-                try:
-                    percentile_value = statistics.quantiles(throughputs, n=100)[p - 1] if p < 100 else max(throughputs)
-                except (IndexError, ValueError):
-                    percentile_value = statistics.median(throughputs)
-
-                percentile_row.append(f"p{p}")
-                percentile_row.append(len(throughputs))
-                percentile_row.append(f"{percentile_value:.2f}")
-                percentile_row.append("N/A")
-                percentile_row.append(f"{percentile_value:.2f}")
-                percentile_row.append(f"{percentile_value:.2f}")
-                aggregated_rows.append(percentile_row)
 
     # Custom sorting function for benchmark types
     def benchmark_type_sort_key(value: str) -> int:
@@ -266,6 +245,29 @@ def main() -> None:
             writer.writerow(aggregated_headers)
             writer.writerows(aggregated_rows)
         print(f"\nResults written to CSV: {args.csv_output}")
+    
+    # Write raw values JSON if requested
+    if args.raw_values_csv:
+        raw_data = []
+        for config, throughput, iter_num in all_results:
+            # Create dimension string in a:b:c format
+            dimension_values = []
+            for param in sorted(varying_params):
+                dimension_values.append(str(config.get(param, 'N/A')))
+            
+            raw_entry = {
+                "dimensions": ":".join(dimension_values),
+                "dimension_names": sorted(varying_params),
+                "iteration": iter_num,
+                "throughput_gbps": float(f"{throughput:.6f}")
+            }
+            raw_data.append(raw_entry)
+        
+        # Change extension to .json
+        json_output = args.raw_values_csv.replace('.csv', '.json')
+        with open(json_output, 'w') as jsonfile:
+            json.dump(raw_data, jsonfile, indent=2)
+        print(f"Raw values written to JSON: {json_output}")
 
 
 if __name__ == "__main__":
