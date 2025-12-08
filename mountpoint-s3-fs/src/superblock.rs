@@ -109,7 +109,7 @@ impl RenameCache {
 struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     s3_path: Arc<S3Path>,
     inodes: RwLock<InodeMap>,
-    inode_handles: InodeHandleMap,
+    open_handles: InodeHandleMap,
     negative_cache: NegativeCache,
     cached_rename_support: RenameCache,
     next_ino: AtomicU64,
@@ -237,7 +237,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let inner = SuperblockInner {
             s3_path: Arc::new(s3_path),
             inodes: RwLock::new(inodes),
-            inode_handles: Default::default(),
+            open_handles: Default::default(),
             negative_cache,
             next_ino: AtomicU64::new(2),
             mount_time,
@@ -328,7 +328,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let completion_hook = {
             let mut locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
             if matches!(locked_inode.write_status, WriteStatus::LocalUnopened)
-                || !self.inner.inode_handles.try_add_reader(&locked_inode, fh)
+                || !self.inner.open_handles.try_add_reader(&locked_inode, fh)
             {
                 return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
             }
@@ -361,7 +361,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                     state.write_status = WriteStatus::LocalOpenForWriting;
                     state.stat.size = 0;
                     self.inner
-                        .inode_handles
+                        .open_handles
                         .set_writer(&state, handle_id)
                         .map_err(|e| match e {
                             SetWriterError::ActiveWriter => {
@@ -381,7 +381,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                         return Err(InodeError::InodeNotWritable(looked_up_inode.inode.err()));
                     }
                     self.inner
-                        .inode_handles
+                        .open_handles
                         .set_writer(&state, handle_id)
                         .map_err(|e| match e {
                             SetWriterError::ActiveWriter => {
@@ -898,7 +898,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let mut locked_inode = inode.get_mut_inode_state()?;
         match locked_inode.write_status {
             WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
-                if self.inner.inode_handles.try_remove_writer(&locked_inode, fh) {
+                if self.inner.open_handles.try_remove_writer(&locked_inode, fh) {
                     locked_inode.write_status = WriteStatus::Remote;
                 }
                 locked_inode.completion_hook = None;
@@ -944,7 +944,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let locked_inode = inode.get_mut_inode_state()?;
-        self.inner.inode_handles.deactivate_reader(&locked_inode, fh);
+        self.inner.open_handles.deactivate_reader(&locked_inode, fh);
         Ok(true)
     }
 
@@ -960,7 +960,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             let mut locked_inode = inode.get_mut_inode_state()?;
             match locked_inode.write_status {
                 WriteStatus::LocalOpenForWriting => {
-                    if self.inner.inode_handles.try_deactivate_writer(&locked_inode, fh) {
+                    if self.inner.open_handles.try_deactivate_writer(&locked_inode, fh) {
                         Some(locked_inode.completion_hook.get_or_insert(hook).clone())
                     } else {
                         None
@@ -976,7 +976,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
         let state = inode.get_mut_inode_state()?;
-        self.inner.inode_handles.remove_reader(&state, fh);
+        self.inner.open_handles.remove_reader(&state, fh);
         Ok(())
     }
 
@@ -1246,7 +1246,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         match inodes.decrease_lookup_count(ino, n) {
             Ok(Some(removed_inode)) => {
                 trace!(ino, "removing inode from superblock");
-                if self.inner.inode_handles.remove_inode(ino) {
+                if self.inner.open_handles.remove_inode(ino) {
                     debug!("File handles found for forgotten inode")
                 }
                 let parent_ino = removed_inode.parent();
@@ -1295,12 +1295,12 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let mut locked_inode = inode.get_mut_inode_state()?;
         match mode {
             ReadWriteMode::Read => {
-                if self.inner.inode_handles.try_activate_reader(&locked_inode, fh) {
+                if self.inner.open_handles.try_activate_reader(&locked_inode, fh) {
                     return Ok(true);
                 }
             }
             ReadWriteMode::Write => {
-                if self.inner.inode_handles.try_activate_writer(&locked_inode, fh) {
+                if self.inner.open_handles.try_activate_writer(&locked_inode, fh) {
                     locked_inode.write_status = WriteStatus::LocalOpenForWriting;
                     locked_inode.completion_hook = None;
                     return Ok(true);
