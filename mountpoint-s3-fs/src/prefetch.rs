@@ -294,10 +294,11 @@ where
 
         match self.try_read(offset, length).await {
             Ok((data, cache_hit)) => {
-                // Record cache hits only if we actually returned data. These map to file system
-                // read requests, so record it as fs metric.
+                // These map to file system read requests, so record it as fuse metric. We are only
+                // recording when cache_hit is true, as otlp counter doesn't preserve the number of
+                // data points for using avg stat. FIXME: Revisit if this needs to be a histogram.
                 if !data.is_empty() && cache_hit {
-                    metrics::counter!("fs.cache_hit").increment(1);
+                    metrics::counter!("fuse.cache_hit").increment(1);
                 }
                 Ok(data)
             }

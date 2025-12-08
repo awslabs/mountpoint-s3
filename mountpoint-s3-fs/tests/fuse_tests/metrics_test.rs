@@ -243,7 +243,7 @@ rusty_fork_test! {
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
 
         // No cache hits but cache should be updated
-        assert!(recorder.get("fs.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
         assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
 
@@ -251,7 +251,7 @@ rusty_fork_test! {
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
 
         // Verify cache hit metrics
-        assert_metric_exists(&recorder, "fs.cache_hit", &[]);
+        assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
@@ -299,8 +299,8 @@ rusty_fork_test! {
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
         sleep(Duration::from_millis(100));
 
-        // Verify cache population metrics for both caches
-        assert!(recorder.get("fs.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        // Verify cache population metrics
+        assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
         assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
         assert_metric_exists(&recorder, "express_data_cache.write_duration_us", &[("type", "ok")]);
@@ -311,7 +311,7 @@ rusty_fork_test! {
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
         sleep(Duration::from_millis(100));
 
-        assert_metric_exists(&recorder, "fs.cache_hit", &[]);
+        assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
