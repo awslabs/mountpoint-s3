@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use tracing::debug;
 use crate::metablock::InodeNo;
 use crate::sync::RwLock;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use super::InodeLockedForWriting;
 
@@ -45,7 +44,6 @@ impl InodeHandleMap {
         }
         entry.writer = None;
         entry.readers.insert(fh, HandleState::Active);
-        //debug!("added reader");
         true
     }
 
@@ -56,7 +54,6 @@ impl InodeHandleMap {
             && let Some(reader) = entry.readers.get_mut(&fh)
         {
             *reader = HandleState::Inactive;
-            //debug!("deactivated reader");
         }
     }
 
@@ -69,7 +66,6 @@ impl InodeHandleMap {
             && let Some(reader) = entry.readers.get_mut(&fh)
         {
             *reader = HandleState::Active;
-            //debug!("reactivated reader");
             return true;
         }
         false
@@ -83,7 +79,6 @@ impl InodeHandleMap {
             if entry.get().is_empty() {
                 entry.remove();
             }
-            //debug!("removed reader");
         }
     }
 
@@ -102,9 +97,7 @@ impl InodeHandleMap {
             return Err(SetWriterError::ActiveWriter);
         }
         entry.writer = Some((fh, HandleState::Active));
-        //debug!("added writer");
         entry.readers.clear();
-        //debug!("cleared readers");
         Ok(())
     }
 
@@ -118,7 +111,6 @@ impl InodeHandleMap {
             && fh == *writer
         {
             *state = HandleState::Active;
-            //debug!("reactivated writer");
             return true;
         }
         false
@@ -134,7 +126,6 @@ impl InodeHandleMap {
             && fh == *writer
         {
             *state = HandleState::Inactive;
-            //debug!("deactivated writer");
             return true;
         }
         false
@@ -143,17 +134,15 @@ impl InodeHandleMap {
     /// Remove the current writer.
     pub fn try_remove_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
         let mut handles = self.handles.write().unwrap();
-        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
-            if let Some((writer, _)) = &entry.get().writer {
-                if fh == *writer {
-                    entry.get_mut().writer = None;
-                    if entry.get().is_empty() {
-                        entry.remove();
-                    }
-                    //debug!("removed writer");
-                    return true;
-                }
+        if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino)
+            && let Some((writer, _)) = &entry.get().writer
+            && fh == *writer
+        {
+            entry.get_mut().writer = None;
+            if entry.get().is_empty() {
+                entry.remove();
             }
+            return true;
         }
         false
     }
