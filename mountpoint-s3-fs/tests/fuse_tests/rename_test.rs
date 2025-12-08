@@ -1238,37 +1238,48 @@ where
     // Create file a.txt
     {
         let data = "Some data!";
-        let mut f = File::create(mount_point.join(&format!("{test_name}1.txt"))).expect("Unable to create file");
+        let mut f = File::create(mount_point.join(format!("{test_name}1.txt"))).expect("Unable to create file");
         f.write_all(data.as_bytes()).expect("Unable to write data");
         drop(f);
     }
     // Append to it
     {
         let data = "append";
-        let mut file = OpenOptions::new().append(true).open(mount_point.join(&format!("{test_name}1.txt"))).unwrap();
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(mount_point.join(format!("{test_name}1.txt")))
+            .unwrap();
         file.write_all(data.as_bytes()).expect("Unable to write data");
         file.sync_all().unwrap();
         drop(file);
     }
     // Rename it
     {
-        fs::rename(mount_point.join(&format!("{test_name}1.txt")), mount_point.join(&format!("dir/{test_name}2.txt"))).expect("rename successful");
+        fs::rename(
+            mount_point.join(format!("{test_name}1.txt")),
+            mount_point.join(format!("dir/{test_name}2.txt")),
+        )
+        .expect("rename successful");
     }
     // Append to it again
     {
         let data = "append";
         let mut file = OpenOptions::new()
             .append(true)
-            .open(mount_point.join(&format!("dir/{test_name}2.txt")))
+            .open(mount_point.join(format!("dir/{test_name}2.txt")))
             .unwrap();
         file.write_all(data.as_bytes()).expect("Unable to write data");
         file.sync_all().unwrap();
         drop(file);
     }
-    fs::rename(mount_point.join(&format!("dir/{test_name}2.txt")), mount_point.join(&format!("dir/{test_name}3.txt"))).expect("rename successful");
+    fs::rename(
+        mount_point.join(format!("dir/{test_name}2.txt")),
+        mount_point.join(format!("dir/{test_name}3.txt")),
+    )
+    .expect("rename successful");
     // Verify the contents
     // Wait for a few seconds
-    let contents = fs::read_to_string(mount_point.join(&format!("dir/{test_name}3.txt"))).expect("read should succeed");
+    let contents = fs::read_to_string(mount_point.join(format!("dir/{test_name}3.txt"))).expect("read should succeed");
     assert_eq!(contents, "Some data!appendappend");
 }
 
