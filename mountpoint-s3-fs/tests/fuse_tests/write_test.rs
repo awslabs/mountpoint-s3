@@ -975,7 +975,7 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
-    let path = test_session.mount_path().join(&format!("dir/{}.txt", prefix));
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
 
     // We can't write to the file that is being read
     // from both the same file handle or a new one
@@ -1002,7 +1002,10 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
 #[cfg(feature = "s3_tests")]
 #[test]
 fn overwrite_disallowed_on_concurrent_read_test_s3() {
-    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test_s3");
+    overwrite_disallowed_on_concurrent_read_test(
+        fuse::s3_session::new,
+        "overwrite_disallowed_on_concurrent_read_test_s3",
+    );
 }
 
 #[test]
@@ -1087,7 +1090,6 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw
     };
     let test_config = TestSessionConfig {
         filesystem_config,
-        max_worker_threads: 1, // avoid concurrency issues with read after write. (FIXME)
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
@@ -1742,20 +1744,23 @@ fn write_allowed_on_flushed_handle() {
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
-    let path = test_session.mount_path().join(&format!("dir/{}.txt", prefix));
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
 
-    let fh = File::options().write(true).truncate(true).open(&path).unwrap();
+    let fh = File::options().write(true).truncate(true).open(path).unwrap();
     let mut dup_fh = fh.try_clone().unwrap();
 
     drop(fh);
 
     let mut hello_contents = String::new();
-    dup_fh.read_to_string(&mut hello_contents).expect_err("reading from a write file handle should fail");
+    dup_fh
+        .read_to_string(&mut hello_contents)
+        .expect_err("reading from a write file handle should fail");
 
-    dup_fh.write(b"hello world3").unwrap();
+    dup_fh
+        .write_all(b"hello world3")
+        .expect("writing to a flushed write file handle should succeed");
     drop(dup_fh);
 }
-
 
 #[test]
 fn open_allowed_only_after_all_readers_flushed() {
@@ -1778,7 +1783,7 @@ fn open_allowed_only_after_all_readers_flushed() {
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
-    let path = test_session.mount_path().join(&format!("dir/{}.txt", prefix));
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
 
     let mut fh1 = File::options().read(true).open(&path).unwrap();
     let fh2 = File::options().read(true).open(&path).unwrap();
@@ -1812,10 +1817,9 @@ fn open_allowed_only_after_all_readers_flushed() {
 
     // should be able to open a new write handle and write to it after the last open reader flushed
     let mut write_fh = File::options().write(true).truncate(true).open(&path).unwrap();
-    write_fh.write(b"hello world2").unwrap();
+    write_fh
+        .write_all(b"hello world2")
+        .expect("writing to a new write file handle should succeed");
 
     drop(write_fh);
 }
-
-//#[test]
-//fn
