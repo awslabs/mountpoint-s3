@@ -3,6 +3,15 @@ use thiserror::Error;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::object::ObjectId;
 
+/// Source of a part's data
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartSource {
+    /// Part from Disk or Express cache
+    Cache,
+    /// Part from S3
+    S3,
+}
+
 /// A self-identifying part of an S3 object. Users can only retrieve the bytes from this part if
 /// they can prove they have the correct offset and object Id (key + etag).
 #[derive(Debug, Clone)]
@@ -10,16 +19,16 @@ pub struct Part {
     id: ObjectId,
     offset: u64,
     checksummed_bytes: ChecksummedBytes,
-    from_cache: bool,
+    source: PartSource,
 }
 
 impl Part {
-    pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes, from_cache: bool) -> Self {
+    pub fn new(id: ObjectId, offset: u64, checksummed_bytes: ChecksummedBytes, source: PartSource) -> Self {
         Self {
             id,
             offset,
             checksummed_bytes,
-            from_cache,
+            source,
         }
     }
 
@@ -43,7 +52,7 @@ impl Part {
             id: self.id.clone(),
             offset: self.offset + at as u64,
             checksummed_bytes: new_bytes,
-            from_cache: self.from_cache,
+            source: self.source,
         }
     }
 
@@ -60,7 +69,7 @@ impl Part {
     }
 
     pub(super) fn is_from_cache(&self) -> bool {
-        self.from_cache
+        matches!(self.source, PartSource::Cache)
     }
 
     fn check(&self, id: &ObjectId, offset: u64) -> Result<(), PartOperationError> {
@@ -98,7 +107,7 @@ mod tests {
 
     use crate::{checksums::ChecksummedBytes, object::ObjectId, prefetch::part::PartOperationError};
 
-    use super::Part;
+    use super::{Part, PartSource};
 
     #[test]
     fn test_append() {
@@ -111,7 +120,7 @@ mod tests {
             .take(first_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, false);
+        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, PartSource::S3);
 
         let second_part_len = 512;
         let second_offset = first_offset + first_part_len as u64;
@@ -121,7 +130,7 @@ mod tests {
             .take(second_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, false);
+        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, PartSource::S3);
 
         first.extend(&second).expect("should be able to extend");
         assert_eq!(first_part_len + second_part_len, first.len());
@@ -139,7 +148,7 @@ mod tests {
             .take(first_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, false);
+        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, PartSource::S3);
 
         let second_object_id = ObjectId::new("other".to_owned(), ETag::for_tests());
         let second_part_len = 512;
@@ -150,7 +159,12 @@ mod tests {
             .take(second_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(second_object_id.clone(), second_offset, checksummed_bytes, false);
+        let second = Part::new(
+            second_object_id.clone(),
+            second_offset,
+            checksummed_bytes,
+            PartSource::S3,
+        );
 
         let result = first.extend(&second);
         assert!(matches!(
@@ -173,7 +187,7 @@ mod tests {
             .take(first_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, false);
+        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, PartSource::S3);
 
         let second_part_len = 512;
         let second_offset = first_offset;
@@ -183,7 +197,7 @@ mod tests {
             .take(second_part_len)
             .collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, false);
+        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, PartSource::S3);
 
         let result = first.extend(&second);
         assert!(matches!(

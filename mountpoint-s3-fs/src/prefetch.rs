@@ -322,12 +322,11 @@ where
         // and it can also be used as a lower bound in case the read size is too small.
         // The upper bound is 1MiB since it should be a common IO size.
         let max_preferred_part_size = 1024 * 1024;
-        let mut cache_hit = true;
         self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
-            return Ok((ChecksummedBytes::default(), cache_hit));
+            return Ok((ChecksummedBytes::default(), false));
         }
         let mut to_read = (length as u64).min(remaining);
 
@@ -356,6 +355,7 @@ where
             self.backpressure_task = Some(self.spawn_read_backpressure_request()?);
         }
 
+        let mut all_parts_from_cache = true;
         let mut response = ChecksummedBytes::default();
         while to_read > 0 {
             let Some(current_task) = self.backpressure_task.as_mut() else {
@@ -365,7 +365,7 @@ where
             debug_assert!(current_task.remaining() > 0);
 
             let part = current_task.read(to_read as usize).await?;
-            cache_hit &= part.is_from_cache();
+            all_parts_from_cache &= part.is_from_cache();
             self.backward_seek_window.push(part.clone());
             let part_bytes = part.into_bytes(&self.object_id, self.next_sequential_read_offset)?;
 
@@ -374,7 +374,7 @@ where
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
             if response.is_empty() && part_bytes.len() == to_read as usize {
-                return Ok((part_bytes, cache_hit));
+                return Ok((part_bytes, all_parts_from_cache));
             }
 
             let part_len = part_bytes.len() as u64;
@@ -382,7 +382,7 @@ where
             to_read -= part_len;
         }
 
-        Ok((response, cache_hit))
+        Ok((response, all_parts_from_cache))
     }
 
     /// Spawn a backpressure GetObject request which has a range from current offset to the end of the file.

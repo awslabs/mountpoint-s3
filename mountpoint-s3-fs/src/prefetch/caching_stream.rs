@@ -15,7 +15,7 @@ use crate::object::ObjectId;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
-use super::part::Part;
+use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::part_stream::{
     ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, read_from_client_stream,
@@ -151,7 +151,7 @@ where
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
-                    let part = try_make_part(&block, block_offset, cache_key, &range, true).unwrap();
+                    let part = try_make_part(&block, block_offset, cache_key, &range, PartSource::Cache).unwrap();
 
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
@@ -315,7 +315,8 @@ where
                 //
                 // A side effect from this is the delay on cache updating which makes testing a bit more complicated because
                 // the cache is not updated synchronously.
-                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range, false) {
+                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range, PartSource::S3)
+                {
                     self.part_queue_producer.push(Ok(part));
                 }
                 offset += chunk.len() as u64;
@@ -380,7 +381,7 @@ fn try_make_part(
     offset: u64,
     object_id: &ObjectId,
     range: &RequestRange,
-    from_cache: bool,
+    source: PartSource,
 ) -> Option<Part> {
     let part_range = range.trim_start(offset).trim_end(offset + bytes.len() as u64);
     if part_range.is_empty() {
@@ -393,7 +394,7 @@ fn try_make_part(
         object_id.clone(),
         part_range.start(),
         bytes.slice(trim_start..trim_end),
-        from_cache,
+        source,
     ))
 }
 
