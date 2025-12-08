@@ -971,11 +971,11 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
     // Make sure there's an existing directory and a file
     test_session
         .client()
-        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .put_object("dir/hello.txt", b"hello world")
         .unwrap();
 
     let _subdir = test_session.mount_path().join("dir");
-    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
+    let path = test_session.mount_path().join("dir/hello.txt");
 
     // We can't write to the file that is being read
     // from both the same file handle or a new one
@@ -1002,17 +1002,14 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
 #[cfg(feature = "s3_tests")]
 #[test]
 fn overwrite_disallowed_on_concurrent_read_test_s3() {
-    overwrite_disallowed_on_concurrent_read_test(
-        fuse::s3_session::new,
-        "overwrite_disallowed_on_concurrent_read_test_s3",
-    );
+    overwrite_disallowed_on_concurrent_read_test(fuse::s3_session::new, "overwrite_disallowed_on_concurrent_read_test");
 }
 
 #[test]
 fn overwrite_disallowed_on_concurrent_read_test_mock() {
     overwrite_disallowed_on_concurrent_read_test(
         fuse::mock_session::new,
-        "overwrite_disallowed_on_concurrent_read_test_mock",
+        "overwrite_disallowed_on_concurrent_read_test",
     );
 }
 
