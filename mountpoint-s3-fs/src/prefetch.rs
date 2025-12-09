@@ -294,10 +294,16 @@ where
 
         match self.try_read(offset, length).await {
             Ok((data, cache_hit)) => {
-                // These map to file system read requests, so record it as fuse metric. We are only
-                // recording when cache_hit is true, as otlp counter doesn't preserve the number of
-                // data points for using avg stat. FIXME: Revisit if this needs to be a histogram.
+                // Record cache hit metric for FUSE layer. We only record a cache hit when ALL parts
+                // for this read request were served from cache storage (disk/express), not from S3.
+                // Partial cache hits (some parts from cache, some from S3) are counted as cache misses
+                // to provide a clear binary metric. Parts served from in-memory prefetch buffers
+                // (from previous S3 requests) don't count as cache hits.
+
                 if !data.is_empty() && cache_hit {
+                    // We only increment the counter on cache_hit=true because OTLP counters don't preserve
+                    // data point counts needed for meaningful averages.
+                    // FIXME: Consider using histogram to capture partial hit ratios.
                     metrics::counter!("fuse.cache_hit").increment(1);
                 }
                 Ok(data)

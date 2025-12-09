@@ -224,9 +224,9 @@ rusty_fork_test! {
     #[test]
     fn test_cache_metrics() {
         let recorder = setup_recorder();
+        let cache_dir = tempfile::tempdir().unwrap();
 
         let test_session = mock_session::new_with_cache(|block_size, pool| {
-            let cache_dir = tempfile::tempdir().unwrap();
             let cache_config = DiskDataCacheConfig {
                 cache_directory: cache_dir.path().to_path_buf(),
                 block_size,
@@ -239,8 +239,9 @@ rusty_fork_test! {
         test_session.client().put_object("file.txt", &content).unwrap();
         let path = test_session.mount_path().join("file.txt");
 
-        // First read - populate cache
+        // First read - populate cache and wait for asynchronous cache updates
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        sleep(Duration::from_millis(100));
 
         // No cache hits but cache should be updated
         assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
@@ -261,6 +262,7 @@ rusty_fork_test! {
         test_session.client().put_object("large_file.txt", &large_content).unwrap();
         let large_path = test_session.mount_path().join("large_file.txt");
         File::open(&large_path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        sleep(Duration::from_millis(100));
 
         // Verify eviction metrics
         assert_metric_exists(&recorder, "disk_data_cache.eviction_duration_us", &[]);
@@ -269,9 +271,9 @@ rusty_fork_test! {
     #[test]
     fn test_multi_level_cache_metrics() {
         let recorder = setup_recorder();
+        let cache_dir = tempfile::tempdir().unwrap();
 
         let test_session = mock_session::new_with_cache(|block_size, pool| {
-            let cache_dir = tempfile::tempdir().unwrap();
             let disk_config = DiskDataCacheConfig {
                 cache_directory: cache_dir.path().to_path_buf(),
                 block_size,
@@ -279,13 +281,15 @@ rusty_fork_test! {
             };
             let disk_cache = Arc::new(DiskDataCache::new(disk_config, pool.clone()));
 
-            let express_client = MockClient::config()
-                .bucket("test_bucket".to_string())
-                .part_size(1024 * 1024)
-                .build();
-            let express_config = ExpressDataCacheConfig::new("test_bucket", "test_source")
-                .block_size(block_size);
-            let express_cache = ExpressDataCache::new(express_client, express_config);
+            let express_cache = {
+                let express_client = MockClient::config()
+                    .bucket("test_bucket")
+                    .part_size(1024 * 1024)
+                    .build();
+                let express_config = ExpressDataCacheConfig::new("test_bucket", "test_source")
+                    .block_size(block_size);
+                ExpressDataCache::new(express_client, express_config)
+            };
 
             let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
             MultilevelDataCache::new(disk_cache, express_cache, runtime)
@@ -300,6 +304,8 @@ rusty_fork_test! {
         sleep(Duration::from_millis(100));
 
         // Verify cache population metrics
+        // Currently, disk_data_cache.read_duration_us is only recorded on cache hits, not misses.
+        // But they are recorded for express.
         assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
         assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
         assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
