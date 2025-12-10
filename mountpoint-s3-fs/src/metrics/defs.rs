@@ -29,8 +29,26 @@ pub const PROCESS_MEMORY_USAGE: &str = "process.memory_usage";
 
 pub const PREFETCH_RESET_STATE: &str = "prefetch.reset_state";
 
+// Cache metric constants
+pub const CACHE_GET_IO_SIZE: &str = "cache.get_io_size";
+pub const CACHE_PUT_IO_SIZE: &str = "cache.put_io_size";
+pub const CACHE_GET_LATENCY: &str = "cache.get_latency";
+pub const CACHE_PUT_LATENCY: &str = "cache.put_latency";
+pub const CACHE_GET_ERRORS: &str = "cache.get_errors";
+pub const CACHE_PUT_ERRORS: &str = "cache.put_errors";
+pub const CACHE_TOTAL_SIZE: &str = "cache.total_size";
+pub const CACHE_EVICT_LATENCY: &str = "cache.evict_latency";
+pub const CACHE_BLOCK_HIT: &str = "cache.block_hit";
+pub const CACHE_OVERSIZED_OBJECTS: &str = "cache.oversized_objects";
+
 // Attribute constants
 pub const ATTR_FUSE_REQUEST: &str = "fuse_request";
+pub const ATTR_CACHE: &str = "cache";
+pub const ATTR_ERROR: &str = "error";
+
+// Cache type constants
+pub const CACHE_DISK: &str = "disk";
+pub const CACHE_EXPRESS: &str = "express";
 
 pub fn lookup_config(name: &str) -> MetricConfig {
     match name {
