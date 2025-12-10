@@ -15,7 +15,7 @@ use crate::object::ObjectId;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
-use super::part::Part;
+use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::task::RequestTask;
 
@@ -301,7 +301,7 @@ where
                 // S3 doesn't provide checksum for us if the request range is not aligned to
                 // object part boundaries, so we're computing our own checksum here.
                 let checksum_bytes = ChecksummedBytes::new(chunk);
-                let part = Part::new(self.object_id.clone(), curr_offset, checksum_bytes);
+                let part = Part::new(self.object_id.clone(), curr_offset, checksum_bytes, PartSource::S3);
                 curr_offset += part.len() as u64;
                 self.part_queue_producer.push(Ok(part));
             }

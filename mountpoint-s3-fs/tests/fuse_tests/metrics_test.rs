@@ -1,12 +1,19 @@
 use crate::common::fuse::{TestSessionConfig, mock_session};
 use crate::common::test_recorder::{Metric, TestRecorder};
+use futures::executor::ThreadPool;
+use mountpoint_s3_client::mock_client::MockClient;
+use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::data_cache::{
+    DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig, MultilevelDataCache,
+};
 use mountpoint_s3_fs::metrics::defs::{
     ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS, FUSE_REQUEST_LATENCY, PREFETCH_RESET_STATE,
 };
 use rusty_fork::rusty_fork_test;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -40,7 +47,7 @@ macro_rules! get_histogram {
 }
 
 fn assert_metric_exists(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) {
-    let _ = get_metric!(recorder, name, labels);
+    let _: std::sync::Arc<Metric> = get_metric!(recorder, name, labels);
 }
 
 fn verify_common_metrics(recorder: &TestRecorder) {
@@ -212,5 +219,107 @@ rusty_fork_test! {
             final_reset_state > initial_reset_state,
             "Random access should increment reset_state metric"
         );
+    }
+
+    #[test]
+    fn test_cache_metrics() {
+        let recorder = setup_recorder();
+        let cache_dir = tempfile::tempdir().unwrap();
+
+        let test_session = mock_session::new_with_cache(|block_size, pool| {
+            let cache_config = DiskDataCacheConfig {
+                cache_directory: cache_dir.path().to_path_buf(),
+                block_size,
+                limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
+            };
+            DiskDataCache::new(cache_config, pool)
+        })("test_cache_metrics", TestSessionConfig::default());
+
+        let content = vec![b'x'; 1024 * 1024];
+        test_session.client().put_object("file.txt", &content).unwrap();
+        let path = test_session.mount_path().join("file.txt");
+
+        // First read - populate cache and wait for asynchronous cache updates
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        sleep(Duration::from_millis(100));
+
+        // No cache hits but cache should be updated
+        assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
+
+        // Second read - cache hit
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+
+        // Verify cache hit metrics
+        assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
+
+        // Read a large file to trigger eviction metrics
+        let large_content = vec![b'z'; 2 * 1024 * 1024];
+        test_session.client().put_object("large_file.txt", &large_content).unwrap();
+        let large_path = test_session.mount_path().join("large_file.txt");
+        File::open(&large_path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        sleep(Duration::from_millis(100));
+
+        // Verify eviction metrics
+        assert_metric_exists(&recorder, "disk_data_cache.eviction_duration_us", &[]);
+    }
+
+    #[test]
+    fn test_multi_level_cache_metrics() {
+        let recorder = setup_recorder();
+        let cache_dir = tempfile::tempdir().unwrap();
+
+        let test_session = mock_session::new_with_cache(|block_size, pool| {
+            let disk_config = DiskDataCacheConfig {
+                cache_directory: cache_dir.path().to_path_buf(),
+                block_size,
+                limit: mountpoint_s3_fs::data_cache::CacheLimit::TotalSize { max_size: 2 * 1024 * 1024 },
+            };
+            let disk_cache = Arc::new(DiskDataCache::new(disk_config, pool.clone()));
+
+            let express_cache = {
+                let express_client = MockClient::config()
+                    .bucket("test_bucket")
+                    .part_size(1024 * 1024)
+                    .build();
+                let express_config = ExpressDataCacheConfig::new("test_bucket", "test_source")
+                    .block_size(block_size);
+                ExpressDataCache::new(express_client, express_config)
+            };
+
+            let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+            MultilevelDataCache::new(disk_cache, express_cache, runtime)
+        })("test_multi_level_cache_metrics", TestSessionConfig::default());
+
+        let content = vec![b'x'; 128 * 1024];
+        test_session.client().put_object("file.txt", &content).unwrap();
+        let path = test_session.mount_path().join("file.txt");
+
+        // First read should populate both caches. Wait to allow both caches to be populated.
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        sleep(Duration::from_millis(100));
+
+        // Verify cache population metrics
+        // Currently, disk_data_cache.read_duration_us is only recorded on cache hits, not misses.
+        // But they are recorded for express.
+        assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
+        assert_metric_exists(&recorder, "express_data_cache.write_duration_us", &[("type", "ok")]);
+        assert_metric_exists(&recorder, "express_data_cache.total_bytes", &[("type", "write")]);
+        assert_metric_exists(&recorder, "express_data_cache.read_duration_us", &[("type", "miss")]);
+
+        // Second read should hit disk cache after async write completes
+        File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
+        sleep(Duration::from_millis(100));
+
+        assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
+        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
     }
 }
