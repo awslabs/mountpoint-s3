@@ -21,14 +21,14 @@ use tracing::{trace, warn};
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
 use crate::memory::{BufferKind, PagedPool};
+use crate::metrics::defs::{
+    ATTR_CACHE, CACHE_DISK, CACHE_EVICT_LATENCY, CACHE_GET_ERRORS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY,
+    CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY, CACHE_TOTAL_SIZE,
+};
 use crate::object::ObjectId;
 use crate::sync::Mutex;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
-use crate::metrics::defs::{
-    ATTR_CACHE, ATTR_ERROR, CACHE_DISK, CACHE_EVICT_LATENCY, CACHE_GET_ERRORS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY,
-    CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY, CACHE_TOTAL_SIZE,
-};
 
 /// Disk and file-layout versioning.
 const CACHE_VERSION: &str = "V2";
@@ -465,8 +465,7 @@ impl DataCache for DiskDataCache {
         let start = Instant::now();
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        let read_result = self.read_block(&path, cache_key, block_idx, block_offset);
-        let result = match read_result {
+        let result = match self.read_block(&path, cache_key, block_idx, block_offset) {
             Ok(None) => {
                 // Cache miss.
                 Ok(None)
@@ -481,7 +480,7 @@ impl DataCache for DiskDataCache {
             }
             Err(err) => {
                 // Invalid block.
-                metrics::counter!(CACHE_GET_ERRORS, ATTR_CACHE => CACHE_DISK, ATTR_ERROR => err.reason()).increment(1);
+                metrics::counter!(CACHE_GET_ERRORS, ATTR_CACHE => CACHE_DISK).increment(1);
                 Err(err)
             }
         };
@@ -506,6 +505,8 @@ impl DataCache for DiskDataCache {
         let path = self.get_path_for_block_key(&block_key);
         trace!(?cache_key, ?path, "new block will be created in disk cache");
 
+        // Capture the put operation result separately from metrics recording
+        // to ensure we can record both success and error metrics consistently
         let put_result = (|| -> DataCacheResult<()> {
             let block = DiskBlock::new(cache_key, block_idx, block_offset, bytes).map_err(|err| match err {
                 DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
@@ -533,18 +534,13 @@ impl DataCache for DiskDataCache {
             Ok(())
         })();
 
-        let result = match put_result {
-            Ok(()) => {
-                metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes_len as u64);
-                Ok(())
-            }
-            Err(err) => {
-                metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_DISK, ATTR_ERROR => err.reason()).increment(1);
-                Err(err)
-            }
-        };
+        if put_result.is_ok() {
+            metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes_len as u64);
+        } else {
+            metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_DISK).increment(1);
+        }
         metrics::histogram!(CACHE_PUT_LATENCY, ATTR_CACHE => CACHE_DISK).record(start.elapsed().as_micros() as f64);
-        result
+        put_result
     }
 
     fn block_size(&self) -> u64 {

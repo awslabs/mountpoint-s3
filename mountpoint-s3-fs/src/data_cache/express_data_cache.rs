@@ -1,8 +1,8 @@
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 use crate::ServerSideEncryption;
 use crate::metrics::defs::{
-    ATTR_CACHE, ATTR_ERROR, CACHE_EXPRESS, CACHE_GET_ERRORS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY,
-    CACHE_OVERSIZED_OBJECTS, CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
+    ATTR_CACHE, CACHE_EXPRESS, CACHE_GET_ERRORS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY, CACHE_OVERSIZED_OBJECTS,
+    CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
 };
 use crate::object::ObjectId;
 use std::collections::HashMap;
@@ -307,8 +307,7 @@ where
             }
             Ok(None) => Ok(None),
             Err(err) => {
-                metrics::counter!(CACHE_GET_ERRORS, ATTR_CACHE => CACHE_EXPRESS, ATTR_ERROR => err.reason())
-                    .increment(1);
+                metrics::counter!(CACHE_GET_ERRORS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
                 Err(err)
             }
         };
@@ -335,8 +334,7 @@ where
                 Ok(())
             }
             Err(err) => {
-                metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_EXPRESS, ATTR_ERROR => err.reason())
-                    .increment(1);
+                metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
                 Err(err)
             }
         };

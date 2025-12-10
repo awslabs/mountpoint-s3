@@ -42,19 +42,6 @@ pub enum DataCacheError {
     EvictionFailure,
 }
 
-impl DataCacheError {
-    fn reason(&self) -> &'static str {
-        match self {
-            DataCacheError::IoFailure(_) => "io_failure",
-            DataCacheError::InvalidBlockHeader(_) => "invalid_block_header",
-            DataCacheError::InvalidBlockChecksum => "invalid_block_checksum",
-            DataCacheError::InvalidBlockContent => "invalid_block_content",
-            DataCacheError::InvalidBlockOffset => "invalid_block_offset",
-            DataCacheError::EvictionFailure => "eviction_failure",
-        }
-    }
-}
-
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;
 
 /// Data cache for fixed-size checksummed buffers.

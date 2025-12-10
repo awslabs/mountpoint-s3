@@ -44,7 +44,6 @@ pub const CACHE_OVERSIZED_OBJECTS: &str = "cache.oversized_objects";
 // Attribute constants
 pub const ATTR_FUSE_REQUEST: &str = "fuse_request";
 pub const ATTR_CACHE: &str = "cache";
-pub const ATTR_ERROR: &str = "error";
 
 // Cache type constants
 pub const CACHE_DISK: &str = "disk";
