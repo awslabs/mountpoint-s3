@@ -62,3 +62,6 @@ fmt-check:
 .PHONY: clippy
 clippy:
 	cargo clippy ${PACKAGES} --no-deps --all-targets --all-features -- -D warnings -D clippy::all
+
+.PHONY: pre-pr-check
+pre-pr-check: fmt check clippy test
