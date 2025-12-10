@@ -416,6 +416,8 @@ where
             FileHandleState::Write { .. } => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
+        // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
+        // If still valid, mark it as not-flushed before starting to read, blocking any future opens from taking over the active reading
         if *flushed {
             if !self.metablock.validate_handle(ino, fh, ReadWriteMode::Read).await? {
                 return Err(err!(
@@ -503,6 +505,8 @@ where
                 FileHandleState::Write { state, flushed } => (state, flushed),
             };
 
+            // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
+            // If not, mark it as not-flushed before starting to write, blocking any future opens from taking over the active writing
             if *flushed {
                 if !self.metablock.validate_handle(ino, fh, ReadWriteMode::Write).await? {
                     return Err(err!(
@@ -611,10 +615,18 @@ where
     }
 
     pub async fn flush(&self, ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
-        // We generally want to complete the upload when users close a file descriptor (and flush
-        // is invoked), so that we can notify them of the outcome. However, since different file
-        // descriptors can point to the same file handle, flush can be invoked multiple times on
-        // a file handle and will fail once the object has been uploaded.
+        // For read-handles:
+        // Flush simply records the handle's state as flushed, and is functionally
+        // no-op if called more than once.
+        //
+        // For write-handles:
+        // We generally want to complete the upload when users close a file
+        // descriptor (and flush is invoked), so that we can notify them of the outcome. However,
+        // since different file descriptors can point to the same file handle, flush can be invoked
+        // multiple times on a file handle. Any future flushes will be functionally no-op once the
+        // object has been uploaded to S3, however any following write requests to the handle would
+        // fail.
+        //
         // While we cannot avoid this issue in the general case, we want to support common usage
         // patterns, in particular:
         // * commands like `touch` and `dd` duplicate a file descriptor immediately after open,
@@ -624,6 +636,9 @@ where
         //   process. In many cases, the child will then immediately close (flush) the duplicated
         //   file descriptors. We will not complete the upload if we can detect that the process
         //   invoking flush is different from the one that originally opened the file.
+        // In these cases, Flush also records the handle's state as flushed, and attaches a
+        // CompletionHook to the handle which can then be completed by a following Release or
+        // (a newer) Open request to sync the state to S3.
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -651,7 +666,7 @@ where
     /// Release a file handle.
     ///
     /// Note that errors won't actually be seen by the user because `release` is async,
-    /// but we'll still be returned here and logged by [`S3FuseFilesystem`].           
+    /// but will still be returned here and logged by [`S3FuseFilesystem`].
     pub async fn release(
         &self,
         ino: InodeNo,
@@ -678,6 +693,16 @@ where
             FileHandleState::Write { .. } => {}
         };
 
+        // In most cases, this handle should have been flushed (closed) previously and hence already
+        // have a CompletionHook attached. However, there can be edge cases where a user application
+        // might terminate unexpectedly without closing the handle, where the Kernel would directly
+        // send a Release on handle's reference counter dropping to 0.
+        // To support this case, Release will "flush" the handle first, and create a CompletionHook
+        // here and attach it as part of the flushing process.
+        //
+        // In all other cases, this hook will be discarded unused; and the original hook will be
+        // completed (if it's not already) to upload data to S3, and mark the file handle closed
+        // and the inode "Remote".
         let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone(), fh);
         self.metablock
             .release_writer(ino, fh, completion_hook, &file_handle.location)
