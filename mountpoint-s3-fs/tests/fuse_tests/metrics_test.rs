@@ -8,6 +8,11 @@ use mountpoint_s3_fs::data_cache::{
     DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig, MultilevelDataCache,
 };
 use mountpoint_s3_fs::metrics::defs::{
+    ATTR_CACHE, CACHE_DISK, CACHE_EVICT_LATENCY, CACHE_EXPRESS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY,
+    CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
+};
+
+use mountpoint_s3_fs::metrics::defs::{
     ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS, FUSE_REQUEST_LATENCY, PREFETCH_RESET_STATE,
 };
 use rusty_fork::rusty_fork_test;
@@ -239,23 +244,22 @@ rusty_fork_test! {
         test_session.client().put_object("file.txt", &content).unwrap();
         let path = test_session.mount_path().join("file.txt");
 
-        // First read - populate cache and wait for asynchronous cache updates
+        // First read - populate cache
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
         sleep(Duration::from_millis(100));
 
         // No cache hits but cache should be updated
         assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
-        assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
+        assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
 
         // Second read - cache hit
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
 
         // Verify cache hit metrics
         assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
+        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_metric_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
 
         // Read a large file to trigger eviction metrics
         let large_content = vec![b'z'; 2 * 1024 * 1024];
@@ -265,7 +269,7 @@ rusty_fork_test! {
         sleep(Duration::from_millis(100));
 
         // Verify eviction metrics
-        assert_metric_exists(&recorder, "disk_data_cache.eviction_duration_us", &[]);
+        assert_metric_exists(&recorder, CACHE_EVICT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
     }
 
     #[test]
@@ -304,22 +308,21 @@ rusty_fork_test! {
         sleep(Duration::from_millis(100));
 
         // Verify cache population metrics
-        // Currently, disk_data_cache.read_duration_us is only recorded on cache hits, not misses.
         // But they are recorded for express.
         assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
-        assert_metric_exists(&recorder, "disk_data_cache.write_duration_us", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "write")]);
-        assert_metric_exists(&recorder, "express_data_cache.write_duration_us", &[("type", "ok")]);
-        assert_metric_exists(&recorder, "express_data_cache.total_bytes", &[("type", "write")]);
-        assert_metric_exists(&recorder, "express_data_cache.read_duration_us", &[("type", "miss")]);
+        assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
+        assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]);
+        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
 
         // Second read should hit disk cache after async write completes
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
         sleep(Duration::from_millis(100));
 
         assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.block_hit", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.read_duration_us", &[]);
-        assert_metric_exists(&recorder, "disk_data_cache.total_bytes", &[("type", "read")]);
+        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_metric_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
     }
 }
