@@ -2,7 +2,7 @@
 
 This guide introduces developers to the Mountpoint for Amazon S3 project and covers common development tasks.
 You should be reading this document if you are new to the project
-and would like to be familar with its purpose and development.
+and would like to be familiar with its purpose and development.
 
 ## What is Mountpoint for Amazon S3?
 
@@ -43,7 +43,7 @@ will help highlight the challenges faced in building this translation layer.
 * Jeff Barr's blog post about Mountpoint: https://aws.amazon.com/blogs/aws/mountpoint-for-amazon-s3-generally-available-and-ready-for-production-workloads/
 * Section 2 of the paper "To FUSE or Not to FUSE: Performance of User-Space File Systems" has
   a nice introduction to FUSE with diagrams: https://www.usenix.org/system/files/conference/fast17/fast17-vangoor.pdf
-* Linux FUSE documentation: https://github.com/torvalds/linux/blob/master/Documentation/filesystems/fuse.rst
+* Linux FUSE documentation: https://github.com/torvalds/linux/blob/master/Documentation/filesystems/fuse/fuse.rst
 * Definition of the FileSystem trait implemented by Mountpoint: https://docs.rs/fuser/latest/fuser/trait.Filesystem.html
 * Equivalent definition of the FileSystem trait in [libfuse],
   the reference implementation for the userspace FUSE daemon: https://libfuse.github.io/doxygen/structfuse__lowlevel__ops.html
@@ -95,6 +95,7 @@ mountpoint-s3                           # Main binary crate (CLI, mount logic)
 
 **FUSE Bindings (`mountpoint-s3-fuser`)**
 - Fork of the `fuser` crate with Mountpoint-specific optimizations
+  - The crate README.md provides information on how it's maintained: https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-fuser/README.md#fork-maintenance
 - Low-level FUSE protocol handling
 - Kernel interface for filesystem operations
 
@@ -103,8 +104,6 @@ mountpoint-s3                           # Main binary crate (CLI, mount logic)
 - `mountpoint-s3-crt` aims to provide a 'safe', idiomatic interface to the bindings in `mountpoint-s3-crt-sys`.
 
 ## Development Environment Setup
-
-### Prerequisites
 
 You will need the Rust and C toolchains installed.
 The `docs/INSTALL.md` has a section on building from source which can get you started.
@@ -125,10 +124,16 @@ the Mountpoint team works with an internal fork of the repository.
 
 Many team members are using [Visual Studio Code](https://code.visualstudio.com/) to work with the project.
 
+The project contains a `Makefile` which provides quick ways to run common tasks
+while excluding the `fuser` crate which we don't typically aren't modifying.
+For example, `make fmt-check` and `make clippy` runs `rustfmt` and `clippy` against all but the fuser crate.
+
 ### Running Unit Tests
 
 Unit tests are defined either in the modules themselves inside a `test` mod block,
 or in the `tests/` directory of the crate.
+
+In this project, we are using [nextest](https://nexte.st/) as our preferred test runner.
 
 Tests can be run with something as simple as the following commands.
 
