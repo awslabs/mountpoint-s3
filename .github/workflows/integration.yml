@@ -449,6 +449,7 @@ jobs:
   workflow-complete:
     name: "Integration Tests Complete"
     runs-on: ubuntu-latest
+    if: always()
     needs:
       - fs-test
       - client-test
@@ -457,4 +458,5 @@ jobs:
       - metrics
       - test-rpm
     steps:
-      - run: echo "Workflow complete"
+      - name: Verify jobs succeeded
+        run: echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'
