@@ -948,7 +948,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(true)
     }
 
-    /// Updates status of the inode
     async fn flush_writer(
         &self,
         ino: InodeNo,
