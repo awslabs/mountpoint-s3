@@ -734,6 +734,7 @@ pub struct MockBackpressureHandle {
     request_range: Range<u64>,
     part_size: u64,
     read_window_increment_failed: Arc<AtomicBool>,
+    fail_on_non_aligned_read_window: bool,
 }
 
 impl ClientBackpressureHandle for MockBackpressureHandle {
@@ -741,7 +742,10 @@ impl ClientBackpressureHandle for MockBackpressureHandle {
         let prev_read_window_end_offset = self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
         let read_window_end_offset = prev_read_window_end_offset + len as u64;
         let relative_read_window_end = read_window_end_offset - self.request_range.start;
-        if read_window_end_offset < self.request_range.end && !relative_read_window_end.is_multiple_of(self.part_size) {
+        if self.fail_on_non_aligned_read_window
+            && read_window_end_offset < self.request_range.end
+            && !relative_read_window_end.is_multiple_of(self.part_size)
+        {
             tracing::warn!(
                 relative_read_window_end,
                 self.part_size,
@@ -769,8 +773,6 @@ pub struct MockGetObjectResponse {
     length: usize,
     part_size: usize,
     backpressure_handle: Option<MockBackpressureHandle>,
-    read_window_increment_failed: Arc<AtomicBool>,
-    fail_on_non_aligned_read_window: bool,
 }
 
 impl MockGetObjectResponse {
@@ -810,7 +812,9 @@ impl Stream for MockGetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.fail_on_non_aligned_read_window && self.read_window_increment_failed.load(Ordering::SeqCst) {
+        if let Some(backpressure_handle) = &self.backpressure_handle
+            && backpressure_handle.read_window_increment_failed.load(Ordering::SeqCst)
+        {
             // Return an error for this and all future requests made by this client.
             // This ensures the error is observed by the user, since errors that occur
             // during readahead are not propagated to userspace and may otherwise be missed.
@@ -971,6 +975,7 @@ impl ObjectClient for MockClient {
                     request_range: next_offset..next_offset + length as u64,
                     part_size: self.read_part_size() as u64,
                     read_window_increment_failed: self.read_window_increment_failed.clone(),
+                    fail_on_non_aligned_read_window: self.config.fail_on_non_aligned_read_window,
                 })
             } else {
                 None
@@ -981,8 +986,6 @@ impl ObjectClient for MockClient {
                 length,
                 part_size: self.config.part_size,
                 backpressure_handle,
-                read_window_increment_failed: self.read_window_increment_failed.clone(),
-                fail_on_non_aligned_read_window: self.config.fail_on_non_aligned_read_window,
             })
         } else {
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(
