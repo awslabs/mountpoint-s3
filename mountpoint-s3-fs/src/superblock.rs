@@ -43,7 +43,7 @@ use tracing::{debug, error, trace, warn};
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags};
 use crate::logging;
 use crate::metablock::{
-    AddDirEntry, AddDirEntryResult, CompletionHook, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat,
+    AddDirEntry, AddDirEntryResult, PendingUploadHook, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat,
     Lookup, Metablock, NewHandle, ReadWriteMode, S3Location, ValidKey, ValidName, WriteMode,
 };
 use crate::s3::{S3Path, S3Personality};
@@ -325,7 +325,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
     }
 
     async fn start_reading(&self, looked_up_inode: LookedUpInode, fh: u64) -> Result<Lookup, InodeError> {
-        let completion_hook = {
+        let pending_upload_hook = {
             let mut locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
             if matches!(locked_inode.write_status, WriteStatus::LocalUnopened)
                 || !self.inner.open_handles.try_add_reader(&locked_inode, fh)
@@ -335,11 +335,11 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             if matches!(locked_inode.write_status, WriteStatus::LocalOpenForWriting) {
                 locked_inode.write_status = WriteStatus::Remote;
             }
-            locked_inode.completion_hook.clone()
+            locked_inode.pending_upload_hook.clone()
         };
 
-        if let Some(hook) = completion_hook
-            && let Some(lookup) = hook.trigger().await?
+        if let Some(upload_hook) = pending_upload_hook
+            && let Some(lookup) = upload_hook.wait_for_completion().await?
         {
             Ok(lookup)
         } else {
@@ -354,12 +354,10 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         is_truncate: bool,
         handle_id: u64,
     ) -> Result<Lookup, InodeError> {
-        let completion_hook = {
+        let pending_upload_hook = {
             let mut state = looked_up_inode.inode.get_mut_inode_state()?;
             match state.write_status {
                 WriteStatus::LocalUnopened => {
-                    state.write_status = WriteStatus::LocalOpenForWriting;
-                    state.stat.size = 0;
                     self.inner
                         .open_handles
                         .set_writer(&state, handle_id)
@@ -371,6 +369,8 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                                 InodeError::InodeNotWritableWhileReading(looked_up_inode.inode.err())
                             }
                         })?;
+                    state.write_status = WriteStatus::LocalOpenForWriting;
+                    state.stat.size = 0;
                     None
                 }
                 WriteStatus::PendingRename => {
@@ -395,13 +395,13 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                     if is_truncate {
                         state.stat.size = 0;
                     }
-                    state.completion_hook.clone()
+                    state.pending_upload_hook.clone()
                 }
             }
         };
 
-        if let Some(hook) = completion_hook
-            && let Some(lookup) = hook.trigger().await?
+        if let Some(upload_hook) = pending_upload_hook
+            && let Some(lookup) = upload_hook.wait_for_completion().await?
         {
             Ok(lookup)
         } else {
@@ -901,7 +901,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 if self.inner.open_handles.try_remove_writer(&locked_inode, fh) {
                     locked_inode.write_status = WriteStatus::Remote;
                 }
-                locked_inode.completion_hook = None;
+                locked_inode.pending_upload_hook = None;
 
                 if let Some(etag) = etag {
                     locked_inode.stat.etag = Some(etag.into_inner().into_boxed_str());
@@ -944,7 +944,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let locked_inode = inode.get_mut_inode_state()?;
-        self.inner.open_handles.deactivate_reader(&locked_inode, fh);
+        self.inner.open_handles.try_deactivate_reader(&locked_inode, fh);
         Ok(true)
     }
 
@@ -953,15 +953,15 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         &self,
         ino: InodeNo,
         fh: u64,
-        hook: CompletionHook,
-    ) -> Result<Option<CompletionHook>, InodeError> {
+        hook: PendingUploadHook,
+    ) -> Result<Option<PendingUploadHook>, InodeError> {
         let inode = self.inner.get(ino)?;
-        let completion_hook = {
+        let pending_upload_hook = {
             let mut locked_inode = inode.get_mut_inode_state()?;
             match locked_inode.write_status {
                 WriteStatus::LocalOpenForWriting => {
                     if self.inner.open_handles.try_deactivate_writer(&locked_inode, fh) {
-                        Some(locked_inode.completion_hook.get_or_insert(hook).clone())
+                        Some(locked_inode.pending_upload_hook.get_or_insert(hook).clone())
                     } else {
                         None
                     }
@@ -969,7 +969,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 _ => None,
             }
         };
-        Ok(completion_hook)
+        Ok(pending_upload_hook)
     }
 
     /// Update status of the inode to reflect the read being finished
@@ -984,14 +984,14 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         &self,
         ino: InodeNo,
         fh: u64,
-        completion_handle: CompletionHook,
+        pending_upload_hook: PendingUploadHook,
         location: &S3Location,
     ) -> Result<(), InodeError> {
-        let completion_hook = self.flush_writer(ino, fh, completion_handle.clone()).await;
-        match completion_hook.clone() {
-            Ok(Some(completion_hook)) => {
-                let complete_result = completion_hook.trigger().await?;
-                if complete_result.is_some() {
+        let pending_upload_hook = self.flush_writer(ino, fh, pending_upload_hook).await;
+        match pending_upload_hook {
+            Ok(Some(upload_hook)) => {
+                let completion_result = upload_hook.wait_for_completion().await?;
+                if completion_result.is_some() {
                     debug!(key = %location, "upload completed async after file was closed");
                 }
             }
@@ -1000,8 +1000,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 debug!(key = %location, "failed to flush open file handle during release: {e}");
             }
         }
-        drop(completion_handle);
-        drop(completion_hook);
         Ok(())
     }
 
@@ -1247,7 +1245,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             Ok(Some(removed_inode)) => {
                 trace!(ino, "removing inode from superblock");
                 if self.inner.open_handles.remove_inode(ino) {
-                    debug!("File handles found for forgotten inode")
+                    debug!("Open file handle(s) found for forgotten inode {}", ino);
                 }
                 let parent_ino = removed_inode.parent();
 
@@ -1290,7 +1288,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         }
     }
 
-    async fn validate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
+    async fn try_activate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let mut locked_inode = inode.get_mut_inode_state()?;
         match mode {
@@ -1302,7 +1300,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             ReadWriteMode::Write => {
                 if self.inner.open_handles.try_activate_writer(&locked_inode, fh) {
                     locked_inode.write_status = WriteStatus::LocalOpenForWriting;
-                    locked_inode.completion_hook = None;
+                    locked_inode.pending_upload_hook = None;
                     return Ok(true);
                 }
             }
