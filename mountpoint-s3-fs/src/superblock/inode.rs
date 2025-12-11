@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tracing::debug;
 
 use crate::metablock::{
-    PendingUploadHook, InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO,
+    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, PendingUploadHook, ROOT_INODE_NO,
     ValidKey,
 };
 use crate::s3::Prefix;
