@@ -179,6 +179,11 @@ where
                 async move {
                     let checksum_algorithm = get_checksum_algorithm(&client, &params).await;
                     let is_error = checksum_algorithm.is_err();
+                    if is_error {
+                        trace!("failed to get existing checksum algorithm for append");
+                        // Stop receiving new requests
+                        request_receiver.close();
+                    }
                     if !checksum_algorithm_sender.send(checksum_algorithm).await || is_error {
                         return;
                     }
