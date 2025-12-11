@@ -6,19 +6,19 @@ use std::ffi::{OsStr, OsString};
 use time::OffsetDateTime;
 
 // Import core types from submodules
-mod pending_upload;
 mod error;
 mod expiry;
 mod lookup;
 mod path;
+mod pending_upload;
 mod stat;
 
 // Re-export all the core types
-pub use pending_upload::PendingUploadHook;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
 pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
+pub use pending_upload::PendingUploadHook;
 pub use stat::{InodeKind, InodeNo, InodeStat};
 
 use crate::fs::OpenFlags;
