@@ -1,5 +1,5 @@
 use crate::metablock::InodeNo;
-use crate::sync::RwLock;
+use crate::sync::Mutex;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -9,7 +9,7 @@ use super::InodeLockedForWriting;
 /// Ensures that the Inodes are locked for writing while performing any operation.
 #[derive(Debug, Default)]
 pub struct InodeHandleMap {
-    handles: RwLock<HashMap<InodeNo, InodeHandles>>,
+    handles: Mutex<HashMap<InodeNo, InodeHandles>>,
 }
 
 #[derive(Debug, Default)]
@@ -33,7 +33,7 @@ impl InodeHandles {
 impl InodeHandleMap {
     /// Add a new active reader. Will fail if there is an active writer.
     pub fn try_add_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         let entry = handles.entry(locked_inode.ino).or_default();
         if entry
             .writer
@@ -48,8 +48,8 @@ impl InodeHandleMap {
     }
 
     /// Set an existing reader to inactive.
-    pub fn deactivate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
-        let mut handles = self.handles.write().unwrap();
+    pub fn try_deactivate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
+        let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some(reader) = entry.readers.get_mut(&fh)
         {
@@ -61,7 +61,7 @@ impl InodeHandleMap {
     ///
     /// Return `false` if the reader did not exist.
     pub fn try_activate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some(reader) = entry.readers.get_mut(&fh)
         {
@@ -73,7 +73,7 @@ impl InodeHandleMap {
 
     /// Remove an existing reader.
     pub fn remove_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino) {
             entry.get_mut().readers.remove(&fh);
             if entry.get().is_empty() {
@@ -84,7 +84,7 @@ impl InodeHandleMap {
 
     /// Set the current writer and removes inactive readers.
     pub fn set_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> Result<(), SetWriterError> {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         let entry = handles.entry(locked_inode.ino).or_default();
         if entry.readers.iter().any(|(_, state)| *state == HandleState::Active) {
             return Err(SetWriterError::ActiveReaders);
@@ -105,7 +105,7 @@ impl InodeHandleMap {
     ///
     /// Return `false` if `fh` is not the current writer.
     pub fn try_activate_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some((writer, state)) = &mut entry.writer
             && fh == *writer
@@ -120,7 +120,7 @@ impl InodeHandleMap {
     ///
     /// Return `false` if `fh` is not the current writer.
     pub fn try_deactivate_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some((writer, state)) = &mut entry.writer
             && fh == *writer
@@ -133,7 +133,7 @@ impl InodeHandleMap {
 
     /// Remove the current writer.
     pub fn try_remove_writer(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) -> bool {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         if let Entry::Occupied(mut entry) = handles.entry(locked_inode.ino)
             && let Some((writer, _)) = &entry.get().writer
             && fh == *writer
@@ -148,7 +148,7 @@ impl InodeHandleMap {
     }
 
     pub fn remove_inode(&self, ino: u64) -> bool {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.lock().unwrap();
         handles.remove(&ino).is_some()
     }
 }

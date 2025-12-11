@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tracing::debug;
 
 use crate::metablock::{
-    CompletionHook, InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO,
+    PendingUploadHook, InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO,
     ValidKey,
 };
 use crate::s3::Prefix;
@@ -159,7 +159,7 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
-                completion_hook: None,
+                pending_upload_hook: None,
             },
         )
     }
@@ -189,7 +189,7 @@ impl Inode {
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
-            completion_hook: None,
+            pending_upload_hook: None,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -244,7 +244,7 @@ pub struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
-    pub completion_hook: Option<CompletionHook>,
+    pub pending_upload_hook: Option<PendingUploadHook>,
 }
 
 impl InodeState {
@@ -253,7 +253,7 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
-            completion_hook: None,
+            pending_upload_hook: None,
         }
     }
 
@@ -347,7 +347,7 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
-                completion_hook: None,
+                pending_upload_hook: None,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -490,7 +490,7 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
-                    completion_hook: None,
+                    pending_upload_hook: None,
                 }),
             }),
         };
@@ -548,7 +548,7 @@ mod tests {
                     write_status: WriteStatus::LocalOpenForWriting,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
-                    completion_hook: None,
+                    pending_upload_hook: None,
                 }),
             }),
         };

@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 
 use crate::fs::OpenFlags;
 use crate::metablock::{
-    AddDirEntry, AddDirEntryResult, CompletionHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo,
+    AddDirEntry, AddDirEntryResult, PendingUploadHook, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo,
     InodeStat, Lookup, Metablock, NEVER_EXPIRE_TTL, NewHandle, ROOT_INODE_NO, ReadWriteMode, S3Location, ValidName,
     WriteMode,
 };
@@ -283,7 +283,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn validate_handle(&self, _ino: InodeNo, _fh: u64, _mode: ReadWriteMode) -> Result<bool, InodeError> {
+    async fn try_activate_handle(&self, _ino: InodeNo, _fh: u64, _mode: ReadWriteMode) -> Result<bool, InodeError> {
         Ok(true)
     }
 
@@ -295,8 +295,8 @@ impl Metablock for ManifestMetablock {
         &self,
         _ino: InodeNo,
         _fh: u64,
-        _completion_handle: CompletionHook,
-    ) -> Result<Option<CompletionHook>, InodeError> {
+        _pending_upload_hook: PendingUploadHook,
+    ) -> Result<Option<PendingUploadHook>, InodeError> {
         Ok(None)
     }
 
@@ -304,7 +304,7 @@ impl Metablock for ManifestMetablock {
         &self,
         _ino: InodeNo,
         _fh: u64,
-        _completion_handle: CompletionHook,
+        _pending_upload_hook: PendingUploadHook,
         _location: &S3Location,
     ) -> Result<(), InodeError> {
         Ok(())
