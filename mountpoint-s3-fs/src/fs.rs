@@ -17,7 +17,7 @@ use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
-use crate::metablock::{AddDirEntry, AddDirEntryResult, CompletionHook, InodeInformation, Metablock, ReadWriteMode};
+use crate::metablock::{AddDirEntry, AddDirEntryResult, PendingUploadHook, InodeInformation, Metablock, ReadWriteMode};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -419,7 +419,7 @@ where
         // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
         // If still valid, mark it as not-flushed before starting to read, blocking any future opens from taking over the active reading
         if *flushed {
-            if !self.metablock.validate_handle(ino, fh, ReadWriteMode::Read).await? {
+            if !self.metablock.try_activate_handle(ino, fh, ReadWriteMode::Read).await? {
                 return Err(err!(
                     libc::EBADF,
                     "file handle has been invalidated by a newer handle opened"
@@ -508,7 +508,7 @@ where
             // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
             // If not, mark it as not-flushed before starting to write, blocking any future opens from taking over the active writing
             if *flushed {
-                if !self.metablock.validate_handle(ino, fh, ReadWriteMode::Write).await? {
+                if !self.metablock.try_activate_handle(ino, fh, ReadWriteMode::Write).await? {
                     return Err(err!(
                         libc::EBADF,
                         "file handle has been invalidated by a newer handle opened"
@@ -637,7 +637,7 @@ where
         //   file descriptors. We will not complete the upload if we can detect that the process
         //   invoking flush is different from the one that originally opened the file.
         // In these cases, Flush also records the handle's state as flushed, and attaches a
-        // CompletionHook to the handle which can then be completed by a following Release or
+        // PendingUploadHook to the handle which can then be completed by a following Release or
         // (a newer) Open request to sync the state to S3.
         let file_handle = {
             let file_handles = self.file_handles.read().await;
@@ -694,18 +694,18 @@ where
         };
 
         // In most cases, this handle should have been flushed (closed) previously and hence already
-        // have a CompletionHook attached. However, there can be edge cases where a user application
+        // have a PendingUploadHook attached. However, there can be edge cases where a user application
         // might terminate unexpectedly without closing the handle, where the Kernel would directly
         // send a Release on handle's reference counter dropping to 0.
-        // To support this case, Release will "flush" the handle first, and create a CompletionHook
+        // To support this case, Release will "flush" the handle first, and create a PendingUploadHook
         // here and attach it as part of the flushing process.
         //
         // In all other cases, this hook will be discarded unused; and the original hook will be
         // completed (if it's not already) to upload data to S3, and mark the file handle closed
         // and the inode "Remote".
-        let completion_hook = CompletionHook::new(self.metablock.clone(), file_handle.clone(), fh);
+        let pending_upload_hook = PendingUploadHook::new(self.metablock.clone(), file_handle.clone(), fh);
         self.metablock
-            .release_writer(ino, fh, completion_hook, &file_handle.location)
+            .release_writer(ino, fh, pending_upload_hook, &file_handle.location)
             .await?;
 
         metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);

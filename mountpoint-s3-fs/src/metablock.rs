@@ -6,7 +6,7 @@ use std::ffi::{OsStr, OsString};
 use time::OffsetDateTime;
 
 // Import core types from submodules
-mod completion;
+mod pending_upload;
 mod error;
 mod expiry;
 mod lookup;
@@ -14,7 +14,7 @@ mod path;
 mod stat;
 
 // Re-export all the core types
-pub use completion::CompletionHook;
+pub use pending_upload::PendingUploadHook;
 pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
@@ -70,7 +70,7 @@ pub trait Metablock: Send + Sync {
     /// Returns the new size after the increase.
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError>;
 
-    /// Called when the filesystem has finished writing to the inode refernced by `ino`.
+    /// Called when the filesystem has finished writing to the inode referenced by `ino`.
     /// Allows the implementor to make necessary adjustments / update its internal structure.
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError>;
 
@@ -85,18 +85,18 @@ pub trait Metablock: Send + Sync {
         &self,
         ino: InodeNo,
         fh: u64,
-        completion_handle: CompletionHook,
-    ) -> Result<Option<CompletionHook>, InodeError>;
+        pending_upload_hook: PendingUploadHook,
+    ) -> Result<Option<PendingUploadHook>, InodeError>;
 
     async fn release_writer(
         &self,
         ino: InodeNo,
         fh: u64,
-        completion_handle: CompletionHook,
+        pending_upload_hook: PendingUploadHook,
         location: &S3Location,
     ) -> Result<(), InodeError>;
 
-    async fn validate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
+    async fn try_activate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
