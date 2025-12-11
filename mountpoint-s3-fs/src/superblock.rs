@@ -43,8 +43,8 @@ use tracing::{debug, error, trace, warn};
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags};
 use crate::logging;
 use crate::metablock::{
-    AddDirEntry, AddDirEntryResult, PendingUploadHook, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat,
-    Lookup, Metablock, NewHandle, ReadWriteMode, S3Location, ValidKey, ValidName, WriteMode,
+    AddDirEntry, AddDirEntryResult, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock,
+    NewHandle, PendingUploadHook, ReadWriteMode, S3Location, ValidKey, ValidName, WriteMode,
 };
 use crate::s3::{S3Path, S3Personality};
 use crate::sync::{Arc, RwLock};

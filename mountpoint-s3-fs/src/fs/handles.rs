@@ -5,7 +5,7 @@ use mountpoint_s3_client::types::ETag;
 use tracing::{debug, error};
 
 use crate::fs::InodeError;
-use crate::metablock::{PendingUploadHook, Lookup, Metablock, NewHandle, ReadWriteMode, S3Location};
+use crate::metablock::{Lookup, Metablock, NewHandle, PendingUploadHook, ReadWriteMode, S3Location};
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
 use crate::sync::{Arc, AsyncMutex};
@@ -106,9 +106,7 @@ where
                         .uploader
                         .start_atomic_upload(bucket.to_string(), full_key.into())
                         .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
-                    UploadState::MPUInProgress {
-                        request
-                    }
+                    UploadState::MPUInProgress { request }
                 };
                 let handle = FileHandleState::Write {
                     state: upload_state,
@@ -304,10 +302,10 @@ where
         if let Err(e) = result {
             *self = UploadState::Failed(e.to_errno());
             return Err(err!(
-                    e.to_errno(),
-                    "upload already aborted for key {:?}",
-                    handle.location.full_key()
-                ));
+                e.to_errno(),
+                "upload already aborted for key {:?}",
+                handle.location.full_key()
+            ));
         }
         Ok(())
     }
@@ -326,9 +324,12 @@ where
         match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
-            } => Ok(Some(Self::complete_append(metablock, ino, key, request, initial_etag, fh).await?)),
-            UploadState::MPUInProgress { request, ..
-            } => Ok(Some(Self::complete_upload(metablock, ino, key, request, fh).await?)),
+            } => Ok(Some(
+                Self::complete_append(metablock, ino, key, request, initial_etag, fh).await?,
+            )),
+            UploadState::MPUInProgress { request, .. } => {
+                Ok(Some(Self::complete_upload(metablock, ino, key, request, fh).await?))
+            }
             UploadState::Failed(_) | UploadState::Completed => Ok(None),
         }
     }

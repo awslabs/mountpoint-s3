@@ -17,7 +17,7 @@ use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
-use crate::metablock::{AddDirEntry, AddDirEntryResult, PendingUploadHook, InodeInformation, Metablock, ReadWriteMode};
+use crate::metablock::{AddDirEntry, AddDirEntryResult, InodeInformation, Metablock, PendingUploadHook, ReadWriteMode};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -508,7 +508,11 @@ where
             // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
             // If not, mark it as not-flushed before starting to write, blocking any future opens from taking over the active writing
             if *flushed {
-                if !self.metablock.try_activate_handle(ino, fh, ReadWriteMode::Write).await? {
+                if !self
+                    .metablock
+                    .try_activate_handle(ino, fh, ReadWriteMode::Write)
+                    .await?
+                {
                     return Err(err!(
                         libc::EBADF,
                         "file handle has been invalidated by a newer handle opened"
