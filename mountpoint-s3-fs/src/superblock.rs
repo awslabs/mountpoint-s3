@@ -21,11 +21,12 @@
 //! Some cached state is dependent on the inode kind; that state is hidden behind a [InodeStatKind]
 //! enum.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::default::Default;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -39,17 +40,18 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{debug, error, trace, warn};
 
-use crate::fs::{CacheConfig, FUSE_ROOT_INODE};
+use crate::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags};
 use crate::logging;
 use crate::metablock::{
     AddDirEntry, AddDirEntryResult, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock,
-    S3Location, ValidKey, ValidName, WriteMode,
+    NewHandle, PendingUploadHook, ReadWriteMode, S3Location, ValidKey, ValidName, WriteMode,
 };
 use crate::s3::{S3Path, S3Personality};
-use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
 
-// Import the inode implementation from the superblock/inode module
+mod handles_map;
+use handles_map::{InodeHandleMap, SetWriterError};
+
 mod inode;
 pub use inode::{Inode, InodeKindData, InodeLockedForWriting, InodeState, WriteStatus};
 
@@ -107,7 +109,7 @@ impl RenameCache {
 struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     s3_path: Arc<S3Path>,
     inodes: RwLock<InodeMap>,
-    reader_counts: RwLock<ReaderCountMap>,
+    open_handles: InodeHandleMap,
     negative_cache: NegativeCache,
     cached_rename_support: RenameCache,
     next_ino: AtomicU64,
@@ -135,7 +137,7 @@ impl<'a> PendingRenameGuard<'a> {
     fn try_transition(inode: &'a Inode) -> Result<Self, InodeError> {
         let mut locked = inode.get_mut_inode_state()?;
         match locked.write_status {
-            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename => {
                 return Err(InodeError::RenameNotPermittedWhileWriting(inode.err()));
             }
             WriteStatus::Remote => {} // All OK.
@@ -235,7 +237,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let inner = SuperblockInner {
             s3_path: Arc::new(s3_path),
             inodes: RwLock::new(inodes),
-            reader_counts: Default::default(),
+            open_handles: Default::default(),
             negative_cache,
             next_ino: AtomicU64::new(2),
             mount_time,
@@ -320,6 +322,91 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             .insert(handle_id, Arc::new(dirhandle));
         trace!("Added handle with id: {}", handle_id);
         Ok(handle_id)
+    }
+
+    async fn start_reading(&self, looked_up_inode: LookedUpInode, fh: u64) -> Result<Lookup, InodeError> {
+        let pending_upload_hook = {
+            let mut locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
+            if matches!(locked_inode.write_status, WriteStatus::LocalUnopened)
+                || !self.inner.open_handles.try_add_reader(&locked_inode, fh)
+            {
+                return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
+            }
+            if matches!(locked_inode.write_status, WriteStatus::LocalOpenForWriting) {
+                locked_inode.write_status = WriteStatus::Remote;
+            }
+            locked_inode.pending_upload_hook.clone()
+        };
+
+        if let Some(upload_hook) = pending_upload_hook
+            && let Some(lookup) = upload_hook.wait_for_completion().await?
+        {
+            Ok(lookup)
+        } else {
+            Ok(looked_up_inode.into())
+        }
+    }
+
+    async fn start_writing(
+        &self,
+        looked_up_inode: LookedUpInode,
+        mode: &WriteMode,
+        is_truncate: bool,
+        handle_id: u64,
+    ) -> Result<Lookup, InodeError> {
+        let pending_upload_hook = {
+            let mut state = looked_up_inode.inode.get_mut_inode_state()?;
+            match state.write_status {
+                WriteStatus::LocalUnopened => {
+                    self.inner
+                        .open_handles
+                        .set_writer(&state, handle_id)
+                        .map_err(|e| match e {
+                            SetWriterError::ActiveWriter => {
+                                InodeError::InodeAlreadyWriting(looked_up_inode.inode.err())
+                            }
+                            SetWriterError::ActiveReaders => {
+                                InodeError::InodeNotWritableWhileReading(looked_up_inode.inode.err())
+                            }
+                        })?;
+                    state.write_status = WriteStatus::LocalOpenForWriting;
+                    state.stat.size = 0;
+                    None
+                }
+                WriteStatus::PendingRename => {
+                    return Err(InodeError::InodeAlreadyWriting(looked_up_inode.inode.err()));
+                }
+                WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
+                    if !mode.is_inode_writable(is_truncate) {
+                        return Err(InodeError::InodeNotWritable(looked_up_inode.inode.err()));
+                    }
+                    self.inner
+                        .open_handles
+                        .set_writer(&state, handle_id)
+                        .map_err(|e| match e {
+                            SetWriterError::ActiveWriter => {
+                                InodeError::InodeAlreadyWriting(looked_up_inode.inode.err())
+                            }
+                            SetWriterError::ActiveReaders => {
+                                InodeError::InodeNotWritableWhileReading(looked_up_inode.inode.err())
+                            }
+                        })?;
+                    state.write_status = WriteStatus::LocalOpenForWriting;
+                    if is_truncate {
+                        state.stat.size = 0;
+                    }
+                    state.pending_upload_hook.clone()
+                }
+            }
+        };
+
+        if let Some(upload_hook) = pending_upload_hook
+            && let Some(lookup) = upload_hook.wait_for_completion().await?
+        {
+            Ok(lookup)
+        } else {
+            Ok(looked_up_inode.into())
+        }
     }
 }
 
@@ -552,7 +639,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let mut inode_state = inode.get_mut_inode_state()?;
 
         match &inode_state.write_status {
-            WriteStatus::LocalOpen => unreachable!("A directory cannot be in Local open state"),
+            WriteStatus::LocalOpenForWriting => unreachable!("A directory cannot be in LocalOpenForWriting state"),
             WriteStatus::Remote => {
                 return Err(InodeError::CannotRemoveRemoteDirectory(inode.err()));
             }
@@ -614,7 +701,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         match write_status {
-            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
+            WriteStatus::LocalUnopened | WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename => {
                 // In the future, we may permit `unlink` and cancel any in-flight uploads.
                 warn!(
                     parent = parent_ino,
@@ -716,43 +803,62 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         .into())
     }
 
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError> {
-        trace!(?ino, "write");
-        let inode = self.inner.get(ino)?;
-
-        let mut state = inode.get_mut_inode_state()?;
-        if self.inner.reader_counts.read().unwrap().has_readers(&state) {
-            return Err(InodeError::InodeNotWritableWhileReading(inode.err()));
+    async fn open_handle(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        write_mode: &WriteMode,
+        flags: OpenFlags,
+    ) -> Result<NewHandle, InodeError> {
+        let force_revalidate = !self.inner.config.cache_config.serve_lookup_from_cache || flags.direct_io();
+        let looked_up_inode = self.getattr_with_inode(ino, force_revalidate).await?;
+        match looked_up_inode.inode.kind() {
+            InodeKind::Directory => return Err(InodeError::IsDirectory(looked_up_inode.inode.err())),
+            InodeKind::File => (),
         }
 
-        match state.write_status {
-            WriteStatus::LocalUnopened => {
-                state.write_status = WriteStatus::LocalOpen;
-                state.stat.size = 0;
+        let mode = if flags.contains(OpenFlags::O_RDWR) {
+            if !looked_up_inode.is_remote
+                || (write_mode.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
+                || (write_mode.incremental_upload && flags.contains(OpenFlags::O_APPEND))
+            {
+                // If the file is new or if it was opened in truncate or in append mode,
+                // we know it must be a write handle.
+                debug!("open choosing write handle for O_RDWR");
+                ReadWriteMode::Write
+            } else {
+                // Otherwise, it must be a read handle.
+                debug!("open choosing read handle for O_RDWR");
+                ReadWriteMode::Read
             }
-            WriteStatus::LocalOpen | WriteStatus::PendingRename => {
-                return Err(InodeError::InodeAlreadyWriting(inode.err()));
+        } else if flags.contains(OpenFlags::O_WRONLY) {
+            ReadWriteMode::Write
+        } else {
+            ReadWriteMode::Read
+        };
+
+        match mode {
+            ReadWriteMode::Read => {
+                if !looked_up_inode.stat.is_readable {
+                    return Err(InodeError::FlexibleRetrievalObjectNotAccessible(
+                        looked_up_inode.inode.err(),
+                    ));
+                }
+                Ok(NewHandle::read(self.start_reading(looked_up_inode, fh).await?))
             }
-            WriteStatus::Remote => {
-                if !mode.is_inode_writable(is_truncate) {
-                    return Err(InodeError::InodeNotWritable(inode.err()));
-                }
-
-                if is_truncate {
-                    state.stat.size = 0;
-                }
-
-                state.write_status = WriteStatus::LocalOpen;
+            ReadWriteMode::Write => {
+                let is_truncate = flags.contains(OpenFlags::O_TRUNC);
+                Ok(NewHandle::write(
+                    self.start_writing(looked_up_inode, write_mode, is_truncate, fh).await?,
+                ))
             }
         }
-        drop(state);
-        Ok(())
     }
 
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
         let inode = self.inner.get(ino)?;
         let mut state = inode.get_mut_inode_state()?;
-        if !matches!(state.write_status, WriteStatus::LocalOpen) {
+        if !matches!(state.write_status, WriteStatus::LocalOpenForWriting) {
             debug!(?inode, "Error trying to increase file size on write");
             return Err(InodeError::InodeInvalidWriteStatus(inode.err()));
         }
@@ -761,7 +867,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     }
 
     /// Updates status of the inode and of containing "local" directories.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError> {
         let inode = self.inner.get(ino)?;
         // Collect ancestor inodes that may need updating,
         // from parent to first remote ancestor.
@@ -789,14 +895,23 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             .map(|inode| inode.get_mut_inode_state())
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut state = inode.get_mut_inode_state()?.state;
-        match state.write_status {
-            WriteStatus::LocalOpen => {
-                state.write_status = WriteStatus::Remote;
-                state.stat.etag = etag.map(|e| e.into_inner().into_boxed_str());
+        let mut locked_inode = inode.get_mut_inode_state()?;
+        match locked_inode.write_status {
+            WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
+                if self.inner.open_handles.try_remove_writer(&locked_inode, fh) {
+                    locked_inode.write_status = WriteStatus::Remote;
+                }
+                locked_inode.pending_upload_hook = None;
 
-                // Invalidate the inode's stats so we refresh them from S3 when next queried
-                state.stat.update_validity(Duration::from_secs(0));
+                if let Some(etag) = etag {
+                    locked_inode.stat.etag = Some(etag.into_inner().into_boxed_str());
+                    locked_inode
+                        .stat
+                        .update_validity(self.inner.config.cache_config.file_ttl);
+                } else {
+                    // Invalidate the inode's stats so we refresh them from S3 when next queried
+                    locked_inode.stat.update_validity(Duration::from_secs(0));
+                }
 
                 // Walk up the ancestors from parent to first remote ancestor to transition
                 // the inode and all "local" containing directories to "remote".
@@ -811,35 +926,79 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     ancestor_state.write_status = WriteStatus::Remote;
                 }
 
-                Ok(())
+                let stat = locked_inode.stat.clone();
+                drop(locked_inode);
+
+                Ok(LookedUpInode {
+                    inode,
+                    stat,
+                    path: self.inner.s3_path.clone(),
+                    is_remote: true,
+                }
+                .into())
             }
             _ => Err(InodeError::InodeInvalidWriteStatus(inode.err())),
         }
     }
 
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
-        trace!(?ino, "read");
-
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let locked_inode = inode.get_mut_inode_state()?;
-        if !matches!(
-            locked_inode.write_status,
-            WriteStatus::Remote | WriteStatus::PendingRename
-        ) {
-            return Err(InodeError::InodeNotReadableWhileWriting(inode.err()));
-        }
-        self.inner.reader_counts.write().unwrap().add_reader(&locked_inode);
-        drop(locked_inode);
-        Ok(())
+        self.inner.open_handles.try_deactivate_reader(&locked_inode, fh);
+        Ok(true)
+    }
+
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        hook: PendingUploadHook,
+    ) -> Result<Option<PendingUploadHook>, InodeError> {
+        let inode = self.inner.get(ino)?;
+        let pending_upload_hook = {
+            let mut locked_inode = inode.get_mut_inode_state()?;
+            match locked_inode.write_status {
+                WriteStatus::LocalOpenForWriting => {
+                    if self.inner.open_handles.try_deactivate_writer(&locked_inode, fh) {
+                        Some(locked_inode.pending_upload_hook.get_or_insert(hook).clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        };
+        Ok(pending_upload_hook)
     }
 
     /// Update status of the inode to reflect the read being finished
-    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError> {
+    async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
-
-        // Decrease reader count for the inode
         let state = inode.get_mut_inode_state()?;
-        self.inner.reader_counts.write().unwrap().remove_reader(&state);
+        self.inner.open_handles.remove_reader(&state, fh);
+        Ok(())
+    }
+
+    async fn release_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        pending_upload_hook: PendingUploadHook,
+        location: &S3Location,
+    ) -> Result<(), InodeError> {
+        let pending_upload_hook = self.flush_writer(ino, fh, pending_upload_hook).await;
+        match pending_upload_hook {
+            Ok(Some(upload_hook)) => {
+                let completion_result = upload_hook.wait_for_completion().await?;
+                if completion_result.is_some() {
+                    debug!(key = %location, "upload completed async after file was closed");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                debug!(key = %location, "failed to flush open file handle during release: {e}");
+            }
+        }
         Ok(())
     }
 
@@ -1084,6 +1243,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         match inodes.decrease_lookup_count(ino, n) {
             Ok(Some(removed_inode)) => {
                 trace!(ino, "removing inode from superblock");
+                if self.inner.open_handles.remove_inode(ino) {
+                    debug!("Open file handle(s) found for forgotten inode {}", ino);
+                }
                 let parent_ino = removed_inode.parent();
 
                 // Remove from the parent. Nothing to do if the parent has already been removed,
@@ -1123,6 +1285,26 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 error!("forget called on inode {ino} already removed from the superblock");
             }
         }
+    }
+
+    async fn try_activate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
+        let inode = self.inner.get(ino)?;
+        let mut locked_inode = inode.get_mut_inode_state()?;
+        match mode {
+            ReadWriteMode::Read => {
+                if self.inner.open_handles.try_activate_reader(&locked_inode, fh) {
+                    return Ok(true);
+                }
+            }
+            ReadWriteMode::Write => {
+                if self.inner.open_handles.try_activate_writer(&locked_inode, fh) {
+                    locked_inode.write_status = WriteStatus::LocalOpenForWriting;
+                    locked_inode.pending_upload_hook = None;
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -1759,39 +1941,8 @@ pub enum InodeMapError {
     InodeNotFound(InodeNo),
 }
 
-/// Stores the number of readers (if they are > 0) for Inodes.
-/// Ensures that the Inodes are locked for writing while performing these operations.
-#[derive(Debug, Default)]
-struct ReaderCountMap {
-    map: HashMap<InodeNo, u32>,
-}
-
-impl ReaderCountMap {
-    fn has_readers(&self, locked_inode: &InodeLockedForWriting) -> bool {
-        // Suffices we only store non-zero counts
-        self.map.contains_key(&locked_inode.ino)
-    }
-
-    fn add_reader(&mut self, locked_inode: &InodeLockedForWriting) {
-        *self.map.entry(locked_inode.ino).or_insert(0) += 1;
-    }
-
-    fn remove_reader(&mut self, locked_inode: &InodeLockedForWriting) {
-        if let Entry::Occupied(mut entry) = self.map.entry(locked_inode.ino) {
-            let count = entry.get_mut();
-            if *count > 0 {
-                *count -= 1;
-            }
-            if *count == 0 {
-                entry.remove();
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockObject},
         types::ETag,
@@ -2245,7 +2396,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .start_writing(new_inode.ino(), &WriteMode::default(), false)
+                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename.into());
@@ -2294,7 +2445,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .start_writing(new_inode.ino(), &WriteMode::default(), false)
+                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename.to_owned().into());
@@ -2450,7 +2601,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .start_writing(new_inode.ino(), &WriteMode::default(), false)
+                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
                 .await
                 .expect("should be able to start writing");
         }
@@ -2691,13 +2842,13 @@ mod tests {
             .unwrap();
 
         superblock
-            .start_writing(new_inode.ino(), &WriteMode::default(), false)
+            .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
             .await
             .expect("should be able to start writing");
 
         // Invoke [finish_writing], without actually adding the
         // object to the client
-        superblock.finish_writing(new_inode.ino(), None).await.unwrap();
+        superblock.finish_writing(new_inode.ino(), None, 0).await.unwrap();
 
         // All nested dirs disappear
         let dirname = nested_dirs.first().unwrap();
@@ -2848,7 +2999,7 @@ mod tests {
             .unwrap();
 
         superblock
-            .start_writing(new_inode.ino(), &WriteMode::default(), false)
+            .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
             .await
             .expect("should be able to start writing");
 
@@ -2874,7 +3025,7 @@ mod tests {
 
         // Invoke [finish_writing] to make the file remote
         superblock
-            .finish_writing(new_inode.ino(), Some(ETag::for_tests()))
+            .finish_writing(new_inode.ino(), Some(ETag::for_tests()), 0)
             .await
             .unwrap();
 
