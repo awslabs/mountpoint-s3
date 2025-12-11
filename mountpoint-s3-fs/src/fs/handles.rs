@@ -42,10 +42,13 @@ where
     /// The file handle has been assigned as a read handle
     Read {
         request: PrefetchGetObject<Client>,
-        flushed: bool,
+        flushed: bool, // Set to true when `flush` called on the handle, and unset on a `read`
     },
     /// The file handle has been assigned as a write handle
-    Write { state: UploadState<Client>, flushed: bool },
+    Write {
+        state: UploadState<Client>,
+        flushed: bool, // Set to true when `flush` called on the handle, and unset on a `write`
+    },
 }
 
 impl<Client> FileHandleState<Client>
@@ -251,7 +254,7 @@ where
         match self {
             UploadState::AppendInProgress { written_bytes, .. } => {
                 if *written_bytes == 0 || !are_from_same_process(open_pid, pid) {
-                    // Commit current changes, but do not close the write handle.
+                    // Commit current changes. But don't close the write handle, only mark it as flushed
                     self.commit(fs, handle.clone(), fh).await?;
                     return Self::flush_writer(fs, handle.ino, handle.clone(), fh).await;
                 }
@@ -279,34 +282,26 @@ where
             }
         };
 
-        let result = match std::mem::replace(self, UploadState::Completed) {
+        match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
-            } => {
-                Self::complete_append(
-                    fs.metablock.clone(),
-                    handle.ino,
-                    &handle.location,
-                    request,
-                    initial_etag,
-                    fh,
-                )
-                .await
-            }
+            } => Self::complete_append(
+                fs.metablock.clone(),
+                handle.ino,
+                &handle.location,
+                request,
+                initial_etag,
+                fh,
+            )
+            .await
+            .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?,
             UploadState::MPUInProgress { request, .. } => {
-                Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request, fh).await
+                Self::complete_upload(fs.metablock.clone(), handle.ino, &handle.location, request, fh)
+                    .await
+                    .inspect_err(|e| *self = UploadState::Failed(e.to_errno()))?
             }
             UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         };
-
-        if let Err(e) = result {
-            *self = UploadState::Failed(e.to_errno());
-            return Err(err!(
-                e.to_errno(),
-                "upload already aborted for key {:?}",
-                handle.location.full_key()
-            ));
-        }
         Ok(())
     }
 
@@ -330,6 +325,7 @@ where
             UploadState::MPUInProgress { request, .. } => {
                 Ok(Some(Self::complete_upload(metablock, ino, key, request, fh).await?))
             }
+            //UploadState::Failed(e) => Err(InodeError::upload_error(UploadError::<Client>::UploadAlreadyTerminated, key.clone())),
             UploadState::Failed(_) | UploadState::Completed => Ok(None),
         }
     }
@@ -395,6 +391,9 @@ where
         }
     }
 
+    /// Mark the write-handle as deactivated in the inode's handle_map entry, and attach a
+    /// PendingUploadHook to the inode for a future release/open to complete the delayed upload
+    /// and clean up the writer.
     async fn flush_writer(
         fs: &S3Filesystem<Client>,
         ino: InodeNo,
