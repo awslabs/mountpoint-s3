@@ -299,11 +299,11 @@ impl InodeKindData {
 pub enum WriteStatus {
     /// Local inode created but not yet opened
     LocalUnopened,
-    /// Local inode already opened for writing
+    /// Local inode currently opened for writing
     LocalOpenForWriting,
-    /// Remote inode
+    /// Remote inode - already exists in S3 with internal state in sync with the S3 state
     Remote,
-    /// Pending rename for inode
+    /// Originally remote inode now pending a rename (as the source or destination)
     PendingRename,
 }
 

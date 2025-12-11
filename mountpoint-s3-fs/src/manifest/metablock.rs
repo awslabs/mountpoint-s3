@@ -283,8 +283,15 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn try_activate_handle(&self, _ino: InodeNo, _fh: u64, _mode: ReadWriteMode) -> Result<bool, InodeError> {
-        Ok(true)
+    async fn try_activate_handle(&self, ino: InodeNo, _fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
+        match mode {
+            ReadWriteMode::Read => Ok(true),
+            ReadWriteMode::Write => Err(InodeError::InodeNotWritable(InodeErrorInfo {
+                ino,
+                key: "".into(),
+                bucket: None,
+            })),
+        }
     }
 
     async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> {
@@ -293,20 +300,28 @@ impl Metablock for ManifestMetablock {
 
     async fn flush_writer(
         &self,
-        _ino: InodeNo,
+        ino: InodeNo,
         _fh: u64,
         _pending_upload_hook: PendingUploadHook,
     ) -> Result<Option<PendingUploadHook>, InodeError> {
-        Ok(None)
+        Err(InodeError::InodeNotWritable(InodeErrorInfo {
+            ino,
+            key: "".into(),
+            bucket: None,
+        }))
     }
 
     async fn release_writer(
         &self,
-        _ino: InodeNo,
+        ino: InodeNo,
         _fh: u64,
         _pending_upload_hook: PendingUploadHook,
         _location: &S3Location,
     ) -> Result<(), InodeError> {
-        Ok(())
+        Err(InodeError::InodeNotWritable(InodeErrorInfo {
+            ino,
+            key: "".into(),
+            bucket: None,
+        }))
     }
 }
