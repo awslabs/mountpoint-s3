@@ -8,6 +8,10 @@ OTLP_ENDPOINT="http://127.0.0.1:4318"
 MOUNT_DIR="/tmp/mount-dir"
 MOUNTPOINT_LOGS="/tmp/mountpoint-logs"
 EXPECTED_METRICS=(
+  "experimental.cache.evict_latency"
+  "experimental.cache.get_latency"
+  "experimental.cache.put_latency"
+  "experimental.fuse.cache_hit"
   "experimental.fuse.idle_threads"
   "experimental.fuse.total_threads"
   "experimental.prefetch.reset_state"
@@ -43,7 +47,7 @@ fi
 
 cleanup() {
   ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
-  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
+  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "/tmp/mountpoint-cache"
   
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
@@ -94,6 +98,24 @@ trigger_metrics() {
     done
   } < "${test_file}" > /dev/null
 
+  # Re-read some data to trigger cache hits
+  {
+    for skip in {1..5}; do
+      dd bs=128k skip=$skip count=1 2>/dev/null || true
+    done
+  } < "${test_file}" > /dev/null
+
+  # Create multiple large files
+  for i in {1..10}; do
+    dd if=/dev/urandom of="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=100 2>/dev/null
+  done
+  sync
+
+  # Try reading all files to force cache eviction metrics
+  for i in {1..10}; do
+    dd if="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=10 2>/dev/null > /dev/null
+  done
+
   cat "${MOUNT_DIR}/nonexistent_file.txt" 2>/dev/null || true
 }
 
@@ -108,6 +130,8 @@ setup_mount() {
     --allow-overwrite
     --log-directory="${MOUNTPOINT_LOGS}"
     --prefix="${S3_BUCKET_TEST_PREFIX}"
+    --cache=/tmp/mountpoint-cache
+    --max-cache-size=100MiB
   )
   
   case $mode in

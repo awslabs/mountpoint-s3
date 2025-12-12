@@ -43,7 +43,7 @@ use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
-use crate::metrics::defs::PREFETCH_RESET_STATE;
+use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
 use crate::object::ObjectId;
 use crate::sync::Arc;
 
@@ -304,7 +304,7 @@ where
                     // We only increment the counter on cache_hit=true because OTLP counters don't preserve
                     // data point counts needed for meaningful averages.
                     // FIXME: Consider using histogram to capture partial hit ratios.
-                    metrics::counter!("fuse.cache_hit").increment(1);
+                    metrics::counter!(FUSE_CACHE_HIT).increment(1);
                 }
                 Ok(data)
             }
