@@ -152,13 +152,31 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     return varying
 
 
+def combine_raw_values(all_results: List[Tuple[Dict[str, Any], float, str]]) -> List[Dict[str, Any]]:
+    varying_params = sorted(find_varying_parameters([config for config, _, _ in all_results]))
+
+    grouped_results = defaultdict(list)
+    for config, throughput, iter_num in all_results:
+        key = tuple((param, str(config.get(param, 'N/A'))) for param in sorted(varying_params) if param != 'iteration')
+        grouped_results[key].append(throughput)
+
+    combined_results = []
+    for config_key, throughputs in grouped_results.items():
+        result = {}
+        for param, value in config_key:
+            result[param] = value
+        result['throughputs'] = [round(t, 2) for t in throughputs]
+        result['count'] = len(throughputs)
+        combined_results.append(result)
+
+    return combined_results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description='Print benchmark throughput data automatically grouped')
     parser.add_argument('--base-dir', required=True, help='Base directory containing benchmark results')
     parser.add_argument('--csv-output', help='Optional CSV file to write the results to')
-    parser.add_argument(
-        '--json-output', help='Optional JSON file to write raw values per iteration for CloudWatch metrics'
-    )
+    parser.add_argument('--json-output', help='Optional JSON file to write the results')
 
     args = parser.parse_args()
 
@@ -248,22 +266,11 @@ def main() -> None:
             writer.writerows(aggregated_rows)
         print(f"\nResults written to CSV: {args.csv_output}")
 
-    # Write raw values JSON if requested
     if args.json_output:
-        raw_data = []
-        for config, throughput, iter_num in all_results:
-            raw_entry = {
-                "iteration": iter_num,
-                "throughput_gbps": float(f"{throughput:.6f}"),
-            }
-            # Add each parameter as a separate key
-            for param in sorted(varying_params):
-                raw_entry[param] = str(config.get(param, 'N/A'))
-            raw_data.append(raw_entry)
-
+        combined_data = combine_raw_values(all_results)
         with open(args.json_output, 'w') as jsonfile:
-            json.dump(raw_data, jsonfile, indent=2)
-        print(f"Raw values written to JSON: {args.json_output}")
+            json.dump(combined_data, jsonfile, indent=2)
+        print(f"Combined data written to JSON: {args.json_output}")
 
 
 if __name__ == "__main__":
