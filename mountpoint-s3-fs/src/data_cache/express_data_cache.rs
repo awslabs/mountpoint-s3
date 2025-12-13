@@ -1,5 +1,9 @@
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 use crate::ServerSideEncryption;
+use crate::metrics::defs::{
+    ATTR_CACHE, CACHE_EXPRESS, CACHE_GET_ERRORS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY, CACHE_OVERSIZED_OBJECTS,
+    CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
+};
 use crate::object::ObjectId;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -167,7 +171,7 @@ where
         object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if object_size > self.config.max_object_size {
-            metrics::counter!("express_data_cache.over_max_object_size", "type" => "read").increment(1);
+            metrics::counter!(CACHE_OVERSIZED_OBJECTS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
             return Ok(None);
         }
 
@@ -259,7 +263,7 @@ where
         object_size: usize,
     ) -> DataCacheResult<()> {
         if object_size > self.config.max_object_size {
-            metrics::counter!("express_data_cache.over_max_object_size", "type" => "write").increment(1);
+            metrics::counter!(CACHE_OVERSIZED_OBJECTS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
             return Ok(());
         }
 
@@ -296,25 +300,18 @@ where
         object_size: usize,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let start = Instant::now();
-        let (result, result_type) = match self.read_block(cache_key, block_idx, block_offset, object_size).await {
+        let result = match self.read_block(cache_key, block_idx, block_offset, object_size).await {
             Ok(Some(data)) => {
-                metrics::counter!("express_data_cache.block_hit").increment(1);
-                metrics::counter!("express_data_cache.total_bytes", "type" => "read").increment(data.len() as u64);
-                (Ok(Some(data)), "ok")
+                metrics::counter!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).increment(data.len() as u64);
+                Ok(Some(data))
             }
-            Ok(None) => {
-                metrics::counter!("express_data_cache.block_hit").increment(0);
-                (Ok(None), "miss")
-            }
+            Ok(None) => Ok(None),
             Err(err) => {
-                metrics::counter!("express_data_cache.block_hit").increment(0);
-                metrics::counter!("express_data_cache.block_err", "reason" => err.reason(), "type" => "read")
-                    .increment(1);
-                (Err(err), "error")
+                metrics::counter!(CACHE_GET_ERRORS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
+                Err(err)
             }
         };
-        metrics::histogram!("express_data_cache.read_duration_us", "type" => result_type)
-            .record(start.elapsed().as_micros() as f64);
+        metrics::histogram!(CACHE_GET_LATENCY, ATTR_CACHE => CACHE_EXPRESS).record(start.elapsed().as_micros() as f64);
         result
     }
 
@@ -327,22 +324,21 @@ where
         object_size: usize,
     ) -> DataCacheResult<()> {
         let start = Instant::now();
-        let (result, result_type) = match self
+        let bytes_len = bytes.len();
+        let result = match self
             .write_block(cache_key, block_idx, block_offset, bytes, object_size)
             .await
         {
             Ok(()) => {
-                metrics::counter!("express_data_cache.total_bytes", "type" => "write").increment(object_size as u64);
-                (Ok(()), "ok")
+                metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).increment(bytes_len as u64);
+                Ok(())
             }
             Err(err) => {
-                metrics::counter!("express_data_cache.block_err", "reason" => err.reason(), "type" => "write")
-                    .increment(1);
-                (Err(err), "error")
+                metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
+                Err(err)
             }
         };
-        metrics::histogram!("express_data_cache.write_duration_us", "type" => result_type)
-            .record(start.elapsed().as_micros() as f64);
+        metrics::histogram!(CACHE_PUT_LATENCY, ATTR_CACHE => CACHE_EXPRESS).record(start.elapsed().as_micros() as f64);
         result
     }
 

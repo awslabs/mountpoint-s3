@@ -1,5 +1,9 @@
 ## Unreleased (v1.22.0)
 
+* Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
+* Remove redundant cache merics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Rename cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+
 ## v1.21.0 (Oct 30, 2025)
 
 ### New features

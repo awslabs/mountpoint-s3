@@ -291,18 +291,35 @@ where
             next_seq_offset = self.next_sequential_read_offset,
             "read"
         );
-        let result = self.try_read(offset, length).await;
-        if result.is_err() {
-            self.reset_prefetch_to_offset(offset);
+
+        match self.try_read(offset, length).await {
+            Ok((data, cache_hit)) => {
+                // Record cache hit metric for FUSE layer. We only record a cache hit when ALL parts
+                // for this read request were served from cache storage (disk/express), not from S3.
+                // Partial cache hits (some parts from cache, some from S3) are counted as cache misses
+                // to provide a clear binary metric. Parts served from in-memory prefetch buffers
+                // (from previous S3 requests) don't count as cache hits.
+
+                if !data.is_empty() && cache_hit {
+                    // We only increment the counter on cache_hit=true because OTLP counters don't preserve
+                    // data point counts needed for meaningful averages.
+                    // FIXME: Consider using histogram to capture partial hit ratios.
+                    metrics::counter!("fuse.cache_hit").increment(1);
+                }
+                Ok(data)
+            }
+            Err(err) => {
+                self.reset_prefetch_to_offset(offset);
+                Err(err)
+            }
         }
-        result
     }
 
     async fn try_read(
         &mut self,
         offset: u64,
         length: usize,
-    ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
+    ) -> Result<(ChecksummedBytes, bool), PrefetchReadError<Client::ClientError>> {
         // Currently, we set preferred part size to the current read size.
         // Our assumption is that the read size will be the same for most sequential
         // read and it can be aligned to the size of prefetched chunks.
@@ -315,7 +332,7 @@ where
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
-            return Ok(ChecksummedBytes::default());
+            return Ok((ChecksummedBytes::default(), false));
         }
         let mut to_read = (length as u64).min(remaining);
 
@@ -344,6 +361,7 @@ where
             self.backpressure_task = Some(self.spawn_read_backpressure_request()?);
         }
 
+        let mut all_parts_from_cache = true;
         let mut response = ChecksummedBytes::default();
         while to_read > 0 {
             let Some(current_task) = self.backpressure_task.as_mut() else {
@@ -353,6 +371,7 @@ where
             debug_assert!(current_task.remaining() > 0);
 
             let part = current_task.read(to_read as usize).await?;
+            all_parts_from_cache &= part.is_from_cache();
             self.backward_seek_window.push(part.clone());
             let part_bytes = part.into_bytes(&self.object_id, self.next_sequential_read_offset)?;
 
@@ -361,7 +380,7 @@ where
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
             if response.is_empty() && part_bytes.len() == to_read as usize {
-                return Ok(part_bytes);
+                return Ok((part_bytes, all_parts_from_cache));
             }
 
             let part_len = part_bytes.len() as u64;
@@ -369,7 +388,7 @@ where
             to_read -= part_len;
         }
 
-        Ok(response)
+        Ok((response, all_parts_from_cache))
     }
 
     /// Spawn a backpressure GetObject request which has a range from current offset to the end of the file.

@@ -21,6 +21,10 @@ use tracing::{trace, warn};
 use crate::checksums::IntegrityError;
 use crate::data_cache::DataCacheError;
 use crate::memory::{BufferKind, PagedPool};
+use crate::metrics::defs::{
+    ATTR_CACHE, CACHE_DISK, CACHE_EVICT_LATENCY, CACHE_GET_ERRORS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY,
+    CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY, CACHE_TOTAL_SIZE,
+};
 use crate::object::ObjectId;
 use crate::sync::Mutex;
 
@@ -387,7 +391,7 @@ impl DiskDataCache {
     }
 
     fn is_limit_exceeded(&self, size: usize) -> bool {
-        metrics::gauge!("disk_data_cache.disk_usage_mib").set((size / 1024 / 1024) as f64);
+        metrics::gauge!(CACHE_TOTAL_SIZE, ATTR_CACHE => CACHE_DISK).set(size as f64);
         match self.config.limit {
             CacheLimit::Unbounded => false,
             CacheLimit::TotalSize { max_size } => size > max_size,
@@ -461,29 +465,27 @@ impl DataCache for DiskDataCache {
         let start = Instant::now();
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        match self.read_block(&path, cache_key, block_idx, block_offset) {
+        let result = match self.read_block(&path, cache_key, block_idx, block_offset) {
             Ok(None) => {
                 // Cache miss.
-                metrics::counter!("disk_data_cache.block_hit").increment(0);
                 Ok(None)
             }
             Ok(Some(bytes)) => {
                 // Cache hit.
-                metrics::counter!("disk_data_cache.block_hit").increment(1);
-                metrics::counter!("disk_data_cache.total_bytes", "type" => "read").increment(bytes.len() as u64);
-                metrics::histogram!("disk_data_cache.read_duration_us").record(start.elapsed().as_micros() as f64);
+                metrics::counter!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes.len() as u64);
                 if let Some(usage) = &self.usage {
                     usage.lock().unwrap().refresh(&block_key);
                 }
                 Ok(Some(bytes))
             }
             Err(err) => {
-                // Invalid block. Count as cache miss.
-                metrics::counter!("disk_data_cache.block_hit").increment(0);
-                metrics::counter!("disk_data_cache.block_err").increment(1);
+                // Invalid block.
+                metrics::counter!(CACHE_GET_ERRORS, ATTR_CACHE => CACHE_DISK).increment(1);
                 Err(err)
             }
-        }
+        };
+        metrics::histogram!(CACHE_GET_LATENCY, ATTR_CACHE => CACHE_DISK).record(start.elapsed().as_micros() as f64);
+        result
     }
 
     async fn put_block(
@@ -497,37 +499,48 @@ impl DataCache for DiskDataCache {
         if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
         }
-
+        let start = Instant::now();
         let bytes_len = bytes.len();
         let block_key = DiskBlockKey::new(&cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
         trace!(?cache_key, ?path, "new block will be created in disk cache");
 
-        let block = DiskBlock::new(cache_key, block_idx, block_offset, bytes).map_err(|err| match err {
-            DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
-        })?;
+        // Capture the put operation result separately from metrics recording
+        // to ensure we can record both success and error metrics consistently
+        let put_result = (|| -> DataCacheResult<()> {
+            let block = DiskBlock::new(cache_key, block_idx, block_offset, bytes).map_err(|err| match err {
+                DiskBlockCreationError::IntegrityError(_e) => DataCacheError::InvalidBlockContent,
+            })?;
 
-        {
-            let eviction_start = Instant::now();
-            let result = self.evict_if_needed();
-            metrics::histogram!("disk_data_cache.eviction_duration_us")
-                .record(eviction_start.elapsed().as_micros() as f64);
-            result
-        }?;
+            {
+                let eviction_start = Instant::now();
+                let result = self.evict_if_needed();
+                metrics::histogram!(CACHE_EVICT_LATENCY, ATTR_CACHE => CACHE_DISK)
+                    .record(eviction_start.elapsed().as_micros() as f64);
+                result
+            }?;
 
-        let write_start = Instant::now();
-        let (temp_file, size) = self.write_block(&path, block)?;
-        metrics::histogram!("disk_data_cache.write_duration_us").record(write_start.elapsed().as_micros() as f64);
-        metrics::counter!("disk_data_cache.total_bytes", "type" => "write").increment(bytes_len as u64);
-        if let Some(usage) = &self.usage {
-            let mut usage = usage.lock().unwrap();
-            _ = temp_file.persist(path).map_err(|e| e.error)?;
-            usage.add(block_key, size);
+            let result = self.write_block(&path, block);
+            let (temp_file, size) = result?;
+
+            if let Some(usage) = &self.usage {
+                let mut usage = usage.lock().unwrap();
+                _ = temp_file.persist(path).map_err(|e| e.error)?;
+                usage.add(block_key, size);
+            } else {
+                _ = temp_file.persist(path).map_err(|e| e.error)?;
+            }
+
+            Ok(())
+        })();
+
+        if put_result.is_ok() {
+            metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes_len as u64);
         } else {
-            _ = temp_file.persist(path).map_err(|e| e.error)?;
+            metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_DISK).increment(1);
         }
-
-        Ok(())
+        metrics::histogram!(CACHE_PUT_LATENCY, ATTR_CACHE => CACHE_DISK).record(start.elapsed().as_micros() as f64);
+        put_result
     }
 
     fn block_size(&self) -> u64 {
