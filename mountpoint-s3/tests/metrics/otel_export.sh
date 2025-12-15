@@ -131,7 +131,7 @@ setup_mount() {
     --log-directory="${MOUNTPOINT_LOGS}"
     --prefix="${S3_BUCKET_TEST_PREFIX}"
     --cache=/tmp/mountpoint-cache
-    --max-cache-size=100MiB
+    --max-cache-size=100
   )
   
   case $mode in
