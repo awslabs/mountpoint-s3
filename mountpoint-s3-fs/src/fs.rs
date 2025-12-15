@@ -419,7 +419,11 @@ where
         // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
         // If still valid, mark it as not-flushed before starting to read, blocking any future opens from taking over the active reading
         if *flushed {
-            if !self.metablock.try_activate_handle(ino, fh, ReadWriteMode::Read).await? {
+            if !self
+                .metablock
+                .try_reactivate_handle(ino, fh, ReadWriteMode::Read)
+                .await?
+            {
                 return Err(err!(
                     libc::EBADF,
                     "file handle has been invalidated by a newer handle opened"
@@ -510,7 +514,7 @@ where
             if *flushed {
                 if !self
                     .metablock
-                    .try_activate_handle(ino, fh, ReadWriteMode::Write)
+                    .try_reactivate_handle(ino, fh, ReadWriteMode::Write)
                     .await?
                 {
                     return Err(err!(

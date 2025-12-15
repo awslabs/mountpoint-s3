@@ -309,13 +309,25 @@ where
     ///
     /// When successful, returns a [`Lookup`] where the upload was still in-progress and thus
     /// completed by this method call.
-    pub async fn complete_if_in_progress(
+    ///
+    /// This is only called by the PendingUploadHook
+    pub async fn complete_pending_upload(
         &mut self,
         metablock: Arc<dyn Metablock>,
         ino: InodeNo,
         key: &S3Location,
         fh: u64,
     ) -> Result<Option<Lookup>, InodeError> {
+        match self {
+            // We want to retain the UploadState in case it is already terminal.
+            // Can only be "Failed" if there has been a previous upload attempt, in which case the
+            // data has been lost already, but the PendingUploadHook will have invalidated the cache
+            // for future requests to force revalidation of inode metadata.
+            // TODO: good to have - relay the error from the previous attempt here
+            UploadState::Completed | UploadState::Failed(_) => return Ok(None),
+            _ => {}
+        }
+
         match std::mem::replace(self, UploadState::Completed) {
             UploadState::AppendInProgress {
                 request, initial_etag, ..
@@ -325,8 +337,7 @@ where
             UploadState::MPUInProgress { request, .. } => {
                 Ok(Some(Self::complete_upload(metablock, ino, key, request, fh).await?))
             }
-            //UploadState::Failed(e) => Err(InodeError::upload_error(UploadError::<Client>::UploadAlreadyTerminated, key.clone())),
-            UploadState::Failed(_) | UploadState::Completed => Ok(None),
+            UploadState::Failed(_) | UploadState::Completed => unreachable!("checked above"),
         }
     }
 
