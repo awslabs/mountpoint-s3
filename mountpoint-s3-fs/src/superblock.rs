@@ -921,6 +921,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         match locked_inode.write_status {
             WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
                 locked_inode.pending_upload_hook = None;
+                // The completion of the pending upload results in the object etag being updated,
+                // and hence we want to convey the latest inode stat values (with updated validity)
+                // and LookedUpInode to the caller awaiting the hook completion, before it proceeds
+                // with the rest of the request.
+                // A failed hook completion returns the stale information it has (same as the
+                // existing lookup) but invalidates the inode's stats instead, so that we refresh
+                // them from S3 when next queried.
 
                 if let Some(etag) = etag {
                     // Upload succeeded (with the new `etag`)
@@ -938,7 +945,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     // Upload failed
                     locked_inode.write_status = WriteStatus::Remote;
                     self.inner.open_handles.remove_inode(ino); // Equivalent of removing all handles
-                    // Invalidate the inode's stats so we refresh them from S3 when next queried
                     locked_inode.stat.update_validity(Duration::from_secs(0));
                 }
 
@@ -1314,9 +1320,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                         .increment(state.stat.is_valid().into());
                 };
                 if self.inner.open_handles.remove_inode(ino) {
-                    // This should never happen, but it is good to have this visibility to detect
-                    // any discrepancies in our inode handles' tracking logic
-                    debug!("Open file handle(s) found for forgotten inode {}", ino);
+                    // This should never happen, but it is good to have this visibility to detect any
+                    // discrepancies in our inode handles' tracking logic or tests involving `forget`
+                    debug_assert!(
+                        self.inner.open_handles.remove_inode(ino),
+                        "Open file handle(s) found for forgotten inode {}",
+                        ino
+                    );
                 }
             }
             Ok(None) => {}
