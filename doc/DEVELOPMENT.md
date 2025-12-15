@@ -124,9 +124,9 @@ the Mountpoint team works with an internal fork of the repository.
 
 Many team members are using [Visual Studio Code](https://code.visualstudio.com/) to work with the project.
 
-The project contains a `Makefile` which provides quick ways to run common tasks
-while excluding the `fuser` crate which we don't typically aren't modifying.
-For example, `make fmt-check` and `make clippy` runs `rustfmt` and `clippy` against all but the fuser crate.
+The project contains a `Makefile` providing quick ways to run common tasks
+while excluding the `fuser` crate which is not typically being modified.
+For example, `make pre-pr-check` runs a group of commands such as `cargo fmt` while excluding the `fuser` crate.
 
 ### Running Unit Tests
 
