@@ -324,18 +324,26 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         Ok(handle_id)
     }
 
+    /// Prepare for an inode to be read.
+    /// Configure the inode state to be read-ready, track the new reader in the inode's handles_map,
+    /// and complete any pending upload of data to S3 for the inode.
     async fn start_reading(&self, looked_up_inode: LookedUpInode, fh: u64) -> Result<Lookup, InodeError> {
         let pending_upload_hook = {
             let mut locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
-            if matches!(locked_inode.write_status, WriteStatus::LocalUnopened)
-                || !self.inner.open_handles.try_add_reader(&locked_inode, fh)
-            {
-                return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
+            match locked_inode.write_status {
+                WriteStatus::LocalUnopened => {
+                    return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
+                }
+                WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename | WriteStatus::Remote => {
+                    if !self.inner.open_handles.try_add_reader(&locked_inode, fh) {
+                        return Err(InodeError::InodeNotReadableWhileWriting(looked_up_inode.inode.err()));
+                    }
+                    if matches!(locked_inode.write_status, WriteStatus::LocalOpenForWriting) {
+                        locked_inode.write_status = WriteStatus::Remote;
+                    }
+                    locked_inode.pending_upload_hook.clone()
+                }
             }
-            if matches!(locked_inode.write_status, WriteStatus::LocalOpenForWriting) {
-                locked_inode.write_status = WriteStatus::Remote;
-            }
-            locked_inode.pending_upload_hook.clone()
         };
 
         if let Some(upload_hook) = pending_upload_hook
@@ -347,6 +355,9 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         }
     }
 
+    /// Prepare for an inode to be written to.
+    /// Configure the inode state to be write-ready, track the new writer in the inode's handles_map,
+    /// and complete any pending upload of data to S3 for the inode.
     async fn start_writing(
         &self,
         looked_up_inode: LookedUpInode,
@@ -803,6 +814,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         .into())
     }
 
+    /// Opens a file handle for the specified inode.
+    ///
+    /// Prepares the inode for reading or writing based on the provided flags and write mode.
+    /// Returns a new handle that can be used for subsequent file operations.
+    ///
+    /// Errors out if request/Mountpoint setup is incorrect, or if the inode is not in a state to
+    /// allow opening the new handle.
     async fn open_handle(
         &self,
         ino: InodeNo,
@@ -866,7 +884,11 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(state.stat.size)
     }
 
-    /// Updates status of the inode and of containing "local" directories.
+    /// Concludes a writing operation for a file handle and marks the inode closed for writing anymore.
+    ///
+    /// Transitions the inode and all it's ancestor directories from local writing state to remote
+    /// state as needed.
+    /// Updates the inode with the latest state in S3 and invalidates the closed writer-handle.
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError> {
         let inode = self.inner.get(ino)?;
         // Collect ancestor inodes that may need updating,
@@ -898,17 +920,24 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let mut locked_inode = inode.get_mut_inode_state()?;
         match locked_inode.write_status {
             WriteStatus::LocalOpenForWriting | WriteStatus::Remote => {
-                if self.inner.open_handles.try_remove_writer(&locked_inode, fh) {
-                    locked_inode.write_status = WriteStatus::Remote;
-                }
                 locked_inode.pending_upload_hook = None;
 
                 if let Some(etag) = etag {
+                    // Upload succeeded (with the new `etag`)
+                    //
+                    // Only go to Remote if finishing writing the current open writer.
+                    // Otherwise, the start_reading/writing methods take care of inode status changes.
+                    if self.inner.open_handles.try_remove_writer(&locked_inode, fh) {
+                        locked_inode.write_status = WriteStatus::Remote;
+                    }
                     locked_inode.stat.etag = Some(etag.into_inner().into_boxed_str());
                     locked_inode
                         .stat
                         .update_validity(self.inner.config.cache_config.file_ttl);
                 } else {
+                    // Upload failed
+                    locked_inode.write_status = WriteStatus::Remote;
+                    self.inner.open_handles.remove_inode(ino); // Equivalent of removing all handles
                     // Invalidate the inode's stats so we refresh them from S3 when next queried
                     locked_inode.stat.update_validity(Duration::from_secs(0));
                 }
@@ -941,6 +970,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         }
     }
 
+    /// Marks a reader handle as deactivated in the open handles map.
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let locked_inode = inode.get_mut_inode_state()?;
@@ -948,6 +978,10 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(true)
     }
 
+    /// Marks a writer handle as deactivated in the open handles map, and
+    /// sets up a pending upload hook if the inode is in the local writing state.
+    ///
+    /// Returns the upload hook if one was created or already exists.
     async fn flush_writer(
         &self,
         ino: InodeNo,
@@ -971,7 +1005,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(pending_upload_hook)
     }
 
-    /// Update status of the inode to reflect the read being finished
+    /// Concludes a read operation for a file handle.
+    ///
+    /// Cleans up the reader handle from the inode's open handles map.
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
         let state = inode.get_mut_inode_state()?;
@@ -979,6 +1015,11 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         Ok(())
     }
 
+    /// Releases a writer handle and waits for any pending upload to complete.
+    ///
+    /// Flushes the writer handle if it's not already flushed at the time of receiving a `Release`.
+    /// Waits for the upload hook to complete (if one exists or is newly created by release).
+    /// This ensures all data is uploaded to S3 before the handle is fully released.
     async fn release_writer(
         &self,
         ino: InodeNo,
@@ -1243,9 +1284,6 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         match inodes.decrease_lookup_count(ino, n) {
             Ok(Some(removed_inode)) => {
                 trace!(ino, "removing inode from superblock");
-                if self.inner.open_handles.remove_inode(ino) {
-                    debug!("Open file handle(s) found for forgotten inode {}", ino);
-                }
                 let parent_ino = removed_inode.parent();
 
                 // Remove from the parent. Nothing to do if the parent has already been removed,
@@ -1275,6 +1313,11 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     metrics::counter!("metadata_cache.inode_forgotten_before_expiry")
                         .increment(state.stat.is_valid().into());
                 };
+                if self.inner.open_handles.remove_inode(ino) {
+                    // This should never happen, but it is good to have this visibility to detect
+                    // any discrepancies in our inode handles' tracking logic
+                    debug!("Open file handle(s) found for forgotten inode {}", ino);
+                }
             }
             Ok(None) => {}
             Err(_) => {
@@ -1287,7 +1330,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         }
     }
 
-    async fn try_activate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
+    /// Attempts to re-activate a file handle for the specified inode when a read/write arrives
+    /// for a `flushed` handle.
+    ///
+    /// Tries to activate either a reader or writer handle based on the mode. If the handle is still
+    /// open (not overridden by another open), it gets marked as "Active" in the open handles map.
+    /// Returns true if the handle was successfully activated, false otherwise.
+    async fn try_reactivate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
         let inode = self.inner.get(ino)?;
         let mut locked_inode = inode.get_mut_inode_state()?;
         match mode {
@@ -1298,7 +1347,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             }
             ReadWriteMode::Write => {
                 if self.inner.open_handles.try_activate_writer(&locked_inode, fh) {
-                    locked_inode.write_status = WriteStatus::LocalOpenForWriting;
+                    debug_assert!(locked_inode.write_status == WriteStatus::LocalOpenForWriting);
                     locked_inode.pending_upload_hook = None;
                     return Ok(true);
                 }

@@ -50,7 +50,7 @@ impl PendingUploadHook {
                 let FileHandleState::Write { state, .. } = &mut *fh_state else {
                     return Ok(None); // Nothing to do for read handles.
                 };
-                state.complete_if_in_progress(metablock, ino, &location, fh).await
+                state.complete_pending_upload(metablock, ino, &location, fh).await
             }),
             result: None,
         }));

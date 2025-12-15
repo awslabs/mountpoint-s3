@@ -283,7 +283,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn try_activate_handle(&self, ino: InodeNo, _fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
+    async fn try_reactivate_handle(&self, ino: InodeNo, _fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
         match mode {
             ReadWriteMode::Read => Ok(true),
             ReadWriteMode::Write => Err(InodeError::InodeNotWritable(InodeErrorInfo {

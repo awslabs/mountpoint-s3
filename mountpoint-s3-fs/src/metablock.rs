@@ -77,10 +77,12 @@ pub trait Metablock: Send + Sync {
     /// Finish reading from the inode (referenced by `ino`)
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
-    /// Updates status of the inode and of containing "local" directories.
+    /// Called when the filesystem has called `flush` on a read handle for the inode referenced by `ino`.
+    /// Allows the implementor to make necessary adjustments / update its internal structure.
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
 
-    /// Updates status of the inode and of containing "local" directories.
+    /// Called when the filesystem has called `flush` on a write handle for the inode referenced by `ino`.
+    /// Allows the implementor to make necessary adjustments / update its internal structure.
     async fn flush_writer(
         &self,
         ino: InodeNo,
@@ -88,6 +90,8 @@ pub trait Metablock: Send + Sync {
         pending_upload_hook: PendingUploadHook,
     ) -> Result<Option<PendingUploadHook>, InodeError>;
 
+    /// Called when the filesystem has released a write handle for the inode referenced by `ino`.
+    /// Allows the implementor to make necessary adjustments / update its internal structure.
     async fn release_writer(
         &self,
         ino: InodeNo,
@@ -96,7 +100,10 @@ pub trait Metablock: Send + Sync {
         location: &S3Location,
     ) -> Result<(), InodeError>;
 
-    async fn try_activate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
+    /// Called by filesystem's read/write methods to attempt re-activation of a deactivated file
+    /// handle for the inode referenced by `ino`.
+    /// Allows the implementor to make necessary adjustments / update its internal structure.
+    async fn try_reactivate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
@@ -198,6 +205,9 @@ pub enum ReadWriteMode {
     Write,
 }
 
+/// A metablock-level abstraction on a file, providing the user with the latest metadata in the
+/// linked inode and the mode in which they're allowed to access the existing data for the file
+/// backed by a corresponding S3 object
 #[derive(Debug)]
 pub struct NewHandle {
     pub lookup: Lookup,
