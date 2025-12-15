@@ -125,7 +125,7 @@ setup_mount() {
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
 
-  local cache_dir /tmp/mountpoint-cache
+  local cache_dir="/tmp/mountpoint-cache"
 
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
