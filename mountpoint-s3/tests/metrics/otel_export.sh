@@ -124,13 +124,15 @@ setup_mount() {
   
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
-  
+
+  local cache_dir /tmp/mountpoint-cache
+
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
     --allow-overwrite
     --log-directory="${MOUNTPOINT_LOGS}"
     --prefix="${S3_BUCKET_TEST_PREFIX}"
-    --cache=/tmp/mountpoint-cache
+    --cache="${cache_dir}"
     --max-cache-size=100
   )
   
@@ -145,7 +147,9 @@ setup_mount() {
       args+=(--log-metrics --otlp-endpoint="${OTLP_ENDPOINT}" --otlp-export-interval=5)
       ;;
   esac
-  
+
+  mkdir -p ${cache_dir}
+
   cargo run --quiet --release -- "${args[@]}"
   if [ $? -ne 0 ]; then
     echo "Failed to mount file system"
