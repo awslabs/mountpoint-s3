@@ -401,7 +401,7 @@ jobs:
         aws-region: ${{ vars.S3_REGION }}
 
     - name: Download SRPM artifact
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v7
       with:
         name: srpm-package
         path: /tmp/srpms
