@@ -83,7 +83,7 @@ pub enum PrefetchReadError<E> {
     #[error("part read failed")]
     PartReadFailed(#[from] PartOperationError),
 
-    #[error("backpressure parameters on client or prefetcher are wrong")]
+    #[error("backpressure must be enabled with non-zero initial read window")]
     BackpressurePreconditionFailed,
 
     #[error("read window increment failed")]
@@ -412,25 +412,11 @@ where
             Some(value) => {
                 // Also, make sure that we don't get blocked from the beginning
                 if value == 0 {
-                    tracing::error!("intial read window on the client must be not-zero");
                     return Err(PrefetchReadError::BackpressurePreconditionFailed);
                 }
             }
-            None => {
-                tracing::error!("backpressure must be enabled on the client");
-                return Err(PrefetchReadError::BackpressurePreconditionFailed);
-            }
+            None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
         };
-
-        if read_part_size <= self.config.initial_request_size {
-            // Technically this shouldn't be a problem, but this is a misuse of the parameter so error out.
-            tracing::error!(
-                read_part_size,
-                self.config.initial_request_size,
-                "initial request size is too large"
-            );
-            return Err(PrefetchReadError::BackpressurePreconditionFailed);
-        }
 
         let config = RequestTaskConfig {
             bucket: self.bucket.clone(),
@@ -1285,19 +1271,14 @@ mod tests {
         assert_eq!(reservation, expected);
     }
 
-    #[test_case(8 * MB, 8 * MB, 1 * MB + 128 * KB, false; "default")]
-    #[test_case(8 * MB, 8 * MB, 0, false; "no initial request")]
-    #[test_case(8 * MB, 8 * MB, 10 * MB, true; "initial request larger than part size")]
-    #[test_case(16 * MB, 8 * MB, 1 * MB + 128 * KB, false; "larger intial read window")]
-    #[test_case(16 * MB, 8 * MB, 0, false; "larger intial read window w/o initial request")]
-    #[test_case(1 * KB, 8 * MB, 1 * MB + 128 * KB, false; "smaller intial read window")]
-    #[test_case(1 * KB, 8 * MB, 0, false; "smaller intial read window w/o initial request")]
-    fn test_initial_reqeust_size(
-        initial_read_window_size: usize,
-        part_size: usize,
-        initial_request_size: usize,
-        should_fail: bool,
-    ) {
+    #[test_case(8 * MB, 8 * MB, 1 * MB + 128 * KB; "default")]
+    #[test_case(8 * MB, 8 * MB, 0; "no initial request")]
+    #[test_case(1 * KB, 1 * MB, 10 * MB; "initial request larger than part size")]
+    #[test_case(16 * MB, 8 * MB, 1 * MB + 128 * KB; "larger intial read window")]
+    #[test_case(16 * MB, 8 * MB, 0; "larger intial read window w/o initial request")]
+    #[test_case(1 * KB, 8 * MB, 1 * MB + 128 * KB; "smaller intial read window")]
+    #[test_case(1 * KB, 8 * MB, 0; "smaller intial read window w/o initial request")]
+    fn test_initial_reqeust_size(initial_read_window_size: usize, part_size: usize, initial_request_size: usize) {
         let object_size = (16 * MB) as u64;
 
         let client = Arc::new(
@@ -1325,12 +1306,7 @@ mod tests {
         // Perform sequential reads to test the download functionality
         let mut next_offset = 0;
         while next_offset < object_size {
-            let res = block_on(request.read(next_offset, 256 * KB));
-            if should_fail {
-                assert!(res.is_err(), "must be an error {:?}", res);
-                return;
-            }
-            let buf = res.unwrap();
+            let buf = block_on(request.read(next_offset, 256 * KB)).unwrap();
             if buf.is_empty() {
                 break;
             }

@@ -43,7 +43,7 @@ pub fn make_test_filesystem(
     prefix: &Prefix,
     config: S3FilesystemConfig,
 ) -> (Arc<MockClient>, S3Filesystem<Arc<MockClient>>) {
-    let part_size = 2 * 1024 * 1024;
+    let part_size = 1024 * 1024;
     let client = Arc::new(
         MockClient::config()
             .bucket(bucket)
