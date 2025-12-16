@@ -83,7 +83,7 @@ pub enum PrefetchReadError<E> {
     #[error("part read failed")]
     PartReadFailed(#[from] PartOperationError),
 
-    #[error("backpressure must be enabled with non-zero initial read window")]
+    #[error("backpressure parameters on client or prefetcher are wrong")]
     BackpressurePreconditionFailed,
 
     #[error("read window increment failed")]
@@ -116,7 +116,8 @@ pub struct PrefetcherConfig {
     /// S3 request. We keep this much data in memory in addition to any inflight requests.
     pub max_backward_seek_distance: u64,
     /// Size of the initial request. This request, of size possibly smaller than part_size,
-    /// is made to lower the latency in small-random-reads usage pattern.
+    /// is made to lower the latency in small-random-reads usage pattern. If set to 0, initial request
+    /// is skipped.
     pub initial_request_size: usize,
 }
 
@@ -410,12 +411,26 @@ where
         match self.part_stream.client().initial_read_window_size() {
             Some(value) => {
                 // Also, make sure that we don't get blocked from the beginning
-                if value == 0 || self.config.initial_request_size == 0 {
+                if value == 0 {
+                    tracing::error!("intial read window on the client must be not-zero");
                     return Err(PrefetchReadError::BackpressurePreconditionFailed);
                 }
             }
-            None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
+            None => {
+                tracing::error!("backpressure must be enabled on the client");
+                return Err(PrefetchReadError::BackpressurePreconditionFailed);
+            }
         };
+
+        if read_part_size <= self.config.initial_request_size {
+            // Technically this shouldn't be a problem, but this is a misuse of the parameter so error out.
+            tracing::error!(
+                read_part_size,
+                self.config.initial_request_size,
+                "initial request size is too large"
+            );
+            return Err(PrefetchReadError::BackpressurePreconditionFailed);
+        }
 
         let config = RequestTaskConfig {
             bucket: self.bucket.clone(),
@@ -423,7 +438,7 @@ where
             range,
             read_part_size,
             preferred_part_size: self.preferred_part_size,
-            initial_read_window_size: self.config.initial_request_size,
+            initial_request_size: self.config.initial_request_size,
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
@@ -568,6 +583,7 @@ mod tests {
     use std::collections::HashMap;
     use test_case::test_case;
 
+    const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
 
     #[derive(Debug, Arbitrary)]
@@ -1267,6 +1283,63 @@ mod tests {
     fn test_seek_window_reservation(part_size: usize, seek_window_size: usize, expected: u64) {
         let reservation = PrefetchGetObject::<MockClient>::seek_window_reservation(part_size, seek_window_size);
         assert_eq!(reservation, expected);
+    }
+
+    #[test_case(8 * MB, 8 * MB, 1 * MB + 128 * KB, false; "default")]
+    #[test_case(8 * MB, 8 * MB, 0, false; "no initial request")]
+    #[test_case(8 * MB, 8 * MB, 10 * MB, true; "initial request larger than part size")]
+    #[test_case(16 * MB, 8 * MB, 1 * MB + 128 * KB, false; "larger intial read window")]
+    #[test_case(16 * MB, 8 * MB, 0, false; "larger intial read window w/o initial request")]
+    #[test_case(1 * KB, 8 * MB, 1 * MB + 128 * KB, false; "smaller intial read window")]
+    #[test_case(1 * KB, 8 * MB, 0, false; "smaller intial read window w/o initial request")]
+    fn test_initial_reqeust_size(
+        initial_read_window_size: usize,
+        part_size: usize,
+        initial_request_size: usize,
+        should_fail: bool,
+    ) {
+        let object_size = (16 * MB) as u64;
+
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(part_size)
+                .enable_backpressure(true)
+                .initial_read_window_size(initial_read_window_size)
+                .build(),
+        );
+
+        let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
+        let etag = object.etag();
+        client.add_object("test-object", object);
+
+        let prefetcher_config = PrefetcherConfig {
+            initial_request_size,
+            ..Default::default()
+        };
+
+        let prefetcher = build_prefetcher(client.clone(), PrefetcherType::Default, prefetcher_config);
+        let object_id = ObjectId::new("test-object".to_owned(), etag);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
+
+        // Perform sequential reads to test the download functionality
+        let mut next_offset = 0;
+        while next_offset < object_size {
+            let res = block_on(request.read(next_offset, 256 * KB));
+            if should_fail {
+                assert!(res.is_err(), "must be an error {:?}", res);
+                return;
+            }
+            let buf = res.unwrap();
+            if buf.is_empty() {
+                break;
+            }
+            let buf = buf.into_bytes().unwrap();
+            let expected = ramp_bytes((0xaa + next_offset) as usize, buf.len());
+            assert_eq!(&buf[..], &expected[..]);
+            next_offset += buf.len() as u64;
+        }
+        assert_eq!(next_offset, object_size);
     }
 
     #[cfg(feature = "shuttle")]

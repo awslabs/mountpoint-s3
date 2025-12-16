@@ -124,7 +124,7 @@ impl ConfigOptions {
         }
         // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
         // trading-off latency for throughput and more accurate memory limiting.
-        fs_config.prefetcher_config.initial_request_size = self.part_size();
+        fs_config.prefetcher_config.initial_request_size = 0;
         Ok(fs_config)
     }
 

@@ -12,6 +12,7 @@ use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::ReadWidnowAlignmentConfig;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
@@ -52,12 +53,12 @@ where
         let range = config.range;
 
         let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size,
+            initial_read_window_size: config.initial_read_window_size(),
             min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
-            align_read_window: false, // we don't know where S3 request starts, so can not align the read window
+            read_window_alignment_config: ReadWidnowAlignmentConfig::Off, // we don't know where S3 request starts, so can not align the read window
         };
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
@@ -195,7 +196,7 @@ where
     ) {
         let bucket = &self.config.bucket;
         let cache_key = &self.config.object_id;
-        let first_read_window_end_offset = self.config.range.start() + self.config.initial_read_window_size as u64;
+        let initial_request_end_offset = self.config.range.start() + self.config.initial_request_size as u64;
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
@@ -217,7 +218,7 @@ where
             &self.client,
             bucket.clone(),
             cache_key.clone(),
-            first_read_window_end_offset,
+            initial_request_end_offset,
             block_aligned_byte_range,
         );
 
@@ -479,7 +480,7 @@ mod tests {
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
-                initial_read_window_size,
+                initial_request_size: initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
@@ -505,7 +506,7 @@ mod tests {
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
-                initial_read_window_size,
+                initial_request_size: initial_read_window_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
@@ -558,7 +559,7 @@ mod tests {
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
-                    initial_read_window_size,
+                    initial_request_size: initial_read_window_size,
                     max_read_window_size,
                     read_window_size_multiplier,
                 };
