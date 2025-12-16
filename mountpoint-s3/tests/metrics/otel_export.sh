@@ -7,6 +7,7 @@ OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
 MOUNT_DIR="/tmp/mount-dir"
 MOUNTPOINT_LOGS="/tmp/mountpoint-logs"
+MOUNTPOINT_CACHE="/tmp/mountpoint-cache"
 EXPECTED_METRICS=(
   "experimental.cache.evict_latency"
   "experimental.cache.get_latency"
@@ -47,8 +48,8 @@ fi
 
 cleanup() {
   ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
-  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "/tmp/mountpoint-cache"
-  
+  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
+
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
     kill "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
@@ -125,17 +126,15 @@ setup_mount() {
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
 
-  local cache_dir="/tmp/mountpoint-cache"
-
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
     --allow-overwrite
     --log-directory="${MOUNTPOINT_LOGS}"
     --prefix="${S3_BUCKET_TEST_PREFIX}"
-    --cache="${cache_dir}"
+    --cache="${MOUNTPOINT_CACHE}"
     --max-cache-size=100
   )
-  
+
   case $mode in
     "with_logs")
       args+=(--log-metrics)
@@ -148,7 +147,7 @@ setup_mount() {
       ;;
   esac
 
-  mkdir -p ${cache_dir}
+  mkdir -p "${MOUNTPOINT_CACHE}"
 
   cargo run --quiet --release -- "${args[@]}"
   if [ $? -ne 0 ]; then
