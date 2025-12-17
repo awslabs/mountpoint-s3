@@ -14,7 +14,7 @@ use mountpoint_s3_client::types::{
 use tracing::{Instrument, debug_span, trace};
 
 use crate::ServerSideEncryption;
-use crate::async_util::{RemoteResult, Runtime, result_channel};
+use crate::async_util::Runtime;
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
 use crate::sync::Arc;
@@ -93,10 +93,9 @@ where
         while !slice.is_empty() {
             let buffer = match self.buffer.as_mut() {
                 Some(buffer) => buffer,
-                None => {
-                    self.buffer = Some(self.upload_queue.get_buffer(self.buffer_size).await?);
-                    self.buffer.as_mut().unwrap()
-                }
+                None => self
+                    .buffer
+                    .insert(self.upload_queue.get_buffer(self.buffer_size).await?),
             };
 
             let len = slice.len();
@@ -133,6 +132,19 @@ where
     }
 }
 
+/// Events emitted by the background queue.
+#[derive(Debug)]
+enum AppendUploadEvent<E> {
+    /// The algorithm used to compute checksums.
+    /// Only emitted once, before any [AppendUploadEvent::PutResponse] event.
+    ChecksumAlgorithm(Option<ChecksumAlgorithm>),
+    /// Response of a successful PutObject operation.
+    PutResponse(PutObjectResult),
+    /// Upload error. When emitting an error, the queue shuts down, does not accept
+    /// any more buffers, and does not emit further events.
+    Error(UploadError<E>),
+}
+
 /// Queue for an active 'append' to an S3 object.
 ///
 /// This struct has message channels whose queues may contain a number of buffered parts to be appended to an object.
@@ -142,14 +154,14 @@ where
 #[derive(Debug)]
 struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for sending buffers to be appended to the object.
-    request_sender: Sender<UploadBuffer>,
-    /// Channel handle for receiving the response of S3 requests.
-    response_receiver: Receiver<Result<PutObjectResult, UploadError<Client::ClientError>>>,
+    buffer_sender: Sender<UploadBuffer>,
+    /// Channel handle for receiving the events from the background queue.
+    event_receiver: Receiver<AppendUploadEvent<Client::ClientError>>,
     pool: PagedPool,
     mem_limiter: Arc<MemoryLimiter>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
-    checksum_algorithm: RemoteResult<Option<ChecksumAlgorithm>, UploadError<Client::ClientError>>,
+    checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
     /// Stores the last successful result to return in [join].
     last_known_result: Option<PutObjectResult>,
     /// Tracks the requests pushed to the queue but still pending a response.
@@ -169,41 +181,42 @@ where
     ) -> Self {
         assert!(params.capacity > 0, "append queue capacity must be greater than 0");
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
-        let (request_sender, request_receiver) = bounded(params.capacity);
-        let (response_sender, response_receiver) = unbounded();
-        let (checksum_algorithm_sender, checksum_algorithm) = result_channel();
+        let (buffer_sender, buffer_receiver) = bounded(params.capacity);
+        let (event_sender, event_receiver) = unbounded();
 
         // Create a task for reading data out of the upload queue and create S3 requests for them.
         let task_handle = runtime
             .spawn_with_handle(
                 async move {
-                    let checksum_algorithm = get_checksum_algorithm(&client, &params).await;
-                    let is_error = checksum_algorithm.is_err();
-                    if !checksum_algorithm_sender.send(checksum_algorithm).await || is_error {
-                        return;
+                    match run_append_loop(client, params, &buffer_receiver, &event_sender).await {
+                        Ok(()) => {}
+                        Err(error) => {
+                            trace!("append upload task failed");
+                            // Stop receiving new buffers
+                            buffer_receiver.close();
+                            _ = event_sender.send(AppendUploadEvent::Error(error)).await;
+                        }
                     }
-
-                    run_append_loop(client, params, request_receiver, response_sender).await;
                     trace!("append upload task finished");
                 }
                 .instrument(span),
             )
             .unwrap();
         Self {
-            request_sender,
-            response_receiver,
+            buffer_sender,
+            event_receiver,
             last_known_result: None,
             requests_in_queue: 0,
+            checksum_algorithm: None,
             pool,
             mem_limiter,
-            checksum_algorithm,
             _task_handle: task_handle,
         }
     }
 
     // Push given bytes with its checksum to the upload queue
     pub async fn push(&mut self, buffer: UploadBuffer) -> Result<(), UploadError<Client::ClientError>> {
-        if let Err(_send_error) = self.request_sender.send(buffer).await {
+        if let Err(_send_error) = self.buffer_sender.send(buffer).await {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
             while self.consume_next_response().await? {}
@@ -214,7 +227,7 @@ where
     }
 
     pub async fn verify(&mut self) -> Result<(), UploadError<Client::ClientError>> {
-        if self.request_sender.is_closed() {
+        if self.buffer_sender.is_closed() {
             // The upload queue could be closed if there was a client error from previous requests
             trace!("upload queue is already closed");
             while self.consume_next_response().await? {}
@@ -225,7 +238,7 @@ where
 
     // Close the upload queue, wait for all uploads in the queue to complete, and get the last `PutObjectResult`
     pub async fn join(mut self) -> Result<Option<PutObjectResult>, UploadError<Client::ClientError>> {
-        let terminated = !self.request_sender.close();
+        let terminated = !self.buffer_sender.close();
         while self.consume_next_response().await? {}
         if terminated {
             return Err(UploadError::UploadAlreadyTerminated);
@@ -234,8 +247,24 @@ where
     }
 
     pub async fn get_buffer(&mut self, capacity: usize) -> Result<UploadBuffer, UploadError<Client::ClientError>> {
-        let checksum_algorithm = self.checksum_algorithm.get_mut().await?.unwrap().clone();
-
+        let checksum_algorithm = if let Some(checksum_algorithm) = self.checksum_algorithm.clone() {
+            checksum_algorithm
+        } else {
+            match self
+                .event_receiver
+                .recv()
+                .await
+                .map_err(|_| UploadError::UploadAlreadyTerminated)?
+            {
+                AppendUploadEvent::ChecksumAlgorithm(checksum_algorithm) => {
+                    self.checksum_algorithm.insert(checksum_algorithm).clone()
+                }
+                AppendUploadEvent::PutResponse(_) => {
+                    unreachable!("cannot receive a response event before the checksum algorithm");
+                }
+                AppendUploadEvent::Error(upload_error) => return Err(upload_error),
+            }
+        };
         while self.requests_in_queue > 0 {
             match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, self.mem_limiter.clone())? {
                 Some(buffer) => return Ok(buffer),
@@ -261,14 +290,30 @@ where
     ///
     /// Returns `true` if a response was successfully consumed, or `false` if response channel was closed.
     async fn consume_next_response(&mut self) -> Result<bool, UploadError<Client::ClientError>> {
-        let Ok(output) = self.response_receiver.recv().await else {
-            return Ok(false);
-        };
-        let result = output?;
-        trace!(?result, "received result");
-        self.requests_in_queue -= 1;
-        self.last_known_result = Some(result);
-        Ok(true)
+        // Loop at most once (when first receiving a ChecksumAlgorithm event).
+        loop {
+            let Ok(event) = self.event_receiver.recv().await else {
+                return Ok(false);
+            };
+            match event {
+                AppendUploadEvent::ChecksumAlgorithm(checksum_algorithm) => {
+                    // Set the detected algorithm, even though we don't expect to be used.
+                    // This is because `consume_next_response` is invoked in two cases:
+                    // * after a buffer has already been sent, which implies that we had already received the first event with the algorithm,
+                    // * or on completion for empty uploads, when the algorithm will not be used anyway.
+                    trace!(?checksum_algorithm, "received checksum algorithm");
+                    self.checksum_algorithm = Some(checksum_algorithm);
+                    continue;
+                }
+                AppendUploadEvent::PutResponse(result) => {
+                    trace!(?result, "received result");
+                    self.requests_in_queue -= 1;
+                    self.last_known_result = Some(result);
+                    return Ok(true);
+                }
+                AppendUploadEvent::Error(upload_error) => return Err(upload_error),
+            }
+        }
     }
 }
 
@@ -293,8 +338,9 @@ where
         .await?;
 
     trace!(?head_object, "received head_object response");
-    if Some(head_object.etag) != params.initial_etag {
+    if Some(&head_object.etag) != params.initial_etag.as_ref() {
         // Fail early if the etag has changed.
+        trace!(?head_object, initial_etag=?params.initial_etag, "mismatching etag");
         return Err(UploadError::PutRequestFailed(ObjectClientError::ServiceError(
             PutObjectError::PreconditionFailed,
         )));
@@ -306,43 +352,39 @@ where
 async fn run_append_loop<Client>(
     client: Client,
     params: AppendUploadQueueParams,
-    request_receiver: Receiver<UploadBuffer>,
-    response_sender: Sender<Result<PutObjectResult, UploadError<Client::ClientError>>>,
-) where
+    buffer_receiver: &Receiver<UploadBuffer>,
+    event_sender: &Sender<AppendUploadEvent<Client::ClientError>>,
+) -> Result<(), UploadError<Client::ClientError>>
+where
     Client: ObjectClient + Send + Sync + 'static,
 {
+    // Always send the checksum algorithm first.
+    let checksum_algorithm = get_checksum_algorithm(&client, &params).await?;
+    event_sender
+        .send(AppendUploadEvent::ChecksumAlgorithm(checksum_algorithm))
+        .await
+        .map_err(|_| UploadError::UploadAlreadyTerminated)?;
+
     let bucket = params.bucket;
     let key = params.key;
     let sse = params.server_side_encryption;
     let mut etag = params.initial_etag;
     let mut offset = params.initial_offset;
 
-    while let Ok(buffer) = request_receiver.recv().await {
+    while let Ok(buffer) = buffer_receiver.recv().await {
         let buffer_len = buffer.len();
-        let response = append(&client, &bucket, &key, buffer, offset, etag.take(), sse.clone())
-            .await
-            .inspect(|result| {
-                offset += buffer_len as u64;
-                etag = Some(result.etag.clone());
-            });
+        let result = append(&client, &bucket, &key, buffer, offset, etag.take(), sse.clone()).await?;
 
-        let error = response.is_err();
-        if error {
-            trace!("append upload task failed");
-            // Stop receiving new requests
-            request_receiver.close();
-        }
+        offset += buffer_len as u64;
+        etag = Some(result.etag.clone());
 
         // Send response to the [AppendUploadQueue].
-        if response_sender.send(response).await.is_err() {
-            trace!("response channel is already closed");
-            break;
-        } else if error {
-            trace!("closing response channel");
-            response_sender.close();
-            break;
-        }
+        event_sender
+            .send(AppendUploadEvent::PutResponse(result))
+            .await
+            .map_err(|_| UploadError::UploadAlreadyTerminated)?;
     }
+    Ok(())
 }
 
 async fn append<Client: ObjectClient>(
@@ -461,6 +503,7 @@ impl AsRef<[u8]> for ReservedBuffer {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration;
 
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
@@ -473,7 +516,8 @@ mod tests {
     use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
     use mountpoint_s3_client::mock_client::{MockClient, MockObject};
     use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectResponse};
-    use test_case::test_case;
+    use test_case::{test_case, test_matrix};
+    use tokio::time::sleep;
 
     fn new_uploader_for_test<Client>(
         client: Client,
@@ -956,7 +1000,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_append_failure_on_object_replaced() {
+    #[test_matrix([true, false], [Duration::ZERO, Duration::from_secs(1)])]
+    async fn test_append_failure_on_object_replaced(replace_before_start: bool, sleep_before_write: Duration) {
         let bucket = "bucket";
         let key = "hello";
 
@@ -968,15 +1013,29 @@ mod tests {
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
 
+        if replace_before_start {
+            // Replace the existing object
+            let replacing_object =
+                MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
+            client.add_object(key, replacing_object.clone());
+        }
+
         // Start appending
         let mut offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
             uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
 
-        // Replace the existing object
-        let replacing_object = MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, replacing_object.clone());
+        if !replace_before_start {
+            // Replace the existing object
+            let replacing_object =
+                MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
+            client.add_object(key, replacing_object.clone());
+        }
+
+        if !sleep_before_write.is_zero() {
+            sleep(sleep_before_write).await;
+        }
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
