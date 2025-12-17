@@ -6,7 +6,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write # required by bench.yml and bench_s3express.yml even if we don't actually publish the results to gh-pages for PRs
 
 jobs:
   integration:
