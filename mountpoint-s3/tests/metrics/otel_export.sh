@@ -7,7 +7,12 @@ OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
 MOUNT_DIR="/tmp/mount-dir"
 MOUNTPOINT_LOGS="/tmp/mountpoint-logs"
+MOUNTPOINT_CACHE="/tmp/mountpoint-cache"
 EXPECTED_METRICS=(
+  "experimental.cache.evict_latency"
+  "experimental.cache.get_latency"
+  "experimental.cache.put_latency"
+  "experimental.fuse.cache_hit"
   "experimental.fuse.idle_threads"
   "experimental.fuse.total_threads"
   "experimental.prefetch.reset_state"
@@ -43,8 +48,8 @@ fi
 
 cleanup() {
   ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
-  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
-  
+  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
+
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
     kill "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
@@ -94,6 +99,24 @@ trigger_metrics() {
     done
   } < "${test_file}" > /dev/null
 
+  # Re-read some data to trigger cache hits
+  {
+    for skip in {1..5}; do
+      dd bs=128k skip=$skip count=1 2>/dev/null || true
+    done
+  } < "${test_file}" > /dev/null
+
+  # Create multiple large files
+  for i in {1..10}; do
+    dd if=/dev/urandom of="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=100 2>/dev/null
+  done
+  sync
+
+  # Try reading all files to force cache eviction metrics
+  for i in {1..10}; do
+    dd if="${MOUNT_DIR}/evict_file_${i}.txt" bs=128k count=10 2>/dev/null > /dev/null
+  done
+
   cat "${MOUNT_DIR}/nonexistent_file.txt" 2>/dev/null || true
 }
 
@@ -102,14 +125,16 @@ setup_mount() {
   
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
-  
+
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
     --allow-overwrite
     --log-directory="${MOUNTPOINT_LOGS}"
     --prefix="${S3_BUCKET_TEST_PREFIX}"
+    --cache="${MOUNTPOINT_CACHE}"
+    --max-cache-size=100
   )
-  
+
   case $mode in
     "with_logs")
       args+=(--log-metrics)
@@ -121,7 +146,9 @@ setup_mount() {
       args+=(--log-metrics --otlp-endpoint="${OTLP_ENDPOINT}" --otlp-export-interval=5)
       ;;
   esac
-  
+
+  mkdir -p "${MOUNTPOINT_CACHE}"
+
   cargo run --quiet --release -- "${args[@]}"
   if [ $? -ne 0 ]; then
     echo "Failed to mount file system"

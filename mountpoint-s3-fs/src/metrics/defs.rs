@@ -24,21 +24,20 @@ pub const FUSE_IO_SIZE: &str = "fuse.io_size";
 pub const FUSE_REQUEST_ERRORS: &str = "fuse.request_errors";
 pub const FUSE_IDLE_THREADS: &str = "fuse.idle_threads";
 pub const FUSE_TOTAL_THREADS: &str = "fuse.total_threads";
+pub const FUSE_CACHE_HIT: &str = "fuse.cache_hit";
 
 pub const PROCESS_MEMORY_USAGE: &str = "process.memory_usage";
 
 pub const PREFETCH_RESET_STATE: &str = "prefetch.reset_state";
 
-// Cache metric constants
 pub const CACHE_GET_IO_SIZE: &str = "cache.get_io_size";
 pub const CACHE_PUT_IO_SIZE: &str = "cache.put_io_size";
+pub const CACHE_EVICT_LATENCY: &str = "cache.evict_latency";
 pub const CACHE_GET_LATENCY: &str = "cache.get_latency";
 pub const CACHE_PUT_LATENCY: &str = "cache.put_latency";
 pub const CACHE_GET_ERRORS: &str = "cache.get_errors";
 pub const CACHE_PUT_ERRORS: &str = "cache.put_errors";
 pub const CACHE_TOTAL_SIZE: &str = "cache.total_size";
-pub const CACHE_EVICT_LATENCY: &str = "cache.evict_latency";
-pub const CACHE_BLOCK_HIT: &str = "cache.block_hit";
 pub const CACHE_OVERSIZED_OBJECTS: &str = "cache.oversized_objects";
 
 // Attribute constants
@@ -104,6 +103,41 @@ pub fn lookup_config(name: &str) -> MetricConfig {
         PREFETCH_RESET_STATE => MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Experimental,
+            otlp_attributes: &[],
+        },
+        FUSE_CACHE_HIT => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[],
+        },
+        CACHE_GET_IO_SIZE => MetricConfig {
+            unit: Unit::Bytes,
+            stability: MetricStability::Internal,
+            otlp_attributes: &[ATTR_CACHE],
+        },
+        CACHE_PUT_IO_SIZE => MetricConfig {
+            unit: Unit::Bytes,
+            stability: MetricStability::Internal,
+            otlp_attributes: &[ATTR_CACHE],
+        },
+        CACHE_EVICT_LATENCY => MetricConfig {
+            unit: Unit::Microseconds,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[ATTR_CACHE],
+        },
+        CACHE_GET_LATENCY => MetricConfig {
+            unit: Unit::Microseconds,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[ATTR_CACHE],
+        },
+        CACHE_PUT_LATENCY => MetricConfig {
+            unit: Unit::Microseconds,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[ATTR_CACHE],
+        },
+        CACHE_TOTAL_SIZE => MetricConfig {
+            unit: Unit::Bytes,
+            stability: MetricStability::Internal,
             otlp_attributes: &[],
         },
         // Treat everything else as count metrics
