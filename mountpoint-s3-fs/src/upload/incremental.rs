@@ -503,6 +503,7 @@ impl AsRef<[u8]> for ReservedBuffer {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::Duration;
 
     use crate::mem_limiter::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
@@ -515,7 +516,8 @@ mod tests {
     use mountpoint_s3_client::failure_client::{CountdownFailureConfig, countdown_failure_client};
     use mountpoint_s3_client::mock_client::{MockClient, MockObject};
     use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag, GetObjectParams, GetObjectResponse};
-    use test_case::test_case;
+    use test_case::{test_case, test_matrix};
+    use tokio::time::sleep;
 
     fn new_uploader_for_test<Client>(
         client: Client,
@@ -998,7 +1000,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_append_failure_on_object_replaced() {
+    #[test_matrix([true, false], [Duration::ZERO, Duration::from_secs(1)])]
+    async fn test_append_failure_on_object_replaced(replace_before_start: bool, sleep_before_write: Duration) {
         let bucket = "bucket";
         let key = "hello";
 
@@ -1010,15 +1013,29 @@ mod tests {
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
 
+        if replace_before_start {
+            // Replace the existing object
+            let replacing_object =
+                MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
+            client.add_object(key, replacing_object.clone());
+        }
+
         // Start appending
         let mut offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
             uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
 
-        // Replace the existing object
-        let replacing_object = MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
-        client.add_object(key, replacing_object.clone());
+        if !replace_before_start {
+            // Replace the existing object
+            let replacing_object =
+                MockObject::from(vec![0xcc; 20]).with_computed_checksums(&[ChecksumAlgorithm::Crc32c]);
+            client.add_object(key, replacing_object.clone());
+        }
+
+        if !sleep_before_write.is_zero() {
+            sleep(sleep_before_write).await;
+        }
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
