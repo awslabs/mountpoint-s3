@@ -290,12 +290,17 @@ where
     ///
     /// Returns `true` if a response was successfully consumed, or `false` if response channel was closed.
     async fn consume_next_response(&mut self) -> Result<bool, UploadError<Client::ClientError>> {
+        // Loop at most once (when first receiving a ChecksumAlgorithm event).
         loop {
             let Ok(event) = self.event_receiver.recv().await else {
                 return Ok(false);
             };
             match event {
                 AppendUploadEvent::ChecksumAlgorithm(checksum_algorithm) => {
+                    // Set the detected algorithm, even though we don't expect to be used.
+                    // This is because `consume_next_response` is invoked in two cases:
+                    // * after a buffer has already been sent, which implies that we had already received the first event with the algorithm,
+                    // * or on completion for empty uploads, when the algorithm will not be used anyway.
                     trace!(?checksum_algorithm, "received checksum algorithm");
                     self.checksum_algorithm = Some(checksum_algorithm);
                     continue;
