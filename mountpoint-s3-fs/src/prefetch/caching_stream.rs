@@ -12,7 +12,7 @@ use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
-use crate::prefetch::backpressure_controller::ReadWidnowAlignmentConfig;
+use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
@@ -58,7 +58,7 @@ where
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
-            read_window_alignment_config: ReadWidnowAlignmentConfig::Off, // we don't know where S3 request starts, so can not align the read window
+            read_window_alignment_config: ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
         };
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
@@ -458,7 +458,7 @@ mod tests {
                 .bucket(bucket)
                 .part_size(client_part_size)
                 .enable_backpressure(true)
-                .initial_read_window_size(initial_read_window_size)
+                .initial_read_window_size(client_part_size)
                 .build(),
         );
         let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
@@ -541,7 +541,7 @@ mod tests {
                 .bucket(bucket)
                 .part_size(client_part_size)
                 .enable_backpressure(true)
-                .initial_read_window_size(initial_read_window_size)
+                .initial_read_window_size(client_part_size)
                 .build(),
         );
         let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);

@@ -12,7 +12,7 @@ use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
-use crate::prefetch::backpressure_controller::ReadWidnowAlignmentConfig;
+use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
@@ -241,8 +241,8 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
-            read_window_alignment_config: ReadWidnowAlignmentConfig::On {
-                align_from_offset: range.start() + config.initial_request_size as u64,
+            read_window_alignment_config: ReadWindowAlignmentConfig::AlignToPartSize {
+                from_offset: range.start() + config.initial_request_size as u64,
                 part_size: config.read_part_size as u64,
             },
         };
@@ -438,8 +438,18 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
         let mut client_backpressure_handle = request.backpressure_handle()
             .expect("S3 client backpressure should always be enabled in Mountpoint")
             .clone();
-        // If `initial_read_window` configured on the client is smaller than what `backpressure_limiter` expects, immediately increase the window.
-        // Among other cases, this ensures progress when `initial_read_window` on the client is lower than `part_size` or `initial_request_size`.
+        // If `initial_read_window` configured on the client is smaller than what
+        // `backpressure_limiter` expects, immediately increase the window to guarantee progress.
+        //
+        // Without this line we could get stuck in `request.next()` when `initial_read_window`
+        // on the client is lower than the one on the `backpressure_limiter`.
+        //
+        // Example: This could happen if `initial_request_size` is 3x larger than `part_size` and
+        // `initial_read_window` on the client equals to `part_size`.
+        //
+        // In that case, `wait_for_read_window_increment` will return `None`, assuming that the
+        // window end (set in the `backpressure_limiter`) is also known to the client. However,
+        // the client will only know about a lower value configured by `initial_read_window`.
         client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
 
         pin_mut!(request);

@@ -45,7 +45,6 @@ use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
 use crate::object::ObjectId;
-use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
 use crate::sync::Arc;
 
 mod backpressure_controller;
@@ -62,6 +61,19 @@ use part::PartOperationError;
 use part_stream::{PartStream, RequestRange, RequestTaskConfig};
 use seek_window::SeekWindow;
 use task::RequestTask;
+
+// This is a weird looking number! We really want our first request size to be 1MiB,
+// which is a common IO size. But Linux's readahead will try to read an extra 128k on on
+// top of a 1MiB read, which we'd have to wait for a second request to service. Because
+// FUSE doesn't know the difference between regular reads and readahead reads, it will
+// send us a READ request for that 128k, so we'll have to block waiting for it even if
+// the application doesn't want it. This is all in the noise for sequential IO, but
+// waiting for the readahead hurts random IO. So we add 128k to the first request size
+// to avoid the latency hit of the second request.
+//
+// Note the CRT does not respect this value right now, they always return chunks of part size
+// but this is the first window size we prefer.
+pub const INITIAL_REQUEST_SIZE: usize = 1024 * 1024 + 128 * 1024;
 
 #[derive(Debug, Error)]
 pub enum PrefetchReadError<E> {
@@ -133,7 +145,7 @@ impl Default for PrefetcherConfig {
             // just start a new request instead.
             max_forward_seek_wait_distance: 16 * 1024 * 1024,
             max_backward_seek_distance: 1 * 1024 * 1024,
-            initial_request_size: INITIAL_READ_WINDOW_SIZE,
+            initial_request_size: INITIAL_REQUEST_SIZE,
         }
     }
 }
@@ -575,7 +587,7 @@ mod tests {
     #[derive(Debug, Arbitrary)]
     struct TestConfig {
         #[proptest(strategy = "16usize..1*1024*1024")]
-        initial_read_window_size: usize,
+        initial_request_size: usize,
         #[proptest(strategy = "16usize..1*1024*1024")]
         max_read_window_size: usize,
         #[proptest(strategy = "1usize..8usize")]
@@ -622,7 +634,7 @@ mod tests {
                 .bucket("test-bucket")
                 .part_size(test_config.client_part_size)
                 .enable_backpressure(true)
-                .initial_read_window_size(test_config.initial_read_window_size)
+                .initial_read_window_size(test_config.client_part_size)
                 .build(),
         );
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
@@ -635,7 +647,7 @@ mod tests {
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
-            ..Default::default()
+            initial_request_size: test_config.initial_request_size,
         };
 
         let prefetcher = build_prefetcher(client.clone(), prefetcher_type, prefetcher_config);
@@ -660,7 +672,7 @@ mod tests {
     #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
     fn sequential_read_small(prefetcher_type: PrefetcherType) {
         let config = TestConfig {
-            initial_read_window_size: 256 * 1024,
+            initial_request_size: 256 * 1024,
             max_read_window_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
@@ -675,7 +687,7 @@ mod tests {
     #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
     fn sequential_read_medium(prefetcher_type: PrefetcherType) {
         let config = TestConfig {
-            initial_read_window_size: 256 * 1024,
+            initial_request_size: 256 * 1024,
             max_read_window_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
@@ -690,7 +702,7 @@ mod tests {
     #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
     fn sequential_read_large(prefetcher_type: PrefetcherType) {
         let config = TestConfig {
-            initial_read_window_size: 256 * 1024,
+            initial_request_size: 256 * 1024,
             max_read_window_size: 64 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
@@ -730,7 +742,7 @@ mod tests {
     #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
     fn fail_with_backpressure_not_enabled(prefetcher_type: PrefetcherType) {
         let test_config = TestConfig {
-            initial_read_window_size: 256 * 1024,
+            initial_request_size: 256 * 1024,
             max_read_window_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
@@ -752,7 +764,7 @@ mod tests {
     #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
     fn fail_with_backpressure_zero_read_window(prefetcher_type: PrefetcherType) {
         let test_config = TestConfig {
-            initial_read_window_size: 256 * 1024,
+            initial_request_size: 256 * 1024,
             max_read_window_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
@@ -782,7 +794,7 @@ mod tests {
             .bucket("test-bucket")
             .part_size(test_config.client_part_size)
             .enable_backpressure(true)
-            .initial_read_window_size(test_config.initial_read_window_size)
+            .initial_read_window_size(test_config.client_part_size)
             .build();
         let object = MockObject::ramp(0xaa, size as usize, ETag::for_tests());
         let etag = object.etag();
@@ -800,7 +812,7 @@ mod tests {
         let prefetcher_config = PrefetcherConfig {
             max_read_window_size: test_config.max_read_window_size,
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
-            initial_request_size: test_config.initial_read_window_size,
+            initial_request_size: test_config.initial_request_size,
             ..Default::default()
         };
 
@@ -836,7 +848,7 @@ mod tests {
     #[test_case("At least one of the pre-conditions you specified did not hold", PrefetcherType::InMemoryCache(1 * MB))]
     fn fail_request_sequential_small(err_value: &str, prefetcher_type: PrefetcherType) {
         let config = TestConfig {
-            initial_read_window_size: 256 * 1024,
+            initial_request_size: 256 * 1024,
             max_read_window_size: 1024 * 1024 * 1024,
             sequential_prefetch_multiplier: 8,
             client_part_size: 8 * 1024 * 1024,
@@ -896,7 +908,7 @@ mod tests {
         let object_size = 854966;
         let read_size = 161647;
         let config = TestConfig {
-            initial_read_window_size: 484941,
+            initial_request_size: 484941,
             max_read_window_size: 81509,
             sequential_prefetch_multiplier: 1,
             client_part_size: 181682,
@@ -918,7 +930,7 @@ mod tests {
                 .bucket("test-bucket")
                 .part_size(test_config.client_part_size)
                 .enable_backpressure(true)
-                .initial_read_window_size(test_config.initial_read_window_size)
+                .initial_read_window_size(test_config.client_part_size)
                 .build(),
         );
         let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -931,7 +943,7 @@ mod tests {
             sequential_prefetch_multiplier: test_config.sequential_prefetch_multiplier,
             max_forward_seek_wait_distance: test_config.max_forward_seek_wait_distance,
             max_backward_seek_distance: test_config.max_backward_seek_distance,
-            ..Default::default()
+            initial_request_size: test_config.initial_request_size,
         };
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
@@ -998,7 +1010,7 @@ mod tests {
         let object_size = 724314;
         let reads = vec![(0, 516883)];
         let config = TestConfig {
-            initial_read_window_size: 3684779,
+            initial_request_size: 3684779,
             max_read_window_size: 2147621,
             sequential_prefetch_multiplier: 4,
             client_part_size: 516882,
@@ -1014,7 +1026,7 @@ mod tests {
         let object_size = 755678;
         let reads = vec![(0, 278499), (311250, 1)];
         let config = TestConfig {
-            initial_read_window_size: 556997,
+            initial_request_size: 556997,
             max_read_window_size: 105938,
             sequential_prefetch_multiplier: 7,
             client_part_size: 1219731,
@@ -1030,7 +1042,7 @@ mod tests {
         let object_size = 755678;
         let reads = vec![(0, 236766), (291204, 1), (280930, 36002)];
         let config = TestConfig {
-            initial_read_window_size: 556997,
+            initial_request_size: 556997,
             max_read_window_size: 105938,
             sequential_prefetch_multiplier: 7,
             client_part_size: 1219731,
@@ -1046,7 +1058,7 @@ mod tests {
         let object_size = 14201;
         let reads = vec![(3584, 1), (9424, 1460), (3582, 3340), (248, 9218)];
         let config = TestConfig {
-            initial_read_window_size: 457999,
+            initial_request_size: 457999,
             max_read_window_size: 863511,
             sequential_prefetch_multiplier: 5,
             client_part_size: 1972409,
@@ -1326,8 +1338,6 @@ mod tests {
         use shuttle::rand::Rng;
         use shuttle::{check_pct, check_random};
 
-        use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
-
         struct ShuttleRuntime;
         impl Spawn for ShuttleRuntime {
             fn spawn_obj(&self, future: FutureObj<'static, ()>) -> Result<(), SpawnError> {
@@ -1341,8 +1351,8 @@ mod tests {
             let object_size = rng.gen_range(1u64..1 * 1024 * 1024);
             let max_read_window_size = rng.gen_range(16usize..1 * 1024 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
-            let part_size = rng.gen_range(16usize..1 * INITIAL_READ_WINDOW_SIZE);
-            let initial_read_window_size = rng.gen_range(16usize..1 * INITIAL_READ_WINDOW_SIZE);
+            let part_size = rng.gen_range(16usize..INITIAL_REQUEST_SIZE);
+            let initial_request_size = rng.gen_range(0..INITIAL_REQUEST_SIZE);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..1 * 1024 * 1024 + 256 * 1024);
 
@@ -1351,7 +1361,7 @@ mod tests {
                     .bucket("test-bucket")
                     .part_size(part_size)
                     .enable_backpressure(true)
-                    .initial_read_window_size(initial_read_window_size)
+                    .initial_read_window_size(part_size)
                     .build(),
             );
             let pool = PagedPool::new_with_candidate_sizes([part_size]);
@@ -1366,7 +1376,7 @@ mod tests {
                 sequential_prefetch_multiplier,
                 max_forward_seek_wait_distance,
                 max_backward_seek_distance,
-                ..Default::default()
+                initial_request_size,
             };
 
             let prefetcher =
@@ -1400,12 +1410,12 @@ mod tests {
             let max_read_window_size = rng.gen_range(16usize..32 * 1024);
             let sequential_prefetch_multiplier = rng.gen_range(2usize..16);
             let part_size = rng.gen_range(16usize..128 * 1024);
-            let initial_read_window_size = rng.gen_range(16usize..128 * 1024);
+            let initial_request_size = rng.gen_range(16usize..128 * 1024);
             let max_forward_seek_wait_distance = rng.gen_range(16u64..192 * 1024);
             let max_backward_seek_distance = rng.gen_range(16u64..192 * 1024);
             // Try to prevent testing very small reads of very large objects, which are easy to OOM
             // under Shuttle (lots of concurrent tasks)
-            let max_object_size = initial_read_window_size.min(max_read_window_size) * 20;
+            let max_object_size = initial_request_size.min(max_read_window_size) * 20;
             let object_size = rng.gen_range(1u64..(64 * 1024).min(max_object_size) as u64);
 
             let client = Arc::new(
@@ -1413,7 +1423,7 @@ mod tests {
                     .bucket("test-bucket")
                     .part_size(part_size)
                     .enable_backpressure(true)
-                    .initial_read_window_size(initial_read_window_size)
+                    .initial_read_window_size(part_size)
                     .build(),
             );
             let pool = PagedPool::new_with_candidate_sizes([part_size]);
@@ -1428,7 +1438,7 @@ mod tests {
                 sequential_prefetch_multiplier,
                 max_forward_seek_wait_distance,
                 max_backward_seek_distance,
-                ..Default::default()
+                initial_request_size,
             };
 
             let prefetcher =
