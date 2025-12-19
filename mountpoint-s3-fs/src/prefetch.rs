@@ -70,9 +70,6 @@ use task::RequestTask;
 // the application doesn't want it. This is all in the noise for sequential IO, but
 // waiting for the readahead hurts random IO. So we add 128k to the first request size
 // to avoid the latency hit of the second request.
-//
-// Note the CRT does not respect this value right now, they always return chunks of part size
-// but this is the first window size we prefer.
 pub const INITIAL_REQUEST_SIZE: usize = 1024 * 1024 + 128 * 1024;
 
 #[derive(Debug, Error)]

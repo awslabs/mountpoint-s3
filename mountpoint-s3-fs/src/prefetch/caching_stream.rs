@@ -446,7 +446,7 @@ mod tests {
         let id = ObjectId::new(key.to_owned(), object.etag());
 
         // backpressure config
-        let initial_read_window_size = 1 * MB;
+        let initial_request_size = 1 * MB;
         let max_read_window_size = 64 * MB;
         let read_window_size_multiplier = 2;
 
@@ -480,7 +480,7 @@ mod tests {
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
-                initial_request_size: initial_read_window_size,
+                initial_request_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
@@ -506,7 +506,7 @@ mod tests {
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
-                initial_request_size: initial_read_window_size,
+                initial_request_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
@@ -529,7 +529,7 @@ mod tests {
         let id = ObjectId::new(key.to_owned(), object.etag());
 
         // backpressure config
-        let initial_read_window_size = 1 * MB;
+        let initial_request_size = 1 * MB;
         let max_read_window_size = 64 * MB;
         let read_window_size_multiplier = 2;
 
@@ -559,7 +559,7 @@ mod tests {
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
-                    initial_request_size: initial_read_window_size,
+                    initial_request_size,
                     max_read_window_size,
                     read_window_size_multiplier,
                 };

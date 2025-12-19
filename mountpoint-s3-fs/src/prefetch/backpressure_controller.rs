@@ -26,6 +26,29 @@ pub enum ReadWindowAlignmentConfig {
     Disable,
 }
 
+impl ReadWindowAlignmentConfig {
+    /// Align `read_window_end` to next part boundary relative to `AlignToPartSize::from_offset`.
+    /// If alignment is disabled, returns the `read_window_end` unchanged.
+    ///
+    /// Whend enabled, this function ensures that read window end offsets are aligned to part boundaries,
+    /// which improves accuracy of tracking reserved memory.
+    ///
+    /// Note: window excludes the last byte, denoted by `read_window_end`.
+    fn align(&self, read_window_end: u64) -> u64 {
+        match self {
+            ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size } => {
+                if read_window_end > *from_offset {
+                    let relative_end_offset = read_window_end - from_offset;
+                    from_offset + relative_end_offset.next_multiple_of(*part_size)
+                } else {
+                    read_window_end
+                }
+            }
+            ReadWindowAlignmentConfig::Disable => read_window_end,
+        }
+    }
+}
+
 pub struct BackpressureConfig {
     /// Backpressure's initial read window size
     pub initial_read_window_size: usize,
@@ -155,7 +178,7 @@ impl BackpressureController {
                         .saturating_add(self.preferred_read_window_size as u64);
                     let new_read_window_end_offset_aligned = self
                         .read_window_alignment_config
-                        .round_up_to_part_boundary(new_read_window_end_offset_preferred);
+                        .align(new_read_window_end_offset_preferred);
                     // NOTE: in the end of the object we still have up to "part_size" of unaccounted memory.
                     // For more accurate memory limiting we could reserve in "full parts", but that would make
                     // release more complicated. So accept this inaccuracy, and reserve only till `request_end_offset`.
@@ -344,28 +367,6 @@ impl ReadWindowIncrementQueue {
     }
 }
 
-impl ReadWindowAlignmentConfig {
-    /// Round up `read_window_end` to next part boundary (relative to request start).
-    ///
-    /// This function ensures that read window end offsets are aligned to part boundaries for the second request,
-    /// which helps optimize memory usage.
-    ///
-    /// Note: window excludes the last byte, denoted by `read_window_end`.
-    fn round_up_to_part_boundary(&self, read_window_end: u64) -> u64 {
-        match self {
-            ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size } => {
-                if read_window_end > *from_offset {
-                    let relative_end_offset = read_window_end - from_offset;
-                    from_offset + relative_end_offset.next_multiple_of(*part_size)
-                } else {
-                    read_window_end
-                }
-            }
-            ReadWindowAlignmentConfig::Disable => read_window_end,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,8 +492,7 @@ mod tests {
     #[test_case(1512, 1000, 512, 1512; "offset exactly at part boundary")]
     #[test_case(1513, 1000, 512, 2024; "offset just past part boundary")]
     fn test_round_up_to_part_boundary(offset: u64, from_offset: u64, part_size: u64, expected: u64) {
-        let result =
-            ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size }.round_up_to_part_boundary(offset);
+        let result = ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size }.align(offset);
         assert_eq!(result, expected);
     }
 

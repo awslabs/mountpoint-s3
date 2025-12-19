@@ -109,6 +109,8 @@ impl MockClientConfig {
     }
 
     /// Enable a check to ensure all read window increments are aligned with part boundaries
+    ///
+    /// Warning: A failed check on one request will result in all other requests from the client to fail.
     pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
         self.fail_on_non_aligned_read_window = enable;
         self
