@@ -30,7 +30,7 @@ impl ReadWindowAlignmentConfig {
     /// Align `read_window_end` to next part boundary relative to `AlignToPartSize::from_offset`.
     /// If alignment is disabled, returns the `read_window_end` unchanged.
     ///
-    /// Whend enabled, this function ensures that read window end offsets are aligned to part boundaries,
+    /// When enabled, this function ensures that read window end offsets are aligned to part boundaries,
     /// which improves accuracy of tracking reserved memory.
     ///
     /// Note: window excludes the last byte, denoted by `read_window_end`.
@@ -486,12 +486,12 @@ mod tests {
 
     #[test_case(500, 1000, 100, 500; "offset before second request start")]
     #[test_case(1000, 1000, 512, 1000; "offset at second request start")]
-    #[test_case(1500, 1000, 512, 1512; "offset after second request start, needs rounding up")]
+    #[test_case(1500, 1000, 512, 1512; "offset after second request start, needs alignment")]
     #[test_case(2024, 1000, 512, 2024; "offset after second request start, already aligned")]
-    #[test_case(1001, 1000, 512, 1512; "offset just after second request start, needs rounding up")]
+    #[test_case(1001, 1000, 512, 1512; "offset just after second request start, needs alignment")]
     #[test_case(1512, 1000, 512, 1512; "offset exactly at part boundary")]
     #[test_case(1513, 1000, 512, 2024; "offset just past part boundary")]
-    fn test_round_up_to_part_boundary(offset: u64, from_offset: u64, part_size: u64, expected: u64) {
+    fn test_read_window_alignment(offset: u64, from_offset: u64, part_size: u64, expected: u64) {
         let result = ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size }.align(offset);
         assert_eq!(result, expected);
     }
