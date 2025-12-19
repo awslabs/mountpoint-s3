@@ -1,4 +1,4 @@
-## Unreleased
+## Unreleased (v0.19.5)
 
 ## v0.19.4 (October 30, 2025)
 
