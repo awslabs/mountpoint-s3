@@ -1,72 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765993970193,
+  "lastUpdate": 1766403999374,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Latency Benchmark (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "prikaru@amazon.com",
-            "name": "Priyankakarumuru1",
-            "username": "Priyankakarumuru1"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "82779ea70a849f02d17eb89381fe1f53ef0185b3",
-          "message": "Fix readdir race condition with concurrent deletions (#1648)\n\nFix \"File does not exist\" errors in readdir operations\n([#1614](https://github.com/awslabs/mountpoint-s3/pull/1614)) that could\noccur during concurrent directory listing.\n\nRoot Cause: update_from_remote fails when processing a local entry in\nReaddirHandle::next() because the inode is removed from the parent’s\nwriting_children. This was incorrectly treated as FileDoesNotExist.\n\n\nChanges made:\n\n- Altered inode update logic for readdir: when a ReaddirEntry is known\nto be local, the update is skipped.\n\n- Updated directory listing to handle concurrent modifications\ngracefully.\n\n- Ensures that files removed from writing_children are skipped without\ncausing errors.\n\n### Does this change impact existing behavior?\n\nNo breaking changes. \n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, this requires a changelog entry\nNo version change needed.\n\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
-          "timestamp": "2025-10-22T16:04:08Z",
-          "tree_id": "5377abdbca5e4700852563856560a4e624390111",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/82779ea70a849f02d17eb89381fe1f53ef0185b3"
-        },
-        "date": 1761150644126,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "One Byte File Creation - Average Total Latency",
-            "value": 312.66786472,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "readdir_100",
-            "value": 0.057,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_1000",
-            "value": 0.147,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_10000",
-            "value": 0.9,
-            "unit": "seconds"
-          },
-          {
-            "name": "readdir_100000",
-            "value": 8.877,
-            "unit": "seconds"
-          },
-          {
-            "name": "time_to_write_one_byte_file",
-            "value": 37.9019467,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read",
-            "value": 20.7329493,
-            "unit": "milliseconds"
-          },
-          {
-            "name": "time_to_first_byte_read_small_file",
-            "value": 20.265919800000002,
-            "unit": "milliseconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -1919,6 +1855,70 @@ window.BENCHMARK_DATA = {
           {
             "name": "time_to_first_byte_read_small_file",
             "value": 34.256699399999995,
+            "unit": "milliseconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "vladvolodkin@gmail.com",
+            "name": "Volodkin Vladislav",
+            "username": "vladem"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "deba195af5cfc231784d226a00468cffc284df27",
+          "message": "Align read window with part boundaries + configurable `initial_request_size` (#1707)\n\nRe-created https://github.com/awslabs/mountpoint-s3/pull/1618, in this\nPR:\n\n- we align read window end to the part boundary for the second request\n(see `round_up_to_part_boundary` method);\n- we update mock client to allow testing of this change;\n- we add `PrefetcherConfig::initial_request_size` field and use it in\n`mount_from_config.rs` example.\n\n### Does this change impact existing behavior?\n\nIn a memory constrained environment, this may result in smaller read\nwindow sizes and less memory consumption.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nMinor version change and a change log to `mountpoint-s3-fs`, will add\nlater. Patch version change to the `mountpoint-s3-fs-client`.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vlad Volodkin <vlaad@amazon.com>\nSigned-off-by: Vlad Volodkin <vlaad@amazon.co.uk>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.com>\nCo-authored-by: Vlad Volodkin <vlaad@amazon.co.uk>",
+          "timestamp": "2025-12-22T11:19:28Z",
+          "tree_id": "8c01e60eb5f63bdbc01ecb41f5c66fcc5b046b1c",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/deba195af5cfc231784d226a00468cffc284df27"
+        },
+        "date": 1766403998331,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "One Byte File Creation - Average Total Latency",
+            "value": 288.8018142099999,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "readdir_100",
+            "value": 0.065,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_1000",
+            "value": 0.156,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_10000",
+            "value": 0.92,
+            "unit": "seconds"
+          },
+          {
+            "name": "readdir_100000",
+            "value": 8.381,
+            "unit": "seconds"
+          },
+          {
+            "name": "time_to_write_one_byte_file",
+            "value": 34.924131700000004,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read",
+            "value": 14.1735642,
+            "unit": "milliseconds"
+          },
+          {
+            "name": "time_to_first_byte_read_small_file",
+            "value": 23.631295100000003,
             "unit": "milliseconds"
           }
         ]
