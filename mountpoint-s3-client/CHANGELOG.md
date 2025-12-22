@@ -1,4 +1,8 @@
-## Unreleased (v0.19.5)
+## Unreleased
+
+## v0.19.5 (December 22, 2025)
+
+* Add new CRT request metrics to telemetry data. ([#1701](https://github.com/awslabs/mountpoint-s3/pull/1701))
 
 ## v0.19.4 (October 30, 2025)
 
