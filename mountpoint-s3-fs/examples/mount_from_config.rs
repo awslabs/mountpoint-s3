@@ -122,6 +122,9 @@ impl ConfigOptions {
         if let Some(memory_limit_bytes) = self.memory_limit_bytes {
             fs_config.mem_limit = memory_limit_bytes;
         }
+        // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
+        // trading-off latency for throughput and more accurate memory limiting.
+        fs_config.prefetcher_config.initial_request_size = 0;
         Ok(fs_config)
     }
 
@@ -142,7 +145,7 @@ impl ConfigOptions {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: None,
-            part_config: PartConfig::with_part_size(self.part_size.unwrap_or(8388608)),
+            part_config: PartConfig::with_part_size(self.part_size()),
             user_agent: UserAgent::new(Some(user_agent_string)),
         })
     }
@@ -214,6 +217,10 @@ impl ConfigOptions {
                 Ok(TargetThroughputSetting::Instance { gbps: target })
             }
         }
+    }
+
+    fn part_size(&self) -> usize {
+        self.part_size.unwrap_or(8388608)
     }
 }
 

@@ -74,15 +74,17 @@ pub struct TestSessionConfig {
     pub cache_block_size: usize,
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
+    pub fail_on_non_aligned_read_window: bool,
 }
 
 impl Default for TestSessionConfig {
     fn default() -> Self {
         let part_size = 8 * 1024 * 1024;
+        let initial_read_window_size = 1024 * 1024 + 128 * 1024;
         let cache_block_size = 1024 * 1024;
         Self {
             part_size,
-            initial_read_window_size: part_size,
+            initial_read_window_size,
             filesystem_config: Default::default(),
             auth_config: Default::default(),
             pass_fuse_fd: false,
@@ -91,6 +93,7 @@ impl Default for TestSessionConfig {
             cache_block_size,
             #[cfg(feature = "manifest")]
             manifest: None,
+            fail_on_non_aligned_read_window: false,
         }
     }
 }
@@ -103,6 +106,14 @@ impl TestSessionConfig {
 
     pub fn with_pass_fuse_fd(mut self, pass_fuse_fd: bool) -> Self {
         self.pass_fuse_fd = pass_fuse_fd;
+        self
+    }
+
+    /// Enable a check to ensure all read window increments are aligned with part boundaries
+    ///
+    /// Warning: A failed check on one request will result in all other requests from the client to fail.
+    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
+        self.fail_on_non_aligned_read_window = enable;
         self
     }
 }
@@ -307,6 +318,7 @@ pub mod mock_session {
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
                 .enable_rename(test_config.filesystem_config.allow_rename)
+                .fail_on_non_aligned_read_window(test_config.fail_on_non_aligned_read_window)
                 .build(),
         );
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());

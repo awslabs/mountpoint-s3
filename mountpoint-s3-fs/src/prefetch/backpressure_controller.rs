@@ -17,6 +17,38 @@ pub enum BackpressureFeedbackEvent {
     PartQueueStall,
 }
 
+/// Read window alignment config.
+#[derive(Copy, Clone, Debug)]
+pub enum ReadWindowAlignmentConfig {
+    /// Align only offsets starting from `from_offset` (and relative to it) to multiple of part_size.
+    AlignToPartSize { from_offset: u64, part_size: u64 },
+    /// No alignment.
+    Disable,
+}
+
+impl ReadWindowAlignmentConfig {
+    /// Align `read_window_end` to next part boundary relative to `AlignToPartSize::from_offset`.
+    /// If alignment is disabled, returns the `read_window_end` unchanged.
+    ///
+    /// When enabled, this function ensures that read window end offsets are aligned to part boundaries,
+    /// which improves accuracy of tracking reserved memory.
+    ///
+    /// Note: window excludes the last byte, denoted by `read_window_end`.
+    fn align(&self, read_window_end: u64) -> u64 {
+        match self {
+            ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size } => {
+                if read_window_end > *from_offset {
+                    let relative_end_offset = read_window_end - from_offset;
+                    from_offset + relative_end_offset.next_multiple_of(*part_size)
+                } else {
+                    read_window_end
+                }
+            }
+            ReadWindowAlignmentConfig::Disable => read_window_end,
+        }
+    }
+}
+
 pub struct BackpressureConfig {
     /// Backpressure's initial read window size
     pub initial_read_window_size: usize,
@@ -28,6 +60,8 @@ pub struct BackpressureConfig {
     pub read_window_size_multiplier: usize,
     /// Request range to apply backpressure
     pub request_range: Range<u64>,
+    /// Enable alignment of read window end to part boundary
+    pub read_window_alignment_config: ReadWindowAlignmentConfig,
 }
 
 /// A [BackpressureController] should be given to consumers of a byte stream.
@@ -58,6 +92,8 @@ pub struct BackpressureController {
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter>,
+    /// Enable alignment of read window end to part boundary
+    read_window_alignment_config: ReadWindowAlignmentConfig,
 }
 
 /// The [BackpressureLimiter] is used on producer side of a stream, for example,
@@ -102,7 +138,10 @@ pub fn new_backpressure_controller(
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
         mem_limiter,
+        read_window_alignment_config: config.read_window_alignment_config,
     };
+
+    trace!(?controller, "initialising backpressure controller");
 
     let limiter = BackpressureLimiter {
         read_window_increment_queue,
@@ -134,10 +173,16 @@ impl BackpressureController {
                 while remaining_window < (self.preferred_read_window_size / 2)
                     && self.read_window_end_offset < self.request_end_offset
                 {
-                    let new_read_window_end_offset = self
+                    let new_read_window_end_offset_preferred = self
                         .next_read_offset
-                        .saturating_add(self.preferred_read_window_size as u64)
-                        .min(self.request_end_offset);
+                        .saturating_add(self.preferred_read_window_size as u64);
+                    let new_read_window_end_offset_aligned = self
+                        .read_window_alignment_config
+                        .align(new_read_window_end_offset_preferred);
+                    // NOTE: in the end of the object we still have up to "part_size" of unaccounted memory.
+                    // For more accurate memory limiting we could reserve in "full parts", but that would make
+                    // release more complicated. So accept this inaccuracy, and reserve only till `request_end_offset`.
+                    let new_read_window_end_offset = new_read_window_end_offset_aligned.min(self.request_end_offset);
                     // We can skip if the new `read_window_end_offset` is less than or equal to the current one, this
                     // could happen after the read window is scaled down.
                     if new_read_window_end_offset <= self.read_window_end_offset {
@@ -148,6 +193,7 @@ impl BackpressureController {
                     // Force incrementing read window regardless of available memory when we are already at minimum
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
+                        trace!(new_read_window_end_offset, "sending a read window increment");
                         self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
@@ -156,6 +202,7 @@ impl BackpressureController {
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
                     if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                        trace!(new_read_window_end_offset, "sending a read window increment");
                         self.increment_read_window(to_increase).await;
                         break;
                     } else {
@@ -332,9 +379,9 @@ mod tests {
 
     use crate::mem_limiter::MemoryLimiter;
     use crate::memory::PagedPool;
-    use crate::s3::config::INITIAL_READ_WINDOW_SIZE;
+    use crate::prefetch::INITIAL_REQUEST_SIZE;
 
-    #[test_case(INITIAL_READ_WINDOW_SIZE, 2)] // real config
+    #[test_case(INITIAL_REQUEST_SIZE, 2)] // real config
     #[test_case(3 * 1024 * 1024, 4)]
     #[test_case(8 * 1024 * 1024, 8)]
     #[test_case(2 * 1024 * 1024 * 1024, 2)]
@@ -346,6 +393,7 @@ mod tests {
             max_read_window_size: 2 * 1024 * 1024 * 1024,
             read_window_size_multiplier,
             request_range,
+            read_window_alignment_config: ReadWindowAlignmentConfig::Disable,
         };
 
         let (mut backpressure_controller, _backpressure_limiter) =
@@ -373,6 +421,7 @@ mod tests {
             max_read_window_size: 2 * 1024 * 1024 * 1024,
             read_window_size_multiplier,
             request_range,
+            read_window_alignment_config: ReadWindowAlignmentConfig::Disable,
         };
 
         let (mut backpressure_controller, _backpressure_limiter) =
@@ -402,6 +451,7 @@ mod tests {
             max_read_window_size: 2 * GIB,
             read_window_size_multiplier: 2,
             request_range: 0..(5 * GIB as u64),
+            read_window_alignment_config: ReadWindowAlignmentConfig::Disable,
         };
 
         let (mut backpressure_controller, mut backpressure_limiter) =
@@ -432,6 +482,18 @@ mod tests {
                 "expected offset did not match offset reported by limiter",
             );
         });
+    }
+
+    #[test_case(500, 1000, 100, 500; "offset before second request start")]
+    #[test_case(1000, 1000, 512, 1000; "offset at second request start")]
+    #[test_case(1500, 1000, 512, 1512; "offset after second request start, needs alignment")]
+    #[test_case(2024, 1000, 512, 2024; "offset after second request start, already aligned")]
+    #[test_case(1001, 1000, 512, 1512; "offset just after second request start, needs alignment")]
+    #[test_case(1512, 1000, 512, 1512; "offset exactly at part boundary")]
+    #[test_case(1513, 1000, 512, 2024; "offset just past part boundary")]
+    fn test_read_window_alignment(offset: u64, from_offset: u64, part_size: u64, expected: u64) {
+        let result = ReadWindowAlignmentConfig::AlignToPartSize { from_offset, part_size }.align(offset);
+        assert_eq!(result, expected);
     }
 
     fn new_backpressure_controller_for_test(

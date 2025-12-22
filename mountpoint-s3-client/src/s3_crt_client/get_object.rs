@@ -170,6 +170,7 @@ impl ClientBackpressureHandle for S3BackpressureHandle {
     }
 
     fn ensure_read_window(&mut self, desired_end_offset: u64) {
+        trace!(desired_end_offset, "applying new read window for meta request");
         let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
         self.increment_read_window(diff);
     }
