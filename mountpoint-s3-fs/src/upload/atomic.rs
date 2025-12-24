@@ -109,7 +109,12 @@ where
         }
 
         self.hasher.update(data);
-        self.request.get_mut().await?.unwrap().write(data).await?;
+        self.request
+            .get_mut()
+            .await?
+            .ok_or(UploadError::UploadAlreadyTerminated)?
+            .write(data)
+            .await?;
 
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
@@ -122,7 +127,7 @@ where
             .request
             .into_inner()
             .await?
-            .unwrap()
+            .ok_or(UploadError::UploadAlreadyTerminated)?
             .review_and_complete(move |review| verify_checksums(review, size, checksum))
             .await?;
         if let Err(err) = self
@@ -306,6 +311,7 @@ mod tests {
         let mut put_failures = HashMap::new();
         put_failures.insert(1, Ok((1, MockClientError("error".to_owned().into()))));
         put_failures.insert(2, Ok((2, MockClientError("error".to_owned().into()))));
+        put_failures.insert(3, Err(MockClientError("error".to_owned().into()).into()));
 
         let failure_client = Arc::new(countdown_failure_client(
             client.clone(),
@@ -335,6 +341,25 @@ mod tests {
             _ = request.write(0, data).await.unwrap();
 
             request.complete().await.expect_err("complete should fail");
+        }
+        assert!(!client.is_upload_in_progress(key));
+        assert!(!client.contains_key(key));
+
+        // Third request fails on first write (because CreateMPU returns an error).
+        {
+            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+
+            let data = b"foo";
+            request.write(0, data).await.expect_err("first write should fail");
+
+            let err = request
+                .write(0, data)
+                .await
+                .expect_err("subsequent writes should also fail");
+            assert!(matches!(err, UploadError::UploadAlreadyTerminated));
+
+            let err = request.complete().await.expect_err("complete should also fail");
+            assert!(matches!(err, UploadError::UploadAlreadyTerminated));
         }
         assert!(!client.is_upload_in_progress(key));
         assert!(!client.contains_key(key));

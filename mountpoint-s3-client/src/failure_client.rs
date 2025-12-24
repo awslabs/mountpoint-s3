@@ -435,8 +435,10 @@ pub fn countdown_failure_client<Client: ObjectClient>(
                 },
                 result_fn: |state| {
                     state.count += 1;
-                    if state.count >= state.fail_count {
-                        Err(state.error.take().unwrap())
+                    if state.count >= state.fail_count
+                        && let Some(error) = state.error.take()
+                    {
+                        Err(error)
                     } else {
                         Ok(())
                     }
