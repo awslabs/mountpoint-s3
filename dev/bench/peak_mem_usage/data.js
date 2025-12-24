@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766422171993,
+  "lastUpdate": 1766588732517,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a76b4814e6f4c6824537b0174b2e5e4da03658a2",
-          "message": "Propagate -O flags when building aws-lc (#1673)\n\nAddress an issue with our build of `aws-lc` using the `cmake` crate\nwhere optimization flags were not propagated during the configure step\nand could resulting in failed builds under certain configurations (e.g.\nrpmbuild).\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-10-23T13:49:07Z",
-          "tree_id": "49ecf4d633ae0f51cde79351a666d75b41dec09f",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/a76b4814e6f4c6824537b0174b2e5e4da03658a2"
-        },
-        "date": 1761235571214,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3589.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4897.1796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8623.73046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 23.64453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 49.3125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 21.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 51.03515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 21.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 28.30078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 21.7578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 27.75390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8177.23828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 50.2421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8070.59765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 50.2578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2106.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 25.13671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2112.92578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2100.89453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 22.5078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 828.0078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 547.5703125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 500.33984375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8adc7549733902dd2169cd540abc878b01987004",
+          "message": "Fix internal failure on atomic upload (#1733)\n\nImprove handling of errors on `CreateMultiPartUpload` in the atomic\nupload code path. Similarly to the change in #1728, the issue only\nmanifests when attempting to further write or complete an upload after\nan error and it does not affect Mountpoint file system users, since\nthat's already prevented at that level.\n\n### Does this change impact existing behavior?\n\nNo, user-visible behavior not impacted.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2025-12-24T12:45:36Z",
+          "tree_id": "c4508f6e35e19f9238eee792e408780298d56f7b",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8adc7549733902dd2169cd540abc878b01987004"
+        },
+        "date": 1766588732458,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3473.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4867.9765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8451.85546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 21.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 49.95703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 25.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 50.3125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 20.34375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 28.171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 21.0546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 29.30859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8245.6640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 52.56640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8114.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 53.15234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2113.546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 27.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2113.1796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2115.328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 25.56640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 760.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 429.05078125,
             "unit": "MiB"
           }
         ]
