@@ -71,18 +71,23 @@ pub trait Metablock: Send + Sync {
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError>;
 
     /// Called when the filesystem has finished writing to the inode referenced by `ino`.
-    /// Allows the implementor to make necessary adjustments / update its internal structure.
+    /// Allows the implementer to make necessary adjustments / update its internal structure for the
+    /// inode and the handle, and return the latest state in S3 for the inode.
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError>;
 
     /// Finish reading from the inode (referenced by `ino`)
+    /// Allows the implementer to make necessary adjustments / update its internal structure for the
+    /// inode and the handle.
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
     /// Called when the filesystem has called `flush` on a read handle for the inode referenced by `ino`.
-    /// Allows the implementor to make necessary adjustments / update its internal structure.
-    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError>;
+    /// Allows the implementer to make necessary adjustments / update its internal structure for the
+    /// inode and the handle.
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
     /// Called when the filesystem has called `flush` on a write handle for the inode referenced by `ino`.
-    /// Allows the implementor to make necessary adjustments / update its internal structure.
+    /// Allows the implementer to make necessary adjustments / update its internal structure for the
+    /// inode and the handle, including attaching a reference to any pending upload for this writer.
     async fn flush_writer(
         &self,
         ino: InodeNo,
@@ -91,7 +96,8 @@ pub trait Metablock: Send + Sync {
     ) -> Result<Option<PendingUploadHook>, InodeError>;
 
     /// Called when the filesystem has released a write handle for the inode referenced by `ino`.
-    /// Allows the implementor to make necessary adjustments / update its internal structure.
+    /// Allows the implementer to make necessary adjustments / update its internal structure for the
+    /// inode and the handle, including completing any pending uploads for this handle.
     async fn release_writer(
         &self,
         ino: InodeNo,
@@ -102,7 +108,8 @@ pub trait Metablock: Send + Sync {
 
     /// Called by filesystem's read/write methods to attempt re-activation of a deactivated file
     /// handle for the inode referenced by `ino`.
-    /// Allows the implementor to make necessary adjustments / update its internal structure.
+    /// Allows the implementer to make necessary adjustments / update its internal structure for the
+    /// inode and the handle, and return whether the handle was successfully reactivated.
     async fn try_reactivate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
@@ -199,15 +206,18 @@ impl WriteMode {
     }
 }
 
+/// The mode in which a handle is provisioned to access the (existing in S3 or local) data for a file
+/// (mapped to an inode and backed by a corresponding S3 object)
 #[derive(Debug, Clone, Copy)]
 pub enum ReadWriteMode {
+    /// Allow reads from this and other concurrent readers (but no writer)
     Read,
+    /// Allow writes from this exclusive writer (but no other writer or readers)
     Write,
 }
 
 /// A metablock-level abstraction on a file, providing the user with the latest metadata in the
-/// linked inode and the mode in which they're allowed to access the existing data for the file
-/// backed by a corresponding S3 object
+/// linked inode and the ReadWriteMode in which they're allowed to access the file
 #[derive(Debug)]
 pub struct NewHandle {
     pub lookup: Lookup,

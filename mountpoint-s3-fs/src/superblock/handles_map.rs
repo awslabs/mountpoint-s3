@@ -52,7 +52,9 @@ impl InodeHandleMap {
     }
 
     /// Set an existing reader to inactive.
-    pub fn try_deactivate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
+    ///
+    /// This is a no-op if the reader is already marked inactive or does not exist in the map.
+    pub fn deactivate_reader(&self, locked_inode: &InodeLockedForWriting<'_>, fh: u64) {
         let mut handles = self.handles.lock().unwrap();
         if let Some(entry) = handles.get_mut(&locked_inode.ino)
             && let Some(reader) = entry.readers.get_mut(&fh)

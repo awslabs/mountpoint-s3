@@ -1783,11 +1783,14 @@ fn open_allowed_only_after_all_readers_flushed() {
     let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
 
     let mut fh1 = File::options().read(true).open(&path).unwrap();
-    let fh2 = File::options().read(true).open(&path).unwrap();
+    let mut fh2 = File::options().read(true).open(&path).unwrap();
 
     let mut hello_contents = String::new();
     fh1.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
+
+    fh2.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello worldhello world");
 
     let err1 = File::options()
         .write(true)
@@ -1809,7 +1812,10 @@ fn open_allowed_only_after_all_readers_flushed() {
 
     // should be able to read from a flushed handle's duplicate FD
     dup_fh2.read_to_string(&mut hello_contents).unwrap();
+    // read_to_string already read fh2 until EOF so hello_contents remains unchanged
     assert_eq!(hello_contents, "hello worldhello world");
+
+    let mut dup2_fh2 = dup_fh2.try_clone().unwrap();
     drop(dup_fh2);
 
     // should be able to open a new write handle and write to it after the last open reader flushed
@@ -1818,5 +1824,82 @@ fn open_allowed_only_after_all_readers_flushed() {
         .write_all(b"hello world2")
         .expect("writing to a new write file handle should succeed");
 
+    dup2_fh2
+        .read_to_string(&mut hello_contents)
+        .expect_err("reading from an overridden file handle should fail");
+
+    drop(dup2_fh2);
     drop(write_fh);
+}
+
+#[test]
+fn open_disallowed_when_writer_exists() {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+
+    let prefix = "open_disallowed_when_writer_exists";
+    let test_session = fuse::mock_session::new(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
+
+    let fh1 = File::options().write(true).truncate(true).open(&path).unwrap();
+
+    let err1 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is already being written to should fail");
+    assert_eq!(err1.raw_os_error(), Some(libc::EPERM));
+
+    let err2 = File::options()
+        .read(true)
+        .open(&path)
+        .expect_err("opening a file for read while it is being written to should fail");
+    assert_eq!(err2.raw_os_error(), Some(libc::EPERM));
+
+    let mut dup_fh1 = fh1.try_clone().unwrap();
+    drop(fh1);
+
+    // should be able to write to a flushed handle's duplicate FD
+    dup_fh1
+        .write_all(b"hello world2")
+        .expect("writing to a duplicate file descriptor should succeed");
+
+    let err3 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is already being written to should fail");
+    assert_eq!(err3.raw_os_error(), Some(libc::EPERM));
+
+    let err4 = File::options()
+        .read(true)
+        .open(&path)
+        .expect_err("opening a file for read while it is being written to should fail");
+    assert_eq!(err4.raw_os_error(), Some(libc::EPERM));
+
+    drop(dup_fh1);
+
+    let mut hello_contents = String::new();
+
+    // should be able to open a new read handle and read from it after the last open writer flushed
+    let mut read_fh = File::options().read(true).open(&path).unwrap();
+    read_fh
+        .read_to_string(&mut hello_contents)
+        .expect("reading from a new read file handle should succeed");
+    assert_eq!(hello_contents, "hello world2");
+    drop(read_fh);
 }

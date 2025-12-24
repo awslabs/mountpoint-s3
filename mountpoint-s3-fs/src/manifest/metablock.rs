@@ -294,8 +294,8 @@ impl Metablock for ManifestMetablock {
         }
     }
 
-    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<bool, InodeError> {
-        Ok(true)
+    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<(), InodeError> {
+        Ok(())
     }
 
     async fn flush_writer(
