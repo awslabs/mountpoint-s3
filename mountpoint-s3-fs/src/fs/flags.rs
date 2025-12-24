@@ -69,6 +69,7 @@ pub struct OpenFlags(i32);
 libc_flags! {
     OpenFlags : i32 {
         O_WRONLY,
+        O_RDONLY,
         O_RDWR,
         O_APPEND,
         O_SYNC,
@@ -82,6 +83,18 @@ libc_flags! {
         O_DIRECT,
 
         // Incomplete list. To be integrated if/when required.
+    }
+}
+
+impl OpenFlags {
+    #[cfg(not(target_os = "linux"))]
+    pub fn direct_io(&self) -> bool {
+        false
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn direct_io(&self) -> bool {
+        self.contains(OpenFlags::O_DIRECT)
     }
 }
 

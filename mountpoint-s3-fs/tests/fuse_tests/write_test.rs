@@ -979,19 +979,17 @@ fn overwrite_disallowed_on_concurrent_read_test(creator_fn: impl TestSessionCrea
 
     // We can't write to the file that is being read
     // from both the same file handle or a new one
-    let mut options = File::options();
-    let mut fh = options.read(true).write(true).open(&path).unwrap();
+    let mut fh = File::options().read(true).write(true).open(&path).unwrap();
     let mut hello_contents = String::new();
     fh.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
 
     let err = fh
         .write(b"hello world")
-        .expect_err("writing to a file is being read should fail");
+        .expect_err("writing to a read file handle should fail");
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
-    let mut options = File::options();
-    let err = options
+    let err = File::options()
         .write(true)
         .truncate(true)
         .open(&path)
@@ -1089,7 +1087,6 @@ fn overwrite_truncate_test(creator_fn: impl TestSessionCreator, prefix: &str, rw
     };
     let test_config = TestSessionConfig {
         filesystem_config,
-        max_worker_threads: 1, // avoid concurrency issues with read after write. (FIXME)
         ..Default::default()
     };
     let test_session = creator_fn(prefix, test_config);
@@ -1167,14 +1164,12 @@ fn overwrite_after_read_test(creator_fn: impl TestSessionCreator, prefix: &str) 
 
 #[cfg(feature = "s3_tests")]
 #[test]
-#[ignore = "due to a race condition on release of a read handle, overwrite after read may occasionally fail on open"]
 fn overwrite_after_read_test_s3() {
     overwrite_after_read_test(fuse::s3_session::new, "overwrite_after_read_test");
 }
 
 #[test_case(""; "no prefix")]
 #[test_case("overwrite_after_read_test"; "prefix")]
-#[ignore = "due to a race condition on release of a read handle, overwrite after read may occasionally fail on open"]
 fn overwrite_after_read_test_mock(prefix: &str) {
     overwrite_after_read_test(fuse::mock_session::new, prefix);
 }
@@ -1667,4 +1662,244 @@ fn append_fails_on_object_replaced_s3() {
 #[test]
 fn append_fails_on_object_replaced_mock() {
     append_fails_on_object_replaced(fuse::mock_session::new);
+}
+
+const MOCK: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::mock_session::new;
+#[cfg(feature = "s3_tests")]
+const S3: fn(&str, TestSessionConfig) -> fuse::TestSession = fuse::s3_session::new;
+
+enum Open {
+    ForReading,
+    ForWriting,
+}
+
+#[cfg_attr(feature = "s3_tests", test_matrix(S3, [Open::ForReading, Open::ForWriting], [ATOMIC_UPLOAD]))]
+#[cfg_attr(feature = "s3express_tests", test_matrix(S3, [Open::ForReading, Open::ForWriting], [INCREMENTAL_UPLOAD]))]
+#[test_matrix(MOCK, [Open::ForReading, Open::ForWriting], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
+fn open_after_closing_empty_file_test(
+    creator_fn: impl TestSessionCreator,
+    second_open_type: Open,
+    upload_mode: UploadMode,
+) {
+    const KEY: &str = "empty.txt";
+
+    let config = TestSessionConfig {
+        filesystem_config: S3FilesystemConfig {
+            allow_overwrite: true,
+            ..Default::default()
+        }
+        .upload_mode(upload_mode),
+        ..Default::default()
+    };
+    let test_session = creator_fn("open_after_closing_empty_file_test", config);
+
+    let path = test_session.mount_path().join(KEY);
+
+    // Create a new file but do not write anything to it.
+    let f1 = File::options()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+        .expect("first open should succeed");
+    // Close the file without writing.
+    drop(f1);
+
+    // Open it again
+    let f2 = {
+        let mut options = File::options();
+        match second_open_type {
+            Open::ForReading => options.read(true),
+            Open::ForWriting => options.write(true).truncate(true),
+        };
+        options
+    }
+    .open(&path)
+    .expect("second open should succeed");
+    // Close the file.
+    drop(f2);
+}
+
+#[test]
+fn write_allowed_on_flushed_handle() {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+
+    let prefix = "write_allowed_on_flushed_handle";
+    let test_session = fuse::mock_session::new(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
+
+    let fh = File::options().write(true).truncate(true).open(path).unwrap();
+    let mut dup_fh = fh.try_clone().unwrap();
+
+    drop(fh);
+
+    let mut hello_contents = String::new();
+    dup_fh
+        .read_to_string(&mut hello_contents)
+        .expect_err("reading from a write file handle should fail");
+
+    dup_fh
+        .write_all(b"hello world3")
+        .expect("writing to a flushed write file handle should succeed");
+    drop(dup_fh);
+}
+
+#[test]
+fn open_allowed_only_after_all_readers_flushed() {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+
+    let prefix = "open_allowed_only_after_all_readers_flushed";
+    let test_session = fuse::mock_session::new(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
+
+    let mut fh1 = File::options().read(true).open(&path).unwrap();
+    let mut fh2 = File::options().read(true).open(&path).unwrap();
+
+    let mut hello_contents = String::new();
+    fh1.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello world");
+
+    fh2.read_to_string(&mut hello_contents).unwrap();
+    assert_eq!(hello_contents, "hello worldhello world");
+
+    let err1 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is being read should fail");
+    assert_eq!(err1.raw_os_error(), Some(libc::EPERM));
+
+    drop(fh1);
+    let err2 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is being read should fail");
+    assert_eq!(err2.raw_os_error(), Some(libc::EPERM));
+
+    let mut dup_fh2 = fh2.try_clone().unwrap();
+    drop(fh2);
+
+    // should be able to read from a flushed handle's duplicate FD
+    dup_fh2.read_to_string(&mut hello_contents).unwrap();
+    // read_to_string already read fh2 until EOF so hello_contents remains unchanged
+    assert_eq!(hello_contents, "hello worldhello world");
+
+    let mut dup2_fh2 = dup_fh2.try_clone().unwrap();
+    drop(dup_fh2);
+
+    // should be able to open a new write handle and write to it after the last open reader flushed
+    let mut write_fh = File::options().write(true).truncate(true).open(&path).unwrap();
+    write_fh
+        .write_all(b"hello world2")
+        .expect("writing to a new write file handle should succeed");
+
+    dup2_fh2
+        .read_to_string(&mut hello_contents)
+        .expect_err("reading from an overridden file handle should fail");
+
+    drop(dup2_fh2);
+    drop(write_fh);
+}
+
+#[test]
+fn open_disallowed_when_writer_exists() {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+
+    let prefix = "open_disallowed_when_writer_exists";
+    let test_session = fuse::mock_session::new(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object(&format!("dir/{}.txt", prefix), b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join(format!("dir/{}.txt", prefix));
+
+    let fh1 = File::options().write(true).truncate(true).open(&path).unwrap();
+
+    let err1 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is already being written to should fail");
+    assert_eq!(err1.raw_os_error(), Some(libc::EPERM));
+
+    let err2 = File::options()
+        .read(true)
+        .open(&path)
+        .expect_err("opening a file for read while it is being written to should fail");
+    assert_eq!(err2.raw_os_error(), Some(libc::EPERM));
+
+    let mut dup_fh1 = fh1.try_clone().unwrap();
+    drop(fh1);
+
+    // should be able to write to a flushed handle's duplicate FD
+    dup_fh1
+        .write_all(b"hello world2")
+        .expect("writing to a duplicate file descriptor should succeed");
+
+    let err3 = File::options()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect_err("opening a file for write while it is already being written to should fail");
+    assert_eq!(err3.raw_os_error(), Some(libc::EPERM));
+
+    let err4 = File::options()
+        .read(true)
+        .open(&path)
+        .expect_err("opening a file for read while it is being written to should fail");
+    assert_eq!(err4.raw_os_error(), Some(libc::EPERM));
+
+    drop(dup_fh1);
+
+    let mut hello_contents = String::new();
+
+    // should be able to open a new read handle and read from it after the last open writer flushed
+    let mut read_fh = File::options().read(true).open(&path).unwrap();
+    read_fh
+        .read_to_string(&mut hello_contents)
+        .expect("reading from a new read file handle should succeed");
+    assert_eq!(hello_contents, "hello world2");
+    drop(read_fh);
 }
