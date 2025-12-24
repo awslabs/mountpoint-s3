@@ -42,12 +42,14 @@ where
     /// The file handle has been assigned as a read handle
     Read {
         request: PrefetchGetObject<Client>,
-        flushed: bool, // Set to true when `flush` called on the handle, and unset on a `read`
+        /// Set to true when `flush` called on the handle, and unset on a `read`
+        flushed: bool,
     },
     /// The file handle has been assigned as a write handle
     Write {
         state: UploadState<Client>,
-        flushed: bool, // Set to true when `flush` called on the handle, and unset on a `write`
+        /// Set to true when `flush` called on the handle, and unset on a `write`
+        flushed: bool,
     },
 }
 

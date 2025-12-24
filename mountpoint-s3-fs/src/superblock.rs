@@ -886,7 +886,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
 
     /// Concludes a writing operation for a file handle and marks the inode closed for writing anymore.
     ///
-    /// Transitions the inode and all it's ancestor directories from local writing state to remote
+    /// Transitions the inode and all its ancestor directories from local writing state to remote
     /// state as needed.
     /// Updates the inode with the latest state in S3 and invalidates the closed writer-handle.
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError> {
@@ -977,11 +977,11 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     }
 
     /// Marks a reader handle as deactivated in the open handles map.
-    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<bool, InodeError> {
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError> {
         let inode = self.inner.get(ino)?;
         let locked_inode = inode.get_mut_inode_state()?;
-        self.inner.open_handles.try_deactivate_reader(&locked_inode, fh);
-        Ok(true)
+        self.inner.open_handles.deactivate_reader(&locked_inode, fh);
+        Ok(())
     }
 
     /// Marks a writer handle as deactivated in the open handles map, and
@@ -1322,11 +1322,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 if self.inner.open_handles.remove_inode(ino) {
                     // This should never happen, but it is good to have this visibility to detect any
                     // discrepancies in our inode handles' tracking logic or tests involving `forget`
-                    debug_assert!(
-                        self.inner.open_handles.remove_inode(ino),
-                        "Open file handle(s) found for forgotten inode {}",
-                        ino
-                    );
+                    debug!("Open file handle(s) found for forgotten inode {}", ino);
                 }
             }
             Ok(None) => {}

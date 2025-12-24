@@ -887,6 +887,42 @@ mod tests {
             .await
             .expect("open a local file should succeed");
 
+        fs.open(dentry.attr.ino, OpenFlags::O_RDONLY, 123)
+            .await
+            .expect_err("open for reading should fail if file is open for writing");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect_err("open for writing again should fail if file is already open for writing");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+            .await
+            .expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released handle should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_without_release_append_mode() {
+        let test_name = "test_open_after_close_without_release_append_mode";
+        let fs = setup_mock_fs(test_name, true, true);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_RDONLY, 123)
+            .await
+            .expect_err("open for reading should fail if file is open for writing");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect_err("open for writing again should fail if file is already open for writing");
+
         fs.flush(dentry.attr.ino, fd.fh, 0, 123)
             .await
             .expect("flush should succeed");
