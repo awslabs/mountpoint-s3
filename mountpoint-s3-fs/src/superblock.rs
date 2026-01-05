@@ -608,69 +608,60 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             return Err(InodeError::IsDirectory(inode.err()));
         }
 
-        let write_status = {
-            let inode_state = inode.get_inode_state()?;
-            inode_state.write_status
-        };
+        {
+            let inode_state = inode.get_mut_inode_state()?;
 
-        match write_status {
-            WriteStatus::LocalUnopened | WriteStatus::LocalOpen | WriteStatus::PendingRename => {
-                // In the future, we may permit `unlink` and cancel any in-flight uploads.
-                warn!(
-                    parent = parent_ino,
-                    ?name,
-                    "unlink on local file not allowed until write is complete",
-                );
-                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
-            }
-            WriteStatus::Remote => {
-                let bucket = &self.inner.s3_path.bucket;
-                let s3_key = self.inner.full_key_for_inode(&inode);
-                debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
-                let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
+            match inode_state.write_status {
+                WriteStatus::LocalOpen | WriteStatus::PendingRename => {
+                    // In the future, we may permit `unlink` and cancel any in-flight uploads.
+                    warn!(
+                        parent = parent_ino,
+                        ?name,
+                        write_status = ?inode_state.write_status,
+                        "unlink on local file not allowed until write is complete",
+                    );
+                    return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
+                }
+                WriteStatus::LocalUnopened => {
+                    debug!(
+                        parent = parent_ino,
+                        ?name,
+                        "unlink on LocalUnopened file, no s3 cleanup needed",
+                    );
 
-                match delete_obj_result {
-                    Ok(_res) => (),
-                    Err(e) => {
-                        error!(
-                            inode=%inode.err(),
-                            error=?e,
-                            "DeleteObject failed for unlink",
-                        );
-                        Err(InodeError::client_error(e, "DeleteObject failed", bucket, &s3_key))?;
-                    }
-                };
+                    let mut parent_state = parent.get_mut_inode_state()?;
+                    parent_state.kind_data.remove_child(inode.name(), inode.ino());
+
+                    return Ok(());
+                }
+                WriteStatus::Remote => {
+                    // Continue after the block - lock will be released
+                }
             }
         }
+
+        let bucket = &self.inner.s3_path.bucket;
+        let s3_key = self.inner.full_key_for_inode(&inode);
+        debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
+        let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
+
+        match delete_obj_result {
+            Ok(_res) => (),
+            Err(e) => {
+                error!(
+                    inode=%inode.err(),
+                    error=?e,
+                    "DeleteObject failed for unlink",
+                );
+                Err(InodeError::client_error(e, "DeleteObject failed", bucket, &s3_key))?;
+            }
+        };
 
         // Now that the entry was deleted from S3, we need to delete it from the superblock.
         // The Linux Kernel's VFS should lock both the parent and child (https://www.kernel.org/doc/html/next/filesystems/directory-locking.html).
         // However, the superblock is still subject to concurrent changes as we don't hold this lock over remote calls.
         let mut parent_state = parent.get_mut_inode_state()?;
-        match &mut parent_state.kind_data {
-            InodeKindData::File { .. } => {
-                debug_assert!(false, "inodes never change kind");
-                return Err(InodeError::NotADirectory(parent.err()));
-            }
-            InodeKindData::Directory { children, .. } => {
-                // We want to remove the original child.
-                // If there is a mismatch in inode number between the existing inode and the deleted inode, we invalidate the existing inode's stat.
-                // If for some reason the child with the specified name was already removed, we do nothing as this is the desired state.
-                if let Some(existing_inode) = children.get(inode.name()) {
-                    if existing_inode.ino() == inode.ino() {
-                        children.remove(inode.name());
-                    } else {
-                        // Mismatch in inode number, thus the existing inode might not be the same one we deleted
-                        let mut state = existing_inode.get_mut_inode_state_no_check();
-
-                        // Invalidate the inode's stats so we refresh them from S3 when next queried
-                        state.stat.update_validity(Duration::from_secs(0));
-                    }
-                } else {
-                    debug!("parent did not contain child after deletion during unlink");
-                }
-            }
-        };
+        parent_state.kind_data.remove_child(inode.name(), inode.ino());
 
         Ok(())
     }
