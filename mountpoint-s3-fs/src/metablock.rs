@@ -70,24 +70,27 @@ pub trait Metablock: Send + Sync {
     /// Returns the new size after the increase.
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError>;
 
-    /// Called when the filesystem has finished writing to the inode referenced by `ino`.
-    /// Allows the implementer to make necessary adjustments / update its internal structure for the
-    /// inode and the handle, and return the latest state in S3 for the inode.
+    /// Called when the filesystem has finished writing to the inode referenced by `ino` using the
+    /// file handle `fh`.
+    ///
+    /// Returns the latest state in S3 for the inode after the writing to S3 is concluded.
     async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError>;
 
-    /// Finish reading from the inode (referenced by `ino`)
-    /// Allows the implementer to make necessary adjustments / update its internal structure for the
-    /// inode and the handle.
+    /// Finish reading from the inode (referenced by `ino`) using the file handle `fh`.
     async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
-    /// Called when the filesystem has called `flush` on a read handle for the inode referenced by `ino`.
-    /// Allows the implementer to make necessary adjustments / update its internal structure for the
-    /// inode and the handle.
+    /// Called when the filesystem has called `flush` on a read handle `fh` for the inode
+    /// referenced by `ino`.
     async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
-    /// Called when the filesystem has called `flush` on a write handle for the inode referenced by `ino`.
-    /// Allows the implementer to make necessary adjustments / update its internal structure for the
-    /// inode and the handle, including attaching a reference to any pending upload for this writer.
+    /// Called when the filesystem has called `flush` on a write handle `fh` for the inode
+    /// referenced by `ino`.
+    ///
+    /// Attaches a reference to the pending upload hook for this writer, if there's not one attached
+    /// already.
+    ///
+    /// Returns a reference to the existing/new upload hook linked to the inode `ino`, which the
+    /// caller may choose to await the completion of.
     async fn flush_writer(
         &self,
         ino: InodeNo,
@@ -96,8 +99,9 @@ pub trait Metablock: Send + Sync {
     ) -> Result<Option<PendingUploadHook>, InodeError>;
 
     /// Called when the filesystem has released a write handle for the inode referenced by `ino`.
-    /// Allows the implementer to make necessary adjustments / update its internal structure for the
-    /// inode and the handle, including completing any pending uploads for this handle.
+    ///
+    /// The implementer owns completing any pending uploads and cleaning up the internal state for
+    /// this handle.
     async fn release_writer(
         &self,
         ino: InodeNo,
@@ -107,9 +111,9 @@ pub trait Metablock: Send + Sync {
     ) -> Result<(), InodeError>;
 
     /// Called by filesystem's read/write methods to attempt re-activation of a deactivated file
-    /// handle for the inode referenced by `ino`.
-    /// Allows the implementer to make necessary adjustments / update its internal structure for the
-    /// inode and the handle, and return whether the handle was successfully reactivated.
+    /// handle `fh` for the inode referenced by `ino`.
+    ///
+    /// Returns whether the handle was successfully reactivated.
     async fn try_reactivate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)

@@ -987,7 +987,8 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
     /// Marks a writer handle as deactivated in the open handles map, and
     /// sets up a pending upload hook if the inode is in the local writing state.
     ///
-    /// Returns the upload hook if one was created or already exists.
+    /// Returns the upload hook if one was created or already exists, which the caller may choose to
+    /// await the completion of.
     async fn flush_writer(
         &self,
         ino: InodeNo,
@@ -1322,6 +1323,11 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 if self.inner.open_handles.remove_inode(ino) {
                     // This should never happen, but it is good to have this visibility to detect any
                     // discrepancies in our inode handles' tracking logic or tests involving `forget`
+                    // TODO: Fix this condition, as it can lead to potential data loss
+                    // The Kernel should issue the `release` on the last open write handle before it
+                    // issues the `forget` on the inode, but due to potential out-of-order processing,
+                    // the `release` may not be able to complete upload to S3 before the inode is
+                    // forgotten from Mountpoint's internal state.
                     debug!("Open file handle(s) found for forgotten inode {}", ino);
                 }
             }
