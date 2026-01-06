@@ -7,7 +7,7 @@ publish = false
 default-run = "mount-s3"
 
 [dependencies]
-mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.8.4" }
+mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.9.0" }
 mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.5" }
 
 anyhow = { version = "1.0.100", features = ["backtrace"] }

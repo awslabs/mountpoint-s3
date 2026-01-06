@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.9.0 (January 06, 2025))
+
+* Update Mountpoint's semantics to enable opening a new file handle on an inode if all the existing open handles have been flushed. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
 
 ## v0.8.4 (December 22, 2025)
 
