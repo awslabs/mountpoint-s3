@@ -39,7 +39,7 @@ pub trait Metablock: Send + Sync {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError>;
 
     /// Retrieve the attributes for an inode
-    async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<Lookup, InodeError>;
+    async fn getattr(&self, ino: InodeNo, force_revalidate_if_remote: bool) -> Result<Lookup, InodeError>;
 
     /// Set the attributes for an inode
     async fn setattr(

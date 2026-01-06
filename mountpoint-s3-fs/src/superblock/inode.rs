@@ -258,7 +258,12 @@ impl InodeState {
     }
 
     pub fn is_remote(&self) -> bool {
+        // TODO: should this check also include PendingRename?
         self.write_status == WriteStatus::Remote
+    }
+
+    pub fn is_new(&self) -> bool {
+        self.write_status == WriteStatus::LocalUnopened
     }
 }
 

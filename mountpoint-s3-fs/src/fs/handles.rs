@@ -320,11 +320,12 @@ where
         key: &S3Location,
         fh: u64,
     ) -> Result<Option<Lookup>, InodeError> {
+        // We do two rounds of `match` here because we want to retain the UploadState in case it is
+        // already terminal.
+        // State can only be "Failed" if there has been a previous upload attempt, in which case the
+        // data has been lost already, but the PendingUploadHook will have invalidated the cache
+        // for future requests to force revalidation of inode metadata.
         match self {
-            // We want to retain the UploadState in case it is already terminal.
-            // Can only be "Failed" if there has been a previous upload attempt, in which case the
-            // data has been lost already, but the PendingUploadHook will have invalidated the cache
-            // for future requests to force revalidation of inode metadata.
             // TODO: good to have - relay the error from the previous attempt here
             UploadState::Completed | UploadState::Failed(_) => return Ok(None),
             _ => {}

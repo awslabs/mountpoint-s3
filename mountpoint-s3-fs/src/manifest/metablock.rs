@@ -85,15 +85,9 @@ impl Metablock for ManifestMetablock {
         Ok(lookup)
     }
 
-    async fn getattr(&self, ino: InodeNo, _force_revalidate: bool) -> Result<Lookup, InodeError> {
+    async fn getattr(&self, ino: InodeNo, _force_revalidate_if_remote: bool) -> Result<Lookup, InodeError> {
         if ino == ROOT_INODE_NO {
-            return Ok(Lookup::new(
-                ino,
-                self.stat_for_directory(),
-                InodeKind::Directory,
-                true,
-                None,
-            ));
+            return Ok(Lookup::new(ino, self.stat_for_directory(), InodeKind::Directory, None));
         }
 
         let Some(manifest_entry) = self.manifest.manifest_lookup_by_id(ino)? else {
@@ -139,7 +133,7 @@ impl Metablock for ManifestMetablock {
         // serve '.' and '..' entries
         if offset < 1 {
             if add(
-                InodeInformation::new(parent, self.stat_for_directory(), InodeKind::Directory, true),
+                InodeInformation::new(parent, self.stat_for_directory(), InodeKind::Directory),
                 ".".into(),
                 offset + 1,
                 0,
@@ -153,7 +147,7 @@ impl Metablock for ManifestMetablock {
         if offset < 2 {
             let grandparent_ino = self.get_parent_id(parent)?;
             if add(
-                InodeInformation::new(grandparent_ino, self.stat_for_directory(), InodeKind::Directory, true),
+                InodeInformation::new(grandparent_ino, self.stat_for_directory(), InodeKind::Directory),
                 "..".into(),
                 offset + 1,
                 0,

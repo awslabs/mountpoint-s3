@@ -78,13 +78,17 @@ impl ReaddirHandle {
                 InodeKindData::File { .. } => return Err(InodeError::NotADirectory(inode.err())),
                 InodeKindData::Directory { writing_children, .. } => writing_children.iter().map(|ino| {
                     let inode = inner.get(*ino)?;
-                    let stat = inode.get_inode_state()?.stat.clone();
+                    let locked_inode = inode.get_inode_state()?;
+                    let stat = locked_inode.stat.clone();
+                    let is_new = locked_inode.is_new();
+                    drop(locked_inode);
                     Ok(ReaddirEntry::LocalInode {
                         lookup: LookedUpInode {
                             inode,
                             stat,
                             path: inner.s3_path.clone(),
                             is_remote: false,
+                            is_new,
                         },
                     })
                 }),
