@@ -2133,19 +2133,19 @@ impl<'a> AnyRequest<'a> {
     }
 }
 
-impl Display for AnyRequest<'_> {
+impl fmt::Display for AnyRequest<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Ok(op) = self.operation() {
             write!(
                 f,
-                "FUSE({:3}) ino {:#018x} {} pid={}",
-                self.header.unique, self.header.nodeid, op, self.header.pid
+                "FUSE({:3}) ino {:#018x} {}",
+                self.header.unique, self.header.nodeid, op
             )
         } else {
             write!(
                 f,
-                "FUSE({:3}) ino {:#018x} pid={}",
-                self.header.unique, self.header.nodeid, self.header.pid
+                "FUSE({:3}) ino {:#018x}",
+                self.header.unique, self.header.nodeid
             )
         }
     }
