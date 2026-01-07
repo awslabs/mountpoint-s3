@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::time::SystemTime;
 use time::OffsetDateTime;
-use tracing::{Instrument, field, instrument, debug};
+use tracing::{Instrument, debug, field, instrument};
 
 use crate::fs::{
     DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno, error_metadata::MOUNTPOINT_EVENT_READY,
