@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.19.6)
+
+* Upgrade cargo dependencies.
 
 ## v0.19.5 (December 22, 2025)
 
