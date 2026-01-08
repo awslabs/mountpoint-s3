@@ -302,7 +302,7 @@ where
         let start = Instant::now();
         let result = match self.read_block(cache_key, block_idx, block_offset, object_size).await {
             Ok(Some(data)) => {
-                metrics::counter!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).increment(data.len() as u64);
+                metrics::histogram!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).record(data.len() as f64);
                 Ok(Some(data))
             }
             Ok(None) => Ok(None),
@@ -330,7 +330,7 @@ where
             .await
         {
             Ok(()) => {
-                metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).increment(bytes_len as u64);
+                metrics::histogram!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).record(bytes_len as f64);
                 Ok(())
             }
             Err(err) => {
