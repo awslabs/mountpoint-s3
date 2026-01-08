@@ -4,7 +4,7 @@
 
 * Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
 * Remove redundant cache metrics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
-* Rename cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
 * Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
 * Improve memory limiter accuracy and make `initial_request_size` configurable. ([#1707](https://github.com/awslabs/mountpoint-s3/pull/1707))
 
