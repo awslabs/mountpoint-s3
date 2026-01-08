@@ -20,8 +20,8 @@ thiserror = "2.0.17"
 [dev-dependencies]
 anyhow = { version = "1.0.100", features = ["backtrace"] }
 clap = { version = "4.5.54", features = ["derive"] }
-criterion = "0.7.0"
-ctor = "0.5.0"
+criterion = "0.8.1"
+ctor = "0.6.3"
 rand = { version = "0.9.2", features = ["small_rng"] }
 serde_json = "1.0.149"
 test-case = "3.3.1"
