@@ -80,15 +80,14 @@ impl ReaddirHandle {
                     let inode = inner.get(*ino)?;
                     let locked_inode = inode.get_inode_state()?;
                     let stat = locked_inode.stat.clone();
-                    let is_new = locked_inode.is_new();
+                    let write_status = locked_inode.write_status;
                     drop(locked_inode);
                     Ok(ReaddirEntry::LocalInode {
                         lookup: LookedUpInode {
                             inode,
                             stat,
                             path: inner.s3_path.clone(),
-                            is_remote: false,
-                            is_new,
+                            write_status,
                         },
                     })
                 }),

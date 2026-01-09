@@ -69,7 +69,6 @@ pub struct OpenFlags(i32);
 libc_flags! {
     OpenFlags : i32 {
         O_WRONLY,
-        O_RDONLY,
         O_RDWR,
         O_APPEND,
         O_SYNC,

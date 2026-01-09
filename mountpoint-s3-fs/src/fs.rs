@@ -887,7 +887,8 @@ mod tests {
             .await
             .expect("open a local file should succeed");
 
-        fs.open(dentry.attr.ino, OpenFlags::O_RDONLY, 123)
+        // Using `OpenFlags::empty()` which defaults to 0 and maps to O_RDONLY
+        fs.open(dentry.attr.ino, OpenFlags::empty(), 123)
             .await
             .expect_err("open for reading should fail if file is open for writing");
 
@@ -915,7 +916,8 @@ mod tests {
             .await
             .expect("open a local file should succeed");
 
-        fs.open(dentry.attr.ino, OpenFlags::O_RDONLY, 123)
+        // Using `OpenFlags::empty()` which defaults to 0 and maps to O_RDONLY
+        fs.open(dentry.attr.ino, OpenFlags::empty(), 123)
             .await
             .expect_err("open for reading should fail if file is open for writing");
 
