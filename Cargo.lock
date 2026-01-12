@@ -2613,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.15.4"
+version = "0.16.0"
 dependencies = [
  "bindgen 0.72.1",
  "cc",
