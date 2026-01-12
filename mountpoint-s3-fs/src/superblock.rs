@@ -278,28 +278,32 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         let inode = self.inner.get(ino)?;
         logging::record_name(inode.name());
 
-        let (is_remote, stat, write_status) = {
+        {
             let mut sync = inode.get_mut_inode_state()?;
-            // If the inode is local (open/unopened), extend its stat's validity before returning.
             let is_remote = sync.write_status == WriteStatus::Remote;
-            if !is_remote {
-                let validity = match inode.kind() {
-                    InodeKind::File => self.inner.config.cache_config.file_ttl,
-                    InodeKind::Directory => self.inner.config.cache_config.dir_ttl,
-                };
-                sync.stat.update_validity(validity);
-            }
-            (is_remote, sync.stat.clone(), sync.write_status)
-        };
 
-        if (!is_remote || !force_revalidate_if_remote) && stat.is_valid() {
-            return Ok(LookedUpInode {
-                inode,
-                stat,
-                path: self.inner.s3_path.clone(),
-                write_status,
-            });
-        }
+            if !is_remote || !force_revalidate_if_remote {
+                // If the inode is local (open/unopened), extend its stat's validity before returning.
+                if !is_remote {
+                    let validity = match inode.kind() {
+                        InodeKind::File => self.inner.config.cache_config.file_ttl,
+                        InodeKind::Directory => self.inner.config.cache_config.dir_ttl,
+                    };
+                    sync.stat.update_validity(validity);
+                }
+                if sync.stat.is_valid() {
+                    let stat = sync.stat.clone();
+                    let write_status = sync.write_status;
+                    drop(sync);
+                    return Ok(LookedUpInode {
+                        inode,
+                        stat,
+                        path: self.inner.s3_path.clone(),
+                        write_status,
+                    });
+                }
+            }
+        };
 
         let lookup = self
             .inner
@@ -374,9 +378,20 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         is_truncate: bool,
         handle_id: u64,
     ) -> Result<Option<PendingUploadHook>, InodeError> {
+        let setup_inode_for_writing = |locked_inode: &mut InodeLockedForWriting| -> Result<(), InodeError> {
+            self.inner
+                .open_handles
+                .set_writer(locked_inode, handle_id)
+                .map_err(|e| match e {
+                    SetWriterError::ActiveWriter => InodeError::InodeAlreadyWriting(inode.err()),
+                    SetWriterError::ActiveReaders => InodeError::InodeNotWritableWhileReading(inode.err()),
+                })?;
+            locked_inode.write_status = WriteStatus::LocalOpenForWriting;
+            Ok(())
+        };
         match locked_inode.write_status {
             WriteStatus::LocalUnopened => {
-                self.setup_inode_for_writing(locked_inode, inode, handle_id)?;
+                setup_inode_for_writing(locked_inode)?;
                 locked_inode.stat.size = 0;
                 Ok(None)
             }
@@ -385,30 +400,13 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
                 if !mode.is_inode_writable(is_truncate) {
                     return Err(InodeError::InodeNotWritable(inode.err()));
                 }
-                self.setup_inode_for_writing(locked_inode, inode, handle_id)?;
+                setup_inode_for_writing(locked_inode)?;
                 if is_truncate {
                     locked_inode.stat.size = 0;
                 }
                 Ok(locked_inode.pending_upload_hook.clone())
             }
         }
-    }
-
-    fn setup_inode_for_writing(
-        &self,
-        locked_inode: &mut InodeLockedForWriting,
-        inode: Inode,
-        handle_id: u64,
-    ) -> Result<(), InodeError> {
-        self.inner
-            .open_handles
-            .set_writer(locked_inode, handle_id)
-            .map_err(|e| match e {
-                SetWriterError::ActiveWriter => InodeError::InodeAlreadyWriting(inode.err()),
-                SetWriterError::ActiveReaders => InodeError::InodeNotWritableWhileReading(inode.err()),
-            })?;
-        locked_inode.write_status = WriteStatus::LocalOpenForWriting;
-        Ok(())
     }
 }
 
@@ -794,15 +792,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         let stat = sync.stat.clone();
-        let write_status = sync.write_status;
         drop(sync);
-        Ok(LookedUpInode {
-            inode,
+        Ok(Lookup::new(
+            inode.ino(),
             stat,
-            path: self.inner.s3_path.clone(),
-            write_status,
-        }
-        .into())
+            inode.kind(),
+            Some(S3Location::new(self.inner.s3_path.clone(), inode.valid_key().clone())),
+        ))
     }
 
     /// Opens a file handle for the specified inode.
@@ -864,12 +860,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 }
             };
 
-            let inode_lookup = LookedUpInode {
-                inode,
-                stat: locked_inode.stat.clone(),
-                path: self.inner.s3_path.clone(),
-                write_status: locked_inode.write_status,
-            };
+            let inode_lookup = Lookup::new(
+                inode.ino(),
+                locked_inode.stat.clone(),
+                inode.kind(),
+                Some(S3Location::new(self.inner.s3_path.clone(), inode.valid_key().clone())),
+            );
+
             (pending_upload_hook, inode_lookup)
         };
 
@@ -878,7 +875,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         {
             lookup_after_upload
         } else {
-            inode_lookup.into()
+            inode_lookup
         };
 
         Ok(NewHandle { lookup, mode })
@@ -973,16 +970,14 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 }
 
                 let stat = locked_inode.stat.clone();
-                let write_status = locked_inode.write_status;
                 drop(locked_inode);
 
-                Ok(LookedUpInode {
-                    inode,
+                Ok(Lookup::new(
+                    inode.ino(),
                     stat,
-                    path: self.inner.s3_path.clone(),
-                    write_status,
-                }
-                .into())
+                    inode.kind(),
+                    Some(S3Location::new(self.inner.s3_path.clone(), inode.valid_key().clone())),
+                ))
             }
             _ => Err(InodeError::InodeInvalidWriteStatus(inode.err())),
         }
@@ -1250,7 +1245,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         let name: ValidName = name.try_into()?;
 
         // Put inode creation in a block so we don't hold the lock on the parent state longer than needed.
-        let lookup = {
+        let (lookup, inode) = {
             let parent_inode = self.inner.get(dir)?;
             let mut parent_state = parent_inode.get_mut_inode_state()?;
 
@@ -1279,20 +1274,22 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 }
             };
 
-            let state = InodeState::new(&stat, kind, WriteStatus::LocalUnopened);
-            let inode =
-                self.inner
-                    .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state.clone(), true)?;
-            LookedUpInode {
-                inode,
+            let write_status = WriteStatus::LocalUnopened;
+            let state = InodeState::new(&stat, kind, write_status);
+            let inode = self
+                .inner
+                .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state, true)?;
+            let lookup = Lookup::new(
+                inode.ino(),
                 stat,
-                path: self.inner.s3_path.clone(),
-                write_status: state.write_status,
-            }
+                inode.kind(),
+                Some(S3Location::new(self.inner.s3_path.clone(), inode.valid_key().clone())),
+            );
+            (lookup, inode)
         };
 
-        self.inner.remember(&lookup.inode);
-        Ok(lookup.into())
+        self.inner.remember(&inode);
+        Ok(lookup)
     }
 
     /// Reacts to the kernel notifying us that the lookup count of an Inode has decreased.
@@ -1745,13 +1742,14 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                 }
             }
             (Some(remote), None) => {
-                let state = InodeState::new(&remote.stat, remote.kind, WriteStatus::Remote);
-                self.create_inode_locked(&parent, &mut parent_state, name, remote.kind, state.clone(), false)
+                let write_status = WriteStatus::Remote;
+                let state = InodeState::new(&remote.stat, remote.kind, write_status);
+                self.create_inode_locked(&parent, &mut parent_state, name, remote.kind, state, false)
                     .map(|inode| LookedUpInode {
                         inode,
                         stat: remote.stat,
                         path: self.s3_path.clone(),
-                        write_status: state.write_status,
+                        write_status,
                     })
             }
             (Some(remote), Some(existing_inode)) => {
@@ -1815,14 +1813,15 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                     ino=?existing_inode.ino(),
                     "inode needs to be recreated",
                 );
-                let state = InodeState::new(&remote.stat, remote.kind, WriteStatus::Remote);
+                let write_status = WriteStatus::Remote;
+                let state = InodeState::new(&remote.stat, remote.kind, write_status);
                 let new_inode =
-                    self.create_inode_locked(&parent, &mut parent_state, name, remote.kind, state.clone(), false)?;
+                    self.create_inode_locked(&parent, &mut parent_state, name, remote.kind, state, false)?;
                 Ok(LookedUpInode {
                     inode: new_inode,
                     stat: remote.stat,
                     path: self.s3_path.clone(),
-                    write_status: state.write_status,
+                    write_status,
                 })
             }
         }
@@ -2292,6 +2291,241 @@ mod tests {
             }
         }
     }
+
+    /*#[tokio::test]
+    async fn test_getattr() {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .part_size(1024 * 1024)
+                .build(),
+        );
+
+        let keys = &[
+            format!("{prefix}dir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file0.txt"),
+            format!("{prefix}dir0/sdir0/file1.txt"),
+            format!("{prefix}dir0/sdir0/file2.txt"),
+            format!("{prefix}dir0/sdir1/file0.txt"),
+            format!("{prefix}dir0/sdir1/file1.txt"),
+            format!("{prefix}dir1/sdir2/file0.txt"),
+            format!("{prefix}dir1/sdir2/file1.txt"),
+            format!("{prefix}dir1/sdir2/file2.txt"),
+            format!("{prefix}dir1/sdir3/file0.txt"),
+            format!("{prefix}dir1/sdir3/file1.txt"),
+        ];
+
+        let object_size = 30;
+        let mut last_modified = OffsetDateTime::UNIX_EPOCH;
+        for key in keys {
+            let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
+            last_modified += Duration::days(1);
+            obj.set_last_modified(last_modified);
+            client.add_object(key, obj);
+        }
+
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let ts = OffsetDateTime::now_utc();
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket.clone(), prefix.clone()),
+            Default::default(),
+        );
+
+        // Try it twice to test the inode reuse path too
+        for _ in 0..2 {
+            let dir0 = superblock
+                .lookup(FUSE_ROOT_INODE, &OsString::from("dir0"))
+                .await
+                .expect("should exist");
+            assert_inode_stat!(dir0, InodeKind::Directory, ts, 0);
+            assert_eq!(
+                dir0.s3_location().expect("should have location").full_key().as_ref(),
+                format!("{prefix}dir0/")
+            );
+
+            let dir1 = superblock
+                .lookup(FUSE_ROOT_INODE, &OsString::from("dir1"))
+                .await
+                .expect("should exist");
+            assert_inode_stat!(dir1, InodeKind::Directory, ts, 0);
+            assert_eq!(
+                dir1.s3_location().expect("should have location").full_key().as_ref(),
+                format!("{prefix}dir1/")
+            );
+
+            let sdir0 = superblock
+                .lookup(dir0.ino(), &OsString::from("sdir0"))
+                .await
+                .expect("should exist");
+            assert_inode_stat!(sdir0, InodeKind::Directory, ts, 0);
+            assert_eq!(
+                sdir0.s3_location().expect("should have location").full_key().as_ref(),
+                format!("{prefix}dir0/sdir0/")
+            );
+
+            let sdir1 = superblock
+                .lookup(dir0.ino(), &OsString::from("sdir1"))
+                .await
+                .expect("should exist");
+            assert_inode_stat!(sdir1, InodeKind::Directory, ts, 0);
+            assert_eq!(
+                sdir1.s3_location().expect("should have location").full_key().as_ref(),
+                format!("{prefix}dir0/sdir1/")
+            );
+
+            let sdir2 = superblock
+                .lookup(dir1.ino(), &OsString::from("sdir2"))
+                .await
+                .expect("should exist");
+            assert_inode_stat!(sdir2, InodeKind::Directory, ts, 0);
+            assert_eq!(
+                sdir2.s3_location().expect("should have location").full_key().as_ref(),
+                format!("{prefix}dir1/sdir2/")
+            );
+
+            let sdir3 = superblock
+                .lookup(dir1.ino(), &OsString::from("sdir3"))
+                .await
+                .expect("should exist");
+            assert_inode_stat!(sdir3, InodeKind::Directory, ts, 0);
+            assert_eq!(
+                sdir3.s3_location().expect("should have location").full_key().as_ref(),
+                format!("{prefix}dir1/sdir3/")
+            );
+
+            for (dir, sdir, ino, n) in &[
+                (0, 0, sdir0.ino(), 3),
+                (0, 1, sdir1.ino(), 2),
+                (1, 2, sdir2.ino(), 3),
+                (1, 3, sdir3.ino(), 2),
+            ] {
+                for i in 0..*n {
+                    let file = superblock
+                        .lookup(*ino, &OsString::from(format!("file{i}.txt")))
+                        .await
+                        .expect("inode should exist");
+                    // Grab last modified time according to mock S3
+                    let full_key = file.s3_location().expect("should have location").full_key();
+                    let modified_time = client
+                        .head_object(&bucket, full_key.as_ref(), &HeadObjectParams::new())
+                        .await
+                        .expect("object should exist")
+                        .last_modified;
+                    assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
+                    assert_eq!(full_key.as_ref(), format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
+                }
+            }
+        }
+    }
+    #[tokio::test]
+    async fn test_getattr_with_inode_local_valid_stat() {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let prefix = "prefix/";
+        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let ttl = std::time::Duration::from_secs(60 * 60 * 24 * 7); // 7 days should be enough
+        // Test: local inode with valid stat should return immediately without remote lookup
+        let metablock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, prefix.clone()),
+            SuperblockConfig {
+                cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
+                s3_personality: S3Personality::Standard,
+            },
+        );
+        let inode = create_test_inode(WriteStatus::LocalUnopened, true); // valid stat
+
+        let result = metablock.getattr_with_inode(inode.ino(), false).await;
+
+        assert!(result.is_ok());
+        let looked_up = result.unwrap();
+        assert!(!looked_up.write_status == WriteStatus::Remote);
+        // Should not have called lookup_by_name
+    }
+
+    #[tokio::test]
+    async fn test_getattr_with_inode_remote_no_force_revalidate() {
+        // Test: remote inode with valid stat and no force revalidate should return immediately
+        let metablock = setup_metablock();
+        let inode = create_test_inode(WriteStatus::Remote, true); // valid stat
+
+        let result = metablock.getattr_with_inode(inode.ino(), false).await;
+
+        assert!(result.is_ok());
+        let looked_up = result.unwrap();
+        assert!(looked_up.is_remote());
+        // Should not have called lookup_by_name
+    }
+
+    #[tokio::test]
+    async fn test_getattr_with_inode_remote_force_revalidate() {
+        // Test: remote inode with force revalidate should do remote lookup
+        let mut metablock = setup_metablock();
+        let inode = create_test_inode(WriteStatus::Remote, true); // valid stat
+
+        metablock.expect_lookup_by_name()
+            .returning(|_, _, _| Ok(create_looked_up_inode()));
+
+        let result = metablock.getattr_with_inode(inode.ino(), true).await;
+
+        assert!(result.is_ok());
+        // Should have called lookup_by_name
+    }
+
+    #[tokio::test]
+    async fn test_getattr_with_inode_invalid_stat() {
+        // Test: invalid stat should trigger remote lookup
+        let mut metablock = setup_metablock();
+        let inode = create_test_inode(WriteStatus::Remote, false); // invalid stat
+
+        metablock.expect_lookup_by_name()
+            .returning(|_, _, _| Ok(create_looked_up_inode()));
+
+        let result = metablock.getattr_with_inode(inode.ino(), false).await;
+
+        assert!(result.is_ok());
+        // Should have called lookup_by_name due to invalid stat
+    }
+
+    #[tokio::test]
+    async fn test_getattr_with_inode_stale_inode() {
+        // Test: stale inode error when remote lookup returns different inode
+        let mut metablock = setup_metablock();
+        let inode = create_test_inode(WriteStatus::Remote, false);
+
+        metablock.expect_lookup_by_name()
+            .returning(|_, _, _| {
+                let mut lookup = create_looked_up_inode();
+                lookup.inode.set_ino(999); // Different inode number
+                Ok(lookup)
+            });
+
+        let result = metablock.getattr_with_inode(inode.ino(), false).await;
+
+        assert!(matches!(result, Err(InodeError::StaleInode { .. })));
+    }
+
+    fn create_test_inode(write_status: WriteStatus, valid_stat: bool) -> Inode {
+        let mut stat = InodeStat::for_file(1024, OffsetDateTime::now_utc(), None, None, None, std::time::Duration::from_secs(24 * 60 * 60));
+        if !valid_stat {
+            stat.update_validity(std::time::Duration::from_secs(0));
+        }
+        let state = InodeState::new(&stat, InodeKind::File, write_status);
+        let inode =
+                .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state.clone(), true)?;
+        Inode::new(10, 9, )
+    }
+
+    fn create_looked_up_inode() -> LookedUpInode {
+        LookedUpInode {
+            inode: create_test_inode(WriteStatus::Remote, true),
+            stat: InodeStat::for_file(1024, OffsetDateTime::now_utc(), None),
+            path: "test/path".into(),
+            write_status: WriteStatus::Remote,
+        }
+    }*/
 
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
