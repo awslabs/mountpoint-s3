@@ -8,7 +8,7 @@ repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.16.0" }
+mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.15.4" }
 
 futures = "0.3.31"
 libc = "0.2.179"
