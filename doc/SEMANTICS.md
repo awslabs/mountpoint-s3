@@ -166,7 +166,7 @@ Additionally, remote directories will always shadow local directories or files.
 Thus Mountpoint shadows directory entries in the following order, where the first takes precedence: remote directories, any local state, remote files.
 For example, if you create a directory i.e. `blue/` and a conflicting object with key `blue` appears in the bucket, the local directory will still be accessible.
 
-We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
+We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-fs/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
 
 Windows-style path delimiters (`\`) are not supported.
 
