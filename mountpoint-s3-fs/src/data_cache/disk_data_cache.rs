@@ -472,7 +472,7 @@ impl DataCache for DiskDataCache {
             }
             Ok(Some(bytes)) => {
                 // Cache hit.
-                metrics::counter!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes.len() as u64);
+                metrics::histogram!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_DISK).record(bytes.len() as f64);
                 if let Some(usage) = &self.usage {
                     usage.lock().unwrap().refresh(&block_key);
                 }
@@ -535,7 +535,7 @@ impl DataCache for DiskDataCache {
         })();
 
         if put_result.is_ok() {
-            metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes_len as u64);
+            metrics::histogram!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).record(bytes_len as f64);
         } else {
             metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_DISK).increment(1);
         }
