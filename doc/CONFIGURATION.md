@@ -295,7 +295,7 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 
 In its default configuration, there is no maximum on the size of objects Mountpoint can read. However, Mountpoint uses [multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) when writing new objects, and multipart upload allows a maximum of 10,000 parts for an object. This means Mountpoint can only upload objects up to 80,000 MiB (78.1 GiB) in size. If your application tries to write objects larger than this limit, writes will fail with an out of space error.
 
-To increase the maximum object size for writes, use the `--write-part-size` command-line argument to specify a maximum number of bytes per part, which defaults to 8 MiB. The maximum object size will be 10,000 multiplied by the value you provide for this argument. Even with multipart upload, S3 allows a maximum object size of 48.8 TiB, and so setting this argument higher than 5 GiB will not further increase the object size limit.
+To increase the maximum object size for writes, use the `--write-part-size` command-line argument to specify a maximum number of bytes per part, which defaults to 8 MiB. The maximum object size will be 10,000 multiplied by the value you provide for this argument. S3 allows a maximum part size of 5 GiB and a maximum object size of 48.8 TiB. For more information, see the [Amazon S3 multipart upload limits](https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html).
 
 ### Automatically mounting an S3 bucket at boot
 
