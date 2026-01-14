@@ -286,6 +286,36 @@ impl InodeKindData {
             },
         }
     }
+
+    pub fn remove_child(&mut self, name: &str, expected_ino: InodeNo) {
+        match self {
+            InodeKindData::File {} => {
+                debug_assert!(false, "remove_child called on a file, not a directory");
+            }
+            InodeKindData::Directory {
+                children,
+                writing_children,
+                ..
+            } => {
+                // We want to remove the original child.
+                // If there is a mismatch in inode number between the existing inode and the deleted inode, we invalidate the existing inode's stat.
+                // If for some reason the child with the specified name was already removed, we do nothing as this is the desired state.
+                if let Some(existing_inode) = children.get(name) {
+                    if existing_inode.ino() == expected_ino {
+                        children.remove(name);
+                        writing_children.remove(&expected_ino);
+                    } else {
+                        // Mismatch in inode number, thus the existing inode might not be the same one we deleted
+                        let mut state = existing_inode.get_mut_inode_state_no_check();
+                        // Invalidate the inode's stats so we refresh them from S3 when next queried
+                        state.stat.update_validity(Duration::from_secs(0));
+                    }
+                } else {
+                    debug!("parent did not contain child after deletion during unlink");
+                }
+            }
+        }
+    }
 }
 
 /// Inode write status (local vs remote)
