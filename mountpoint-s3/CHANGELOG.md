@@ -4,6 +4,7 @@
 * Remove redundant cache merics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
 * Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
 * Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
+* Update Mountpoint's semantics to enable opening a new file handle on an inode if all the existing open handles have been flushed. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
 
 ## v1.21.0 (Oct 30, 2025)
 
