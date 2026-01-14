@@ -2015,19 +2015,20 @@ pub enum InodeMapError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
-    use crate::metablock::AddDirEntryResult;
-    use crate::s3::{Bucket, Prefix};
-    use mountpoint_s3_client::mock_client::Operation;
     use mountpoint_s3_client::{
-        mock_client::{MockClient, MockObject},
+        mock_client::{MockClient, MockObject, Operation},
         types::ETag,
     };
     use std::ffi::OsString;
     use std::str::FromStr;
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
+
+    use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
+    use crate::metablock::AddDirEntryResult;
+    use crate::s3::{Bucket, Prefix};
+
+    use super::*;
 
     /// Check an Inode's stat matches a series of fields.
     macro_rules! assert_inode_stat {
@@ -2293,11 +2294,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_inode_local_invalid_stat_force_revalidate() {
-        let (metablock, client) = setup_test_metablock();
+        let (superblock, client) = setup_test_superblock();
         let head_object_counter = client.new_counter(Operation::HeadObject);
-        let inode = create_test_inode(&metablock, WriteStatus::LocalUnopened, true, None, true).unwrap();
+        let inode = create_test_inode(&superblock, WriteStatus::LocalUnopened, true, None, true).unwrap();
 
-        let result = metablock.getattr_with_inode(inode.ino(), true).await;
+        let result = superblock.getattr_with_inode(inode.ino(), true).await;
         assert!(result.is_ok());
         let looked_up = result.unwrap();
         assert_eq!(looked_up.write_status, WriteStatus::LocalUnopened);
@@ -2308,12 +2309,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_inode_remote_valid_stat_no_force_revalidate() {
-        let (metablock, client) = setup_test_metablock();
+        let (superblock, client) = setup_test_superblock();
         let test_etag = ETag::for_tests();
         let head_object_counter = client.new_counter(Operation::HeadObject);
-        let inode = create_test_inode(&metablock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
+        let inode = create_test_inode(&superblock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
 
-        let result = metablock.getattr_with_inode(inode.ino(), false).await;
+        let result = superblock.getattr_with_inode(inode.ino(), false).await;
         assert!(result.is_ok());
         let looked_up = result.unwrap();
         assert_eq!(looked_up.write_status, WriteStatus::Remote);
@@ -2324,13 +2325,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_inode_remote_force_revalidate() {
-        let (metablock, client) = setup_test_metablock();
+        let (superblock, client) = setup_test_superblock();
         let test_etag = ETag::for_tests();
         let head_object_counter = client.new_counter(Operation::HeadObject);
         client.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, test_etag.clone()));
-        let inode = create_test_inode(&metablock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
+        let inode = create_test_inode(&superblock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
 
-        let result = metablock.getattr_with_inode(inode.ino(), true).await;
+        let result = superblock.getattr_with_inode(inode.ino(), true).await;
         assert!(result.is_ok());
         let looked_up = result.unwrap();
         assert_eq!(looked_up.write_status, WriteStatus::Remote);
@@ -2341,13 +2342,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_getattr_with_stale_inode_remote_no_force_revalidate() {
-        let (metablock, client) = setup_test_metablock();
+        let (superblock, client) = setup_test_superblock();
         let head_object_counter = client.new_counter(Operation::HeadObject);
+        // Create the object with a different e-tag than which the inode is created with
         client.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, ETag::for_tests()));
         let local_etag = ETag::from_str("Stale local etag").unwrap();
-        let inode = create_test_inode(&metablock, WriteStatus::Remote, false, Some(local_etag), true).unwrap();
+        let inode = create_test_inode(&superblock, WriteStatus::Remote, false, Some(local_etag), true).unwrap();
 
-        let result = metablock.getattr_with_inode(inode.ino(), false).await;
+        let result = superblock.getattr_with_inode(inode.ino(), false).await;
         if let Err(InodeError::StaleInode {
             remote_key,
             old_inode,
@@ -2362,12 +2364,12 @@ mod tests {
         }
     }
 
-    fn setup_test_metablock() -> (Superblock<Arc<MockClient>>, Arc<MockClient>) {
+    fn setup_test_superblock() -> (Superblock<Arc<MockClient>>, Arc<MockClient>) {
         let bucket = Bucket::new("test_bucket").unwrap();
         let prefix = "prefix/";
         let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
         let prefix = Prefix::new(prefix).expect("valid prefix");
-        let metablock = Superblock::new(
+        let superblock = Superblock::new(
             client.clone(),
             S3Path::new(bucket, prefix.clone()),
             SuperblockConfig {
@@ -2375,17 +2377,17 @@ mod tests {
                 s3_personality: S3Personality::Standard,
             },
         );
-        (metablock, client)
+        (superblock, client)
     }
 
     fn create_test_inode(
-        metablock: &Superblock<Arc<MockClient>>,
+        superblock: &Superblock<Arc<MockClient>>,
         write_status: WriteStatus,
         is_new_file: bool,
         etag: Option<ETag>,
         invalidate_stat: bool,
     ) -> Result<Inode, InodeError> {
-        let parent_inode = metablock.inner.get(FUSE_ROOT_INODE).unwrap();
+        let parent_inode = superblock.inner.get(FUSE_ROOT_INODE).unwrap();
         let etag = etag.map(|etag| etag.into_inner().into_boxed_str());
 
         let mut stat = InodeStat::for_file(
@@ -2397,13 +2399,14 @@ mod tests {
             std::time::Duration::from_secs(24 * 60 * 60),
         );
         if invalidate_stat {
+            // For testing the expired stat cases
             stat.update_validity(std::time::Duration::from_secs(0));
         }
         let state = InodeState::new(&stat, InodeKind::File, write_status);
 
         let mut parent_state = parent_inode.get_mut_inode_state()?;
 
-        let inode = metablock.inner.create_inode_locked(
+        let inode = superblock.inner.create_inode_locked(
             &parent_inode,
             &mut parent_state,
             ValidName::parse_str("test inode")?,
@@ -2411,7 +2414,8 @@ mod tests {
             state,
             is_new_file,
         )?;
-        metablock.inner.remember(&inode);
+        // Manually add the inode to the Superblock's inode map, done by lookup/create in reality
+        superblock.inner.remember(&inode);
         Ok(inode)
     }
 
