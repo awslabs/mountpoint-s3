@@ -283,7 +283,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             let is_remote = sync.write_status == WriteStatus::Remote;
 
             if !is_remote || !force_revalidate_if_remote {
-                // If the inode is local (open/unopened), extend its stat's validity before returning.
+                // If the inode is local (open/unopened), extend its stat's validity before returning
                 if !is_remote {
                     let validity = match inode.kind() {
                         InodeKind::File => self.inner.config.cache_config.file_ttl,
@@ -2015,6 +2015,11 @@ pub enum InodeMapError {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
+    use crate::metablock::AddDirEntryResult;
+    use crate::s3::{Bucket, Prefix};
+    use mountpoint_s3_client::mock_client::Operation;
     use mountpoint_s3_client::{
         mock_client::{MockClient, MockObject},
         types::ETag,
@@ -2023,12 +2028,6 @@ mod tests {
     use std::str::FromStr;
     use test_case::test_case;
     use time::{Duration, OffsetDateTime};
-
-    use crate::fs::{FUSE_ROOT_INODE, TimeToLive, ToErrno};
-    use crate::metablock::AddDirEntryResult;
-    use crate::s3::{Bucket, Prefix};
-
-    use super::*;
 
     /// Check an Inode's stat matches a series of fields.
     macro_rules! assert_inode_stat {
@@ -2292,240 +2291,129 @@ mod tests {
         }
     }
 
-    /*#[tokio::test]
-    async fn test_getattr() {
-        let bucket = Bucket::new("test_bucket").unwrap();
-        let client = Arc::new(
-            MockClient::config()
-                .bucket(bucket.to_string())
-                .part_size(1024 * 1024)
-                .build(),
-        );
-
-        let keys = &[
-            format!("{prefix}dir0/file0.txt"),
-            format!("{prefix}dir0/sdir0/file0.txt"),
-            format!("{prefix}dir0/sdir0/file1.txt"),
-            format!("{prefix}dir0/sdir0/file2.txt"),
-            format!("{prefix}dir0/sdir1/file0.txt"),
-            format!("{prefix}dir0/sdir1/file1.txt"),
-            format!("{prefix}dir1/sdir2/file0.txt"),
-            format!("{prefix}dir1/sdir2/file1.txt"),
-            format!("{prefix}dir1/sdir2/file2.txt"),
-            format!("{prefix}dir1/sdir3/file0.txt"),
-            format!("{prefix}dir1/sdir3/file1.txt"),
-        ];
-
-        let object_size = 30;
-        let mut last_modified = OffsetDateTime::UNIX_EPOCH;
-        for key in keys {
-            let mut obj = MockObject::constant(0xaa, object_size, ETag::for_tests());
-            last_modified += Duration::days(1);
-            obj.set_last_modified(last_modified);
-            client.add_object(key, obj);
-        }
-
-        let prefix = Prefix::new(prefix).expect("valid prefix");
-        let ts = OffsetDateTime::now_utc();
-        let superblock = Superblock::new(
-            client.clone(),
-            S3Path::new(bucket.clone(), prefix.clone()),
-            Default::default(),
-        );
-
-        // Try it twice to test the inode reuse path too
-        for _ in 0..2 {
-            let dir0 = superblock
-                .lookup(FUSE_ROOT_INODE, &OsString::from("dir0"))
-                .await
-                .expect("should exist");
-            assert_inode_stat!(dir0, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                dir0.s3_location().expect("should have location").full_key().as_ref(),
-                format!("{prefix}dir0/")
-            );
-
-            let dir1 = superblock
-                .lookup(FUSE_ROOT_INODE, &OsString::from("dir1"))
-                .await
-                .expect("should exist");
-            assert_inode_stat!(dir1, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                dir1.s3_location().expect("should have location").full_key().as_ref(),
-                format!("{prefix}dir1/")
-            );
-
-            let sdir0 = superblock
-                .lookup(dir0.ino(), &OsString::from("sdir0"))
-                .await
-                .expect("should exist");
-            assert_inode_stat!(sdir0, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                sdir0.s3_location().expect("should have location").full_key().as_ref(),
-                format!("{prefix}dir0/sdir0/")
-            );
-
-            let sdir1 = superblock
-                .lookup(dir0.ino(), &OsString::from("sdir1"))
-                .await
-                .expect("should exist");
-            assert_inode_stat!(sdir1, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                sdir1.s3_location().expect("should have location").full_key().as_ref(),
-                format!("{prefix}dir0/sdir1/")
-            );
-
-            let sdir2 = superblock
-                .lookup(dir1.ino(), &OsString::from("sdir2"))
-                .await
-                .expect("should exist");
-            assert_inode_stat!(sdir2, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                sdir2.s3_location().expect("should have location").full_key().as_ref(),
-                format!("{prefix}dir1/sdir2/")
-            );
-
-            let sdir3 = superblock
-                .lookup(dir1.ino(), &OsString::from("sdir3"))
-                .await
-                .expect("should exist");
-            assert_inode_stat!(sdir3, InodeKind::Directory, ts, 0);
-            assert_eq!(
-                sdir3.s3_location().expect("should have location").full_key().as_ref(),
-                format!("{prefix}dir1/sdir3/")
-            );
-
-            for (dir, sdir, ino, n) in &[
-                (0, 0, sdir0.ino(), 3),
-                (0, 1, sdir1.ino(), 2),
-                (1, 2, sdir2.ino(), 3),
-                (1, 3, sdir3.ino(), 2),
-            ] {
-                for i in 0..*n {
-                    let file = superblock
-                        .lookup(*ino, &OsString::from(format!("file{i}.txt")))
-                        .await
-                        .expect("inode should exist");
-                    // Grab last modified time according to mock S3
-                    let full_key = file.s3_location().expect("should have location").full_key();
-                    let modified_time = client
-                        .head_object(&bucket, full_key.as_ref(), &HeadObjectParams::new())
-                        .await
-                        .expect("object should exist")
-                        .last_modified;
-                    assert_inode_stat!(file, InodeKind::File, modified_time, object_size);
-                    assert_eq!(full_key.as_ref(), format!("{prefix}dir{dir}/sdir{sdir}/file{i}.txt"));
-                }
-            }
-        }
-    }
     #[tokio::test]
-    async fn test_getattr_with_inode_local_valid_stat() {
-        let bucket = Bucket::new("test_bucket").unwrap();
-        let prefix = "prefix/";
-        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
-        let prefix = Prefix::new(prefix).expect("valid prefix");
-        let ttl = std::time::Duration::from_secs(60 * 60 * 24 * 7); // 7 days should be enough
-        // Test: local inode with valid stat should return immediately without remote lookup
-        let metablock = Superblock::new(
-            client.clone(),
-            S3Path::new(bucket, prefix.clone()),
-            SuperblockConfig {
-                cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
-                s3_personality: S3Personality::Standard,
-            },
-        );
-        let inode = create_test_inode(WriteStatus::LocalUnopened, true); // valid stat
+    async fn test_getattr_with_inode_local_invalid_stat_force_revalidate() {
+        let (metablock, client) = setup_test_metablock();
+        let head_object_counter = client.new_counter(Operation::HeadObject);
+        let inode = create_test_inode(&metablock, WriteStatus::LocalUnopened, true, None, true).unwrap();
 
-        let result = metablock.getattr_with_inode(inode.ino(), false).await;
-
+        let result = metablock.getattr_with_inode(inode.ino(), true).await;
         assert!(result.is_ok());
         let looked_up = result.unwrap();
-        assert!(!looked_up.write_status == WriteStatus::Remote);
-        // Should not have called lookup_by_name
+        assert_eq!(looked_up.write_status, WriteStatus::LocalUnopened);
+        assert_eq!(looked_up.inode.ino(), inode.ino());
+        assert_eq!(looked_up.stat.etag, None);
+        assert_eq!(head_object_counter.count(), 0);
     }
 
     #[tokio::test]
-    async fn test_getattr_with_inode_remote_no_force_revalidate() {
-        // Test: remote inode with valid stat and no force revalidate should return immediately
-        let metablock = setup_metablock();
-        let inode = create_test_inode(WriteStatus::Remote, true); // valid stat
+    async fn test_getattr_with_inode_remote_valid_stat_no_force_revalidate() {
+        let (metablock, client) = setup_test_metablock();
+        let test_etag = ETag::for_tests();
+        let head_object_counter = client.new_counter(Operation::HeadObject);
+        let inode = create_test_inode(&metablock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
 
         let result = metablock.getattr_with_inode(inode.ino(), false).await;
-
         assert!(result.is_ok());
         let looked_up = result.unwrap();
-        assert!(looked_up.is_remote());
-        // Should not have called lookup_by_name
+        assert_eq!(looked_up.write_status, WriteStatus::Remote);
+        assert_eq!(looked_up.inode.ino(), inode.ino());
+        assert_eq!(looked_up.stat.etag, Some(test_etag.into_inner().into_boxed_str()));
+        assert_eq!(head_object_counter.count(), 0);
     }
 
     #[tokio::test]
     async fn test_getattr_with_inode_remote_force_revalidate() {
-        // Test: remote inode with force revalidate should do remote lookup
-        let mut metablock = setup_metablock();
-        let inode = create_test_inode(WriteStatus::Remote, true); // valid stat
-
-        metablock.expect_lookup_by_name()
-            .returning(|_, _, _| Ok(create_looked_up_inode()));
+        let (metablock, client) = setup_test_metablock();
+        let test_etag = ETag::for_tests();
+        let head_object_counter = client.new_counter(Operation::HeadObject);
+        client.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, test_etag.clone()));
+        let inode = create_test_inode(&metablock, WriteStatus::Remote, false, Some(test_etag.clone()), false).unwrap();
 
         let result = metablock.getattr_with_inode(inode.ino(), true).await;
-
         assert!(result.is_ok());
-        // Should have called lookup_by_name
+        let looked_up = result.unwrap();
+        assert_eq!(looked_up.write_status, WriteStatus::Remote);
+        assert_eq!(looked_up.inode.ino(), inode.ino());
+        assert_eq!(looked_up.stat.etag, Some(test_etag.into_inner().into_boxed_str()));
+        assert!(head_object_counter.count() > 0);
     }
 
     #[tokio::test]
-    async fn test_getattr_with_inode_invalid_stat() {
-        // Test: invalid stat should trigger remote lookup
-        let mut metablock = setup_metablock();
-        let inode = create_test_inode(WriteStatus::Remote, false); // invalid stat
-
-        metablock.expect_lookup_by_name()
-            .returning(|_, _, _| Ok(create_looked_up_inode()));
-
-        let result = metablock.getattr_with_inode(inode.ino(), false).await;
-
-        assert!(result.is_ok());
-        // Should have called lookup_by_name due to invalid stat
-    }
-
-    #[tokio::test]
-    async fn test_getattr_with_inode_stale_inode() {
-        // Test: stale inode error when remote lookup returns different inode
-        let mut metablock = setup_metablock();
-        let inode = create_test_inode(WriteStatus::Remote, false);
-
-        metablock.expect_lookup_by_name()
-            .returning(|_, _, _| {
-                let mut lookup = create_looked_up_inode();
-                lookup.inode.set_ino(999); // Different inode number
-                Ok(lookup)
-            });
+    async fn test_getattr_with_stale_inode_remote_no_force_revalidate() {
+        let (metablock, client) = setup_test_metablock();
+        let head_object_counter = client.new_counter(Operation::HeadObject);
+        client.add_object("prefix/test inode", MockObject::constant(0xaa, 1024, ETag::for_tests()));
+        let local_etag = ETag::from_str("Stale local etag").unwrap();
+        let inode = create_test_inode(&metablock, WriteStatus::Remote, false, Some(local_etag), true).unwrap();
 
         let result = metablock.getattr_with_inode(inode.ino(), false).await;
-
-        assert!(matches!(result, Err(InodeError::StaleInode { .. })));
+        if let Err(InodeError::StaleInode {
+            remote_key,
+            old_inode,
+            new_inode,
+        }) = result
+        {
+            assert_eq!(remote_key, "prefix/test inode");
+            assert_ne!(old_inode.ino, new_inode.ino);
+            assert!(head_object_counter.count() > 0);
+        } else {
+            panic!("Expected StaleInode error");
+        }
     }
 
-    fn create_test_inode(write_status: WriteStatus, valid_stat: bool) -> Inode {
-        let mut stat = InodeStat::for_file(1024, OffsetDateTime::now_utc(), None, None, None, std::time::Duration::from_secs(24 * 60 * 60));
-        if !valid_stat {
+    fn setup_test_metablock() -> (Superblock<Arc<MockClient>>, Arc<MockClient>) {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let prefix = "prefix/";
+        let client = Arc::new(MockClient::config().bucket(bucket.to_string()).part_size(32).build());
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let metablock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, prefix.clone()),
+            SuperblockConfig {
+                cache_config: CacheConfig::new(TimeToLive::Duration(std::time::Duration::from_secs(24 * 60 * 60))),
+                s3_personality: S3Personality::Standard,
+            },
+        );
+        (metablock, client)
+    }
+
+    fn create_test_inode(
+        metablock: &Superblock<Arc<MockClient>>,
+        write_status: WriteStatus,
+        is_new_file: bool,
+        etag: Option<ETag>,
+        invalidate_stat: bool,
+    ) -> Result<Inode, InodeError> {
+        let parent_inode = metablock.inner.get(FUSE_ROOT_INODE).unwrap();
+        let etag = etag.map(|etag| etag.into_inner().into_boxed_str());
+
+        let mut stat = InodeStat::for_file(
+            1024,
+            OffsetDateTime::now_utc(),
+            etag,
+            None,
+            None,
+            std::time::Duration::from_secs(24 * 60 * 60),
+        );
+        if invalidate_stat {
             stat.update_validity(std::time::Duration::from_secs(0));
         }
         let state = InodeState::new(&stat, InodeKind::File, write_status);
-        let inode =
-                .create_inode_locked(&parent_inode, &mut parent_state, name, kind, state.clone(), true)?;
-        Inode::new(10, 9, )
-    }
 
-    fn create_looked_up_inode() -> LookedUpInode {
-        LookedUpInode {
-            inode: create_test_inode(WriteStatus::Remote, true),
-            stat: InodeStat::for_file(1024, OffsetDateTime::now_utc(), None),
-            path: "test/path".into(),
-            write_status: WriteStatus::Remote,
-        }
-    }*/
+        let mut parent_state = parent_inode.get_mut_inode_state()?;
+
+        let inode = metablock.inner.create_inode_locked(
+            &parent_inode,
+            &mut parent_state,
+            ValidName::parse_str("test inode")?,
+            InodeKind::File,
+            state,
+            is_new_file,
+        )?;
+        metablock.inner.remember(&inode);
+        Ok(inode)
+    }
 
     #[test_case(""; "unprefixed")]
     #[test_case("test_prefix/"; "prefixed")]
