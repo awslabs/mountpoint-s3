@@ -186,6 +186,7 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
                 trim: Some(pool_trim::<Pool>),
                 acquire: None,
                 release: None,
+                ..Default::default()
             },
             ticket_vtable: aws_s3_buffer_ticket_vtable {
                 claim: Some(ticket_claim::<Pool::Buffer>),
