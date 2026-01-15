@@ -1,3 +1,4 @@
 # @package hydra.sweeper
-params: {}
+params:
+  'benchmarks.prefetch.access_pattern': sequential, random
   #'benchmarks.prefetch.max_memory_target': null, 1073741824, 2147483648  # null, 1GiB, 2GiB

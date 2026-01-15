@@ -65,6 +65,11 @@ benchmarks:
 
   prefetch:
     max_memory_target: !!null # memory upper-limit in MB
+    access_patterns:
+      - sequential
+      - random
+    access_pattern: "${benchmarks.prefetch.access_patterns[0]}"
+    randseed: !!null  # Random seed for random access pattern
 
   crt:
     crt_benchmarks_path: !!null
