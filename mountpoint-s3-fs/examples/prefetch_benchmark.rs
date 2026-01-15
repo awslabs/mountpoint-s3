@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use clap::{Parser, value_parser, ValueEnum};
+use clap::{Parser, ValueEnum, value_parser};
 use futures::executor::block_on;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::types::HeadObjectParams;
@@ -105,7 +105,7 @@ pub struct CliArgs {
         long,
         help = "Access pattern for reads",
         default_value = "sequential",
-        value_name = "PATTERN",
+        value_name = "PATTERN"
     )]
     access_pattern: AccessPattern,
 
@@ -113,7 +113,7 @@ pub struct CliArgs {
         long,
         help = "Random seed for pseudorandom read offsets (used with random access pattern)",
         default_value_t = 1,
-        value_name = "SEED",
+        value_name = "SEED"
     )]
     randseed: u64,
 
@@ -237,7 +237,14 @@ fn main() -> anyhow::Result<()> {
                 let randseed = args.randseed;
 
                 let task = scope.spawn(move || {
-                    let result = block_on(wait_for_download(request, *size, read_size as u64, access_pattern, randseed, timeout));
+                    let result = block_on(wait_for_download(
+                        request,
+                        *size,
+                        read_size as u64,
+                        access_pattern,
+                        randseed,
+                        timeout,
+                    ));
                     if let Ok(bytes_read) = result {
                         received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
                     } else {
