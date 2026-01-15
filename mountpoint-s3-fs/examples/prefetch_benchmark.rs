@@ -320,11 +320,7 @@ async fn wait_for_download(
         AccessPattern::Random => {
             let mut rng = StdRng::seed_from_u64(randseed);
             let mut total_bytes_read = 0;
-            let max_offset = if size > read_size {
-                size - read_size
-            } else {
-                0
-            };
+            let max_offset = size.saturating_sub(read_size);
 
             while Instant::now() < timeout {
                 let offset = if max_offset > 0 {
