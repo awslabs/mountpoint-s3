@@ -44,7 +44,7 @@ pub struct S3FilesystemConfig {
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
     /// Limits the number of concurrent FUSE requests that the kernel may send
-    pub max_background: u16,
+    pub max_background_fuse_requests: u16,
 }
 
 impl Default for S3FilesystemConfig {
@@ -69,7 +69,7 @@ impl Default for S3FilesystemConfig {
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
-            max_background: 64,
+            max_background_fuse_requests: 64,
         }
     }
 }

@@ -203,17 +203,17 @@ where
                 old
             );
         } else {
-            let max_background_result = config.set_max_background(self.config.max_background);
+            let max_background_result = config.set_max_background(self.config.max_background_fuse_requests);
             if let Ok(old) = max_background_result {
                 tracing::debug!(
                     "Successfully overridden FUSE max_background configuration to {} (was {}) from config.",
-                    self.config.max_background,
+                    self.config.max_background_fuse_requests,
                     old
                 );
             } else {
                 tracing::warn!(
                     "failed to set FUSE max_background to {}, using Kernel default",
-                    self.config.max_background,
+                    self.config.max_background_fuse_requests,
                 );
             }
         }
