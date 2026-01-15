@@ -85,6 +85,9 @@ struct ConfigOptions {
 
     /// Disk cache configuration
     disk_cache: Option<DiskCacheConfig>,
+
+    /// Limits the number of concurrent FUSE requests that the kernel may send, default: 64
+    max_background: Option<u16>,
 }
 
 impl ConfigOptions {
@@ -121,6 +124,9 @@ impl ConfigOptions {
         }
         if let Some(memory_limit_bytes) = self.memory_limit_bytes {
             fs_config.mem_limit = memory_limit_bytes;
+        }
+        if let Some(max_background) = self.max_background {
+            fs_config.max_background = max_background;
         }
         // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
         // trading-off latency for throughput and more accurate memory limiting.

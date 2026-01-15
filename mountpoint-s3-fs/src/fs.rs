@@ -203,12 +203,17 @@ where
                 old
             );
         } else {
-            const DEFAULT_MAX_BACKGROUND: u16 = 64;
-            let max_background_result = config.set_max_background(DEFAULT_MAX_BACKGROUND);
-            if max_background_result.is_err() {
+            let max_background_result = config.set_max_background(self.config.max_background);
+            if let Ok(old) = max_background_result {
+                tracing::debug!(
+                    "Successfully overridden FUSE max_background configuration to {} (was {}) from config.",
+                    self.config.max_background,
+                    old
+                );
+            } else {
                 tracing::warn!(
                     "failed to set FUSE max_background to {}, using Kernel default",
-                    DEFAULT_MAX_BACKGROUND
+                    self.config.max_background,
                 );
             }
         }
