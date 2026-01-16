@@ -4,9 +4,7 @@ use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
 use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
-
 use thiserror::Error;
-use tracing::error;
 
 use crate::async_util::Runtime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
