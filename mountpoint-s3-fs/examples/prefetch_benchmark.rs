@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,8 +18,8 @@ use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
-use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use rand_pcg::Pcg64;
 use serde_json::{json, to_writer};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
@@ -239,10 +241,12 @@ fn main() -> anyhow::Result<()> {
                 let task = scope.spawn(move || {
                     let result = block_on(wait_for_download(
                         request,
+                        object_id,
                         *size,
                         read_size as u64,
                         access_pattern,
                         randseed,
+                        iteration,
                         timeout,
                     ));
                     if let Ok(bytes_read) = result {
@@ -306,10 +310,12 @@ fn main() -> anyhow::Result<()> {
 
 async fn wait_for_download(
     mut request: PrefetchGetObject<S3CrtClient>,
+    object_id: ObjectId,
     size: u64,
     read_size: u64,
     access_pattern: AccessPattern,
     randseed: u64,
+    iteration: usize,
     timeout: Instant,
 ) -> Result<u64, Box<dyn Error>> {
     match access_pattern {
@@ -325,16 +331,21 @@ async fn wait_for_download(
             Ok(total_bytes_read)
         }
         AccessPattern::Random => {
-            let mut rng = StdRng::seed_from_u64(randseed);
-            let mut total_bytes_read = 0;
-            let max_offset = size.saturating_sub(read_size);
+            // Create a unique, deterministic seed by combining randseed with object_id hash
+            // and iteration. This ensures each object/iteration has a different but reproducible
+            // random access pattern.
+            let mut hasher = DefaultHasher::new();
+            object_id.hash(&mut hasher);
+            let object_hash = hasher.finish();
+            let seed = randseed.wrapping_add(object_hash).wrapping_add(iteration as u64);
+            let mut rng = Pcg64::seed_from_u64(seed);
 
-            while Instant::now() < timeout {
-                let offset = if max_offset > 0 {
-                    rng.random_range(0..=max_offset)
-                } else {
-                    0
-                };
+            // Read approximately one file's worth of data using random offsets.
+            // Note: This intentionally allows overlapping reads, which is acceptable for now.
+            let mut total_bytes_read = 0;
+            let max_offset = size.saturating_sub(1);
+            while total_bytes_read < size && Instant::now() < timeout {
+                let offset = rng.random_range(0..=max_offset);
 
                 let bytes = request.read(offset, read_size as usize).await?;
                 let bytes_read = bytes.len() as u64;

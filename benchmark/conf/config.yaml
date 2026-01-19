@@ -69,7 +69,7 @@ benchmarks:
       - sequential
       - random
     access_pattern: "${benchmarks.prefetch.access_patterns[0]}"
-    randseed: !!null  # Random seed for random access pattern
+    randseed: ${iteration} # Use Hydra's iteration counter as the seed for random access pattern to get different iteration patterns
 
   crt:
     crt_benchmarks_path: !!null
