@@ -308,6 +308,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Acceptable for benchmark utility: some parameters only used by random access pattern
 async fn wait_for_download(
     mut request: PrefetchGetObject<S3CrtClient>,
     object_id: ObjectId,
