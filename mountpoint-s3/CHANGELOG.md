@@ -1,10 +1,15 @@
 ## Unreleased (v1.22.0)
 
+### Breaking changes
+
+* Facilitate opening a file for reading/writing immediately after the file has been closed even if the data upload to S3 has not completed. Opening a new handle invalidates the existing writer (including the duplicated file references) and all writes to it will start to fail. See [detailed file operations semantics](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations). ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
+
+### Other changes
+
 * Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
 * Remove redundant cache merics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
 * Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
 * Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
-* Update Mountpoint's semantics to enable opening a new file handle on an inode if all the existing open handles have been flushed. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
 
 ## v1.21.0 (Oct 30, 2025)
 
