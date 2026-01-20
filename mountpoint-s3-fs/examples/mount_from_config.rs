@@ -106,6 +106,7 @@ impl ConfigOptions {
     fn build_filesystem_config(&self) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
+            max_background_fuse_requests: self.max_background_fuse_requests,
             ..Default::default()
         };
 
@@ -124,9 +125,6 @@ impl ConfigOptions {
         }
         if let Some(memory_limit_bytes) = self.memory_limit_bytes {
             fs_config.mem_limit = memory_limit_bytes;
-        }
-        if let Some(max_background_fuse_requests) = self.max_background_fuse_requests {
-            fs_config.max_background_fuse_requests = max_background_fuse_requests;
         }
         // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
         // trading-off latency for throughput and more accurate memory limiting.

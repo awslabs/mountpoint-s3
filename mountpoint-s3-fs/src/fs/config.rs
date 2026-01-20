@@ -43,8 +43,10 @@ pub struct S3FilesystemConfig {
     pub mem_limit: u64,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
-    /// Limits the number of concurrent FUSE requests that the kernel may send
-    pub max_background_fuse_requests: u16,
+    /// Limits the number of concurrent FUSE requests that the kernel may send. Default is 64.
+    /// This option may also be configured by `UNSTABLE_MOUNTPOINT_MAX_BACKGROUND` environment variable,
+    /// but the value specified in the config takes priority.
+    pub max_background_fuse_requests: Option<u16>,
 }
 
 impl Default for S3FilesystemConfig {
@@ -69,7 +71,7 @@ impl Default for S3FilesystemConfig {
             use_upload_checksums: true,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
-            max_background_fuse_requests: 64,
+            max_background_fuse_requests: None,
         }
     }
 }
@@ -80,6 +82,35 @@ impl S3FilesystemConfig {
             allow_overwrite: self.allow_overwrite,
             incremental_upload: self.incremental_upload,
         }
+    }
+
+    pub fn max_background_fuse_requests(&self) -> Option<u16> {
+        // NOTE: Support for this environment variable may be removed in future without notice.
+        const ENV_VAR_KEY_MAX_BACKGROUND: &str = "UNSTABLE_MOUNTPOINT_MAX_BACKGROUND";
+        if self.max_background_fuse_requests.is_some() {
+            self.max_background_fuse_requests
+        } else if let Some(user_max_background) = std::env::var_os(ENV_VAR_KEY_MAX_BACKGROUND) {
+            let max_background = Self::parse_env_var_to_u16(ENV_VAR_KEY_MAX_BACKGROUND, user_max_background);
+            Some(max_background)
+        } else {
+            None
+        }
+    }
+
+    pub fn fuse_congestion_threshold(&self) -> Option<u16> {
+        // NOTE: Support for this environment variable may be removed in future without notice.
+        const ENV_VAR_KEY_CONGESTION_THRESHOLD: &str = "UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD";
+        std::env::var_os(ENV_VAR_KEY_CONGESTION_THRESHOLD).map(|user_congestion_threshold| {
+            Self::parse_env_var_to_u16(ENV_VAR_KEY_CONGESTION_THRESHOLD, user_congestion_threshold)
+        })
+    }
+
+    /// Helper to return the u16 value in an environment variable, or panic.  Useful for unstable overrides.
+    fn parse_env_var_to_u16(var_name: &str, var_value: std::ffi::OsString) -> u16 {
+        var_value
+            .to_string_lossy()
+            .parse::<u16>()
+            .unwrap_or_else(|_| panic!("Invalid value for environment variable {var_name}. Must be positive integer."))
     }
 }
 
