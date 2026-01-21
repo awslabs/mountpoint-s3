@@ -64,7 +64,7 @@ assert_cmd = "2.1.1"
 assert_fs = "1.1.3"
 aws-config = "1.8.12"
 aws-credential-types = "1.2.11"
-aws-sdk-s3 = { version = "1.119.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
+aws-sdk-s3 = { version = "1.120.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
 criterion = { version = "0.8.1", features = ["async", "async_futures"] }
 ctor = "0.6.3"
 filetime = "0.2.26"

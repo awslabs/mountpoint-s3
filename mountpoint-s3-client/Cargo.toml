@@ -39,8 +39,8 @@ rand = { version = "0.9.2", features = ["small_rng"], optional = true }
 [dev-dependencies]
 aws-config = "1.8.12"
 aws-credential-types = "1.2.11"
-aws-sdk-s3 = { version = "1.119.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
-aws-smithy-runtime-api = "1.9.3"
+aws-sdk-s3 = { version = "1.120.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
+aws-smithy-runtime-api = "1.10.0"
 clap = { version = "4.5.54", features = ["derive"] }
 ctor = "0.6.3"
 proptest = "1.9.0"
