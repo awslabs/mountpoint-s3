@@ -236,17 +236,18 @@ However, if the file is empty, or if `close` is invoked by a different process t
 `close` returns immediately and the upload is only completed asynchronously _after_ the last reference to the file is closed.
 This is done to support common usage patterns that hold multiple references to an open file and keep writing to one after closing another.
 
-In these situations where the data upload is deferred until after the closure of the last open reference to a file, if a new `open` (for reading or writing) request is made immediately after one of the existing references is closed, Mountpoint may not have completed the pending upload at the time of processing this new open and **the pending upload may be completed at the time of opening the new file handle**.
-This new `open` will mark all the reference(s) of the existing writer invalid, and any future writes to those invalidated references will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
-A `write` request to the file reference following a `close` will signify that the file handle is actively in use, and any following `open` request for a reader/writer will fail stating the file is already being written to.
+In cases where `close` deferred the upload, a subsequent new call to `open` (for reading or writing) on the same file will ensure that the upload to S3 is completed before proceeding.
+Duplicate references to the original writer will be invalidated by a new `open`, and any subsequent writes to them will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
 
-A file can not have both reader(s) and a writer at the same time, however the file can be opened for writing once _all_ existing readers for the file are closed.
-This new `open` will mark all the reference(s) of the existing reader(s) invalid, and any future reads to the invalidated references will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
-A `read` request to the file reference following a `close` will signify that the file handle is actively in use, and any following `open` request for a writer will fail as the file is already being read.
-Note that a new reader can always be opened for a file with existing readers.
+However, a `write` to a duplicate reference after the original `close`, but __before__ a new `open`, will succeed, marking the writer as still active. `open` requests for a reader/writer will return an `EPERM` error, since the file is already being written to.
 
-In releases up to `v1.21.0`, an `open` request made for a file immediately after a `close` could occasionally fail unexpectedly, because Mountpoint would try to process the `open` before completing an asynchronous upload for the writer or recording that the last reference to a reader had been closed.
-See Github issues [#1344](https://github.com/awslabs/mountpoint-s3/issues/1344) and [#1327](https://github.com/awslabs/mountpoint-s3/issues/1327). Note that a new reader is always possible to be opened for a file with existing readers.
+An `open` for writing request made for a file once _all_ its existing readers are closed will invalidate the duplicate references to the previous readers, and any subsequent reads to them will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
+
+However, a `read` to a duplicate reference after the original `close`, but __before__ a new `open`, will succeed, marking the reader as still active. `open` requests for another reader will succeed, but `open` requests for a writer will return an `EPERM` error since the file is already being read.
+
+[!WARNING]
+In releases up to `v1.21.0`, an `open` for writing request made for a file immediately after a `close` could occasionally fail unexpectedly, because Mountpoint would try to process the `open` before completing an asynchronous upload for the writer or recording that the last reference to a reader had been closed.
+See Github issues [#1344](https://github.com/awslabs/mountpoint-s3/issues/1344) and [#1327](https://github.com/awslabs/mountpoint-s3/issues/1327).
 
 #### Deletes
 
@@ -343,4 +344,4 @@ Mountpoint provides strong read-after-write consistency for new object creation 
 * A process writes a new object to your S3 bucket, using either Mountpoint or another client, and then lists the directory the object is in with Mountpoint. The new object will appear in the list.
 * A process deletes an existing object from your S3 bucket using another client, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
 * A process deletes an existing object from your S3 bucket, using either Mountpoint or another client, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
-* A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
+* A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
