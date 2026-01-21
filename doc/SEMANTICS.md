@@ -230,7 +230,7 @@ Changing last access and modification times (`utime`) is supported only on files
 
 Mountpoint allows a file to have multiple concurrent readers _or_ a single writer. The reference to a file reader/writer can be duplicated by the user (e.g. using `dup()`, `fork()`, as seen in tools like `dd` and `touch`, or in shell redirection), resulting in multiple references pointing to the same file handle in Mountpoint.
 
-A `close` request for a writer generally completes the upload of the object and reports an error if not successful. If a new `open` request is made for the file afterwards, it will succeed following semantics mentioned [here](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations#open)
+A `close` request for a writer generally completes the upload of the object and reports an error if not successful. If a new `open` request is made for the file afterwards, it will succeed following semantics mentioned [here](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#open).
 
 However, if the file is empty, or if `close` is invoked by a different process than the one that originally opened it, 
 `close` returns immediately and the upload is only completed asynchronously _after_ the last reference to the file is closed.
@@ -245,9 +245,9 @@ An `open` for writing request made for a file once _all_ its existing readers ar
 
 However, a `read` to a duplicate reference after the original `close`, but __before__ a new `open`, will succeed, marking the reader as still active. `open` requests for another reader will succeed, but `open` requests for a writer will return an `EPERM` error since the file is already being read.
 
-[!WARNING]
-In releases up to `v1.21.0`, an `open` for writing request made for a file immediately after a `close` could occasionally fail unexpectedly, because Mountpoint would try to process the `open` before completing an asynchronous upload for the writer or recording that the last reference to a reader had been closed.
-See Github issues [#1344](https://github.com/awslabs/mountpoint-s3/issues/1344) and [#1327](https://github.com/awslabs/mountpoint-s3/issues/1327).
+> [!WARNING]
+> In releases up to `v1.21.0`, an `open` for writing request made immediately after a `close` could occasionally fail unexpectedly, because Mountpoint would try to process the `open` before completing an asynchronous upload for the writer or recording that the last reference to a reader had been closed.
+> See GitHub issues [#1344](https://github.com/awslabs/mountpoint-s3/issues/1344) and [#1327](https://github.com/awslabs/mountpoint-s3/issues/1327).
 
 #### Deletes
 
