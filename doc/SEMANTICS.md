@@ -76,15 +76,16 @@ Mountpoint has limited support for other file and directory metadata, including 
 ## Consistency and concurrency
 
 Amazon S3 provides [strong read-after-write consistency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel) for PUT and DELETE requests of objects in your S3 bucket.
-By default, Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. If you modify an existing object in your bucket with another client* while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
+By default, Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
+"Another client" can be a separate software, such as the AWS SDK/CLI or the S3 Console, or another Mountpoint instance running on the same or a different machine.
 
-If you modify or delete an existing object in your S3 bucket with another client*, however, Mountpoint may return stale metadata for that object for up to 1 second, by default. This occurs only if the object had already been accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
+If you modify or delete an existing object in your S3 bucket with another client, however, Mountpoint may return stale metadata for that object for up to 1 second, by default. This occurs only if the object had already been accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
 
 Mountpoint allows multiple readers to access the same object at the same time.
 However, files can only be written to sequentially and by one writer at a time.
 Files that are being written to are not available for reading until the writing application closes the file, regardless of upload mode.
 If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object.
-Your application should not write to the same object from multiple instances at the same time as this may result in data loss or incorrect data in S3.
+Your application should not write to the same object from multiple instances at the same time as this may have unexpected results in S3.
 
 By default, Mountpoint ensures that new file uploads to a single key are atomic. As soon as an upload completes, other clients are able to see the new key and the entire content of the object. If the `--incremental-upload` flag is set, however, Mountpoint may issue multiple separate uploads during file writes to append data to the object. After each upload, the appended object in your S3 bucket will be visible to other clients.
 
@@ -101,7 +102,7 @@ Reads to that file will either return the cached data or an error for data that 
 but will never return corrupt data or combine data from two versions of the file.
 
 To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the file for reading.
-When this option is provided, Mountpoint will check S3 to ensure the object exists and all the local data for it has been written to S3, and return the latest object content.
+When this option is provided, Mountpoint will check S3 to ensure the object exists, and return the latest object content.
 Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
 When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to
@@ -181,7 +182,7 @@ You can open a file in read-write mode (`O_RDWR`), but you cannot both read and 
 * Mountpoint has the `--allow-overwrite` flag set and the file is opened in truncate mode (with the `O_TRUNC` flag)
 * Mountpoint has the `--incremental-upload` flag set and the file is opened in append mode (with the `O_APPEND` flag)
 
-A file can not have both reader(s) and a writer at the same time.
+A file can not have a reader and a writer file handle open at the same time, and attempting to do so will result in an `EPERM` error for the second `open` request. However, a file can have multiple reader file handles open concurrently for it.
 
 Both `open` and `openat` operations are supported. `close` is also supported to conclude use of the file handle.
 
@@ -216,8 +217,8 @@ but with some limitations:
   * Parts successfully appended to an object are visible as the whole (appended) object to other S3 clients.
 
 `close` also generally completes the upload of the object and reports an error if not successful. However,
-if the file is empty, or if `close` is invoked by a different process than the one that originally opened it - 
-`close` returns immediately, and the upload is only completed asynchronously _after_ the last reference to the
+if the file is empty or if `close` is invoked by a different process than the one that originally opened it, 
+`close` returns immediately and the upload is only completed asynchronously _after_ the last reference to the
 file is closed or when a new handle is opened to read/write to the file. 
 These exceptions allow Mountpoint to support common usage patterns seen in tools like `dd`, `touch`, or in shell redirection, that hold multiple references to an open file and keep writing to one after closing another.
 
@@ -227,23 +228,25 @@ Changing last access and modification times (`utime`) is supported only on files
 
 #### Close and re-open
 
-Mountpoint allows a file to have multiple concurrent readers _or_ a single writer. The reference to a file reader/writer can be duplicated by the user (for e.g. using `dup()`, `fork()`, in tools like `dd` and `touch`, or in shell redirection), resulting in multiple references to a file all pointing to the same file `handle` in Mountpoint.
+Mountpoint allows a file to have multiple concurrent readers _or_ a single writer. The reference to a file reader/writer can be duplicated by the user (e.g. using `dup()`, `fork()`, as seen in tools like `dd` and `touch`, or in shell redirection), resulting in multiple references pointing to the same file handle in Mountpoint.
 
-[Starting from v1.22.0]
+A `close` request for a writer generally completes the upload of the object and reports an error if not successful. If a new `open` request is made for the file afterwards, it will succeed following semantics mentioned [here](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations#open)
 
-In the situations where the data upload is deferred until after the closure of the last open reference to a file (to support operations on multiple file references), if a new `open` (for reading or writing) request is made immediately after one of the existing references is closed, Mountpoint may not have completed the pending upload at the time of processing this new open and the pending upload may be completed at the time of opening the new file handle.
-This new `open` will mark the existing writer inactive within Mountpoint, and all future writes to the inactive reference(s) will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
-A `write` request to the file reference following a `close` will signify that the file handle is actively in use. In this case a following `open` request for a reader/writer will fail because the file is already being written to.
+However, if the file is empty, or if `close` is invoked by a different process than the one that originally opened it, 
+`close` returns immediately and the upload is only completed asynchronously _after_ the last reference to the file is closed.
+This is done to support common usage patterns that hold multiple references to an open file and keep writing to one after closing another.
 
-A file can not have both reader(s) and a writer at the same time, however a new writer can be opened once _all_ existing readers for the file are closed.
-This new `open` will mark all the existing readers inactive within Mountpoint, and all future reads to the inactive references(s) will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
-A `read` request to the file reference following a `close` will signify that the file handle is actively in use. In this case a following `open` request for a writer will fail as the file is already being read. Note that a new reader can always be opened for a file with existing readers.
+In these situations where the data upload is deferred until after the closure of the last open reference to a file, if a new `open` (for reading or writing) request is made immediately after one of the existing references is closed, Mountpoint may not have completed the pending upload at the time of processing this new open and **the pending upload may be completed at the time of opening the new file handle**.
+This new `open` will mark all the reference(s) of the existing writer invalid, and any future writes to those invalidated references will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
+A `write` request to the file reference following a `close` will signify that the file handle is actively in use, and any following `open` request for a reader/writer will fail stating the file is already being written to.
 
-[Up to v1.21.0]
+A file can not have both reader(s) and a writer at the same time, however the file can be opened for writing once _all_ existing readers for the file are closed.
+This new `open` will mark all the reference(s) of the existing reader(s) invalid, and any future reads to the invalidated references will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
+A `read` request to the file reference following a `close` will signify that the file handle is actively in use, and any following `open` request for a writer will fail as the file is already being read.
+Note that a new reader can always be opened for a file with existing readers.
 
-In the situations where the data upload is deferred until after the closure of the last open reference to a file (to support operations on multiple file references), if a new `open` (for reading or writing) request is made immediately after one of the existing references is closed, Mountpoint may not have completed the pending upload at the time of processing this new open and the `open` request for a reader/writer may fail.
-
-If a new `open` request for a writer is made immediately after the existing reader references are closed, the `open` may fail if Mountpoint may not have finished removing all the readers at the time of processing this `open`. Note that a new reader can always be opened for a file with existing readers.
+In releases up to `v1.21.0`, an `open` request made for a file immediately after a `close` could occasionally fail unexpectedly, because Mountpoint would try to process the `open` before completing an asynchronous upload for the writer or recording that the last reference to a reader had been closed.
+See Github issues [#1344](https://github.com/awslabs/mountpoint-s3/issues/1344) and [#1327](https://github.com/awslabs/mountpoint-s3/issues/1327). Note that a new reader is always possible to be opened for a file with existing readers.
 
 #### Deletes
 
@@ -333,13 +336,11 @@ Hard links and symbolic links are both unsupported.
 
 ### Consistency
 
-Mountpoint provides strong read-after-write consistency for new object creation and writes of existing objects. However, it can return stale metadata for up to 1 second when an existing object is modified concurrently by another client*. The [consistency and concurrency](#consistency-and-concurrency) section above describes this behavior, but here are some examples:
-* A process replaces an existing object in your S3 bucket using another client*, and then opens the same object with Mountpoint and reads from it. The process will read the new data.
-* A process opens a file with Mountpoint, then replaces the object in your S3 bucket using another client*, and then reads from the open file. The process will either read the old data or the read will fail. The process can see the new data by opening the file again.
-* A process replaces an existing object in your S3 bucket using another client*, and then queries the object’s metadata with Mountpoint using the `stat` system call. The returned metadata could reflect either the old or new object for up to 1 second after the PutObject request.
-* A process writes a new object to your S3 bucket, using either Mountpoint or another client*, and then lists the directory the object is in with Mountpoint. The new object will appear in the list.
-* A process deletes an existing object from your S3 bucket using another client*, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
-* A process deletes an existing object from your S3 bucket, using either Mountpoint or another client*, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
-* A process deletes an existing object from your S3 bucket using another client*, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
-
-*The client can be a separate software, such as the AWS SDK/CLI or the S3 Console, or another Mountpoint instance running on the same or a different machine
+Mountpoint provides strong read-after-write consistency for new object creation and writes of existing objects. However, it can return stale metadata for up to 1 second when an existing object is modified concurrently by another client. The [consistency and concurrency](#consistency-and-concurrency) section above describes this behavior, but here are some examples:
+* A process replaces an existing object in your S3 bucket using another client, and then opens the same object with Mountpoint and reads from it. The process will read the new data.
+* A process opens a file with Mountpoint, then replaces the object in your S3 bucket using another client, and then reads from the open file. The process will either read the old data or the read will fail. The process can see the new data by opening the file again.
+* A process replaces an existing object in your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat` system call. The returned metadata could reflect either the old or new object for up to 1 second after the PutObject request.
+* A process writes a new object to your S3 bucket, using either Mountpoint or another client, and then lists the directory the object is in with Mountpoint. The new object will appear in the list.
+* A process deletes an existing object from your S3 bucket using another client, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
+* A process deletes an existing object from your S3 bucket, using either Mountpoint or another client, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
+* A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.

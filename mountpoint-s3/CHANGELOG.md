@@ -2,7 +2,7 @@
 
 ### Breaking changes
 
-* Facilitate opening a file for reading/writing immediately after the file has been closed even if the data upload to S3 has not completed. Opening a new handle invalidates the existing writer (including the duplicated file references) and all writes to it will start to fail. See [detailed file operations semantics](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations). ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
+* Address an issue where opening a file for reading/writing immediately after the file had been closed would occasionally fail. Since this release, opening a new file handle after close will succeed and trigger the completion of deferred uploads if required. As a consequence, duplicate references to the closed file handle will become invalid and read or write operations on them will fail. See [this section in the semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#close-and-re-open) for details. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
 
 ### Other changes
 
