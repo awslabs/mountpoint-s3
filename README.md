@@ -74,6 +74,9 @@ When you're finished accessing your bucket, you can unmount it (you might need `
 
 Mountpoint for Amazon S3 is designed for high-performance access to the Amazon S3 service. While it may be functional against other storage services that use S3-like APIs, we aren't able to provide support for those use cases, and they may inadvertently break when we make changes to better support Amazon S3. We welcome contributions of minor compatibility fixes or performance improvements for these services if the changes can be tested against Amazon S3.
 
+> [!NOTE]
+> Mountpoint can be used with S3-compatible storage providers such as MinIO, Wasabi, DigitalOcean Spaces, and Backblaze B2. See [Using S3-compatible storage providers](doc/CONFIGURATION.md#using-s3-compatible-storage-providers) in the configuration documentation for examples and setup instructions. Note that these providers are not officially supported and compatibility is provided on a best-effort basis.
+
 ## Contributing
 
 We welcome contributions to Mountpoint for Amazon S3! Please see [CONTRIBUTING.md](doc/CONTRIBUTING.md) for more information on how to report bugs or submit pull requests. We especially welcome contributions to issues tagged as [good first issues to work on](https://github.com/awslabs/mountpoint-s3/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
