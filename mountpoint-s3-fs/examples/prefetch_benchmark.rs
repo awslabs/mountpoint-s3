@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -6,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use clap::{Parser, value_parser};
+use clap::{Parser, ValueEnum, value_parser};
 use futures::executor::block_on;
 use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfig};
 use mountpoint_s3_client::types::HeadObjectParams;
@@ -16,6 +18,8 @@ use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
+use rand::{Rng, SeedableRng};
+use rand_pcg::Pcg64;
 use serde_json::{json, to_writer};
 use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
@@ -23,6 +27,12 @@ use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 
 const SECONDS_PER_DAY: u64 = 86400;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AccessPattern {
+    Sequential,
+    Random,
+}
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {
@@ -92,6 +102,22 @@ pub struct CliArgs {
         value_name = "BYTES",
     )]
     read_size: usize,
+
+    #[arg(
+        long,
+        help = "Access pattern for reads",
+        default_value = "sequential",
+        value_name = "PATTERN"
+    )]
+    access_pattern: AccessPattern,
+
+    #[arg(
+        long,
+        help = "Random seed for pseudorandom read offsets (used with random access pattern)",
+        default_value_t = 1,
+        value_name = "SEED"
+    )]
+    randseed: u64,
 
     #[arg(long, help = "Number of times to download the S3 object", default_value_t = 1)]
     iterations: usize,
@@ -209,9 +235,20 @@ fn main() -> anyhow::Result<()> {
                 let object_id = object_id.clone();
                 let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
                 let read_size = args.read_size;
+                let access_pattern = args.access_pattern;
+                let randseed = args.randseed;
 
                 let task = scope.spawn(move || {
-                    let result = block_on(wait_for_download(request, *size, read_size as u64, timeout));
+                    let result = block_on(wait_for_download(
+                        request,
+                        object_id,
+                        *size,
+                        read_size as u64,
+                        access_pattern,
+                        randseed,
+                        iteration,
+                        timeout,
+                    ));
                     if let Ok(bytes_read) = result {
                         received_bytes.fetch_add(bytes_read, Ordering::SeqCst);
                     } else {
@@ -271,19 +308,51 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Acceptable for benchmark utility: some parameters only used by random access pattern
 async fn wait_for_download(
     mut request: PrefetchGetObject<S3CrtClient>,
+    object_id: ObjectId,
     size: u64,
     read_size: u64,
+    access_pattern: AccessPattern,
+    randseed: u64,
+    iteration: usize,
     timeout: Instant,
 ) -> Result<u64, Box<dyn Error>> {
-    let mut offset = 0;
-    let mut total_bytes_read = 0;
-    while offset < size && Instant::now() < timeout {
-        let bytes = request.read(offset, read_size as usize).await?;
-        let bytes_read = bytes.len() as u64;
-        offset += bytes_read;
-        total_bytes_read += bytes_read;
+    match access_pattern {
+        AccessPattern::Sequential => {
+            let mut offset = 0;
+            let mut total_bytes_read = 0;
+            while offset < size && Instant::now() < timeout {
+                let bytes = request.read(offset, read_size as usize).await?;
+                let bytes_read = bytes.len() as u64;
+                offset += bytes_read;
+                total_bytes_read += bytes_read;
+            }
+            Ok(total_bytes_read)
+        }
+        AccessPattern::Random => {
+            // Create a unique, deterministic seed by combining randseed with object_id hash
+            // and iteration. This ensures each object/iteration has a different but reproducible
+            // random access pattern.
+            let mut hasher = DefaultHasher::new();
+            object_id.hash(&mut hasher);
+            let object_hash = hasher.finish();
+            let seed = randseed.wrapping_add(object_hash).wrapping_add(iteration as u64);
+            let mut rng = Pcg64::seed_from_u64(seed);
+
+            // Read approximately one file's worth of data using random offsets.
+            // Note: This intentionally allows overlapping reads, which is acceptable for now.
+            let mut total_bytes_read = 0;
+            let max_offset = size.saturating_sub(1);
+            while total_bytes_read < size && Instant::now() < timeout {
+                let offset = rng.random_range(0..=max_offset);
+
+                let bytes = request.read(offset, read_size as usize).await?;
+                let bytes_read = bytes.len() as u64;
+                total_bytes_read += bytes_read;
+            }
+            Ok(total_bytes_read)
+        }
     }
-    Ok(total_bytes_read)
 }

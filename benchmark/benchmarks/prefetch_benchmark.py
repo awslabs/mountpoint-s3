@@ -55,6 +55,12 @@ class PrefetchBenchmark(BaseBenchmark):
         if (read_part_size := self.cfg.read_part_size) is not None:
             subprocess_args.extend(["--part-size", str(read_part_size)])
 
+        if (access_pattern := self.cfg.benchmarks.prefetch.get('access_pattern')) is not None:
+            subprocess_args.extend(["--access-pattern", access_pattern])
+
+        if (randseed := self.cfg.benchmarks.prefetch.get('randseed')) is not None:
+            subprocess_args.extend(["--randseed", str(randseed)])
+
         read_size = self.cfg.read_size
         subprocess_args.extend(["--read-size", str(read_size)])
 
