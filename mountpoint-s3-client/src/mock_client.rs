@@ -1206,11 +1206,19 @@ impl MockPutObjectRequest {
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len();
-                let checksum = if !matches!(self.params.trailing_checksums, PutObjectTrailingChecksums::Disabled) {
-                    let checksum = crc32c::checksum(part);
-                    Some(crc32c_to_base64(&checksum))
-                } else {
-                    None
+                let checksum = match self.params.trailing_checksums {
+                    PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c)
+                    | PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c) => {
+                        let checksum = crc32c::checksum(part);
+                        Some(crc32c_to_base64(&checksum))
+                    }
+                    PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Sha256)
+                    | PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Sha256) => {
+                        let checksum = sha256::checksum(part).expect("sha256 checksum should succeed");
+                        Some(sha256_to_base64(&checksum))
+                    }
+                    PutObjectTrailingChecksums::Disabled => None,
+                    _ => unimplemented!("checksum algorithm not supported in mock"),
                 };
                 MockObjectPartAttributes { size, checksum }
             })
@@ -1227,20 +1235,39 @@ impl MockPutObjectRequest {
         object.set_object_metadata(self.params.object_metadata.clone());
 
         // For S3 Standard, part attributes are only available when additional checksums are used
-        if matches!(self.params.trailing_checksums, PutObjectTrailingChecksums::Enabled(_)) {
-            let whole_obj_checksum = {
-                let mut whole_obj_checksum = Checksum::empty();
-                let part_checksums = parts
-                    .iter()
-                    .map(|part| part.checksum.clone())
-                    .map(|checksum| checksum.expect("checksum must be set when using trailing checksums"));
-                whole_obj_checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
-                whole_obj_checksum
-            };
-            object.set_checksum(whole_obj_checksum);
-            object.parts = Some(MockObjectParts::Parts(parts));
-        } else {
-            object.parts = Some(MockObjectParts::Count(parts.len()));
+        match self.params.trailing_checksums {
+            PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c) => {
+                let whole_obj_checksum = {
+                    let mut whole_obj_checksum = Checksum::empty();
+                    let part_checksums = parts
+                        .iter()
+                        .map(|part| part.checksum.clone())
+                        .map(|checksum| checksum.expect("checksum must be set when using trailing checksums"));
+                    whole_obj_checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
+                    whole_obj_checksum
+                };
+                object.set_checksum(whole_obj_checksum);
+                object.parts = Some(MockObjectParts::Parts(parts));
+            }
+            PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Sha256) => {
+                let whole_obj_checksum = {
+                    let mut whole_obj_checksum = Checksum::empty();
+                    let part_checksums = parts
+                        .iter()
+                        .map(|part| part.checksum.clone())
+                        .map(|checksum| checksum.expect("checksum must be set when using trailing checksums"));
+                    whole_obj_checksum.checksum_sha256 = Some(compute_sha256_of_sha256_checksums(part_checksums));
+                    whole_obj_checksum
+                };
+                object.set_checksum(whole_obj_checksum);
+                object.parts = Some(MockObjectParts::Parts(parts));
+            }
+            PutObjectTrailingChecksums::Enabled(_) => {
+                unimplemented!("checksum algorithm not supported in mock")
+            }
+            PutObjectTrailingChecksums::ReviewOnly(_) | PutObjectTrailingChecksums::Disabled => {
+                object.parts = Some(MockObjectParts::Count(parts.len()));
+            }
         }
 
         let etag = object.etag();
@@ -1262,6 +1289,20 @@ fn compute_crc32c_of_crc32c_checksums(individual_checksums: impl IntoIterator<It
         checksum.update(individual_checksum.as_bytes());
     }
     let mut checksum = crc32c_to_base64(&checksum.finalize());
+    write!(checksum, "-{count}").expect("should be able to append to String");
+    checksum
+}
+
+/// Compute a SHA256 checksum of SHA256 checksums, mirroring how S3 computes object checksums for MPUs.
+fn compute_sha256_of_sha256_checksums(individual_checksums: impl IntoIterator<Item = String>) -> String {
+    let mut checksum = sha256::Hasher::new();
+    let mut count = 0;
+    for individual_checksum in individual_checksums {
+        count += 1;
+        checksum.update(individual_checksum.as_bytes());
+    }
+    let checksum = checksum.finalize().expect("sha256 finalize should succeed");
+    let mut checksum = sha256_to_base64(&checksum);
     write!(checksum, "-{count}").expect("should be able to append to String");
     checksum
 }
