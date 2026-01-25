@@ -443,17 +443,19 @@ impl ValueEnum for BucketType {
 #[derive(Debug, Clone, Copy)]
 pub enum UploadChecksums {
     Crc32c,
+    Sha256,
     Off,
 }
 
 impl ValueEnum for UploadChecksums {
     fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Crc32c, Self::Off]
+        &[Self::Crc32c, Self::Sha256, Self::Off]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         match self {
             Self::Crc32c => Some(clap::builder::PossibleValue::new("crc32c")),
+            Self::Sha256 => Some(clap::builder::PossibleValue::new("sha256")),
             Self::Off => Some(clap::builder::PossibleValue::new("off")),
         }
     }
@@ -502,6 +504,7 @@ impl CliArgs {
         // Written in this awkward way to force us to update it if we add new checksum types
         match self.upload_checksums {
             Some(UploadChecksums::Crc32c) => true,
+            Some(UploadChecksums::Sha256) => true,
             Some(UploadChecksums::Off) => false,
             None => {
                 // Default to true if supported
@@ -512,6 +515,15 @@ impl CliArgs {
                     false
                 }
             }
+        }
+    }
+
+    fn upload_checksum_algorithm(&self) -> Option<ChecksumAlgorithm> {
+        match self.upload_checksums {
+            Some(UploadChecksums::Crc32c) => Some(ChecksumAlgorithm::Crc32c),
+            Some(UploadChecksums::Sha256) => Some(ChecksumAlgorithm::Sha256),
+            Some(UploadChecksums::Off) => None,
+            None => Some(ChecksumAlgorithm::Crc32c), // Default to crc32c
         }
     }
 
@@ -537,7 +549,11 @@ impl CliArgs {
         filesystem_config.server_side_encryption = sse;
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
-        filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+        filesystem_config.upload_checksum_algorithm = if self.should_use_upload_checksum(s3_personality) {
+            self.upload_checksum_algorithm()
+        } else {
+            None
+        };
         filesystem_config
     }
 

@@ -308,8 +308,8 @@ async fn test_put_object_initiate_failure() {
     assert_eq!(uploads_in_progress, 0);
 }
 
-#[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-#[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+#[test_case(PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c); "enabled")]
+#[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
 #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
 #[tokio::test]
 async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
@@ -442,7 +442,7 @@ async fn test_put_review(pass_review: bool) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Enabled);
+    let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c));
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await
