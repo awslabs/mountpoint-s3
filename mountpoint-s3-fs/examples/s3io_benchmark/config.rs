@@ -137,13 +137,13 @@ pub enum ChecksumAlgorithm {
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("Failed to parse TOML configuration: {0}")]
-    ParseError(#[from] toml::de::Error),
+    Parse(#[from] toml::de::Error),
 
     #[error("Configuration validation failed: {0}")]
-    ValidationError(String),
+    Validation(String),
 
     #[error("I/O error: {0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 }
 
 /// Parse TOML configuration from a file
@@ -162,7 +162,7 @@ pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // Validate each job
     for (job_name, job_config) in &config.jobs {
         validate_job(job_config, &config.global)
-            .map_err(|e| ConfigError::ValidationError(format!("Job '{}': {}", job_name, e)))?;
+            .map_err(|e| ConfigError::Validation(format!("Job '{}': {}", job_name, e)))?;
     }
 
     Ok(())
@@ -172,7 +172,7 @@ pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
 pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), ConfigError> {
     // Validate required field: bucket (must be in global)
     if global.bucket.is_none() {
-        return Err(ConfigError::ValidationError(
+        return Err(ConfigError::Validation(
             "Missing required field 'bucket' in global config".to_string(),
         ));
     }
@@ -180,7 +180,7 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     // Validate required field: workload_type (must be in job or global)
     let workload_type = job.workload_type.or(global.workload_type);
     if workload_type.is_none() {
-        return Err(ConfigError::ValidationError(
+        return Err(ConfigError::Validation(
             "Missing required field 'workload_type' (must be in job or global config)".to_string(),
         ));
     }
@@ -188,14 +188,14 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     // Validate network interfaces if specified (global only)
     if let Some(bind) = &global.bind {
         if bind.is_empty() {
-            return Err(ConfigError::ValidationError(
+            return Err(ConfigError::Validation(
                 "Invalid value for 'bind' in global config: must contain at least one network interface".to_string(),
             ));
         }
 
         for interface in bind {
             if interface.is_empty() {
-                return Err(ConfigError::ValidationError(
+                return Err(ConfigError::Validation(
                     "Invalid value for 'bind' in global config: interface names cannot be empty".to_string(),
                 ));
             }
@@ -204,12 +204,12 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
 
     // Validate numjobs constraint (must be >= 1 if specified)
     let numjobs = job.numjobs.or(global.numjobs);
-    if let Some(numjobs_val) = numjobs {
-        if numjobs_val < 1 {
-            return Err(ConfigError::ValidationError(
-                "Invalid value for 'numjobs': must be at least 1".to_string(),
-            ));
-        }
+    if let Some(numjobs_val) = numjobs
+        && numjobs_val < 1
+    {
+        return Err(ConfigError::Validation(
+            "Invalid value for 'numjobs': must be at least 1".to_string(),
+        ));
     }
 
     Ok(())
@@ -251,7 +251,7 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
 fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> Result<ResolvedJobConfig, ConfigError> {
     // === Infrastructure parameters (global-only, not overridable) ===
     let bucket = global.bucket.clone().ok_or_else(|| {
-        ConfigError::ValidationError(format!(
+        ConfigError::Validation(format!(
             "Job '{}': Missing required field 'bucket' in global config",
             job_name
         ))
@@ -271,13 +271,13 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize // Convert bytes to MiB
     };
 
-    let bind = global.bind.clone().unwrap_or_else(Vec::new); // Empty vec default
+    let bind = global.bind.clone().unwrap_or_default(); // Empty vec default
 
     // === Workload parameters (job overrides global, with defaults) ===
 
     // workload_type: Required field
     let workload_type = job.workload_type.or(global.workload_type).ok_or_else(|| {
-        ConfigError::ValidationError(format!(
+        ConfigError::Validation(format!(
             "Job '{}': Missing required field 'workload_type' (must be in job or global config)",
             job_name
         ))

@@ -168,19 +168,19 @@ async fn execute_sequential_read(
     let max_duration = config.max_duration.map(Duration::from_secs);
 
     for _iteration in 0..config.iterations {
-        if let Some(max_dur) = max_duration {
-            if job_start.elapsed() >= max_dur {
-                break;
-            }
+        if let Some(max_dur) = max_duration
+            && job_start.elapsed() >= max_dur
+        {
+            break;
         }
 
         let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
         let mut offset = 0;
         while offset < size {
-            if let Some(max_dur) = max_duration {
-                if job_start.elapsed() >= max_dur {
-                    break;
-                }
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
             }
 
             let read_size = std::cmp::min(config.read_size as u64, size - offset);
@@ -242,10 +242,10 @@ async fn execute_random_read(
     let iteration_duration = config.iteration_duration.map(Duration::from_secs);
 
     for iteration in 0..config.iterations {
-        if let Some(max_dur) = max_duration {
-            if job_start.elapsed() >= max_dur {
-                break;
-            }
+        if let Some(max_dur) = max_duration
+            && job_start.elapsed() >= max_dur
+        {
+            break;
         }
 
         let iteration_start = Instant::now();
@@ -278,10 +278,10 @@ async fn execute_random_read(
         // Read approximately one file's worth of data using random offsets
         // Note: This intentionally allows overlapping reads, which is acceptable for now.
         while should_continue(bytes_read_this_iteration, &iteration_start) {
-            if let Some(max_dur) = max_duration {
-                if job_start.elapsed() >= max_dur {
-                    break;
-                }
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
             }
 
             let offset = rng.random_range(0..=max_offset);
@@ -333,10 +333,10 @@ async fn execute_multipart_upload(
     let max_duration = config.max_duration.map(Duration::from_secs);
 
     for _iteration in 0..config.iterations {
-        if let Some(max_dur) = max_duration {
-            if job_start.elapsed() >= max_dur {
-                break;
-            }
+        if let Some(max_dur) = max_duration
+            && job_start.elapsed() >= max_dur
+        {
+            break;
         }
 
         let data = vec![0xab; config.object_size as usize];
@@ -354,10 +354,10 @@ async fn execute_multipart_upload(
 
         let mut offset = 0;
         while offset < data.len() {
-            if let Some(max_dur) = max_duration {
-                if job_start.elapsed() >= max_dur {
-                    break;
-                }
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
             }
 
             let chunk_size = std::cmp::min(config.write_size, data.len() - offset);
@@ -420,10 +420,10 @@ async fn execute_incremental_upload(
     let max_duration = config.max_duration.map(Duration::from_secs);
 
     for _iteration in 0..config.iterations {
-        if let Some(max_dur) = max_duration {
-            if job_start.elapsed() >= max_dur {
-                break;
-            }
+        if let Some(max_dur) = max_duration
+            && job_start.elapsed() >= max_dur
+        {
+            break;
         }
 
         let data = vec![0xab; config.object_size as usize];
@@ -431,10 +431,10 @@ async fn execute_incremental_upload(
 
         let mut offset = 0u64;
         while offset < data.len() as u64 {
-            if let Some(max_dur) = max_duration {
-                if job_start.elapsed() >= max_dur {
-                    break;
-                }
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
             }
 
             let chunk_size = std::cmp::min(config.write_size, (data.len() as u64 - offset) as usize);
