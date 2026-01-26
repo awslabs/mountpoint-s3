@@ -162,9 +162,7 @@ pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // Validate each job
     for (job_name, job_config) in &config.jobs {
         validate_job(job_config, &config.global)
-            .map_err(|e| {
-                ConfigError::ValidationError(format!("Job '{}': {}", job_name, e))
-            })?;
+            .map_err(|e| ConfigError::ValidationError(format!("Job '{}': {}", job_name, e)))?;
     }
 
     Ok(())
@@ -175,7 +173,7 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     // Validate required field: bucket (must be in global)
     if global.bucket.is_none() {
         return Err(ConfigError::ValidationError(
-            "Missing required field 'bucket' in global config".to_string()
+            "Missing required field 'bucket' in global config".to_string(),
         ));
     }
 
@@ -183,7 +181,7 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     let workload_type = job.workload_type.or(global.workload_type);
     if workload_type.is_none() {
         return Err(ConfigError::ValidationError(
-            "Missing required field 'workload_type' (must be in job or global config)".to_string()
+            "Missing required field 'workload_type' (must be in job or global config)".to_string(),
         ));
     }
 
@@ -191,14 +189,14 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     if let Some(bind) = &global.bind {
         if bind.is_empty() {
             return Err(ConfigError::ValidationError(
-                "Invalid value for 'bind' in global config: must contain at least one network interface".to_string()
+                "Invalid value for 'bind' in global config: must contain at least one network interface".to_string(),
             ));
         }
 
         for interface in bind {
             if interface.is_empty() {
                 return Err(ConfigError::ValidationError(
-                    "Invalid value for 'bind' in global config: interface names cannot be empty".to_string()
+                    "Invalid value for 'bind' in global config: interface names cannot be empty".to_string(),
                 ));
             }
         }
@@ -209,7 +207,7 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     if let Some(numjobs_val) = numjobs {
         if numjobs_val < 1 {
             return Err(ConfigError::ValidationError(
-                "Invalid value for 'numjobs': must be at least 1".to_string()
+                "Invalid value for 'numjobs': must be at least 1".to_string(),
             ));
         }
     }
@@ -223,9 +221,7 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
 
     for (job_name, job_config) in config.jobs {
         // Determine numjobs value (job-specific overrides global, default to 1)
-        let numjobs = job_config.numjobs
-            .or(config.global.numjobs)
-            .unwrap_or(1);
+        let numjobs = job_config.numjobs.or(config.global.numjobs).unwrap_or(1);
 
         if numjobs == 1 {
             // Single job
@@ -252,139 +248,126 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
 
 /// Merge global and job-specific configuration, applying defaults
 /// Precedence order: Job-specific > Global > Built-in default
-fn merge_and_resolve(
-    job_name: &str,
-    job: &JobConfig,
-    global: &GlobalConfig,
-) -> Result<ResolvedJobConfig, ConfigError> {
-        // === Infrastructure parameters (global-only, not overridable) ===
-        let bucket = global.bucket.clone()
-            .ok_or_else(|| ConfigError::ValidationError(
-                format!("Job '{}': Missing required field 'bucket' in global config", job_name)
-            ))?;
+fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> Result<ResolvedJobConfig, ConfigError> {
+    // === Infrastructure parameters (global-only, not overridable) ===
+    let bucket = global.bucket.clone().ok_or_else(|| {
+        ConfigError::ValidationError(format!(
+            "Job '{}': Missing required field 'bucket' in global config",
+            job_name
+        ))
+    })?;
 
-        let region = global.region.clone()
-            .unwrap_or_else(|| "us-east-1".to_string()); // Default to us-east-1
+    let region = global.region.clone().unwrap_or_else(|| "us-east-1".to_string()); // Default to us-east-1
 
-        let endpoint_url = global.endpoint_url.clone();
-        let throughput_target_gbps = global.throughput_target_gbps;
+    let endpoint_url = global.endpoint_url.clone();
+    let throughput_target_gbps = global.throughput_target_gbps;
 
-        // Default to 95% of total system memory
-        let max_memory_target = if let Some(target) = global.max_memory_target {
-            target
-        } else {
-            use sysinfo::{RefreshKind, System};
-            let sys = System::new_with_specifics(RefreshKind::everything());
-            ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize // Convert bytes to MiB
-        };
+    // Default to 95% of total system memory
+    let max_memory_target = if let Some(target) = global.max_memory_target {
+        target
+    } else {
+        use sysinfo::{RefreshKind, System};
+        let sys = System::new_with_specifics(RefreshKind::everything());
+        ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize // Convert bytes to MiB
+    };
 
-        let bind = global.bind.clone().unwrap_or_else(Vec::new); // Empty vec default
+    let bind = global.bind.clone().unwrap_or_else(Vec::new); // Empty vec default
 
-        // === Workload parameters (job overrides global, with defaults) ===
+    // === Workload parameters (job overrides global, with defaults) ===
 
-        // workload_type: Required field
-        let workload_type = job.workload_type
-            .or(global.workload_type)
-            .ok_or_else(|| ConfigError::ValidationError(
-                format!("Job '{}': Missing required field 'workload_type' (must be in job or global config)", job_name)
-            ))?;
+    // workload_type: Required field
+    let workload_type = job.workload_type.or(global.workload_type).ok_or_else(|| {
+        ConfigError::ValidationError(format!(
+            "Job '{}': Missing required field 'workload_type' (must be in job or global config)",
+            job_name
+        ))
+    })?;
 
-        // object_key: Optional, auto-generated if not specified
-        let object_key = job.object_key.clone()
-            .or_else(|| global.object_key.clone())
-            .unwrap_or_else(|| format!("{}.bin", job_name));
+    // object_key: Optional, auto-generated if not specified
+    let object_key = job
+        .object_key
+        .clone()
+        .or_else(|| global.object_key.clone())
+        .unwrap_or_else(|| format!("{}.bin", job_name));
 
-        // object_size: Optional with default
-        let object_size = job.object_size
-            .or(global.object_size)
-            .unwrap_or(1024 * 1024 * 1024); // 1 GiB default
+    // object_size: Optional with default
+    let object_size = job.object_size.or(global.object_size).unwrap_or(1024 * 1024 * 1024); // 1 GiB default
 
-        // access_pattern: Optional with default
-        let access_pattern = job.access_pattern
-            .or(global.access_pattern)
-            .unwrap_or(AccessPattern::Sequential); // Default to Sequential
+    // access_pattern: Optional with default
+    let access_pattern = job
+        .access_pattern
+        .or(global.access_pattern)
+        .unwrap_or(AccessPattern::Sequential); // Default to Sequential
 
-        // I/O sizes: Optional with defaults
-        let read_size = job.read_size
-            .or(global.read_size)
-            .unwrap_or(128 * 1024); // 128 KiB default
+    // I/O sizes: Optional with defaults
+    let read_size = job.read_size.or(global.read_size).unwrap_or(128 * 1024); // 128 KiB default
 
-        let write_size = job.write_size
-            .or(global.write_size)
-            .unwrap_or(128 * 1024); // 128 KiB default
+    let write_size = job.write_size.or(global.write_size).unwrap_or(128 * 1024); // 128 KiB default
 
-        // randseed: Optional with default (matching prefetch_benchmark)
-        let randseed = job.randseed
-            .or(global.randseed)
-            .unwrap_or(1); // Default to 1
+    // randseed: Optional with default (matching prefetch_benchmark)
+    let randseed = job.randseed.or(global.randseed).unwrap_or(1); // Default to 1
 
-        // incremental_upload: Optional with default
-        let incremental_upload = job.incremental_upload
-            .or(global.incremental_upload)
-            .unwrap_or(false);
+    // incremental_upload: Optional with default
+    let incremental_upload = job.incremental_upload.or(global.incremental_upload).unwrap_or(false);
 
-        // === Global uploader configuration (same for all jobs) ===
+    // === Global uploader configuration (same for all jobs) ===
 
-        // read_part_size: Optional with default (used during S3 client initialization)
-        let read_part_size = global.read_part_size
-            .unwrap_or(8 * 1024 * 1024); // 8 MiB default
+    // read_part_size: Optional with default (used during S3 client initialization)
+    let read_part_size = global.read_part_size.unwrap_or(8 * 1024 * 1024); // 8 MiB default
 
-        // write_part_size: Optional with default
-        let write_part_size = global.write_part_size
-            .unwrap_or(8 * 1024 * 1024); // 8 MiB default
+    // write_part_size: Optional with default
+    let write_part_size = global.write_part_size.unwrap_or(8 * 1024 * 1024); // 8 MiB default
 
-        // sse: Convert to String format expected by ServerSideEncryption
-        let sse_type = global.sse.map(|sse| match sse {
-            SseType::Aes256 => "AES256".to_string(),
-            SseType::AwsKms => "aws:kms".to_string(),
-        });
+    // sse: Convert to String format expected by ServerSideEncryption
+    let sse_type = global.sse.map(|sse| match sse {
+        SseType::Aes256 => "AES256".to_string(),
+        SseType::AwsKms => "aws:kms".to_string(),
+    });
 
-        // sse_kms_key_id: Optional, no default
-        let sse_kms_key_id = global.sse_kms_key_id.clone();
+    // sse_kms_key_id: Optional, no default
+    let sse_kms_key_id = global.sse_kms_key_id.clone();
 
-        // checksum_algorithm: Convert to client ChecksumAlgorithm type
-        let checksum_algorithm = match global.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Crc32c) {
-            ChecksumAlgorithm::Crc32c => Some(ClientChecksumAlgorithm::Crc32c),
-            ChecksumAlgorithm::Crc32 => Some(ClientChecksumAlgorithm::Crc32),
-            ChecksumAlgorithm::Sha1 => Some(ClientChecksumAlgorithm::Sha1),
-            ChecksumAlgorithm::Sha256 => Some(ClientChecksumAlgorithm::Sha256),
-            ChecksumAlgorithm::Off => None,
-        };
+    // checksum_algorithm: Convert to client ChecksumAlgorithm type
+    let checksum_algorithm = match global.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Crc32c) {
+        ChecksumAlgorithm::Crc32c => Some(ClientChecksumAlgorithm::Crc32c),
+        ChecksumAlgorithm::Crc32 => Some(ClientChecksumAlgorithm::Crc32),
+        ChecksumAlgorithm::Sha1 => Some(ClientChecksumAlgorithm::Sha1),
+        ChecksumAlgorithm::Sha256 => Some(ClientChecksumAlgorithm::Sha256),
+        ChecksumAlgorithm::Off => None,
+    };
 
-        // iterations: Optional with default
-        let iterations = job.iterations
-            .or(global.iterations)
-            .unwrap_or(1); // 1 iteration default
+    // iterations: Optional with default
+    let iterations = job.iterations.or(global.iterations).unwrap_or(1); // 1 iteration default
 
-        // max_duration: Optional, no default
-        let max_duration = job.max_duration.or(global.max_duration);
+    // max_duration: Optional, no default
+    let max_duration = job.max_duration.or(global.max_duration);
 
-        // iteration_duration: Optional, no default (random read only)
-        let iteration_duration = job.iteration_duration.or(global.iteration_duration);
+    // iteration_duration: Optional, no default (random read only)
+    let iteration_duration = job.iteration_duration.or(global.iteration_duration);
 
-        Ok(ResolvedJobConfig {
-            name: job_name.to_string(),
-            workload_type,
-            object_key,
-            object_size,
-            access_pattern,
-            read_size,
-            read_part_size,
-            write_size,
-            randseed,
-            incremental_upload,
-            bucket,
-            region,
-            endpoint_url,
-            throughput_target_gbps,
-            max_memory_target,
-            iterations,
-            max_duration,
-            iteration_duration,
-            bind,
-            write_part_size,
-            sse_type,
-            sse_kms_key_id,
-            checksum_algorithm,
-        })
+    Ok(ResolvedJobConfig {
+        name: job_name.to_string(),
+        workload_type,
+        object_key,
+        object_size,
+        access_pattern,
+        read_size,
+        read_part_size,
+        write_size,
+        randseed,
+        incremental_upload,
+        bucket,
+        region,
+        endpoint_url,
+        throughput_target_gbps,
+        max_memory_target,
+        iterations,
+        max_duration,
+        iteration_duration,
+        bind,
+        write_part_size,
+        sse_type,
+        sse_kms_key_id,
+        checksum_algorithm,
+    })
 }

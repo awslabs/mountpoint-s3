@@ -54,15 +54,10 @@ impl SharedResources {
     }
 }
 
-pub fn create_shared_resources(
-    first_job: &ResolvedJobConfig,
-) -> Result<SharedResources, ExecutionError> {
+pub fn create_shared_resources(first_job: &ResolvedJobConfig) -> Result<SharedResources, ExecutionError> {
     let max_memory_target = first_job.max_memory_target;
 
-    let pool = PagedPool::new_with_candidate_sizes([
-        first_job.read_part_size,
-        first_job.write_part_size,
-    ]);
+    let pool = PagedPool::new_with_candidate_sizes([first_job.read_part_size, first_job.write_part_size]);
 
     let mut endpoint_config = EndpointConfig::new(&first_job.region);
     if let Some(url) = &first_job.endpoint_url {
@@ -88,7 +83,7 @@ pub fn create_shared_resources(
 
     let client = Arc::new(
         S3CrtClient::new(client_config)
-            .map_err(|e| ExecutionError::ResourceInitError(format!("Failed to create S3 client: {}", e)))?
+            .map_err(|e| ExecutionError::ResourceInitError(format!("Failed to create S3 client: {}", e)))?,
     );
 
     let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
@@ -96,10 +91,8 @@ pub fn create_shared_resources(
 
     let runtime = Runtime::new(client.event_loop_group());
 
-    let server_side_encryption = ServerSideEncryption::new(
-        first_job.sse_type.clone(),
-        first_job.sse_kms_key_id.clone(),
-    );
+    let server_side_encryption =
+        ServerSideEncryption::new(first_job.sse_type.clone(), first_job.sse_kms_key_id.clone());
 
     let uploader = Uploader::new(
         client.clone(),
@@ -111,11 +104,8 @@ pub fn create_shared_resources(
             .default_checksum_algorithm(first_job.checksum_algorithm.clone()),
     );
 
-    let prefetcher = Prefetcher::default_builder(client.clone()).build(
-        runtime,
-        mem_limiter,
-        PrefetcherConfig::default(),
-    );
+    let prefetcher =
+        Prefetcher::default_builder(client.clone()).build(runtime, mem_limiter, PrefetcherConfig::default());
 
     Ok(SharedResources::new(client, uploader, prefetcher))
 }
@@ -126,17 +116,13 @@ pub async fn execute_read_job(
 ) -> Result<JobResult, ExecutionError> {
     if config.workload_type != WorkloadType::Read {
         return Err(ExecutionError::ExecutionFailed(
-            "execute_read_job can only execute read workloads".to_string()
+            "execute_read_job can only execute read workloads".to_string(),
         ));
     }
 
     match config.access_pattern {
-        AccessPattern::Sequential => {
-            execute_sequential_read(config, resources).await
-        }
-        AccessPattern::Random => {
-            execute_random_read(config, resources).await
-        }
+        AccessPattern::Sequential => execute_sequential_read(config, resources).await,
+        AccessPattern::Random => execute_random_read(config, resources).await,
     }
 }
 
@@ -146,7 +132,7 @@ pub async fn execute_write_job(
 ) -> Result<JobResult, ExecutionError> {
     if config.workload_type != WorkloadType::Write {
         return Err(ExecutionError::ExecutionFailed(
-            "execute_write_job can only execute write workloads".to_string()
+            "execute_write_job can only execute write workloads".to_string(),
         ));
     }
 
@@ -167,7 +153,9 @@ async fn execute_sequential_read(
     let bucket = &config.bucket;
     let object_key = &config.object_key;
 
-    let head_result = client.head_object(bucket, object_key, &HeadObjectParams::new()).await
+    let head_result = client
+        .head_object(bucket, object_key, &HeadObjectParams::new())
+        .await
         .map_err(|e| ExecutionError::S3Error(format!("HeadObject failed: {}", e)))?;
 
     let object_id = ObjectId::new(object_key.to_string(), head_result.etag);
@@ -238,7 +226,9 @@ async fn execute_random_read(
     let bucket = &config.bucket;
     let object_key = &config.object_key;
 
-    let head_result = client.head_object(bucket, object_key, &HeadObjectParams::new()).await
+    let head_result = client
+        .head_object(bucket, object_key, &HeadObjectParams::new())
+        .await
         .map_err(|e| ExecutionError::S3Error(format!("HeadObject failed: {}", e)))?;
 
     let object_id = ObjectId::new(object_key.to_string(), head_result.etag);

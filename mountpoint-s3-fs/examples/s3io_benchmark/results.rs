@@ -48,11 +48,7 @@ impl BenchmarkResults {
             .map(|r| r.elapsed_seconds)
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or(0.0);
-        let total_errors: usize = results
-            .iter()
-            .flat_map(|r| &r.errors)
-            .map(|e| e.count)
-            .sum();
+        let total_errors: usize = results.iter().flat_map(|r| &r.errors).map(|e| e.count).sum();
 
         BenchmarkResults {
             jobs: results,

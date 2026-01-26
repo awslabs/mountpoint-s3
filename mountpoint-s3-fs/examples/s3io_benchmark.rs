@@ -5,14 +5,14 @@ mod executor;
 #[path = "s3io_benchmark/results.rs"]
 mod results;
 
+use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
 use std::time::Instant;
-use anyhow::{Context, Result};
 
-use config::{parse_config_file, validate_config, prepare_jobs, WorkloadType};
+use config::{WorkloadType, parse_config_file, prepare_jobs, validate_config};
 use executor::{create_shared_resources, execute_read_job, execute_write_job};
 use results::BenchmarkResults;
 
@@ -43,16 +43,13 @@ async fn run_benchmark() -> Result<()> {
     eprintln!();
 
     eprintln!("Loading configuration...");
-    let config = parse_config_file(&cli.config_file)
-        .context("Failed to load configuration file")?;
+    let config = parse_config_file(&cli.config_file).context("Failed to load configuration file")?;
 
     eprintln!("Validating configuration...");
-    validate_config(&config)
-        .context("Configuration validation failed")?;
+    validate_config(&config).context("Configuration validation failed")?;
 
     eprintln!("Preparing jobs...");
-    let resolved_jobs = prepare_jobs(config.clone())
-        .context("Failed to prepare jobs")?;
+    let resolved_jobs = prepare_jobs(config.clone()).context("Failed to prepare jobs")?;
 
     eprintln!("Found {} job(s) to execute", resolved_jobs.len());
 
@@ -62,8 +59,8 @@ async fn run_benchmark() -> Result<()> {
     }
 
     eprintln!("Creating shared resources...");
-    let shared_resources = Arc::new(create_shared_resources(&resolved_jobs[0])
-        .context("Failed to create shared resources")?);
+    let shared_resources =
+        Arc::new(create_shared_resources(&resolved_jobs[0]).context("Failed to create shared resources")?);
 
     eprintln!("Executing jobs...");
     let mut handles = Vec::new();
@@ -77,12 +74,8 @@ async fn run_benchmark() -> Result<()> {
 
             // Execute the job based on workload type
             let result = match job_config.workload_type {
-                WorkloadType::Read => {
-                    execute_read_job(&job_config, &resources).await
-                }
-                WorkloadType::Write => {
-                    execute_write_job(&job_config, &resources).await
-                }
+                WorkloadType::Read => execute_read_job(&job_config, &resources).await,
+                WorkloadType::Write => execute_write_job(&job_config, &resources).await,
             };
 
             let duration = start.elapsed();
@@ -137,7 +130,8 @@ async fn run_benchmark() -> Result<()> {
         eprintln!();
     }
 
-    benchmark_results.write_json(output_file)
+    benchmark_results
+        .write_json(output_file)
         .context("Failed to write results")?;
 
     eprintln!();
