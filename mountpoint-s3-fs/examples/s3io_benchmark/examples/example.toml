@@ -1,0 +1,22 @@
+[global]
+bucket = "amzn-s3-demo-bucket"
+region = "us-east-1"
+output_file = "example_results.json"
+iterations = 3
+throughput_target_gbps = 100.0
+max_memory_target = 4768
+
+[jobs.read_1]
+workload_type = "read"
+object_size = 2000000
+access_pattern = "random"
+
+[jobs.read_2]
+workload_type = "read"
+object_size = 10000000
+access_pattern = "sequential"
+
+[jobs.write_1]
+numjobs = 3
+workload_type = "write"
+object_size = 10000000
