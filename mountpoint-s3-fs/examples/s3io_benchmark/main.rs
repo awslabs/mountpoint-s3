@@ -77,23 +77,7 @@ async fn run_benchmark() -> Result<()> {
 
             let duration = start.elapsed();
 
-            // Print per-job result
-            match &result {
-                Ok(job_result) => {
-                    eprintln!(
-                        "Job '{}' completed: {} iterations, {:.2} GB, {:.2}s",
-                        job_name,
-                        job_result.iterations_completed,
-                        job_result.total_bytes as f64 / 1_000_000_000.0,
-                        duration.as_secs_f64()
-                    );
-                }
-                Err(e) => {
-                    eprintln!("Job '{}' failed: {}", job_name, e);
-                }
-            }
-
-            result
+            (job_name, result, duration)
         });
 
         handles.push(handle);
@@ -103,11 +87,19 @@ async fn run_benchmark() -> Result<()> {
     let mut job_results = Vec::new();
     for handle in handles {
         match handle.await {
-            Ok(Ok(result)) => {
+            Ok((job_name, Ok(result), duration)) => {
+                // Print per-job result
+                eprintln!(
+                    "Job '{}' completed: {} iterations, {:.2} GB, {:.2}s",
+                    job_name,
+                    result.iterations_completed,
+                    result.total_bytes as f64 / 1_000_000_000.0,
+                    duration.as_secs_f64()
+                );
                 job_results.push(result);
             }
-            Ok(Err(e)) => {
-                eprintln!("Job execution error: {}", e);
+            Ok((job_name, Err(e), _duration)) => {
+                eprintln!("Job '{}' failed: {}", job_name, e);
             }
             Err(e) => {
                 eprintln!("Task panic: {}", e);
