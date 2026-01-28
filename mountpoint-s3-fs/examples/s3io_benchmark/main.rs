@@ -1,8 +1,5 @@
-#[path = "s3io_benchmark/config.rs"]
 mod config;
-#[path = "s3io_benchmark/executor.rs"]
 mod executor;
-#[path = "s3io_benchmark/results.rs"]
 mod results;
 
 use anyhow::{Context, Result};
