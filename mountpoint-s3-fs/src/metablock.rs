@@ -10,6 +10,7 @@ mod error;
 mod expiry;
 mod lookup;
 mod path;
+mod pending_upload;
 mod stat;
 
 // Re-export all the core types
@@ -17,7 +18,10 @@ pub use error::{InodeError, InodeErrorInfo};
 pub use expiry::{Expiry, NEVER_EXPIRE_TTL};
 pub use lookup::{InodeInformation, Lookup};
 pub use path::{S3Location, ValidKey, ValidKeyError, ValidName};
+pub use pending_upload::PendingUploadHook;
 pub use stat::{InodeKind, InodeNo, InodeStat};
+
+use crate::fs::OpenFlags;
 
 pub const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
@@ -35,7 +39,7 @@ pub trait Metablock: Send + Sync {
     async fn lookup(&self, parent_ino: InodeNo, name: &OsStr) -> Result<Lookup, InodeError>;
 
     /// Retrieve the attributes for an inode
-    async fn getattr(&self, ino: InodeNo, force_revalidate: bool) -> Result<Lookup, InodeError>;
+    async fn getattr(&self, ino: InodeNo, force_revalidate_if_remote: bool) -> Result<Lookup, InodeError>;
 
     /// Set the attributes for an inode
     async fn setattr(
@@ -52,23 +56,65 @@ pub trait Metablock: Send + Sync {
     /// The kernel may forget a number of references (`n`) in one forget message to our FUSE implementation.
     async fn forget(&self, ino: InodeNo, n: u64);
 
-    /// Start writing to an inode.
-    async fn start_writing(&self, ino: InodeNo, mode: &WriteMode, is_truncate: bool) -> Result<(), InodeError>;
+    /// Open a new file handle for the given inode in read or write mode depending on flags and inode state.
+    async fn open_handle(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        write_mode: &WriteMode,
+        flags: OpenFlags,
+    ) -> Result<NewHandle, InodeError>;
 
     /// Increase the size of a file open for writing.
     /// Parameter `len` refers to the additional
     /// Returns the new size after the increase.
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError>;
 
-    /// Called when the filesystem has finished writing to the inode refernced by `ino`.
-    /// Allows the implementor to make necessary adjustments / update its internal structure.
-    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>) -> Result<(), InodeError>;
+    /// Called when the filesystem has finished writing to the inode referenced by `ino` using the
+    /// file handle `fh`.
+    ///
+    /// Returns the latest state in S3 for the inode after the writing to S3 is concluded.
+    async fn finish_writing(&self, ino: InodeNo, etag: Option<ETag>, fh: u64) -> Result<Lookup, InodeError>;
 
-    /// Prepare an inode (referenced by `ino`) to start reading.
-    async fn start_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    /// Finish reading from the inode (referenced by `ino`) using the file handle `fh`.
+    async fn finish_reading(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
 
-    /// Finish reading from the inode (referenced by `ino`)
-    async fn finish_reading(&self, ino: InodeNo) -> Result<(), InodeError>;
+    /// Called when the filesystem has called `flush` on a read handle `fh` for the inode
+    /// referenced by `ino`.
+    async fn flush_reader(&self, ino: InodeNo, fh: u64) -> Result<(), InodeError>;
+
+    /// Called when the filesystem has called `flush` on a write handle `fh` for the inode
+    /// referenced by `ino`.
+    ///
+    /// Attaches a reference to the pending upload hook for this writer, if there's not one attached
+    /// already.
+    ///
+    /// Returns a reference to the existing/new upload hook linked to the inode `ino`, which the
+    /// caller may choose to await the completion of.
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        pending_upload_hook: PendingUploadHook,
+    ) -> Result<Option<PendingUploadHook>, InodeError>;
+
+    /// Called when the filesystem has released a write handle for the inode referenced by `ino`.
+    ///
+    /// The implementer owns completing any pending uploads and cleaning up the internal state for
+    /// this handle.
+    async fn release_writer(
+        &self,
+        ino: InodeNo,
+        fh: u64,
+        pending_upload_hook: PendingUploadHook,
+        location: &S3Location,
+    ) -> Result<(), InodeError>;
+
+    /// Called by filesystem's read/write methods to attempt re-activation of a deactivated file
+    /// handle `fh` for the inode referenced by `ino`.
+    ///
+    /// Returns whether the handle was successfully reactivated.
+    async fn try_reactivate_handle(&self, ino: InodeNo, fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError>;
 
     /// Start a readdir stream for the given directory referenced inode (`dir_ino`)
     ///
@@ -160,6 +206,40 @@ impl WriteMode {
                 );
             }
             false
+        }
+    }
+}
+
+/// The mode in which a handle is provisioned to access the (existing in S3 or local) data for a file
+/// (mapped to an inode and backed by a corresponding S3 object)
+#[derive(Debug, Clone, Copy)]
+pub enum ReadWriteMode {
+    /// Allow reads from this and other concurrent readers (but no writer)
+    Read,
+    /// Allow writes from this exclusive writer (but no other writer or readers)
+    Write,
+}
+
+/// A metablock-level abstraction on a file, providing the user with the latest metadata in the
+/// linked inode and the ReadWriteMode in which they're allowed to access the file
+#[derive(Debug)]
+pub struct NewHandle {
+    pub lookup: Lookup,
+    pub mode: ReadWriteMode,
+}
+
+impl NewHandle {
+    pub fn read(lookup: Lookup) -> Self {
+        Self {
+            lookup,
+            mode: ReadWriteMode::Read,
+        }
+    }
+
+    pub fn write(lookup: Lookup) -> Self {
+        Self {
+            lookup,
+            mode: ReadWriteMode::Write,
         }
     }
 }

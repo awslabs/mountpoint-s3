@@ -94,6 +94,10 @@ Mountpoint emits the following metrics:
 | `s3.request_errors` | Counter | `s3_request` (GetObject, PutObject, etc.)<br>`http_status` (403, 404, etc.) | Number of S3 request errors |
 | `s3.request_first_byte_latency` | Histogram | `s3_request` (GetObject, PutObject, etc.) | Time from initiation of an S3 request until the first byte is received |
 | `s3.request_total_latency` | Histogram | `s3_request` (GetObject, PutObject, etc.) | Time from initiation of an S3 request until the response is received |
+| `experimental.cache.evict_latency` | Histogram | `cache` | Time to evict data from [data cache](CONFIGURATION.md#data-cache) |
+| `experimental.cache.get_latency` | Histogram | `cache` | Time to retrieve from [data cache](CONFIGURATION.md#data-cache) |
+| `experimental.cache.put_latency` | Histogram | `cache` | Time to store in [date cache](CONFIGURATION.md#data-cache) |
+| `experimental.fuse.cache_hit` | Counter | | Number of FUSE requests fully served from [data cache](CONFIGURATION.md#data-cache)<br> (Prefetched data served from memory or partial cache hits are not included in this metric) |
 | `experimental.fuse.idle_threads` | Histogram | | FUSE worker threads waiting for new requests |
 | `experimental.fuse.total_threads` | Gauge | | Total number of FUSE worker threads spawned |
 | `experimental.prefetch.reset_state` | Counter | | Times Mountpoint discarded prefetched data due to access patterns |

@@ -2,10 +2,9 @@ use std::fmt::Debug;
 
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
+use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
-
 use thiserror::Error;
-use tracing::error;
 
 use crate::async_util::Runtime;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
@@ -68,6 +67,23 @@ pub enum UploadError<E> {
 
     #[error("object exceeded maximum upload size of {maximum_size} bytes")]
     ObjectTooBig { maximum_size: usize },
+}
+
+impl<E> ProvideErrorMetadata for UploadError<E>
+where
+    E: ProvideErrorMetadata,
+{
+    fn meta(&self) -> ClientErrorMetadata {
+        match self {
+            UploadError::ObjectTooBig { .. }
+            | UploadError::ChecksumComputationFailed(_)
+            | UploadError::SseCorruptedError(_)
+            | UploadError::UploadAlreadyTerminated
+            | UploadError::OutOfOrderWrite { .. } => Default::default(),
+            UploadError::PutRequestFailed(object_client_error) => object_client_error.meta(),
+            UploadError::HeadObjectFailed(object_client_error) => object_client_error.meta(),
+        }
+    }
 }
 
 #[derive(Debug)]

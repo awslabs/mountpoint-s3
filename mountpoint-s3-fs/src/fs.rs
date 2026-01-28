@@ -1,24 +1,23 @@
 //! FUSE file system types and operations, not tied to the _fuser_ library bindings.
 
-use bytes::Bytes;
-
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::time::{Duration, UNIX_EPOCH};
-use thiserror::Error;
-use time::OffsetDateTime;
-use tracing::{Level, debug, trace};
 
+use bytes::Bytes;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::ChecksumAlgorithm;
+use thiserror::Error;
+use time::OffsetDateTime;
+use tracing::{Level, debug, trace};
 
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
-use crate::metablock::{AddDirEntry, AddDirEntryResult, InodeInformation, Metablock};
+use crate::metablock::{AddDirEntry, AddDirEntryResult, InodeInformation, Metablock, PendingUploadHook, ReadWriteMode};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -178,27 +177,15 @@ where
         self.next_handle.fetch_add(1, Ordering::SeqCst)
     }
 
-    /// Helper to return the u16 value in an environment variable, or panic.  Useful for unstable overrides.
-    fn parse_env_var_to_u16(var_name: &str, var_value: std::ffi::OsString) -> u16 {
-        var_value
-            .to_string_lossy()
-            .parse::<u16>()
-            .unwrap_or_else(|_| panic!("Invalid value for environment variable {var_name}. Must be positive integer."))
-    }
-
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
-        const ENV_VAR_KEY_MAX_BACKGROUND: &str = "UNSTABLE_MOUNTPOINT_MAX_BACKGROUND";
-        const ENV_VAR_KEY_CONGESTION_THRESHOLD: &str = "UNSTABLE_MOUNTPOINT_CONGESTION_THRESHOLD";
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
-        // Set max_background FUSE parameter to 64 by default, or override with environment variable.
-        // NOTE: Support for this environment variable may be removed in future without notice.
-        if let Some(user_max_background) = std::env::var_os(ENV_VAR_KEY_MAX_BACKGROUND) {
-            let max_background = Self::parse_env_var_to_u16(ENV_VAR_KEY_MAX_BACKGROUND, user_max_background);
+        // Set max_background FUSE parameter to 64 by default, may be overriden with config setting or by an environment variable.
+        if let Some(max_background) = self.config.max_background_fuse_requests() {
             let old = config
                 .set_max_background(max_background)
                 .unwrap_or_else(|_| panic!("Unable to set FUSE max_background configuration to {max_background}"));
-            tracing::warn!(
-                "Successfully overridden FUSE max_background configuration to {} (was {}) from unstable environment variable.",
+            tracing::info!(
+                "Successfully set FUSE max_background configuration to {} (was {}).",
                 max_background,
                 old
             );
@@ -214,14 +201,11 @@ where
         }
 
         // Override FUSE congestion threshold if environment variable is present.
-        // NOTE: Support for this environment variable may be removed in future without notice.
-        if let Some(user_congestion_threshold) = std::env::var_os(ENV_VAR_KEY_CONGESTION_THRESHOLD) {
-            let congestion_threshold =
-                Self::parse_env_var_to_u16(ENV_VAR_KEY_CONGESTION_THRESHOLD, user_congestion_threshold);
+        if let Some(congestion_threshold) = self.config.fuse_congestion_threshold() {
             let old = config
                 .set_congestion_threshold(congestion_threshold)
                 .unwrap_or_else(|_| panic!("unable to set FUSE congestion_threshold to {congestion_threshold}"));
-            tracing::warn!(
+            tracing::info!(
                 "Successfully overridden FUSE congestion_threshold configuration to {} (was {}) from unstable environment variable.",
                 congestion_threshold,
                 old
@@ -357,59 +341,26 @@ where
     }
 
     pub async fn open(&self, ino: InodeNo, flags: OpenFlags, pid: u32) -> Result<Opened, Error> {
-        trace!("fs:open with ino {:?} flags {} pid {:?}", ino, flags, pid);
-
-        #[cfg(not(target_os = "linux"))]
-        let direct_io = false;
-        #[cfg(target_os = "linux")]
-        let direct_io = flags.contains(OpenFlags::O_DIRECT);
-
+        trace!("open with ino {:?} flags {} pid {:?}", ino, flags, pid);
         // We can't support O_SYNC writes because they require the data to go to stable storage
         // at `write` time, but we only commit a PUT at `close` time.
         if flags.intersects(OpenFlags::O_SYNC | OpenFlags::O_DSYNC) {
             return Err(err!(libc::EINVAL, "O_SYNC and O_DSYNC are not supported"));
         }
 
-        let force_revalidate = !self.config.cache_config.serve_lookup_from_cache || direct_io;
-        let lookup = self.metablock.getattr(ino, force_revalidate).await?;
-
-        match lookup.kind() {
-            InodeKind::Directory => return Err(InodeError::IsDirectory(lookup.inode_err()).into()),
-            InodeKind::File => (),
-        }
-
-        let state = if flags.contains(OpenFlags::O_RDWR) {
-            if !lookup.is_remote()
-                || (self.config.allow_overwrite && flags.contains(OpenFlags::O_TRUNC))
-                || (self.config.incremental_upload && flags.contains(OpenFlags::O_APPEND))
-            {
-                // If the file is new or if it was opened in truncate or in append mode,
-                // we know it must be a write handle.
-                debug!("fs:open choosing write handle for O_RDWR");
-                FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
-            } else {
-                // Otherwise, it must be a read handle.
-                debug!("fs:open choosing read handle for O_RDWR");
-                FileHandleState::new_read_handle(&lookup, self).await?
-            }
-        } else if flags.contains(OpenFlags::O_WRONLY) {
-            FileHandleState::new_write_handle(&lookup, lookup.ino(), flags, self).await?
-        } else {
-            FileHandleState::new_read_handle(&lookup, self).await?
-        };
-
+        let fh = self.next_handle(); // TODO: can we delay obtaining the next handle until we know we are creating a new file handle?
+        let write_mode = self.config.write_mode();
+        let new_handle = self.metablock.open_handle(ino, fh, &write_mode, flags).await?;
+        let state = FileHandleState::new(&new_handle, flags, self).await?;
         let handle = FileHandle {
             ino,
-            location: lookup.try_into_s3_location()?,
+            location: new_handle.lookup.try_into_s3_location()?,
             open_pid: pid,
             state: AsyncMutex::new(state),
         };
-        let fh = self.next_handle();
-        debug!(fh, ino, "new file handle created");
+        debug!(fh, ino, "new {:?} file handle created", new_handle.mode);
         self.file_handles.write().await.insert(fh, Arc::new(handle));
-
-        let reply_flags = if direct_io { FOPEN_DIRECT_IO } else { 0 };
-
+        let reply_flags = if flags.direct_io() { FOPEN_DIRECT_IO } else { 0 };
         Ok(Opened { fh, flags: reply_flags })
     }
 
@@ -443,12 +394,28 @@ where
             }
         };
         logging::record_name(handle.file_name());
+
         let mut state = handle.state.lock().await;
-        let request = match &mut *state {
-            FileHandleState::Read(request) => request,
-            FileHandleState::Write(_) => return Err(err!(libc::EBADF, "file handle is not open for reads")),
+        let (request, flushed) = match &mut *state {
+            FileHandleState::Read { request, flushed } => (request, flushed),
+            FileHandleState::Write { .. } => return Err(err!(libc::EBADF, "file handle is not open for reads")),
         };
 
+        // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
+        // If still valid, mark it as not-flushed before starting to read, blocking any future opens from taking over the active reading
+        if *flushed {
+            if !self
+                .metablock
+                .try_reactivate_handle(ino, fh, ReadWriteMode::Read)
+                .await?
+            {
+                return Err(err!(
+                    libc::EBADF,
+                    "file handle has been invalidated by a newer handle opened"
+                ));
+            }
+            *flushed = false;
+        }
         request
             .read(offset as u64, size as usize)
             .await?
@@ -522,12 +489,28 @@ where
 
         let len = {
             let mut state = handle.state.lock().await;
-            let request = match &mut *state {
+            let (request, flushed) = match &mut *state {
                 FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-                FileHandleState::Write(request) => request,
+                FileHandleState::Write { state, flushed } => (state, flushed),
             };
 
-            request.write(self, &handle, offset, data).await?
+            // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
+            // If not, mark it as not-flushed before starting to write, blocking any future opens from taking over the active writing
+            if *flushed {
+                if !self
+                    .metablock
+                    .try_reactivate_handle(ino, fh, ReadWriteMode::Write)
+                    .await?
+                {
+                    return Err(err!(
+                        libc::EBADF,
+                        "file handle has been invalidated by a newer handle opened"
+                    ));
+                }
+                *flushed = false;
+            }
+
+            request.write(self, &handle, offset, data, fh).await?
         };
         Ok(len)
     }
@@ -609,23 +592,34 @@ where
         };
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
-        let write_state = match &mut *state {
-            FileHandleState::Read { .. } => return Ok(()),
-            FileHandleState::Write(write_state) => write_state,
+        match &mut *state {
+            FileHandleState::Read { .. } => {
+                return Ok(());
+            }
+            FileHandleState::Write { state, .. } => {
+                state.commit(self, file_handle.clone(), fh).await.map_err(|e|
+                    // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
+                    // space-related failure.
+                    if e.to_errno() == libc::EFBIG { err!(libc::ENOSPC, source:e, "object too big") } else { e }
+                )?;
+            }
         };
-        match write_state.commit(self, &file_handle).await {
-            // According to the `fsync` man page we should return ENOSPC instead of EFBIG if it's a
-            // space-related failure.
-            Err(e) if e.to_errno() == libc::EFBIG => Err(err!(libc::ENOSPC, source:e, "object too big")),
-            ret => ret,
-        }
+        Ok(())
     }
 
-    pub async fn flush(&self, _ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
-        // We generally want to complete the upload when users close a file descriptor (and flush
-        // is invoked), so that we can notify them of the outcome. However, since different file
-        // descriptors can point to the same file handle, flush can be invoked multiple times on
-        // a file handle and will fail once the object has been uploaded.
+    pub async fn flush(&self, ino: InodeNo, fh: u64, _lock_owner: u64, pid: u32) -> Result<(), Error> {
+        // For read-handles:
+        // Flush simply records the handle's state as flushed, and is functionally
+        // no-op if called more than once.
+        //
+        // For write-handles:
+        // We generally want to complete the upload when users close a file
+        // descriptor (and flush is invoked), so that we can notify them of the outcome. However,
+        // since different file descriptors can point to the same file handle, flush can be invoked
+        // multiple times on a file handle. Any future flushes will be functionally no-op once the
+        // object has been uploaded to S3, however any following write requests to the handle would
+        // fail.
+        //
         // While we cannot avoid this issue in the general case, we want to support common usage
         // patterns, in particular:
         // * commands like `touch` and `dd` duplicate a file descriptor immediately after open,
@@ -635,6 +629,9 @@ where
         //   process. In many cases, the child will then immediately close (flush) the duplicated
         //   file descriptors. We will not complete the upload if we can detect that the process
         //   invoking flush is different from the one that originally opened the file.
+        // In these cases, Flush also records the handle's state as flushed, and attaches a
+        // PendingUploadHook to the handle which can then be completed by a following Release or
+        // (a newer) Open request to sync the state to S3.
         let file_handle = {
             let file_handles = self.file_handles.read().await;
             match file_handles.get(&fh) {
@@ -645,15 +642,24 @@ where
         logging::record_name(file_handle.file_name());
         let mut state = file_handle.state.lock().await;
         match &mut *state {
-            FileHandleState::Read { .. } => Ok(()),
-            FileHandleState::Write(write_state) => {
-                write_state
-                    .complete(self, &file_handle, pid, file_handle.open_pid)
-                    .await
+            FileHandleState::Read { flushed, .. } => {
+                self.metablock.flush_reader(ino, fh).await?;
+                *flushed = true;
+            }
+            FileHandleState::Write { state, flushed } => {
+                state
+                    .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
+                    .await?;
+                *flushed = true;
             }
         }
+        Ok(())
     }
 
+    /// Release a file handle.
+    ///
+    /// Note that errors won't actually be seen by the user because `release` is async,
+    /// but will still be returned here and logged by [`S3FuseFilesystem`].
     pub async fn release(
         &self,
         ino: InodeNo,
@@ -671,44 +677,32 @@ where
         };
         logging::record_name(file_handle.file_name());
 
-        // Unwrap the atomic reference to have full ownership.
-        // The kernel should make a release call when there is no more references to the file handle,
-        // if that's not the case we will add it back to the hash table and return an error to the kernel.
-        let file_handle = match Arc::try_unwrap(file_handle) {
-            Ok(handle) => handle,
-            Err(handle) => {
-                self.file_handles.write().await.insert(fh, handle);
-                return Err(err!(libc::EINVAL, "unable to unwrap file handle reference"));
-            }
-        };
-
-        let write_state = match file_handle.state.into_inner() {
-            FileHandleState::Read(_) => {
+        match &*file_handle.state.lock().await {
+            FileHandleState::Read { .. } => {
                 metrics::gauge!("fs.current_handles", "type" => "read").decrement(1.0);
-                self.metablock.finish_reading(file_handle.ino).await?;
+                self.metablock.finish_reading(file_handle.ino, fh).await?;
                 return Ok(());
             }
-            FileHandleState::Write(write_state) => write_state,
+            FileHandleState::Write { .. } => {}
         };
 
-        let complete_result = write_state
-            .complete_if_in_progress(self, file_handle.ino, &file_handle.location)
-            .await;
-        metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
+        // In most cases, this handle should have been flushed (closed) previously and hence already
+        // have a PendingUploadHook attached. However, there can be edge cases where a user application
+        // might terminate unexpectedly without closing the handle, where the Kernel would directly
+        // send a Release on handle's reference counter dropping to 0.
+        // To support this case, Release will "flush" the handle first, and create a PendingUploadHook
+        // here and attach it as part of the flushing process.
+        //
+        // In all other cases, this hook will be discarded unused; and the original hook will be
+        // completed (if it's not already) to upload data to S3, and mark the file handle closed
+        // and the inode "Remote".
+        let pending_upload_hook = PendingUploadHook::new(self.metablock.clone(), file_handle.clone(), fh);
+        self.metablock
+            .release_writer(ino, fh, pending_upload_hook, &file_handle.location)
+            .await?;
 
-        match complete_result {
-            Ok(upload_completed_async) => {
-                if upload_completed_async {
-                    debug!(key = %file_handle.location, "upload completed async after file was closed");
-                }
-                Ok(())
-            }
-            Err(e) => {
-                // Errors won't actually be seen by the user because `release` is async,
-                // but it's the right thing to do so we'll return it.
-                Err(e)
-            }
-        }
+        metrics::gauge!("fs.current_handles", "type" => "write").decrement(1.0);
+        Ok(())
     }
 
     pub async fn rmdir(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), Error> {
@@ -865,5 +859,235 @@ mod tests {
             format!("{err}"),
             "put failed to start: SSE settings corrupted: Checksum mismatch. expected: Crc32c(752912206), actual: Crc32c(1265531471)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_without_release() {
+        let test_name = "test_open_after_close_without_release";
+        let fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        // Using `OpenFlags::empty()` which defaults to 0 and maps to O_RDONLY
+        fs.open(dentry.attr.ino, OpenFlags::empty(), 123)
+            .await
+            .expect_err("open for reading should fail if file is open for writing");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect_err("open for writing again should fail if file is already open for writing");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+            .await
+            .expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released handle should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_without_release_append_mode() {
+        let test_name = "test_open_after_close_without_release_append_mode";
+        let fs = setup_mock_fs(test_name, true, true);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        // Using `OpenFlags::empty()` which defaults to 0 and maps to O_RDONLY
+        fs.open(dentry.attr.ino, OpenFlags::empty(), 123)
+            .await
+            .expect_err("open for reading should fail if file is open for writing");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect_err("open for writing again should fail if file is already open for writing");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+            .await
+            .expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released handle should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_with_release() {
+        let test_name = "test_open_after_close_with_release";
+        let fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+            .await
+            .expect("flush should succeed");
+        fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+            .await
+            .expect("release for a flushed handle should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_open_after_close_with_concurrent_release() {
+        let test_name = "test_open_after_close_with_release";
+        let fs_orig = setup_mock_fs(test_name, true, false);
+        let fs = Arc::new(fs_orig);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+            .await
+            .expect("flush should succeed");
+
+        let (fs1, fs2) = (fs.clone(), fs.clone());
+        let (ino1, ino2) = (dentry.attr.ino, dentry.attr.ino);
+        let fh = fd.fh;
+
+        let (fd2_result, release_result) = tokio::join!(
+            tokio::spawn(async move { fs1.open(ino2, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123).await }),
+            tokio::spawn(async move { fs2.release(ino1, fh, 0, Some(0), false).await })
+        );
+
+        release_result
+            .unwrap()
+            .expect("release for a flushed handle should succeed");
+        fd2_result.unwrap().expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_release_without_close() {
+        let test_name = "test_open_after_release_without_close";
+        let fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open a local file should succeed");
+
+        fs.release(dentry.attr.ino, fd.fh, 0, Some(0), false)
+            .await
+            .expect("release for a flushed handle should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_close_after_write() {
+        let test_name = "test_open_after_close_after_write";
+        let fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open for a local file should succeed");
+        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+            .await
+            .expect("write should succeed");
+        fs.flush(dentry.attr.ino, fd.fh, 0, 123)
+            .await
+            .expect("flush should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_open_after_fsync_after_write() {
+        let test_name = "test_open_after_close_after_write";
+        let fs = setup_mock_fs(test_name, true, false);
+        let dentry = setup_file(test_name, &fs).await;
+
+        let fd = fs
+            .open(dentry.attr.ino, OpenFlags::O_WRONLY, 0)
+            .await
+            .expect("open for a local file should succeed");
+        fs.write(dentry.attr.ino, fd.fh, 0, "hello world".as_ref(), 0, 0, Some(0))
+            .await
+            .expect("write should succeed");
+        fs.fsync(dentry.attr.ino, fd.fh, true)
+            .await
+            .expect("fsync should succeed");
+
+        fs.open(dentry.attr.ino, OpenFlags::O_WRONLY | OpenFlags::O_TRUNC, 123)
+            .await
+            .expect("re-open for a released file should succeed");
+    }
+
+    async fn setup_file(test_name: &str, fs: &S3Filesystem<MockClient>) -> Entry {
+        // Lookup inode of the dir1 directory
+        let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
+        assert_eq!(entry.attr.kind, FileType::Directory);
+        let dir_ino = entry.attr.ino;
+
+        // Open a file for write in "dir1"
+        let dentry = fs
+            .mknod(
+                dir_ino,
+                format!("{}2.txt", test_name).as_ref(),
+                libc::S_IFREG | libc::S_IRWXU,
+                0,
+                0,
+            )
+            .await
+            .unwrap();
+        assert_eq!(dentry.attr.size, 0);
+        dentry
+    }
+
+    fn setup_mock_fs(test_name: &str, allow_overwrite: bool, incremental_upload: bool) -> S3Filesystem<MockClient> {
+        let bucket = Bucket::new("bucket").unwrap();
+        let client = MockClient::config()
+            .bucket(bucket.to_string())
+            .enable_backpressure(true)
+            .initial_read_window_size(1024 * 1024)
+            .part_size(1024 * 1024)
+            .build();
+        // Create "dir1" in the client to avoid creating it locally
+        client.add_object(
+            &format!("dir1/{}1.txt", test_name),
+            MockObject::constant(0xa1, 15, ETag::for_tests()),
+        );
+
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(10).create().unwrap());
+        let pool = PagedPool::new_with_candidate_sizes([32]);
+        let prefetcher_builder = Prefetcher::default_builder(client.clone());
+        let fs_config = S3FilesystemConfig {
+            allow_overwrite,
+            incremental_upload,
+            ..Default::default()
+        };
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            SuperblockConfig {
+                cache_config: fs_config.cache_config.clone(),
+                s3_personality: fs_config.s3_personality,
+            },
+        );
+        S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config)
     }
 }

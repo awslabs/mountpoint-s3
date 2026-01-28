@@ -1,7 +1,15 @@
-## Unreleased (v1.22.0)
+## Unreleased
+
+## v1.22.0 (January 22, 2026)
+
+### Breaking changes
+
+* Address an issue where opening a file for reading/writing immediately after the file had been closed would occasionally fail. Since this release, opening a new file handle after close will succeed and trigger the completion of a deferred upload if required. As a consequence, duplicate references to the closed file handle will become invalid and read or write operations on them will fail. See [this section in the semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#close-and-re-open) for details. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
+
+### Other changes
 
 * Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
-* Remove redundant cache merics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Remove redundant cache metrics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
 * Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
 * Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
 

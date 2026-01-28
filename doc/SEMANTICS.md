@@ -13,11 +13,9 @@ While the rest of this document gives details on specific file system behaviors,
 
 Mountpoint supports opening and reading existing objects from your S3 bucket. It is optimized for reading large files sequentially, and will automatically make multiple concurrent requests to S3 to improve throughput when reads are sequential. Mountpoint also supports random reads from an existing object, including seeking in an open file.
 
-Mountpoint supports creating new objects in your S3 bucket by allowing writes to new files. If the `--allow-overwrite` flag is set at startup time, Mountpoint also supports replacing existing objects by allowing writes to existing files, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. In both cases, writes must always start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`. The new (or overwritten) object will be visible to other S3 clients only after closing it (or on `fsync`).
+Mountpoint supports creating new objects in your S3 bucket by allowing writes to new files. If the `--allow-overwrite` flag is set at startup time, Mountpoint also supports replacing existing objects by allowing writes to existing files, but only when the `O_TRUNC` flag is used at open time to truncate the existing file. In both cases, writes must always start from the beginning of the file and must be made sequentially. Mountpoint uploads new files to S3 asynchronously, and optimizes for high write throughput using multiple concurrent upload requests. If your application needs to guarantee that a new file has been uploaded to S3, it should call `fsync` on the file before closing it. You cannot continue writing to the file after calling `fsync`. The new (or overwritten) object will be visible to other S3 clients only after successfully closing it (or on `fsync`).
 
-By default, Mountpoint does not allow deleting existing objects with commands like `rm`. To enable deletion, pass the `--allow-delete` flag to Mountpoint at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. We recommend that you enable [Bucket Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) to help protect against unintentionally deleting objects. You cannot delete a file while it is being written.
-
-For objects stored in S3 Express One Zone, Mountpoint supports appending to files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
+For objects stored in S3 Express One Zone, Mountpoint supports appending to files. If the `--incremental-upload` flag is set at startup time, Mountpoint allows opening existing files for writing without specifying the `O_TRUNC` flag. All writes must still be sequential and start from the end of the file. In this mode, Mountpoint will always upload data to S3 in sequential increments and offer the same throughput of a single PUT API call on S3. Moreover, partial writes will be visible to other S3 clients before the file is closed. Applications can call `fsync` to guarantee that the data written so far is uploaded to S3 and are then allowed to continue writing to the file.
 
 Mountpoint supports atomic file rename for objects stored in the S3 Express One Zone storage class.
 Attempting to rename files where unsupported by S3 will result in the operation being rejected.
@@ -29,6 +27,8 @@ You cannot rename a file while it or the destination of a rename is being writte
 
 Append and rename are not supported for directory buckets that reside in Local Zones. You can only append data to or rename existing objects in directory buckets that reside in Availability Zones.
 You should not pass the `--incremental-upload` flag to Mountpoint in this case, as writes to files will fail. Attempting to rename files in this case will lead to the operation being rejected.
+
+By default, Mountpoint does not allow deleting existing objects with commands like `rm`. To enable deletion, pass the `--allow-delete` flag to Mountpoint at startup time. Delete operations immediately delete the object from S3, even if the file is being read from. We recommend that you enable [Bucket Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html) to help protect against unintentionally deleting objects. You cannot delete a file while it is being written or renamed.
 
 Objects in the S3 Glacier Flexible Retrieval and S3 Glacier Deep Archive storage classes, and the Archive Access and Deep Archive Access tiers of S3 Intelligent-Tiering, are only accessible with Mountpoint if they have been restored. To access these objects with Mountpoint, [restore](https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html) them first.
 
@@ -77,14 +77,15 @@ Mountpoint has limited support for other file and directory metadata, including 
 
 Amazon S3 provides [strong read-after-write consistency](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel) for PUT and DELETE requests of objects in your S3 bucket.
 By default, Mountpoint provides strong read-after-write consistency for file writes, directory listing operations, and new object creation. For example, if you create a new object using another S3 client, it will be immediately accessible with Mountpoint. If you modify an existing object in your bucket with another client while also reading that object through Mountpoint, the reads will return either the old data or the new data, but never partial or corrupt data. To guarantee your reads see the newest object data, you can re-open the file after modifying the object.
+"Another client" can be a separate software, such as the AWS SDK/CLI or the S3 Console, or another Mountpoint instance running on the same or a different machine.
 
 If you modify or delete an existing object in your S3 bucket with another client, however, Mountpoint may return stale metadata for that object for up to 1 second, by default. This occurs only if the object had already been accessed through Mountpoint immediately before being modified or deleted in your S3 bucket. The stale metadata will only be visible through metadata operations such as `stat` on individual files. Directory listings will never be stale and always reflect the current metadata. These cases do not apply to newly created objects, which are always immediately visible through Mountpoint. Stale metadata can be refreshed by either opening the file or listing its parent directory.
 
 Mountpoint allows multiple readers to access the same object at the same time.
 However, files can only be written to sequentially and by one writer at a time.
-Files that are being written to are not available for reading until the writing application closes the file and Mountpoint finishes uploading it to S3, regardless of upload mode.
+Files that are being written to are not available for reading until the writing application closes the file, regardless of upload mode.
 If you have multiple Mountpoint mounts for the same bucket, on the same or different hosts, there is no coordination between writes to the same object.
-Your application should not write to the same object from multiple instances at the same time.
+Your application should not write to the same object from multiple instances at the same time as this may have unexpected results in S3.
 
 By default, Mountpoint ensures that new file uploads to a single key are atomic. As soon as an upload completes, other clients are able to see the new key and the entire content of the object. If the `--incremental-upload` flag is set, however, Mountpoint may issue multiple separate uploads during file writes to append data to the object. After each upload, the appended object in your S3 bucket will be visible to other clients.
 
@@ -101,7 +102,7 @@ Reads to that file will either return the cached data or an error for data that 
 but will never return corrupt data or combine data from two versions of the file.
 
 To force an up-to-date view of a file, use the `O_DIRECT` flag when opening the file for reading.
-When this option is provided, Mountpoint will check S3 to ensure the object exists and return the latest object content.
+When this option is provided, Mountpoint will check S3 to ensure the object exists, and return the latest object content.
 Unlike other file systems, Mountpoint does not support setting the `O_DIRECT` flag via `fcntl` after the file has been opened.
 
 When caching is enabled, Mountpoint also remembers when objects do *not* exist. Once you try to
@@ -163,7 +164,7 @@ S3 places fewer restrictions on [valid object keys](https://docs.aws.amazon.com/
 The `blue` object will not be accessible. Deleting the key `blue/image.jpg` will remove the `blue` directory, and cause the `blue` file to become visible.
 
 Additionally, remote directories will always shadow local directories or files.
-Thus Mountpoint shadows directory entries in the following order, where the first takes precedence: remote directories, any local state, remote files.
+Thus, Mountpoint shadows directory entries in the following order, where the first takes precedence: remote directories, any local state, remote files.
 For example, if you create a directory i.e. `blue/` and a conflicting object with key `blue` appears in the bucket, the local directory will still be accessible.
 
 We test Mountpoint against these restrictions using a [reference model](https://github.com/awslabs/mountpoint-s3/blob/main/mountpoint-s3-fs/tests/reftests/reference.rs) that programmatically encodes the expected mapping between S3 objects and file system structure.
@@ -172,15 +173,26 @@ Windows-style path delimiters (`\`) are not supported.
 
 ### File operations
 
+#### Open
+
+`open` creates a file handle and returns it back to the kernel. A file handle can only be used for one type of operation, either read or write, for its lifetime. 
+
+You can open a file in read-write mode (`O_RDWR`), but you cannot both read and write to the same file descriptor even in this mode. The default is to open for reads; unless in the below cases, where it is opened for writes: 
+* The file being opened is new
+* Mountpoint has the `--allow-overwrite` flag set and the file is opened in truncate mode (with the `O_TRUNC` flag)
+* Mountpoint has the `--incremental-upload` flag set and the file is opened in append mode (with the `O_APPEND` flag)
+
+A file can not have a reader and a writer file handle open at the same time, and attempting to do so will result in an `EPERM` error for the second `open` request. However, a file can have multiple reader file handles open concurrently for it.
+
+Both `open` and `openat` operations are supported. `close` is also supported to conclude use of the file handle.
+
 #### Reads
 
 Basic read-only operations are fully supported, including both sequential and random reads:
-* `open`, `openat`
 * `read`, `readv`, `pread`, `preadv`
 * `lseek`
-* `close`
 
-`open` creates a file handle and returns it back to the kernel. A file handle can only be used for one type of operation, either read or write, for its lifetime. You can open a file in read-write mode (`O_RDWR`), but you cannot both read and write to the same file descriptor even in this mode. The first `read` or `write` will determine the type of operation you can do with the file descriptor.
+Multiple readers are allowed to access the same file concurrently.
 
 #### Writes
 
@@ -191,40 +203,62 @@ but with some limitations:
 * Writes to new files are supported and must start at the beginning of the file.
 * If the `--allow-overwrite` flag is set, replacing an existing file is also allowed:
   * The existing file must be opened in truncate mode (`O_TRUNC`).
-  * You cannot overwrite files that are currently being read.
-  * The upload to S3 starts as soon as Mountpoint receives the first `write` request and cannot be cancelled.
+  * You cannot overwrite files that are currently being read or renamed.
+  * The upload to S3 starts as soon as Mountpoint receives the first `write` request and cannot be cancelled. The data is uploaded to S3 in fixed-size parts (controlled by `--write-part-size`).
 * Both for new files and overwrites:
   * Synchronization operations (`fsync`, `fdatasync`) complete the upload of the object to S3 and disallow further writes.
   * The data written to the file will be visible to other S3 clients only once the upload completes.
-* If the `--incremental-upload` flag is set, and only when mounting directory buckets in S3 Express One Zone, appending to existing files is allowed:
+* If the `--incremental-upload` flag is set, and only when mounting directory buckets in S3 XOZ, appending to existing files is allowed:
   * The existing file must be opened without the `O_TRUNC` flag or any existing content will be truncated.
   * Only sequential writes at the end of the file are allowed. Setting the `O_APPEND` flag on open will enforce this behavior, but is not required by Mountpoint.
-  * You cannot append to files that are currently being read or overwritten.
+  * You cannot append to files that are currently being read, renamed or overwritten.
   * The data is uploaded incrementally to S3 in fixed-size parts (controlled by `--write-part-size`).
   * Synchronization operations (`fsync`, `fdatasync`) trigger the upload of the appended parts and do allow to continue writing.
   * Parts successfully appended to an object are visible as the whole (appended) object to other S3 clients.
 
 `close` also generally completes the upload of the object and reports an error if not successful. However,
-if the file is empty, or if `close` is invoked by a different process than the one that originally opened it,
-`close` returns immediately and the upload is only completed asynchronously after the last reference to the
-file is closed. These exceptions allow Mountpoint to support common usage patterns seen in tools like `dd`,
-`touch`, or in shell redirection, that hold multiple references to an open file and keep writing to one after
-closing another.
+if the file is empty or if `close` is invoked by a different process than the one that originally opened it, 
+`close` returns immediately and the upload is only completed asynchronously _after_ the last reference to the
+file is closed or when a new handle is opened to read/write to the file. 
+These exceptions allow Mountpoint to support common usage patterns seen in tools like `dd`, `touch`, or in shell redirection, that hold multiple references to an open file and keep writing to one after closing another.
 
 Space allocation operations (`fallocate`, `posix_fallocate`) are not supported.
 
 Changing last access and modification times (`utime`) is supported only on files that are being written.
+
+#### Close and re-open
+
+Mountpoint allows a file to have multiple concurrent readers _or_ a single writer. The reference to a file reader/writer can be duplicated by the user (e.g. using `dup()`, `fork()`, as seen in tools like `dd` and `touch`, or in shell redirection), resulting in multiple references pointing to the same file handle in Mountpoint.
+
+A `close` request for a writer generally completes the upload of the object and reports an error if not successful. If a new `open` request is made for the file afterwards, it will succeed following semantics mentioned [here](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#open).
+
+However, if the file is empty, or if `close` is invoked by a different process than the one that originally opened it, 
+`close` returns immediately and the upload is only completed asynchronously _after_ the last reference to the file is closed.
+This is done to support common usage patterns that hold multiple references to an open file and keep writing to one after closing another.
+
+In cases where `close` deferred the upload, a subsequent new call to `open` (for reading or writing) on the same file will ensure that the upload to S3 is completed before proceeding.
+Duplicate references to the original writer will be invalidated by a new `open`, and any subsequent writes to them will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
+
+However, a `write` to a duplicate reference after the original `close`, but __before__ a new `open`, will succeed, marking the writer as still active. `open` requests for a reader/writer will return an `EPERM` error, since the file is already being written to.
+
+An `open` for writing request made for a file once _all_ its existing readers are closed will invalidate the duplicate references to the previous readers, and any subsequent reads to them will start to fail (with the `EBADF: file handle has been invalidated by a newer handle opened` error).
+
+However, a `read` to a duplicate reference after the original `close`, but __before__ a new `open`, will succeed, marking the reader as still active. `open` requests for another reader will succeed, but `open` requests for a writer will return an `EPERM` error since the file is already being read.
+
+> [!WARNING]
+> In releases up to `v1.21.0`, an `open` for writing request made immediately after a `close` could occasionally fail unexpectedly, because Mountpoint would try to process the `open` before completing an asynchronous upload for the writer or recording that the last reference to a reader had been closed.
+> See GitHub issues [#1344](https://github.com/awslabs/mountpoint-s3/issues/1344) and [#1327](https://github.com/awslabs/mountpoint-s3/issues/1327).
 
 #### Deletes
 
 File deletion (`unlink`) can be enabled by setting the `--allow-delete` option and is implemented with
 the following behavior:
 
-* For files not yet committed to S3, the client does not permit `unlink` operations.
+* For files not yet committed to S3 or those being renamed, the client does not permit `unlink` operations.
 * The file should be closed and thus committed to S3, at which point an `unlink` can be performed on the remote file.
 * For files already committed to S3, the client _immediately_ deletes the corresponding object from S3,
   and removes the file from its directory.
-* If there are still open file handles to the file, future reads to them will fail.
+* If there are still open file handles to the file, future reads to them may eventually fail.
 * Because the object is immediately deleted from S3, future reads from other hosts will also fail.
 
 ### Directory operations
@@ -252,7 +286,7 @@ Empty directory removal (`rmdir`) is supported, with the following semantics:
 * As soon as a file is committed to the S3 bucket by Mountpoint,
   the directory will be considered to exist implicitly.
   If Mountpoint later observes that there are no files existing for that directory in S3,
-  Mountpoint will consider the directory to have been deleted.
+  Mountpoint will implicitly consider the directory to have been deleted.
 * On success, the directory will be deleted immediately. Subsequent reads or writes to the directory (e.g. creating a file or subdirectory) will fail.
 
 Synchronization operations (`fsync`) on directories are not supported.
@@ -267,12 +301,12 @@ On Amazon S3 directory buckets in S3 Express One Zone, renaming individual files
 * If a file already exists at the new destination path (replacing rename), the rename will fail, unless the `--allow-overwrite` flag was set
   at mount time and the system call does not specify the `RENAME_NOREPLACE` flag.
 * For files currently open for writing or not yet committed to S3, the client does not permit `rename` or `renameat2` operations.
-  Similarly, if the destination file of a rename operation is open for writing, the rename will be rejected.
+  Similarly, if the destination file of a rename operation is open for writing or not yet committed to S3, the rename will be rejected.
 * For files not open for writing, the client _immediately_ renames the corresponding S3 object,
   and moves the file in the local file system representation.
 * Mountpoint does not support `rename` or `renameat2` where `RENAME_EXCHANGE` is specified, as exchanging two objects is not supported by Amazon S3.
 * Mountpoint does not support `rename` or `renameat2` where `RENAME_WHITEOUT` is specified, as Mountpoint is not an overlay/union file system.
-* If there are still open read file handles to the file being renamed or the destination file, future reads to them will fail.
+* If there are still open read file handles to the file being renamed or the destination file, future reads to them may eventually fail.
 * Because the object is immediately renamed in S3, future reads with file handles from other hosts will also fail.
 * Concurrent rename to a destination and uploads to the same key may result in the renamed object being overwritten.
   We do not recommend concurrent mutations to the same key.
@@ -304,10 +338,10 @@ Hard links and symbolic links are both unsupported.
 ### Consistency
 
 Mountpoint provides strong read-after-write consistency for new object creation and writes of existing objects. However, it can return stale metadata for up to 1 second when an existing object is modified concurrently by another client. The [consistency and concurrency](#consistency-and-concurrency) section above describes this behavior, but here are some examples:
-* A process replaces an existing object in your S3 bucket using another client (e.g., the AWS SDK), and then opens the same object with Mountpoint and reads from it. The process will read the new data.
+* A process replaces an existing object in your S3 bucket using another client, and then opens the same object with Mountpoint and reads from it. The process will read the new data.
 * A process opens a file with Mountpoint, then replaces the object in your S3 bucket using another client, and then reads from the open file. The process will either read the old data or the read will fail. The process can see the new data by opening the file again.
 * A process replaces an existing object in your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat` system call. The returned metadata could reflect either the old or new object for up to 1 second after the PutObject request.
 * A process writes a new object to your S3 bucket, using either Mountpoint or another client, and then lists the directory the object is in with Mountpoint. The new object will appear in the list.
 * A process deletes an existing object from your S3 bucket using another client, and then tries to open the object with Mountpoint and read from it. The open operation will fail.
 * A process deletes an existing object from your S3 bucket, using either Mountpoint or another client, and then lists the directory the object was previously in with Mountpoint. The object will not appear in the list.
-* A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat`` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.
+* A process deletes an existing object from your S3 bucket using another client, and then queries the object’s metadata with Mountpoint using the `stat` system call. The returned metadata could reflect the old object for up to 1 second after the DeleteObject request.

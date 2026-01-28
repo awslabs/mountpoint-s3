@@ -7,7 +7,7 @@ publish = false
 default-run = "mount-s3"
 
 [dependencies]
-mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.8.5" }
+mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.9.0" }
 mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.6" }
 
 anyhow = { version = "1.0.100", features = ["backtrace"] }
@@ -29,7 +29,7 @@ assert_cmd = "2.1.1"
 assert_fs = "1.1.3"
 aws-config = "1.8.12"
 aws-credential-types = "1.2.11"
-aws-sdk-s3 = { version = "1.119.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
+aws-sdk-s3 = { version = "1.120.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
 futures = { version = "0.3.31", features = ["thread-pool"] }
 predicates = "3.1.3"
 proptest = "1.9.0"
