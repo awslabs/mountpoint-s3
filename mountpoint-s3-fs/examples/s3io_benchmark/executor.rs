@@ -16,7 +16,7 @@ use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64;
 use thiserror::Error;
 
-use crate::config::{AccessPattern, ResolvedJobConfig, WorkloadType};
+use crate::config::{AccessPattern, ChecksumAlgorithm, GlobalConfig, ResolvedJobConfig, SseType, WorkloadType};
 use crate::results::{ErrorInfo, JobResult};
 
 #[derive(Debug, Error)]
@@ -41,13 +41,36 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub fn new(first_job: &ResolvedJobConfig) -> Result<Self, ExecutionError> {
-        let max_memory_target = first_job.max_memory_target;
+    pub fn new(global: &GlobalConfig) -> Result<Self, ExecutionError> {
+        let region = global.region.as_deref().unwrap_or("us-east-1");
+        let read_part_size = global.read_part_size.unwrap_or(8 * 1024 * 1024);
+        let write_part_size = global.write_part_size.unwrap_or(8 * 1024 * 1024);
 
-        let pool = PagedPool::new_with_candidate_sizes([first_job.read_part_size, first_job.write_part_size]);
+        let max_memory_target = global.max_memory_target.unwrap_or_else(|| {
+            use sysinfo::{RefreshKind, System};
+            let sys = System::new_with_specifics(RefreshKind::everything());
+            ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize
+        });
 
-        let mut endpoint_config = EndpointConfig::new(&first_job.region);
-        if let Some(url) = &first_job.endpoint_url {
+        let bind = global.bind.as_ref().map(|v| v.clone()).unwrap_or_default();
+
+        let sse_type = global.sse.map(|sse| match sse {
+            SseType::Aes256 => "AES256".to_string(),
+            SseType::AwsKms => "aws:kms".to_string(),
+        });
+
+        let checksum_algorithm = match global.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Crc32c) {
+            ChecksumAlgorithm::Crc32c => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c),
+            ChecksumAlgorithm::Crc32 => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Crc32),
+            ChecksumAlgorithm::Sha1 => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Sha1),
+            ChecksumAlgorithm::Sha256 => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Sha256),
+            ChecksumAlgorithm::Off => None,
+        };
+
+        let pool = PagedPool::new_with_candidate_sizes([read_part_size, write_part_size]);
+
+        let mut endpoint_config = EndpointConfig::new(region);
+        if let Some(url) = &global.endpoint_url {
             let endpoint_uri = Uri::new_from_str(&Allocator::default(), url)
                 .map_err(|e| ExecutionError::ResourceInitError(format!("Failed to parse endpoint URL: {}", e)))?;
             endpoint_config = endpoint_config.endpoint(endpoint_uri);
@@ -56,16 +79,16 @@ impl Executor {
         let mut client_config = S3ClientConfig::new()
             .endpoint_config(endpoint_config)
             .read_backpressure(true)
-            .initial_read_window(first_job.read_part_size)
-            .write_part_size(first_job.write_part_size)
+            .initial_read_window(read_part_size)
+            .write_part_size(write_part_size)
             .memory_pool(pool.clone());
 
-        if let Some(throughput_gbps) = first_job.throughput_target_gbps {
+        if let Some(throughput_gbps) = global.throughput_target_gbps {
             client_config = client_config.throughput_target_gbps(throughput_gbps);
         }
 
-        if !first_job.bind.is_empty() {
-            client_config = client_config.network_interface_names(first_job.bind.clone());
+        if !bind.is_empty() {
+            client_config = client_config.network_interface_names(bind);
         }
 
         let client = S3CrtClient::new(client_config)
@@ -76,17 +99,16 @@ impl Executor {
 
         let runtime = Runtime::new(client.event_loop_group());
 
-        let server_side_encryption =
-            ServerSideEncryption::new(first_job.sse_type.clone(), first_job.sse_kms_key_id.clone());
+        let server_side_encryption = ServerSideEncryption::new(sse_type, global.sse_kms_key_id.clone());
 
         let uploader = Uploader::new(
             client.clone(),
             runtime.clone(),
             pool.clone(),
             mem_limiter.clone(),
-            UploaderConfig::new(first_job.write_part_size)
+            UploaderConfig::new(write_part_size)
                 .server_side_encryption(server_side_encryption)
-                .default_checksum_algorithm(first_job.checksum_algorithm.clone()),
+                .default_checksum_algorithm(checksum_algorithm),
         );
 
         let prefetcher =

@@ -56,7 +56,7 @@ async fn run_benchmark() -> Result<()> {
     }
 
     eprintln!("Creating shared resources...");
-    let executor = Arc::new(Executor::new(&resolved_jobs[0]).context("Failed to create executor")?);
+    let executor = Arc::new(Executor::new(&config.global).context("Failed to create executor")?);
 
     eprintln!("Executing jobs...");
     let mut handles = Vec::new();

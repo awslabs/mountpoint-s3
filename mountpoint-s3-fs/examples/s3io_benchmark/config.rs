@@ -1,4 +1,3 @@
-use mountpoint_s3_client::types::ChecksumAlgorithm as ClientChecksumAlgorithm;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -52,33 +51,23 @@ pub struct JobConfig {
     pub iteration_duration: Option<u64>,
 }
 
-/// Resolved job configuration with all parameters determined
-/// TODO: This is a lot of repetition, consider refactoring (e.g. using macros).
+/// Configuration for a single job execution
+/// Contains settings that vary per job
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedJobConfig {
     pub name: String,
     pub workload_type: WorkloadType,
+    pub bucket: String,
     pub object_key: String,
     pub object_size: u64,
     pub access_pattern: AccessPattern,
     pub read_size: usize,
-    pub read_part_size: usize,
     pub write_size: usize,
     pub randseed: u64,
     pub incremental_upload: bool,
-    pub bucket: String,
-    pub region: String,
-    pub endpoint_url: Option<String>,
-    pub throughput_target_gbps: Option<f64>,
-    pub max_memory_target: usize,
     pub iterations: usize,
     pub max_duration: Option<u64>,
     pub iteration_duration: Option<u64>,
-    pub bind: Vec<String>,
-    pub write_part_size: usize,
-    pub sse_type: Option<String>,
-    pub sse_kms_key_id: Option<String>,
-    pub checksum_algorithm: Option<ClientChecksumAlgorithm>,
 }
 
 /// Workload type: read or write
@@ -230,27 +219,6 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
 /// Merge global and job-specific configuration, applying defaults
 /// Precedence order: Job-specific > Global > Built-in default
 fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> Result<ResolvedJobConfig, ConfigError> {
-    // === Infrastructure parameters (global-only, not overridable) ===
-    let bucket = global.bucket.clone();
-
-    let region = global.region.clone().unwrap_or_else(|| "us-east-1".to_string()); // Default to us-east-1
-
-    let endpoint_url = global.endpoint_url.clone();
-    let throughput_target_gbps = global.throughput_target_gbps;
-
-    // Default to 95% of total system memory
-    let max_memory_target = if let Some(target) = global.max_memory_target {
-        target
-    } else {
-        use sysinfo::{RefreshKind, System};
-        let sys = System::new_with_specifics(RefreshKind::everything());
-        ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize // Convert bytes to MiB
-    };
-
-    let bind = global.bind.clone().unwrap_or_default(); // Empty vec default
-
-    // === Workload parameters (job overrides global, with defaults) ===
-
     // workload_type: Required field
     let workload_type = job.workload_type.or(global.job_defaults.workload_type).ok_or_else(|| {
         ConfigError::Validation(format!(
@@ -258,6 +226,8 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
             job_name
         ))
     })?;
+
+    let bucket = global.bucket.clone();
 
     // object_key: Optional, auto-generated if not specified
     let object_key = job
@@ -286,32 +256,6 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     // incremental_upload: Optional with default
     let incremental_upload = job.incremental_upload.or(global.job_defaults.incremental_upload).unwrap_or(false);
 
-    // === Global uploader configuration (same for all jobs) ===
-
-    // read_part_size: Optional with default (used during S3 client initialization)
-    let read_part_size = global.read_part_size.unwrap_or(8 * 1024 * 1024); // 8 MiB default
-
-    // write_part_size: Optional with default
-    let write_part_size = global.write_part_size.unwrap_or(8 * 1024 * 1024); // 8 MiB default
-
-    // sse: Convert to String format expected by ServerSideEncryption
-    let sse_type = global.sse.map(|sse| match sse {
-        SseType::Aes256 => "AES256".to_string(),
-        SseType::AwsKms => "aws:kms".to_string(),
-    });
-
-    // sse_kms_key_id: Optional, no default
-    let sse_kms_key_id = global.sse_kms_key_id.clone();
-
-    // checksum_algorithm: Convert to client ChecksumAlgorithm type
-    let checksum_algorithm = match global.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Crc32c) {
-        ChecksumAlgorithm::Crc32c => Some(ClientChecksumAlgorithm::Crc32c),
-        ChecksumAlgorithm::Crc32 => Some(ClientChecksumAlgorithm::Crc32),
-        ChecksumAlgorithm::Sha1 => Some(ClientChecksumAlgorithm::Sha1),
-        ChecksumAlgorithm::Sha256 => Some(ClientChecksumAlgorithm::Sha256),
-        ChecksumAlgorithm::Off => None,
-    };
-
     // iterations: Optional with default
     let iterations = job.iterations.or(global.job_defaults.iterations).unwrap_or(1); // 1 iteration default
 
@@ -324,26 +268,16 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     Ok(ResolvedJobConfig {
         name: job_name.to_string(),
         workload_type,
+        bucket,
         object_key,
         object_size,
         access_pattern,
         read_size,
-        read_part_size,
         write_size,
         randseed,
         incremental_upload,
-        bucket,
-        region,
-        endpoint_url,
-        throughput_target_gbps,
-        max_memory_target,
         iterations,
         max_duration,
         iteration_duration,
-        bind,
-        write_part_size,
-        sse_type,
-        sse_kms_key_id,
-        checksum_algorithm,
     })
 }
