@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 use thiserror::Error;
 
 /// Top-level configuration structure
@@ -45,10 +46,12 @@ pub struct JobConfig {
     pub randseed: Option<u64>,
     pub incremental_upload: Option<bool>,
     pub iterations: Option<usize>, // Number of iterations in each job
-    pub max_duration: Option<u64>, // max duration of jobs in seconds
-    // Seconds per iteration. Used in random read access pattern only.
+    #[serde(default, with = "humantime_serde")]
+    pub max_duration: Option<Duration>, // max duration of jobs
+    // Duration per iteration. Used in random read access pattern only.
     // If specified then job is time-based instead of reading until total bytes equal to file size.
-    pub iteration_duration: Option<u64>,
+    #[serde(default, with = "humantime_serde")]
+    pub iteration_duration: Option<Duration>,
 }
 
 /// Configuration for a single job execution
@@ -66,8 +69,8 @@ pub struct ResolvedJobConfig {
     pub randseed: u64,
     pub incremental_upload: bool,
     pub iterations: usize,
-    pub max_duration: Option<u64>,
-    pub iteration_duration: Option<u64>,
+    pub max_duration: Option<Duration>,
+    pub iteration_duration: Option<Duration>,
 }
 
 /// Workload type: read or write

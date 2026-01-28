@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::HeadObjectParams;
@@ -167,7 +167,7 @@ impl Executor {
         let mut iterations_completed = 0usize;
 
         let job_start = Instant::now();
-        let max_duration = config.max_duration.map(Duration::from_secs);
+        let max_duration = config.max_duration;
 
         for _iteration in 0..config.iterations {
             if let Some(max_dur) = max_duration
@@ -240,8 +240,8 @@ impl Executor {
         let mut iterations_completed = 0usize;
 
         let job_start = Instant::now();
-        let max_duration = config.max_duration.map(Duration::from_secs);
-        let iteration_duration = config.iteration_duration.map(Duration::from_secs);
+        let max_duration = config.max_duration;
+        let iteration_duration = config.iteration_duration;
 
         for iteration in 0..config.iterations {
             if let Some(max_dur) = max_duration
@@ -337,7 +337,7 @@ impl Executor {
         let mut iterations_completed = 0usize;
 
         let job_start = Instant::now();
-        let max_duration = config.max_duration.map(Duration::from_secs);
+        let max_duration = config.max_duration;
 
         // Allocate buffer once and reuse it for all writes
         let contents = vec![0xab; config.write_size];
@@ -421,7 +421,7 @@ impl Executor {
         let mut iterations_completed = 0usize;
 
         let job_start = Instant::now();
-        let max_duration = config.max_duration.map(Duration::from_secs);
+        let max_duration = config.max_duration;
 
         // Allocate buffer once and reuse it for all writes
         let contents = vec![0xab; config.write_size];
