@@ -1,4 +1,6 @@
 use serde::Serialize;
+use serde_with::{DurationSecondsWithFrac, serde_as};
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -10,20 +12,21 @@ pub enum AggregationError {
     IoError(#[from] std::io::Error),
 }
 
+#[serde_as]
 #[derive(Debug, Clone, Serialize)]
 pub struct JobResult {
     pub job_name: String,
     pub workload_type: String,
     pub iterations_completed: usize,
     pub total_bytes: u64,
-    pub elapsed_seconds: f64,
+    #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+    pub elapsed_seconds: Duration,
     pub errors: Vec<ErrorInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorInfo {
     pub error_type: String,
-    pub count: usize,
     pub message: String,
 }
 
@@ -33,10 +36,12 @@ pub struct BenchmarkResults {
     pub summary: SummaryResult,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, Serialize)]
 pub struct SummaryResult {
     pub total_bytes: u64,
-    pub total_elapsed_seconds: f64,
+    #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+    pub total_elapsed_seconds: Duration,
     pub total_errors: usize,
 }
 
@@ -46,9 +51,9 @@ impl BenchmarkResults {
         let max_duration = results
             .iter()
             .map(|r| r.elapsed_seconds)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0);
-        let total_errors: usize = results.iter().flat_map(|r| &r.errors).map(|e| e.count).sum();
+            .max()
+            .unwrap_or(Duration::ZERO);
+        let total_errors: usize = results.iter().flat_map(|r| &r.errors).count();
 
         BenchmarkResults {
             jobs: results,

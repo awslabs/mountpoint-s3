@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use config::{WorkloadType, parse_config_file, prepare_jobs, validate_config};
-use executor::{create_shared_resources, execute_read_job, execute_write_job};
+use executor::Executor;
 use results::BenchmarkResults;
 
 #[derive(Parser, Debug)]
@@ -27,7 +27,7 @@ struct Cli {
 async fn main() {
     // Run the benchmark and handle errors
     if let Err(e) = run_benchmark().await {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {:?}", e);
         process::exit(1);
     }
 }
@@ -56,13 +56,12 @@ async fn run_benchmark() -> Result<()> {
     }
 
     eprintln!("Creating shared resources...");
-    let shared_resources =
-        Arc::new(create_shared_resources(&resolved_jobs[0]).context("Failed to create shared resources")?);
+    let executor = Arc::new(Executor::new(&resolved_jobs[0]).context("Failed to create executor")?);
 
     eprintln!("Executing jobs...");
     let mut handles = Vec::new();
     for job in resolved_jobs {
-        let resources = Arc::clone(&shared_resources);
+        let executor = Arc::clone(&executor);
         let job_config = job.clone();
 
         let handle = tokio::spawn(async move {
@@ -71,8 +70,8 @@ async fn run_benchmark() -> Result<()> {
 
             // Execute the job based on workload type
             let result = match job_config.workload_type {
-                WorkloadType::Read => execute_read_job(&job_config, &resources).await,
-                WorkloadType::Write => execute_write_job(&job_config, &resources).await,
+                WorkloadType::Read => executor.execute_read_job(&job_config).await,
+                WorkloadType::Write => executor.execute_write_job(&job_config).await,
             };
 
             let duration = start.elapsed();
@@ -126,7 +125,10 @@ async fn run_benchmark() -> Result<()> {
     eprintln!();
     eprintln!("Benchmark complete!");
     eprintln!("  Total bytes: {}", benchmark_results.summary.total_bytes);
-    eprintln!("  Duration: {:.2}s", benchmark_results.summary.total_elapsed_seconds);
+    eprintln!(
+        "  Duration: {:.2}s",
+        benchmark_results.summary.total_elapsed_seconds.as_secs_f64()
+    );
     eprintln!("  Total errors: {}", benchmark_results.summary.total_errors);
 
     Ok(())

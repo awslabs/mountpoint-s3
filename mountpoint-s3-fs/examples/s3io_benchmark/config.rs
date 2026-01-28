@@ -15,7 +15,7 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct GlobalConfig {
     // === Infrastructure (required or optional, not overridable) ===
-    pub bucket: Option<String>,
+    pub bucket: String,
     pub region: Option<String>,
     pub endpoint_url: Option<String>,
     pub throughput_target_gbps: Option<f64>,
@@ -29,6 +29,13 @@ pub struct GlobalConfig {
     pub checksum_algorithm: Option<ChecksumAlgorithm>,
 
     // === Job defaults (optional, overridable per job) ===
+    #[serde(flatten)]
+    pub job_defaults: JobConfig,
+}
+
+/// Job-specific configuration parameters (can override global defaults)
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct JobConfig {
     pub numjobs: Option<usize>, // Number of parallel jobs to spawn. Default: 1.
     pub workload_type: Option<WorkloadType>,
     pub object_key: Option<String>,
@@ -42,25 +49,6 @@ pub struct GlobalConfig {
     pub max_duration: Option<u64>, // max duration of jobs in seconds
     // Seconds per iteration. Used in random read access pattern only.
     // If specified then job is time-based instead of reading until total bytes equal to file size.
-    pub iteration_duration: Option<u64>,
-}
-
-/// Job-specific configuration parameters (can override global defaults)
-/// TODO: This is a lot of repetition, consider refactoring (e.g. using macros).
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct JobConfig {
-    // === Job parameters (overridable) ===
-    pub numjobs: Option<usize>,
-    pub workload_type: Option<WorkloadType>,
-    pub object_key: Option<String>,
-    pub object_size: Option<u64>,
-    pub access_pattern: Option<AccessPattern>,
-    pub read_size: Option<usize>,
-    pub write_size: Option<usize>,
-    pub randseed: Option<u64>,
-    pub incremental_upload: Option<bool>,
-    pub iterations: Option<usize>,
-    pub max_duration: Option<u64>,
     pub iteration_duration: Option<u64>,
 }
 
@@ -170,15 +158,8 @@ pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
 
 /// Validate a single job configuration
 pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), ConfigError> {
-    // Validate required field: bucket (must be in global)
-    if global.bucket.is_none() {
-        return Err(ConfigError::Validation(
-            "Missing required field 'bucket' in global config".to_string(),
-        ));
-    }
-
     // Validate required field: workload_type (must be in job or global)
-    let workload_type = job.workload_type.or(global.workload_type);
+    let workload_type = job.workload_type.or(global.job_defaults.workload_type);
     if workload_type.is_none() {
         return Err(ConfigError::Validation(
             "Missing required field 'workload_type' (must be in job or global config)".to_string(),
@@ -203,7 +184,7 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
     }
 
     // Validate numjobs constraint (must be >= 1 if specified)
-    let numjobs = job.numjobs.or(global.numjobs);
+    let numjobs = job.numjobs.or(global.job_defaults.numjobs);
     if let Some(numjobs_val) = numjobs
         && numjobs_val < 1
     {
@@ -221,7 +202,7 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
 
     for (job_name, job_config) in config.jobs {
         // Determine numjobs value (job-specific overrides global, default to 1)
-        let numjobs = job_config.numjobs.or(config.global.numjobs).unwrap_or(1);
+        let numjobs = job_config.numjobs.or(config.global.job_defaults.numjobs).unwrap_or(1);
 
         if numjobs == 1 {
             // Single job
@@ -250,12 +231,7 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
 /// Precedence order: Job-specific > Global > Built-in default
 fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> Result<ResolvedJobConfig, ConfigError> {
     // === Infrastructure parameters (global-only, not overridable) ===
-    let bucket = global.bucket.clone().ok_or_else(|| {
-        ConfigError::Validation(format!(
-            "Job '{}': Missing required field 'bucket' in global config",
-            job_name
-        ))
-    })?;
+    let bucket = global.bucket.clone();
 
     let region = global.region.clone().unwrap_or_else(|| "us-east-1".to_string()); // Default to us-east-1
 
@@ -276,7 +252,7 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     // === Workload parameters (job overrides global, with defaults) ===
 
     // workload_type: Required field
-    let workload_type = job.workload_type.or(global.workload_type).ok_or_else(|| {
+    let workload_type = job.workload_type.or(global.job_defaults.workload_type).ok_or_else(|| {
         ConfigError::Validation(format!(
             "Job '{}': Missing required field 'workload_type' (must be in job or global config)",
             job_name
@@ -287,28 +263,28 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     let object_key = job
         .object_key
         .clone()
-        .or_else(|| global.object_key.clone())
+        .or_else(|| global.job_defaults.object_key.clone())
         .unwrap_or_else(|| format!("{}.bin", job_name));
 
     // object_size: Optional with default
-    let object_size = job.object_size.or(global.object_size).unwrap_or(1024 * 1024 * 1024); // 1 GiB default
+    let object_size = job.object_size.or(global.job_defaults.object_size).unwrap_or(1024 * 1024 * 1024); // 1 GiB default
 
     // access_pattern: Optional with default
     let access_pattern = job
         .access_pattern
-        .or(global.access_pattern)
+        .or(global.job_defaults.access_pattern)
         .unwrap_or(AccessPattern::Sequential); // Default to Sequential
 
     // I/O sizes: Optional with defaults
-    let read_size = job.read_size.or(global.read_size).unwrap_or(128 * 1024); // 128 KiB default
+    let read_size = job.read_size.or(global.job_defaults.read_size).unwrap_or(128 * 1024); // 128 KiB default
 
-    let write_size = job.write_size.or(global.write_size).unwrap_or(128 * 1024); // 128 KiB default
+    let write_size = job.write_size.or(global.job_defaults.write_size).unwrap_or(128 * 1024); // 128 KiB default
 
     // randseed: Optional with default (matching prefetch_benchmark)
-    let randseed = job.randseed.or(global.randseed).unwrap_or(1); // Default to 1
+    let randseed = job.randseed.or(global.job_defaults.randseed).unwrap_or(1); // Default to 1
 
     // incremental_upload: Optional with default
-    let incremental_upload = job.incremental_upload.or(global.incremental_upload).unwrap_or(false);
+    let incremental_upload = job.incremental_upload.or(global.job_defaults.incremental_upload).unwrap_or(false);
 
     // === Global uploader configuration (same for all jobs) ===
 
@@ -337,13 +313,13 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     };
 
     // iterations: Optional with default
-    let iterations = job.iterations.or(global.iterations).unwrap_or(1); // 1 iteration default
+    let iterations = job.iterations.or(global.job_defaults.iterations).unwrap_or(1); // 1 iteration default
 
     // max_duration: Optional, no default
-    let max_duration = job.max_duration.or(global.max_duration);
+    let max_duration = job.max_duration.or(global.job_defaults.max_duration);
 
     // iteration_duration: Optional, no default (random read only)
-    let iteration_duration = job.iteration_duration.or(global.iteration_duration);
+    let iteration_duration = job.iteration_duration.or(global.job_defaults.iteration_duration);
 
     Ok(ResolvedJobConfig {
         name: job_name.to_string(),
