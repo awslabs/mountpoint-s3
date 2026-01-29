@@ -65,6 +65,11 @@ benchmarks:
 
   prefetch:
     max_memory_target: !!null # memory upper-limit in MB
+    access_patterns:
+      - sequential
+      - random
+    access_pattern: "${benchmarks.prefetch.access_patterns[0]}"
+    randseed: ${iteration} # Use Hydra's iteration counter as the seed for random access pattern to get different iteration patterns
 
   crt:
     crt_benchmarks_path: !!null

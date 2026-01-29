@@ -56,8 +56,10 @@ benchmark type is fio. You can modify the benchmark type to run prefetch, client
 To run prefetch benchmarks, you can execute a command like this:
 
 ```
-uv run benchmark.py benchmark_type=fio  --  s3_bucket=amzn-s3-demo-bucket
+uv run benchmark.py benchmark_type=prefetch  --  s3_bucket=amzn-s3-demo-bucket
 ```
+
+**Note:** Before running the prefetch benchmark for the first time, you must run the fio benchmark once to populate the S3 bucket with the necessary test objects.
 
 Output is written to `multirun/` within directories for the date, time, and experiment number run.
 The output directory includes a few different files from an individual experiment run,
