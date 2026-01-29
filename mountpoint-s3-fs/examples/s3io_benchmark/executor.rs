@@ -52,7 +52,7 @@ impl Executor {
             ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize
         });
 
-        let bind = global.bind.as_ref().map(|v| v.clone()).unwrap_or_default();
+        let bind = global.bind.clone().unwrap_or_default();
 
         let sse_type = global.sse.map(|sse| match sse {
             SseType::Aes256 => "AES256".to_string(),
