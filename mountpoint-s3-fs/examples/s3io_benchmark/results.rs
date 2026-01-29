@@ -59,7 +59,7 @@ impl BenchmarkResults {
             jobs: results,
             summary: SummaryResult {
                 total_bytes,
-                total_elapsed_seconds: total_elapsed_seconds,
+                total_elapsed_seconds,
                 total_errors,
             },
         }
