@@ -327,11 +327,57 @@ impl Executor {
         })
     }
 
-    async fn execute_multipart_upload(&self, config: &ResolvedJobConfig) -> JobResult {
+    async fn execute_multipart_upload_iteration(
+        &self,
+        config: &ResolvedJobConfig,
+        contents: &[u8],
+        max_duration: Option<std::time::Duration>,
+        job_start: Instant,
+    ) -> Result<u64, ErrorInfo> {
         let uploader = &self.uploader;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
 
+        let mut request = uploader
+            .start_atomic_upload(bucket.to_string(), object_key.to_string())
+            .map_err(|e| ErrorInfo {
+                error_type: "StartUploadError".to_string(),
+                message: format!("Failed to start upload: {}", e),
+            })?;
+
+        let mut offset = 0;
+        let target_size = config.object_size as usize;
+        while offset < target_size {
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
+            }
+
+            let bytes_written = request.write(offset as i64, contents).await.map_err(|e| ErrorInfo {
+                error_type: "WriteError".to_string(),
+                message: format!("Write failed at offset {}: {}", offset, e),
+            })?;
+
+            offset += bytes_written;
+        }
+
+        if offset < target_size {
+            return Err(ErrorInfo {
+                error_type: "IncompleteUpload".to_string(),
+                message: format!("Upload incomplete: wrote {} of {} bytes", offset, target_size),
+            });
+        }
+
+        request.complete().await.map_err(|e| ErrorInfo {
+            error_type: "CompleteError".to_string(),
+            message: format!("Failed to complete upload: {}", e),
+        })?;
+
+        Ok(offset as u64)
+    }
+
+    async fn execute_multipart_upload(&self, config: &ResolvedJobConfig) -> JobResult {
         let mut total_bytes = 0u64;
         let mut errors = Vec::new();
         let mut iterations_completed = 0usize;
@@ -349,52 +395,16 @@ impl Executor {
                 break;
             }
 
-            let mut request = match uploader.start_atomic_upload(bucket.to_string(), object_key.to_string()) {
-                Ok(req) => req,
-                Err(e) => {
-                    errors.push(ErrorInfo {
-                        error_type: "StartUploadError".to_string(),
-                        message: format!("Failed to start upload: {}", e),
-                    });
-                    continue;
+            match self
+                .execute_multipart_upload_iteration(config, &contents, max_duration, job_start)
+                .await
+            {
+                Ok(bytes_written) => {
+                    total_bytes += bytes_written;
+                    iterations_completed += 1;
                 }
-            };
-
-            let mut offset = 0;
-            let target_size = config.object_size as usize;
-            while offset < target_size {
-                if let Some(max_dur) = max_duration
-                    && job_start.elapsed() >= max_dur
-                {
-                    break;
-                }
-
-                match request.write(offset as i64, &contents).await {
-                    Ok(bytes_written) => {
-                        offset += bytes_written;
-                        total_bytes += bytes_written as u64;
-                    }
-                    Err(e) => {
-                        errors.push(ErrorInfo {
-                            error_type: "WriteError".to_string(),
-                            message: format!("Write failed at offset {}: {}", offset, e),
-                        });
-                        break;
-                    }
-                }
-            }
-
-            if offset >= target_size {
-                match request.complete().await {
-                    Ok(_result) => {
-                        iterations_completed += 1;
-                    }
-                    Err(e) => {
-                        errors.push(ErrorInfo {
-                            error_type: "CompleteError".to_string(),
-                            message: format!("Failed to complete upload: {}", e),
-                        });
-                    }
+                Err(error) => {
+                    errors.push(error);
                 }
             }
         }
@@ -411,11 +421,52 @@ impl Executor {
         }
     }
 
-    async fn execute_incremental_upload(&self, config: &ResolvedJobConfig) -> JobResult {
+    async fn execute_incremental_upload_iteration(
+        &self,
+        config: &ResolvedJobConfig,
+        contents: &[u8],
+        max_duration: Option<std::time::Duration>,
+        job_start: Instant,
+    ) -> Result<u64, ErrorInfo> {
         let uploader = &self.uploader;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
 
+        let mut request = uploader.start_incremental_upload(bucket.to_string(), object_key.to_string(), 0, None);
+
+        let mut offset = 0u64;
+        let target_size = config.object_size;
+        while offset < target_size {
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
+            }
+
+            request.write(offset, contents).await.map_err(|e| ErrorInfo {
+                error_type: "IncrementalWriteError".to_string(),
+                message: format!("Incremental write failed at offset {}: {}", offset, e),
+            })?;
+
+            offset += contents.len() as u64;
+        }
+
+        if offset < target_size {
+            return Err(ErrorInfo {
+                error_type: "IncompleteUpload".to_string(),
+                message: format!("Upload incomplete: wrote {} of {} bytes", offset, target_size),
+            });
+        }
+
+        request.complete().await.map_err(|e| ErrorInfo {
+            error_type: "CompleteError".to_string(),
+            message: format!("Failed to complete upload: {}", e),
+        })?;
+
+        Ok(offset)
+    }
+
+    async fn execute_incremental_upload(&self, config: &ResolvedJobConfig) -> JobResult {
         let mut total_bytes = 0u64;
         let mut errors = Vec::new();
         let mut iterations_completed = 0usize;
@@ -433,43 +484,16 @@ impl Executor {
                 break;
             }
 
-            let mut request = uploader.start_incremental_upload(bucket.to_string(), object_key.to_string(), 0, None);
-
-            let mut offset = 0u64;
-            let target_size = config.object_size;
-            while offset < target_size {
-                if let Some(max_dur) = max_duration
-                    && job_start.elapsed() >= max_dur
-                {
-                    break;
+            match self
+                .execute_incremental_upload_iteration(config, &contents, max_duration, job_start)
+                .await
+            {
+                Ok(bytes_written) => {
+                    total_bytes += bytes_written;
+                    iterations_completed += 1;
                 }
-
-                match request.write(offset, &contents).await {
-                    Ok(_) => {
-                        offset += contents.len() as u64;
-                        total_bytes += contents.len() as u64;
-                    }
-                    Err(e) => {
-                        errors.push(ErrorInfo {
-                            error_type: "IncrementalWriteError".to_string(),
-                            message: format!("Incremental write failed at offset {}: {}", offset, e),
-                        });
-                        break;
-                    }
-                }
-            }
-
-            if offset >= target_size {
-                match request.complete().await {
-                    Ok(_result) => {
-                        iterations_completed += 1;
-                    }
-                    Err(e) => {
-                        errors.push(ErrorInfo {
-                            error_type: "CompleteError".to_string(),
-                            message: format!("Failed to complete upload: {}", e),
-                        });
-                    }
+                Err(error) => {
+                    errors.push(error);
                 }
             }
         }

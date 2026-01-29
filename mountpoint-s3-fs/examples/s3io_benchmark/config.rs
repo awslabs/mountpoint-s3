@@ -137,29 +137,10 @@ pub fn parse_config_string(content: &str) -> Result<Config, ConfigError> {
     Ok(toml::from_str(content)?)
 }
 
-/// Validate the entire configuration
-pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
-    // Validate each job
-    for (job_name, job_config) in &config.jobs {
-        validate_job(job_config, &config.global)
-            .map_err(|e| ConfigError::Validation(format!("Job '{}': {}", job_name, e)))?;
-    }
-
-    Ok(())
-}
-
-/// Validate a single job configuration
-pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), ConfigError> {
-    // Validate required field: workload_type (must be in job or global)
-    let workload_type = job.workload_type.or(global.job_defaults.workload_type);
-    if workload_type.is_none() {
-        return Err(ConfigError::Validation(
-            "Missing required field 'workload_type' (must be in job or global config)".to_string(),
-        ));
-    }
-
-    // Validate network interfaces if specified (global only)
-    if let Some(bind) = &global.bind {
+/// Prepare jobs by resolving configuration inheritance and validating
+pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigError> {
+    // Validate global network interfaces if specified
+    if let Some(bind) = &config.global.bind {
         if bind.is_empty() {
             return Err(ConfigError::Validation(
                 "Invalid value for 'bind' in global config: must contain at least one network interface".to_string(),
@@ -175,26 +156,19 @@ pub fn validate_job(job: &JobConfig, global: &GlobalConfig) -> Result<(), Config
         }
     }
 
-    // Validate numjobs constraint (must be >= 1 if specified)
-    let numjobs = job.numjobs.or(global.job_defaults.numjobs);
-    if let Some(numjobs_val) = numjobs
-        && numjobs_val < 1
-    {
-        return Err(ConfigError::Validation(
-            "Invalid value for 'numjobs': must be at least 1".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-/// Prepare jobs by resolving configuration inheritance
-pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigError> {
     let mut resolved_jobs = Vec::new();
 
     for (job_name, job_config) in config.jobs {
         // Determine numjobs value (job-specific overrides global, default to 1)
         let numjobs = job_config.numjobs.or(config.global.job_defaults.numjobs).unwrap_or(1);
+
+        // Validate numjobs constraint (must be >= 1)
+        if numjobs < 1 {
+            return Err(ConfigError::Validation(format!(
+                "Job '{}': Invalid value for 'numjobs': must be at least 1",
+                job_name
+            )));
+        }
 
         if numjobs == 1 {
             // Single job
@@ -240,7 +214,10 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         .unwrap_or_else(|| format!("{}.bin", job_name));
 
     // object_size: Optional with default
-    let object_size = job.object_size.or(global.job_defaults.object_size).unwrap_or(1024 * 1024 * 1024); // 1 GiB default
+    let object_size = job
+        .object_size
+        .or(global.job_defaults.object_size)
+        .unwrap_or(1024 * 1024 * 1024); // 1 GiB default
 
     // access_pattern: Optional with default
     let access_pattern = job
@@ -257,7 +234,10 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     let randseed = job.randseed.or(global.job_defaults.randseed).unwrap_or(1); // Default to 1
 
     // incremental_upload: Optional with default
-    let incremental_upload = job.incremental_upload.or(global.job_defaults.incremental_upload).unwrap_or(false);
+    let incremental_upload = job
+        .incremental_upload
+        .or(global.job_defaults.incremental_upload)
+        .unwrap_or(false);
 
     // iterations: Optional with default
     let iterations = job.iterations.or(global.job_defaults.iterations).unwrap_or(1); // 1 iteration default
