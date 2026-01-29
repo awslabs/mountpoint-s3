@@ -66,10 +66,10 @@ fn run_benchmark(
                             .await
                             .expect("couldn't create get request");
                         let mut backpressure_handle = request.backpressure_handle().cloned();
-                        if let Some(window_size) = backpressure_window_size {
-                            if let Some(backpressure_handle) = backpressure_handle.as_mut() {
-                                backpressure_handle.ensure_read_window(window_size as u64);
-                            }
+                        if let Some(window_size) = backpressure_window_size
+                            && let Some(backpressure_handle) = backpressure_handle.as_mut()
+                        {
+                            backpressure_handle.ensure_read_window(window_size as u64);
                         }
 
                         let mut request = pin!(request);
