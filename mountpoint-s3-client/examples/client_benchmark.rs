@@ -39,7 +39,7 @@ fn run_benchmark(
     num_iterations: usize,
     bucket: &str,
     keys: &[&str],
-    enable_backpressure: bool,
+    backpressure_window_size: Option<usize>,
     output_path: Option<&Path>,
     max_duration: Option<Duration>,
 ) {
@@ -66,11 +66,11 @@ fn run_benchmark(
                             .await
                             .expect("couldn't create get request");
                         let mut backpressure_handle = request.backpressure_handle().cloned();
-                        if enable_backpressure
-                            && let Some(backpressure_handle) = backpressure_handle.as_mut() {
-                                let initial_read_window_size = client.initial_read_window_size().expect("initial size always set when backpressure is enabled");
-                                backpressure_handle.ensure_read_window(initial_read_window_size as u64);
+                        if let Some(window_size) = backpressure_window_size {
+                            if let Some(backpressure_handle) = backpressure_handle.as_mut() {
+                                backpressure_handle.ensure_read_window(window_size as u64);
                             }
+                        }
 
                         let mut request = pin!(request);
                         while Instant::now() < timeout {
@@ -85,19 +85,18 @@ fn run_benchmark(
                                     );
                                     received_size_clone.fetch_add(part_len as u64, Ordering::SeqCst);
                                     received_obj_len += part_len as u64;
-                                    if enable_backpressure
-                                        && let Some(backpressure_handle) = backpressure_handle.as_mut() {
-                                            tracing::info!(
-                                                target: "benchmarking_instrumentation",
-                                                preferred_read_window_size = ?client.initial_read_window_size(),
-                                                prev_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len - part_len as u64),
-                                                new_read_window_end_offset = ?(client.initial_read_window_size().unwrap() as u64 + received_obj_len),
-                                                part_len = part_len,
-                                                "advancing read window",
-                                            );
+                                    if let Some(backpressure_handle) = backpressure_handle.as_mut() {
+                                        tracing::info!(
+                                            target: "benchmarking_instrumentation",
+                                            backpressure_window_size = ?backpressure_window_size,
+                                            prev_read_window_end_offset = ?(backpressure_window_size.unwrap() as u64 + received_obj_len - part_len as u64),
+                                            new_read_window_end_offset = ?(backpressure_window_size.unwrap() as u64 + received_obj_len),
+                                            part_len = part_len,
+                                            "advancing read window",
+                                        );
 
-                                            backpressure_handle.increment_read_window(part_len);
-                                        }
+                                        backpressure_handle.increment_read_window(part_len);
+                                    }
                                 }
                                 Some(Err(e)) => {
                                     tracing::error!(error = ?e, "request failed");
@@ -205,14 +204,12 @@ struct CliArgs {
     part_size: usize,
     #[arg(long, help = "Number of benchmark iterations", default_value = "1")]
     iterations: usize,
-    #[arg(long, help = "Enable CRT backpressure mode")]
-    enable_backpressure: bool,
     #[arg(
         long,
-        help = "Initial read window size in bytes, used to dictate how far ahead we request data from S3. Required when --enable-backpressure is set.",
-        required_if_eq("enable_backpressure", "true")
+        help = "Sliding window size in bytes for backpressure mode. Controls how far ahead we request data from S3.",
+        value_name = "BYTES"
     )]
-    initial_window_size: Option<usize>,
+    backpressure_window_size: Option<usize>,
     #[arg(long, help = "Output file to write the results to", value_name = "OUTPUT_FILE")]
     output_file: Option<PathBuf>,
     #[arg(
@@ -233,11 +230,8 @@ fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S
         .part_size(args.part_size)
         .memory_pool(pool.clone());
 
-    if args.enable_backpressure {
-        config = config.read_backpressure(true).initial_read_window(
-            args.initial_window_size
-                .expect("read window size is required when backpressure is enabled"),
-        );
+    if let Some(window_size) = args.backpressure_window_size {
+        config = config.read_backpressure(true).initial_read_window(window_size);
     }
 
     const ENV_VAR_KEY_CRT_ELG_THREADS: &str = "UNSTABLE_CRT_EVENTLOOP_THREADS";
@@ -273,7 +267,7 @@ fn main() {
                 args.iterations,
                 bucket,
                 &key_refs,
-                args.enable_backpressure,
+                args.backpressure_window_size,
                 args.output_file.as_deref(),
                 args.max_duration,
             );
@@ -297,7 +291,7 @@ fn main() {
                 args.iterations,
                 BUCKET,
                 keys,
-                args.enable_backpressure,
+                args.backpressure_window_size,
                 args.output_file.as_deref(),
                 args.max_duration,
             );
