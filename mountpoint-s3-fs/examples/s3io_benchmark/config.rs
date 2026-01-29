@@ -36,7 +36,8 @@ pub struct GlobalConfig {
 /// Job-specific configuration parameters (can override global defaults)
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct JobConfig {
-    pub numjobs: Option<usize>, // Number of parallel jobs to spawn. Default: 1.
+    /// Number of parallel jobs to spawn. Default: 1.
+    pub numjobs: Option<usize>,
     pub workload_type: Option<WorkloadType>,
     pub object_key: Option<String>,
     pub object_size: Option<u64>,
@@ -45,11 +46,13 @@ pub struct JobConfig {
     pub write_size: Option<usize>,
     pub randseed: Option<u64>,
     pub incremental_upload: Option<bool>,
-    pub iterations: Option<usize>, // Number of iterations in each job
+    /// Number of iterations in each job
+    pub iterations: Option<usize>,
+    /// Max duration of jobs
     #[serde(default, with = "humantime_serde")]
-    pub max_duration: Option<Duration>, // max duration of jobs
-    // Duration per iteration. Used in random read access pattern only.
-    // If specified then job is time-based instead of reading until total bytes equal to file size.
+    pub max_duration: Option<Duration>,
+    /// Duration per iteration. Used in random read access pattern only.
+    /// If specified then job is time-based instead of reading until total bytes equal to file size.
     #[serde(default, with = "humantime_serde")]
     pub iteration_duration: Option<Duration>,
 }

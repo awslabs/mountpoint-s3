@@ -48,7 +48,7 @@ pub struct SummaryResult {
 impl BenchmarkResults {
     pub fn aggregate(results: Vec<JobResult>) -> Self {
         let total_bytes: u64 = results.iter().map(|r| r.total_bytes).sum();
-        let max_duration = results
+        let total_elapsed_seconds = results
             .iter()
             .map(|r| r.elapsed_seconds)
             .max()
@@ -59,7 +59,7 @@ impl BenchmarkResults {
             jobs: results,
             summary: SummaryResult {
                 total_bytes,
-                total_elapsed_seconds: max_duration,
+                total_elapsed_seconds: total_elapsed_seconds,
                 total_errors,
             },
         }
