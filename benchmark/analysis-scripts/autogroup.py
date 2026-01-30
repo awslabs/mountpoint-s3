@@ -244,13 +244,14 @@ def main() -> None:
                 # Use custom ordering for benchmark type
                 key_parts.append(benchmark_type_sort_key(value))
             else:
-                # For other columns, sort alphabetically/numerically
-                try:
-                    # Try to convert to float for numeric sorting
-                    key_parts.append(float(value))
-                except (ValueError, TypeError):
-                    # If not numeric, sort as string
-                    key_parts.append(str(value))
+                # Handle None/null values before trying float conversion
+                if value == "None" or value == "null" or value is None:
+                    key_parts.append(-1)  # Sort nulls first
+                else:
+                    try:
+                        key_parts.append(float(value))
+                    except (ValueError, TypeError):
+                        key_parts.append(str(value))
         return key_parts
 
     aggregated_rows.sort(key=sort_key)
