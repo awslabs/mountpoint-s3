@@ -27,6 +27,9 @@ pub struct GlobalConfig {
     pub sse: Option<SseType>,
     pub sse_kms_key_id: Option<String>,
     pub checksum_algorithm: Option<ChecksumAlgorithm>,
+    /// Memory monitoring polling interval. Default: 100ms.
+    #[serde(default, with = "humantime_serde")]
+    pub memory_monitor_interval: Option<Duration>,
 
     // === Job defaults (optional, overridable per job) ===
     #[serde(flatten)]
