@@ -1,5 +1,6 @@
 mod config;
 mod executor;
+mod monitoring;
 mod results;
 
 use anyhow::{Context, Result};
@@ -11,6 +12,7 @@ use std::time::Instant;
 
 use config::{WorkloadType, parse_config_file, prepare_jobs};
 use executor::Executor;
+use monitoring::MemoryMonitor;
 use results::BenchmarkResults;
 
 #[derive(Parser, Debug)]
@@ -54,6 +56,10 @@ async fn run_benchmark() -> Result<()> {
 
     eprintln!("Creating shared resources...");
     let executor = Arc::new(Executor::new(&config.global).context("Failed to create executor")?);
+
+    // Start memory monitoring
+    let mut memory_monitor = MemoryMonitor::default();
+    memory_monitor.start(config.global.memory_monitor_interval);
 
     eprintln!("Executing jobs...");
     let mut handles = Vec::new();
@@ -103,10 +109,14 @@ async fn run_benchmark() -> Result<()> {
         }
     }
 
+    // Stop memory monitoring and get peak memory
+    memory_monitor.stop();
+    let peak_memory_mib = memory_monitor.peak_memory_mib();
+
     eprintln!("Completed {} job(s)", job_results.len());
     eprintln!();
     eprintln!("Aggregating results...");
-    let benchmark_results = BenchmarkResults::aggregate(job_results);
+    let benchmark_results = BenchmarkResults::aggregate(job_results, peak_memory_mib);
     let output_file = config.global.output_file.as_deref();
     if let Some(path) = output_file {
         eprintln!("Writing results to: {}", path);
@@ -127,6 +137,7 @@ async fn run_benchmark() -> Result<()> {
         benchmark_results.summary.total_elapsed_seconds.as_secs_f64()
     );
     eprintln!("  Total errors: {}", benchmark_results.summary.total_errors);
+    eprintln!("  Peak memory: {:.2} MiB", benchmark_results.summary.peak_memory_mib);
 
     Ok(())
 }

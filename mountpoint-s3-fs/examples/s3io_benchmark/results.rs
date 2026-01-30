@@ -43,10 +43,11 @@ pub struct SummaryResult {
     #[serde_as(as = "DurationSecondsWithFrac<f64>")]
     pub total_elapsed_seconds: Duration,
     pub total_errors: usize,
+    pub peak_memory_mib: f64,
 }
 
 impl BenchmarkResults {
-    pub fn aggregate(results: Vec<JobResult>) -> Self {
+    pub fn aggregate(results: Vec<JobResult>, peak_memory_mib: f64) -> Self {
         let total_bytes: u64 = results.iter().map(|r| r.total_bytes).sum();
         let total_elapsed_seconds = results
             .iter()
@@ -61,6 +62,7 @@ impl BenchmarkResults {
                 total_bytes,
                 total_elapsed_seconds,
                 total_errors,
+                peak_memory_mib,
             },
         }
     }
