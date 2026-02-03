@@ -1,5 +1,6 @@
 ## Unreleased
 
+* Allow mounting on top of `autofs` managed directories. ([#1762](https://github.com/awslabs/mountpoint-s3/pull/1762))
 * Update to latest S3 client. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
 
 ## v0.9.2 (March 20, 2026)
