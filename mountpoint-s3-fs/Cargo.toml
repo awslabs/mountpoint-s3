@@ -19,7 +19,7 @@ async-trait = "0.1.89"
 base64ct = "1.8.2"
 bincode = { version = "2.0.1", features = ["std"] }
 bitflags = "2.10.0"
-bytes = { version = "1.11.0", features = ["serde"] }
+bytes = { version = "1.11.1", features = ["serde"] }
 clap = { version = "4.5.54", features = ["derive"] }
 const_format = "0.2.35"
 crc32c = "0.6.8"
