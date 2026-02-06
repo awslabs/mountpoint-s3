@@ -46,7 +46,7 @@ sysinfo = "0.37.2"
 syslog = "7.0.0"
 tempfile = "3.24.0"
 thiserror = "2.0.17"
-time = { version = "0.3.44", features = ["macros", "formatting", "serde-well-known"] }
+time = { version = "0.3.47", features = ["macros", "formatting", "serde-well-known"] }
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
