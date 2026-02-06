@@ -201,6 +201,118 @@ We also support the `AWS_ENDPOINT_URL` environment variable. The endpoint determ
 - Use `AWS_ENDPOINT_URL` if provided.
 - Fallback to automically inferring the endpoint.
 
+### Using S3-compatible storage providers
+
+While Mountpoint for Amazon S3 is optimized for Amazon S3, it can also be used with S3-compatible storage providers such as MinIO, Wasabi, DigitalOcean Spaces, Backblaze B2, and others. These providers implement S3-compatible APIs that allow Mountpoint to interact with them similarly to Amazon S3.
+
+> [!IMPORTANT]
+> S3-compatible storage providers are not officially supported, and some features may not work as expected. Mountpoint is designed and tested primarily for Amazon S3, and compatibility with other providers is provided on a best-effort basis. We welcome bug reports and contributions for compatibility improvements.
+
+To use Mountpoint with an S3-compatible provider, you need to configure three key settings:
+
+1. **Endpoint URL**: Use the `--endpoint-url` flag to specify the provider's S3-compatible endpoint
+2. **Region**: Use the `--region` flag to specify the region (many providers accept any value, e.g., `us-east-1`)
+3. **Addressing Style**: Use the `--force-path-style` flag if the provider requires path-style addressing
+4. **Credentials**: Configure credentials using environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+
+#### Example: Using MinIO
+
+[MinIO](https://min.io/) is a popular open-source S3-compatible object storage server. Here's how to use Mountpoint with MinIO:
+
+```bash
+# Set credentials for MinIO
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin
+
+# Mount a MinIO bucket
+mount-s3 my-bucket /path/to/mount \
+  --endpoint-url https://minio.example.com \
+  --region us-east-1 \
+  --force-path-style
+```
+
+For MinIO running locally (e.g., on `http://localhost:9000`):
+
+```bash
+mount-s3 my-bucket /path/to/mount \
+  --endpoint-url http://localhost:9000 \
+  --region us-east-1 \
+  --force-path-style
+```
+
+#### Example: Using Wasabi
+
+[Wasabi](https://wasabi.com/) is a cloud storage provider with S3-compatible APIs:
+
+```bash
+# Set Wasabi credentials
+export AWS_ACCESS_KEY_ID=your-wasabi-access-key
+export AWS_SECRET_ACCESS_KEY=your-wasabi-secret-key
+
+# Mount a Wasabi bucket (replace region with your bucket's region)
+mount-s3 my-bucket /path/to/mount \
+  --endpoint-url https://s3.us-east-1.wasabisys.com \
+  --region us-east-1
+```
+
+Wasabi regions:
+- US East 1: `https://s3.us-east-1.wasabisys.com`
+- US East 2: `https://s3.us-east-2.wasabisys.com`
+- US West 1: `https://s3.us-west-1.wasabisys.com`
+- EU Central 1: `https://s3.eu-central-1.wasabisys.com`
+- AP Northeast 1: `https://s3.ap-northeast-1.wasabisys.com`
+
+#### Example: Using DigitalOcean Spaces
+
+[DigitalOcean Spaces](https://www.digitalocean.com/products/spaces) provides S3-compatible object storage:
+
+```bash
+# Set DigitalOcean Spaces credentials
+export AWS_ACCESS_KEY_ID=your-spaces-access-key
+export AWS_SECRET_ACCESS_KEY=your-spaces-secret-key
+
+# Mount a DigitalOcean Space (replace region with your Space's region)
+mount-s3 my-space /path/to/mount \
+  --endpoint-url https://nyc3.digitaloceanspaces.com \
+  --region us-east-1
+```
+
+DigitalOcean Spaces regions:
+- New York 3: `https://nyc3.digitaloceanspaces.com`
+- San Francisco 3: `https://sfo3.digitaloceanspaces.com`
+- Amsterdam 3: `https://ams3.digitaloceanspaces.com`
+- Singapore 1: `https://sgp1.digitaloceanspaces.com`
+- Frankfurt 1: `https://fra1.digitaloceanspaces.com`
+
+#### Example: Using Backblaze B2
+
+[Backblaze B2](https://www.backblaze.com/cloud-storage) offers S3-compatible APIs:
+
+```bash
+# Set Backblaze B2 credentials (use Application Key ID and Application Key)
+export AWS_ACCESS_KEY_ID=your-key-id
+export AWS_SECRET_ACCESS_KEY=your-application-key
+
+# Mount a B2 bucket
+mount-s3 my-bucket /path/to/mount \
+  --endpoint-url https://s3.us-west-004.backblazeb2.com \
+  --region us-west-004
+```
+
+Replace the endpoint URL with your specific B2 endpoint, which can be found in your Backblaze B2 dashboard.
+
+#### Troubleshooting S3-compatible providers
+
+If you encounter issues when using Mountpoint with S3-compatible providers:
+
+1. **Path-style addressing**: Some providers require path-style addressing. Add the `--force-path-style` flag
+2. **SSL/TLS verification**: For local development or self-signed certificates, you may need to configure your system to trust the certificate
+3. **Feature compatibility**: Not all S3 features are supported by all providers. Features like S3 Transfer Acceleration, FIPS endpoints, and dual-stack endpoints are AWS-specific and will not work with other providers
+4. **Authentication**: Ensure your credentials are correctly set and have the necessary permissions on the provider
+5. **Logging**: Enable debug logging with `--log-level debug` to see detailed information about requests and responses
+
+For feature requests or bugs related to S3-compatible providers, please [open an issue](https://github.com/awslabs/mountpoint-s3/issues) on the Mountpoint GitHub repository.
+
 ### Data encryption
 
 Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).

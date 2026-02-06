@@ -493,13 +493,9 @@ impl S3CrtClientInner {
         trace!(?uri, "resolved endpoint");
 
         let signing_config = if let Some(credentials_provider) = &self.credentials_provider {
-            let auth_scheme = match endpoint.auth_scheme() {
-                Ok(auth_scheme) => auth_scheme,
-                Err(e) => {
-                    error!(error=?e, "no auth scheme for endpoint");
-                    return Err(e.into());
-                }
-            };
+            // Use fallback auth scheme for S3-compatible providers that may not provide
+            // full endpoint resolution properties (e.g., MinIO, Wasabi, DigitalOcean Spaces)
+            let auth_scheme = endpoint.auth_scheme_with_fallback(self.endpoint_config.get_region());
             trace!(?auth_scheme, "resolved auth scheme");
             let algorithm = Some(auth_scheme.scheme_name());
             let service = Some(auth_scheme.signing_name());
