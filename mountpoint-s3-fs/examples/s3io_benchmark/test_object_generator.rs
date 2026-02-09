@@ -2,8 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::S3CrtClient;
+use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
