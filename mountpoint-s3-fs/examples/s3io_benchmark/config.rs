@@ -4,6 +4,8 @@ use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
 
+use crate::test_object_generator::generate_test_objects;
+
 /// Top-level configuration structure
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Config {
@@ -198,7 +200,7 @@ pub async fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, Conf
         }
     }
 
-    crate::test_object_generator::generate_test_objects(&resolved_jobs, &config.global)
+    generate_test_objects(&resolved_jobs, &config.global)
         .await
         .map_err(|e| ConfigError::Validation(format!("Object generation failed: {}", e)))?;
 

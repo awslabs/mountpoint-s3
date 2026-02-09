@@ -1,8 +1,6 @@
-use std::error::Error;
-use std::fmt;
-
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::HeadObjectParams;
+use thiserror::Error;
 
 use crate::config::{GlobalConfig, ResolvedJobConfig, WorkloadType};
 use crate::executor::Executor;
@@ -11,22 +9,13 @@ use crate::executor::Executor;
 /// https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html
 const MAX_PARTS: u64 = 10_000;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ObjectGenerationError {
+    #[error("Setup failed: {0}")]
     Setup(String),
+    #[error("Upload failed for '{key}': {reason}")]
     Upload { key: String, reason: String },
 }
-
-impl fmt::Display for ObjectGenerationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Setup(msg) => write!(f, "Setup failed: {}", msg),
-            Self::Upload { key, reason } => write!(f, "Upload failed for '{}': {}", key, reason),
-        }
-    }
-}
-
-impl Error for ObjectGenerationError {}
 
 // Note: This intentionally creates a separate Executor instance to ensure
 // test object generation doesn't influence benchmark jobs
