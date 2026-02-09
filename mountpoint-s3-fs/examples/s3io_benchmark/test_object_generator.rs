@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
-use mountpoint_s3_client::{ObjectClient, S3CrtClient};
+use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
@@ -28,6 +28,8 @@ impl fmt::Display for ObjectGenerationError {
 
 impl Error for ObjectGenerationError {}
 
+// Note: This intentionally creates a separate S3 client stack from the Executor to ensure
+// test object generation doesn't influence benchmark jobs
 pub async fn generate_test_objects(
     jobs: &[ResolvedJobConfig],
     global: &GlobalConfig,
