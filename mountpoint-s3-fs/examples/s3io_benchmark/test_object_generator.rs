@@ -46,6 +46,10 @@ pub async fn generate_test_objects(
     let uploader = create_uploader(global)?;
 
     for job in jobs_requiring_generation {
+        eprintln!(
+            "Generating test object for job '{}': key={}, size={} bytes",
+            job.name, job.object_key, job.object_size
+        );
         upload_test_object(&uploader, &job.bucket, &job.object_key, job.object_size, job.write_size).await?;
         eprintln!(
             "Generated test object for job '{}': key={}, size={} bytes",
