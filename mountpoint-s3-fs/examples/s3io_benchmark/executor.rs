@@ -35,8 +35,8 @@ pub enum ExecutionError {
 }
 
 pub struct Executor {
-    client: S3CrtClient,
-    uploader: Uploader<S3CrtClient>,
+    pub client: S3CrtClient,
+    pub uploader: Uploader<S3CrtClient>,
     prefetcher: Prefetcher<S3CrtClient>,
 }
 
