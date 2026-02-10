@@ -6,6 +6,7 @@ use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 
 use super::{ServerSideEncryption, TimeToLive};
 
@@ -37,8 +38,8 @@ pub struct S3FilesystemConfig {
     pub s3_personality: S3Personality,
     /// Server side encryption configuration to be used when creating new S3 object
     pub server_side_encryption: ServerSideEncryption,
-    /// Use additional checksums for uploads
-    pub use_upload_checksums: bool,
+    /// Checksum algorithm to use for uploads
+    pub upload_checksum_algorithm: Option<ChecksumAlgorithm>,
     /// Memory limit
     pub mem_limit: u64,
     /// Prefetcher configuration
@@ -68,7 +69,7 @@ impl Default for S3FilesystemConfig {
             storage_class: None,
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
-            use_upload_checksums: true,
+            upload_checksum_algorithm: Some(ChecksumAlgorithm::Crc32c),
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,

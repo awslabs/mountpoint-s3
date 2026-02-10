@@ -8,7 +8,7 @@ use futures::FutureExt;
 use futures::channel::oneshot::{self, Receiver};
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{ChecksumAlgorithm, ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
 use thiserror::Error;
 use tracing::error;
 use xmltree::Element;
@@ -49,8 +49,13 @@ impl S3CrtClient {
             )?;
 
             let checksum_config = match params.trailing_checksums {
-                PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
-                PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
+                PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Crc32c) => Some(ChecksumConfig::trailing_crc32c()),
+                PutObjectTrailingChecksums::Enabled(ChecksumAlgorithm::Sha256) => Some(ChecksumConfig::trailing_sha256()),
+                PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c) => Some(ChecksumConfig::upload_review_crc32c()),
+                PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Sha256) => Some(ChecksumConfig::upload_review_sha256()),
+                PutObjectTrailingChecksums::Enabled(unsupported) | PutObjectTrailingChecksums::ReviewOnly(unsupported) => {
+                    return Err(S3RequestError::construction_failure(format!("unsupported checksum algorithm: {:?}", unsupported)));
+                }
                 PutObjectTrailingChecksums::Disabled => None,
             };
             message.set_checksum_config(checksum_config);

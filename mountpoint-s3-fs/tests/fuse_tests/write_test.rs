@@ -1366,7 +1366,10 @@ fn write_checksums_test(
 
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
-            use_upload_checksums: matches!(checksums_mode, UploadChecksumsMode::Enabled),
+            upload_checksum_algorithm: match checksums_mode {
+                UploadChecksumsMode::Enabled => Some(ChecksumAlgorithm::Crc32c),
+                UploadChecksumsMode::Disabled => None,
+            },
             ..Default::default()
         }
         .upload_mode(upload_mode),
