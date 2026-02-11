@@ -251,6 +251,20 @@ impl ResolvedEndpointInfo {
             signing_region: signing_region.to_owned(),
         })
     }
+
+    /// Get the [AuthScheme] with fallback to default for S3-compatible providers.
+    /// This method is useful for custom endpoints that may not provide full endpoint resolution properties.
+    pub fn auth_scheme_with_fallback(&self, fallback_region: &str) -> AuthScheme {
+        self.auth_scheme().unwrap_or_else(|_| {
+            // Fallback for S3-compatible providers: use standard SigV4 with s3 service name
+            AuthScheme {
+                disable_double_encoding: true,
+                scheme_name: SigningAlgorithm::SigV4,
+                signing_name: "s3".to_owned(),
+                signing_region: fallback_region.to_owned(),
+            }
+        })
+    }
 }
 
 #[derive(Debug, Error)]
@@ -454,5 +468,25 @@ mod test {
         assert_eq!(signing_region, "eu-west-1");
         let signing_name = endpoint_auth_scheme.signing_name();
         assert_eq!(signing_name, "s3");
+    }
+
+    #[test]
+    fn test_auth_scheme_fallback_for_custom_endpoint() {
+        // Test that fallback works when using custom endpoints that may not
+        // provide full endpoint resolution properties (e.g., MinIO, Wasabi)
+        let endpoint_config = EndpointConfig::new("us-east-1")
+            .endpoint(Uri::new_from_str(&Allocator::default(), "https://minio.example.com").unwrap())
+            .addressing_style(AddressingStyle::Path);
+
+        let resolved_endpoint = endpoint_config.resolve_for_bucket("test-bucket").unwrap();
+
+        // Use fallback method which should always succeed
+        let auth_scheme = resolved_endpoint.auth_scheme_with_fallback("us-east-1");
+
+        // Verify fallback defaults for S3-compatible providers
+        assert_eq!(auth_scheme.signing_region(), "us-east-1");
+        assert_eq!(auth_scheme.signing_name(), "s3");
+        assert_eq!(auth_scheme.scheme_name(), SigningAlgorithm::SigV4);
+        assert_eq!(auth_scheme.disable_double_encoding(), true);
     }
 }
