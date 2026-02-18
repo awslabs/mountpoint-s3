@@ -21,15 +21,19 @@ class SmartBenchmarkSweeperConf:
     _target_: str = "hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper"
     max_batch_size: Optional[int] = None
     params: Optional[Dict[str, str]] = None
+    fail_fast: bool = False
 
 
 ConfigStore.instance().store(group="hydra/sweeper", name="smart_benchmark", node=SmartBenchmarkSweeperConf)
 
 
 class SmartBenchmarkSweeper(Sweeper):
-    def __init__(self, max_batch_size: Optional[int] = None, params: Optional[Dict[str, str]] = None):
+    def __init__(
+        self, max_batch_size: Optional[int] = None, params: Optional[Dict[str, str]] = None, fail_fast: bool = False
+    ):
         self.max_batch_size = max_batch_size
         self.params = params or {}
+        self.fail_fast = fail_fast
         self.config: Optional[DictConfig] = None
         self.launcher: Optional[Launcher] = None
         self.hydra_context: Optional[HydraContext] = None
@@ -86,8 +90,19 @@ class SmartBenchmarkSweeper(Sweeper):
         initial_job_idx = 0
         if all_combinations:
             self.validate_batch_is_legal(all_combinations)
-            results = self.launcher.launch(all_combinations, initial_job_idx=initial_job_idx)
-            returns.append(results)
+
+            batch_size = 1 if self.fail_fast else len(all_combinations)
+
+            for i in range(0, len(all_combinations), batch_size):
+                batch = all_combinations[i : i + batch_size]
+                results = self.launcher.launch(batch, initial_job_idx=initial_job_idx)
+
+                if self.fail_fast:
+                    for r in results:
+                        _ = r.return_value
+
+                initial_job_idx += len(batch)
+                returns.append(results)
 
         return returns
 
