@@ -91,15 +91,18 @@ class SmartBenchmarkSweeper(Sweeper):
         if all_combinations:
             self.validate_batch_is_legal(all_combinations)
 
+            # Determine batch size: run all at once (fail_fast=False) or one at a time (fail_fast=True)
             batch_size = 1 if self.fail_fast else len(all_combinations)
 
             for i in range(0, len(all_combinations), batch_size):
                 batch = all_combinations[i : i + batch_size]
                 results = self.launcher.launch(batch, initial_job_idx=initial_job_idx)
 
+                # Check results immediately if fail_fast enabled
+                # Accessing return_value raises an exception if the job failed (hydra/core/utils.py:251-258)
                 if self.fail_fast:
                     for r in results:
-                        _ = r.return_value
+                        _ = r.return_value  # Raises on failure, stopping the sweep
 
                 initial_job_idx += len(batch)
                 returns.append(results)

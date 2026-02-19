@@ -77,7 +77,7 @@ class TestFailFastBehavior:
     def test_fail_fast_stops_on_first_error(self):
         """Test that fail_fast=True stops iteration when a job fails"""
 
-        # Accessing return_value is how hydra determines a valid and succesful job: hydra/core/utils.py (lines 242-264)
+        # Accessing return_value raises an exception if the job failed (hydra/core/utils.py:251-258)
         # When status == JobStatus.COMPLETED, return_value returns normally
         # When status != JobStatus.COMPLETED, return_value raises the stored exception
 
