@@ -10,7 +10,7 @@ use time::format_description::well_known::Rfc2822;
 
 use crate::object_client::{HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult, RestoreStatus};
 
-use super::{ChecksumMode, S3CrtClient, S3Operation, S3RequestError, parse_checksum};
+use super::{ChecksumMode, QueryFragment, S3CrtClient, S3Operation, S3RequestError, parse_checksum};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -74,6 +74,7 @@ impl HeadObjectResult {
         let restore_status = Self::parse_restore_status(headers)?;
         let sse_type = headers.get_as_optional_string("x-amz-server-side-encryption")?;
         let sse_kms_key_id = headers.get_as_optional_string("x-amz-server-side-encryption-aws-kms-key-id")?;
+        let version_id = headers.get_as_optional_string("x-amz-version-id")?;
         let checksum = parse_checksum(headers)?;
         let result = HeadObjectResult {
             size,
@@ -84,6 +85,7 @@ impl HeadObjectResult {
             checksum,
             sse_type,
             sse_kms_key_id,
+            version_id,
         };
         Ok(result)
     }
@@ -94,6 +96,7 @@ impl S3CrtClient {
         &self,
         bucket: &str,
         key: &str,
+        version: Option<&str>,
         params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, S3RequestError> {
         let request = {
@@ -102,9 +105,14 @@ impl S3CrtClient {
                 .new_request_template("HEAD", bucket)
                 .map_err(S3RequestError::construction_failure)?;
 
-            let key = key.to_string();
+            let query = if let Some(version) = version {
+                QueryFragment::Query(&[("versionId", version)])
+            } else {
+                Default::default()
+            };
+
             message
-                .set_request_path(format!("/{key}"))
+                .set_request_path_and_query(format!("/{key}"), query)
                 .map_err(S3RequestError::construction_failure)?;
 
             let bucket = bucket.to_owned();

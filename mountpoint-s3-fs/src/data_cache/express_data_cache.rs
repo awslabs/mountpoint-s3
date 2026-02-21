@@ -187,6 +187,7 @@ where
             .get_object(
                 &self.config.bucket_name,
                 &object_key,
+                None,
                 &GetObjectParams::new()
                     .checksum_mode(Some(ChecksumMode::Enabled))
                     .custom_id(cursor_id.map(|id| id.as_raw())),

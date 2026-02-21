@@ -320,4 +320,8 @@ impl Metablock for ManifestMetablock {
             bucket: None,
         }))
     }
+
+    async fn set_inode_version(&self, _ino: InodeNo, _version: Option<&str>) -> Result<(), InodeError> {
+        Ok(())
+    }
 }

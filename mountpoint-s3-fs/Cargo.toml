@@ -10,6 +10,8 @@ description = "Mountpoint S3 main library"
 [dependencies]
 mountpoint-s3-fuser = { workspace = true }
 mountpoint-s3-client = { workspace = true }
+mountpoint-s3-ioctl = { workspace = true }
+
 
 anyhow = { version = "1.0.103", features = ["backtrace"] }
 async-channel = "2.5.0"
@@ -34,7 +36,7 @@ libc = "0.2.186"
 linked-hash-map = "0.5.6"
 metrics = "0.24.6"
 mime_guess = "2.0.5"
-nix = { version = "0.31.3", default-features = false, features = ["fs", "process", "signal", "user"] }
+nix = { version = "0.31.3", default-features = false, features = ["fs", "process", "signal", "user", "ioctl"] }
 rand = "0.10.1"
 regex = "1.12.4"
 rusqlite = { version = "0.40.1", features = ["bundled", "fallible_uint"], optional = true }

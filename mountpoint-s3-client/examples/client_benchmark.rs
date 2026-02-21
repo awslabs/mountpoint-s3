@@ -70,7 +70,7 @@ fn run_benchmark(
                     futures::executor::block_on(async move {
                         let mut received_obj_len = 0u64;
                         let mut request = client
-                            .get_object(bucket, key, &GetObjectParams::new())
+                            .get_object(bucket, key, None, &GetObjectParams::new())
                             .await
                             .expect("couldn't create get request");
                         let mut backpressure_handle = request.backpressure_handle().cloned();

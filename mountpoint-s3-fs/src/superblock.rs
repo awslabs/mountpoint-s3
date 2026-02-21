@@ -119,6 +119,9 @@ struct SuperblockInner<OC: ObjectClient + Send + Sync> {
     client: OC,
     dir_handles: RwLock<HashMap<u64, Arc<DirHandle>>>,
     next_dir_handle_id: AtomicU64,
+    /// Map of S3 objects (expressed by inodes in the superblock) to their version IDs.
+    /// If an object is not present in the map, the most recent version is assumed.
+    versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
 }
 
 /// Configuration for superblock operations
@@ -247,6 +250,7 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             client,
             next_dir_handle_id: AtomicU64::new(1),
             dir_handles: Default::default(),
+            versioned_objects: Arc::new(RwLock::new(HashMap::new())),
         };
         Self { inner: Arc::new(inner) }
     }
@@ -870,11 +874,19 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 }
             };
 
+            let version = matches!(mode, ReadWriteMode::Read)
+                .then(|| self.inner.get_inode_version(&inode))
+                .transpose()?
+                .flatten();
             let inode_lookup = Lookup::new(
                 inode.ino(),
                 locked_inode.stat.clone(),
                 inode.kind(),
-                Some(S3Location::new(self.inner.s3_path.clone(), inode.valid_key().clone())),
+                Some(S3Location::new_with_object_version(
+                    self.inner.s3_path.clone(),
+                    version,
+                    inode.valid_key().clone(),
+                )),
             );
 
             (pending_upload_hook, inode_lookup)
@@ -1237,6 +1249,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 return Ok(());
             }
             if is_readdirplus {
+                trace!(inode = ?next.inode, "remembering inode from readdirplus");
                 self.inner.remember(&next.inode)
             }
             dir_handle.next_offset();
@@ -1291,6 +1304,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     None,
                     None,
                     self.inner.config.cache_config.file_ttl,
+                    None,
                 ),
                 InodeKind::Directory => {
                     InodeStat::for_directory(self.inner.mount_time, self.inner.config.cache_config.dir_ttl)
@@ -1399,6 +1413,10 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         }
         Ok(false)
     }
+
+    async fn set_inode_version(&self, ino: InodeNo, version: Option<&str>) -> Result<(), InodeError> {
+        self.inner.set_inode_version(ino, version).await
+    }
 }
 
 impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
@@ -1453,7 +1471,11 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         let lookup = match lookup {
             Some(lookup) => lookup?,
             None => {
-                let remote = self.remote_lookup(parent_ino, name).await?;
+                let full_key = self.inode_full_key(parent_ino, &name)?;
+                let version = self.versioned_objects.read().unwrap().get(full_key.as_str()).cloned();
+                let remote = self
+                    .remote_lookup(parent_ino, name, version.as_ref().map(|v| v.as_ref()))
+                    .await?;
                 self.update_from_remote(parent_ino, name, remote)?
             }
         };
@@ -1519,6 +1541,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         &self,
         parent_ino: InodeNo,
         name: ValidName<'_>,
+        version: Option<&str>,
     ) -> Result<Option<RemoteLookup>, InodeError> {
         let parent = self.get(parent_ino)?;
         let full_path: String = self
@@ -1557,7 +1580,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
         let head_object_params = HeadObjectParams::new();
         let mut file_lookup = self
             .client
-            .head_object(&self.s3_path.bucket, object_key, &head_object_params)
+            .head_object(&self.s3_path.bucket, object_key, version, &head_object_params)
             .fuse();
         let mut dir_lookup = self
             .client
@@ -1570,8 +1593,8 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             select_biased! {
                 result = file_lookup => {
                     match result {
-                        Ok(HeadObjectResult { size, last_modified, restore_status, etag, storage_class, .. }) => {
-                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.into_inner().into_boxed_str()), storage_class.as_deref(), restore_status, self.config.cache_config.file_ttl);
+                        Ok(HeadObjectResult { size, last_modified, restore_status, etag, storage_class, version_id, .. }) => {
+                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.into_inner().into_boxed_str()), storage_class.as_deref(), restore_status, self.config.cache_config.file_ttl, version_id.map(|v| v.into_boxed_str()));
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -1896,6 +1919,63 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
 
         Ok(inode)
     }
+
+    async fn set_inode_version(&self, ino: InodeNo, version: Option<&str>) -> Result<(), InodeError> {
+        let inode = self
+            .inodes
+            .read()
+            .unwrap()
+            .get_inode(&ino)
+            .ok_or(InodeError::InodeDoesNotExist(ino))?
+            .clone();
+        // Forcibly lookup the inode remotely to get its new stat that corresponds to the given version.
+        let lookup = self
+            .remote_lookup(inode.parent(), inode.name().try_into()?, version)
+            .await?
+            .ok_or(InodeError::InodeDoesNotExist(ino))?;
+
+        // Now update the inode in place.
+        inode.set_version(version, lookup.stat)?;
+
+        // Update the map of versioned objects.
+        let full_key = self.inode_full_key(inode.parent(), inode.name())?;
+        let mut versioned_objects = self.versioned_objects.write().unwrap();
+        if let Some(version) = version {
+            trace!(%full_key, %version, "set versioned object in superblock");
+            versioned_objects.insert(full_key.into(), version.into());
+        } else {
+            trace!(%full_key, "removed versioned object from superblock");
+            versioned_objects.remove(full_key.as_str());
+        }
+
+        Ok(())
+    }
+
+    /// Return a full key that does not contain the trailing '/'.
+    fn inode_full_key(&self, parent_ino: InodeNo, key: &str) -> Result<String, InodeError> {
+        let parent_ino = self
+            .inodes
+            .read()
+            .unwrap()
+            .get_inode(&parent_ino)
+            .ok_or(InodeError::InodeDoesNotExist(parent_ino))?
+            .clone();
+        let full_path: String = self
+            .full_key_for_inode(&parent_ino)
+            .new_child(key.try_into()?, InodeKind::Directory)
+            .map_err(|_| InodeError::NotADirectory(parent_ino.err()))
+            .map(|p| p.into())?;
+        Ok(full_path[..(full_path.len() - 1)].to_string())
+    }
+
+    fn get_inode_version(&self, ino: &Inode) -> Result<Option<String>, InodeError> {
+        Ok(self
+            .versioned_objects
+            .read()
+            .unwrap()
+            .get(ino.valid_key().as_ref())
+            .map(|v| v.to_string()))
+    }
 }
 
 /// Data from a remote object.
@@ -1931,7 +2011,11 @@ impl From<LookedUpInode> for InodeInformation {
 
 impl From<LookedUpInode> for Lookup {
     fn from(val: LookedUpInode) -> Self {
-        let location = Some(S3Location::new(val.path.clone(), val.inode.valid_key().clone()));
+        let location = Some(S3Location::new_with_object_version(
+            val.path.clone(),
+            val.inode.version(),
+            val.inode.valid_key().clone(),
+        ));
 
         Lookup::new_from_info_and_loc(val.into(), location)
     }
@@ -2186,7 +2270,7 @@ mod tests {
                     // Grab last modified time according to mock S3
                     let full_key = file.s3_location().expect("should have location").full_key();
                     let modified_time = client
-                        .head_object(&bucket, full_key.as_ref(), &HeadObjectParams::new())
+                        .head_object(&bucket, full_key.as_ref(), None, &HeadObjectParams::new())
                         .await
                         .expect("object should exist")
                         .last_modified;
@@ -2423,6 +2507,7 @@ mod tests {
             None,
             None,
             std::time::Duration::from_secs(24 * 60 * 60),
+            None,
         );
         if invalidate_stat {
             // For testing the expired stat cases
@@ -3262,7 +3347,7 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, None, None, None, Default::default());
+        let file_inodestat = InodeStat::for_file(128, ts, None, None, None, Default::default(), None);
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);

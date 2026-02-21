@@ -6,6 +6,7 @@ members = [
 	"mountpoint-s3",
 	"mountpoint-s3-fuser",
 	"mountpoint-s3-fs",
+	"mountpoint-s3-ioctl",
 ]
 resolver = "2"
 

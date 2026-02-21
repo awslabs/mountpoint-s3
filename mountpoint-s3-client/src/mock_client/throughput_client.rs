@@ -164,9 +164,10 @@ impl ObjectClient for ThroughputMockClient {
         &self,
         bucket: &str,
         key: &str,
+        version: Option<&str>,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
-        let request = self.inner.get_object(bucket, key, params).await?;
+        let request = self.inner.get_object(bucket, key, version, params).await?;
         let rate_limiter = self.rate_limiter.clone();
         Ok(ThroughputGetObjectResponse { request, rate_limiter })
     }
@@ -188,9 +189,10 @@ impl ObjectClient for ThroughputMockClient {
         &self,
         bucket: &str,
         key: &str,
+        version: Option<&str>,
         params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
-        self.inner.head_object(bucket, key, params).await
+        self.inner.head_object(bucket, key, version, params).await
     }
 
     async fn put_object(
@@ -267,7 +269,7 @@ mod tests {
                 let num_bytes = block_on(async move {
                     let mut num_bytes = 0;
                     let mut get = client
-                        .get_object("test_bucket", "testfile", &GetObjectParams::new())
+                        .get_object("test_bucket", "testfile", None, &GetObjectParams::new())
                         .await
                         .unwrap();
                     while let Some(part) = get.next().await {

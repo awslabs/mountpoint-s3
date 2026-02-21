@@ -832,6 +832,42 @@ where
         tracing::trace!("rename complete");
         Ok(())
     }
+
+    pub async fn set_inode_version(&self, ino: InodeNo, version: Option<&str>) -> Result<(), Error> {
+        trace!(inode = ino, ?version, "fs:set_inode_version");
+
+        let mut handles_write = self.file_handles.write().await;
+
+        // First, update the inode itself.
+        self.metablock.set_inode_version(ino, version).await?;
+
+        if let std::collections::hash_map::Entry::Occupied(mut entry) = handles_write.entry(ino) {
+            let handle = entry.get();
+            if matches!(*entry.get().state.lock().await, FileHandleState::Write { .. }) {
+                // We cannot change the inode version while there is a write handle open.
+                return Err(err!(
+                    libc::EBUSY,
+                    "Cannot set inode version while file is open for writing."
+                ));
+            }
+            trace!(pid = handle.open_pid, "Recreating read handle with new inode version.");
+            // Recreate the read handle with the new version.
+            let lookup = self.metablock.getattr(ino, false).await?;
+            let new_handle = NewHandle::read(lookup.clone());
+            let handle_state = FileHandleState::new(&new_handle, OpenFlags::empty(), self).await?;
+            let handle = Arc::new(FileHandle {
+                ino,
+                open_pid: handle.open_pid,
+                location: lookup.try_into_s3_location()?,
+                state: AsyncMutex::new(handle_state),
+            });
+            *entry.get_mut() = handle;
+        }
+
+        trace!("fs:set_inode_version complete");
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

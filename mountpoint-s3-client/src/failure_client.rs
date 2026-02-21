@@ -115,6 +115,7 @@ where
         &self,
         bucket: &str,
         key: &str,
+        version: Option<&str>,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         let failure_mode = (self.get_object_cb)(&mut *self.state.lock().unwrap(), bucket, key, params);
@@ -122,7 +123,7 @@ where
             return Err(err);
         }
 
-        let request = self.client.get_object(bucket, key, params).await?;
+        let request = self.client.get_object(bucket, key, version, params).await?;
         Ok(FailureGetResponse {
             request,
             poll_count: 0,
@@ -156,10 +157,11 @@ where
         &self,
         bucket: &str,
         key: &str,
+        version: Option<&str>,
         params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         (self.head_object_cb)(&mut *self.state.lock().unwrap(), bucket, key)?;
-        self.client.head_object(bucket, key, params).await
+        self.client.head_object(bucket, key, version, params).await
     }
 
     async fn put_object(
@@ -491,7 +493,7 @@ mod tests {
 
         let fail_set = HashSet::from([2, 4, 5]);
         for i in 1..=6 {
-            let r = fail_client.get_object(bucket, key, &GetObjectParams::new()).await;
+            let r = fail_client.get_object(bucket, key, None, &GetObjectParams::new()).await;
             if fail_set.contains(&i) {
                 assert!(r.is_err());
             } else {

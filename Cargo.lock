@@ -2912,6 +2912,7 @@ dependencies = [
  "mime_guess",
  "mountpoint-s3-client",
  "mountpoint-s3-fuser",
+ "mountpoint-s3-ioctl",
  "nix 0.31.3",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2967,6 +2968,15 @@ dependencies = [
  "smallvec",
  "tempfile",
  "zerocopy",
+]
+
+[[package]]
+name = "mountpoint-s3-ioctl"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "nix 0.30.1",
+ "thiserror",
 ]
 
 [[package]]

@@ -168,12 +168,21 @@ impl TryFrom<String> for ValidKey {
 #[derive(Debug, Clone)]
 pub struct S3Location {
     pub path: Arc<S3Path>,
+    pub version: Option<String>,
     pub partial_key: ValidKey,
 }
 
 impl S3Location {
     pub fn new(path: Arc<S3Path>, partial_key: ValidKey) -> Self {
-        Self { path, partial_key }
+        Self::new_with_object_version(path, None, partial_key)
+    }
+
+    pub fn new_with_object_version(path: Arc<S3Path>, version: Option<String>, partial_key: ValidKey) -> Self {
+        Self {
+            path,
+            version,
+            partial_key,
+        }
     }
 
     /// Get the bucket name
@@ -188,6 +197,10 @@ impl S3Location {
 
     pub fn name(&self) -> &str {
         self.partial_key.name()
+    }
+
+    pub fn version(&self) -> Option<&str> {
+        self.version.as_deref()
     }
 }
 

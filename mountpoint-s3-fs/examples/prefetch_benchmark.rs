@@ -188,7 +188,7 @@ fn main() -> anyhow::Result<()> {
         .s3_keys
         .iter()
         .map(|key| {
-            let head_result = block_on(client.head_object(bucket, key, &HeadObjectParams::new()))
+            let head_result = block_on(client.head_object(bucket, key, None, &HeadObjectParams::new()))
                 .with_context(|| format!("HeadObject failed for {key}"))?;
             Ok((ObjectId::new(key.to_string(), head_result.etag), head_result.size))
         })

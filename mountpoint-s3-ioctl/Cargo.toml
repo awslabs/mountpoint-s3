@@ -1,0 +1,15 @@
+[package]
+name = "mountpoint-s3-ioctl"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "mount-s3-ioctl"
+path = "src/main.rs"
+
+[dependencies]
+clap = {  version = "4.5.53", features = ["derive"] }
+nix = {  version = "0.30.1", features = ["ioctl"]  }
+thiserror = "2.0.17"

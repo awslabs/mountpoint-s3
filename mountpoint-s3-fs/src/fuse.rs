@@ -566,19 +566,35 @@ where
         fuse_unsupported!("bmap", reply);
     }
 
-    #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=_ino, fh=_fh, cmd=_cmd, pid=_req.pid()))]
+    #[instrument(level="warn", skip_all, fields(req=req.unique(), ino=ino, fh=_fh, cmd=cmd, pid=req.pid()))]
     fn ioctl(
         &self,
-        _req: &Request<'_>,
-        _ino: u64,
+        req: &Request<'_>,
+        ino: u64,
         _fh: u64,
         _flags: u32,
-        _cmd: u32,
-        _in_data: &[u8],
+        cmd: u32,
+        in_data: &[u8],
         _out_size: u32,
         reply: ReplyIoctl,
     ) {
-        fuse_unsupported!("ioctl", reply, libc::ENOSYS, tracing::Level::DEBUG);
+        match cmd as u64 {
+            mountpoint_s3_ioctl::MOUNT_S3_IOC_TYPE_SET_VERSION => {
+                let version = {
+                    let len = in_data.iter().position(|b| *b == 0).map_or(in_data.len(), |pos| pos);
+                    (len > 0).then(|| String::from_utf8_lossy(&in_data[..len]))
+                };
+                match block_on(self.fs.set_inode_version(ino, version.as_deref()).in_current_span()) {
+                    Ok(()) => {
+                        reply.ioctl(0, &[]);
+                    }
+                    Err(e) => fuse_error!("ioctl", reply, e, self, req),
+                }
+            }
+            _ => {
+                fuse_unsupported!("ioctl", reply, libc::ENOSYS, tracing::Level::DEBUG);
+            }
+        }
     }
 
     #[instrument(level="warn", skip_all, fields(req=_req.unique(), ino=_ino, fh=_fh, offset=_offset, length=_length, pid=_req.pid()))]

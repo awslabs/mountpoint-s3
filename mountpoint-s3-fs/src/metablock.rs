@@ -154,6 +154,10 @@ pub trait Metablock: Send + Sync {
 
     /// Unlink the entry described by `parent_ino` and `name`.
     async fn unlink(&self, parent_ino: InodeNo, name: &OsStr) -> Result<(), InodeError>;
+
+    /// Explicitly set S3 object version for the given inode.
+    /// If `version` is `None`, any existing version information shall be removed.
+    async fn set_inode_version(&self, ino: InodeNo, version: Option<&str>) -> Result<(), InodeError>;
 }
 
 /// Callback to the file system which adds directory entries to the reply buffer.

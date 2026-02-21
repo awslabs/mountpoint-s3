@@ -88,7 +88,7 @@ fn main() {
     let last_offset_clone = Arc::clone(&last_offset);
     futures::executor::block_on(async move {
         let mut request = client
-            .get_object(bucket, key, &GetObjectParams::new().range(range))
+            .get_object(bucket, key, None, &GetObjectParams::new().range(range))
             .await
             .expect("couldn't create get request");
         loop {

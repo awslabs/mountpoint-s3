@@ -936,6 +936,7 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
+        _version: Option<&str>,
         params: &GetObjectParams,
     ) -> ObjectClientResult<Self::GetObjectResponse, GetObjectError, Self::ClientError> {
         trace!(bucket, key, ?params.range, ?params.if_match, "GetObject");
@@ -999,6 +1000,7 @@ impl ObjectClient for MockClient {
         &self,
         bucket: &str,
         key: &str,
+        _version: Option<&str>,
         params: &HeadObjectParams,
     ) -> ObjectClientResult<HeadObjectResult, HeadObjectError, Self::ClientError> {
         trace!(bucket, key, "HeadObject");
@@ -1025,6 +1027,7 @@ impl ObjectClient for MockClient {
                 checksum,
                 sse_type: None,
                 sse_kms_key_id: None,
+                version_id: None,
             })
         } else {
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
@@ -1455,7 +1458,7 @@ mod tests {
         client.add_object(key, object);
 
         let mut get_request = client
-            .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
+            .get_object("test_bucket", key, None, &GetObjectParams::new().range(range.clone()))
             .await
             .expect("should not fail");
 
@@ -1509,7 +1512,7 @@ mod tests {
         client.add_object(key, MockObject::from_bytes(&body, ETag::for_tests()));
 
         let mut get_request = client
-            .get_object("test_bucket", key, &GetObjectParams::new().range(range.clone()))
+            .get_object("test_bucket", key, None, &GetObjectParams::new().range(range.clone()))
             .await
             .expect("should not fail");
         let mut backpressure_handle = get_request
@@ -1553,44 +1556,71 @@ mod tests {
         client.add_object("key1", body[..].into());
 
         assert!(matches!(
-            client.get_object("wrong_bucket", "key1", &GetObjectParams::new()).await,
+            client
+                .get_object("wrong_bucket", "key1", None, &GetObjectParams::new())
+                .await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchBucket(_)))
         ));
 
         assert!(matches!(
             client
-                .get_object("test_bucket", "wrong_key", &GetObjectParams::new())
+                .get_object("test_bucket", "wrong_key", None, &GetObjectParams::new())
                 .await,
             Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(_)))
         ));
 
         assert_client_error!(
             client
-                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(0..2001)))
+                .get_object(
+                    "test_bucket",
+                    "key1",
+                    None,
+                    &GetObjectParams::new().range(Some(0..2001))
+                )
                 .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
             client
-                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(2000..2000)))
+                .get_object(
+                    "test_bucket",
+                    "key1",
+                    None,
+                    &GetObjectParams::new().range(Some(2000..2000))
+                )
                 .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
             client
-                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(500..2001)))
+                .get_object(
+                    "test_bucket",
+                    "key1",
+                    None,
+                    &GetObjectParams::new().range(Some(500..2001))
+                )
                 .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
             client
-                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(5000..2001)))
+                .get_object(
+                    "test_bucket",
+                    "key1",
+                    None,
+                    &GetObjectParams::new().range(Some(5000..2001))
+                )
                 .await,
             "invalid range, length=2000"
         );
         assert_client_error!(
             client
-                .get_object("test_bucket", "key1", &GetObjectParams::new().range(Some(5000..1)))
+                .get_object(
+                    "test_bucket",
+                    "key1",
+                    None,
+                    &GetObjectParams::new().range(Some(5000..1))
+                )
                 .await,
             "invalid range, length=2000"
         );
@@ -1619,7 +1649,12 @@ mod tests {
         client.add_object(key, MockObject::from_bytes(&expected_body, ETag::for_tests()));
 
         let mut get_request = client
-            .get_object("test_bucket", key, &GetObjectParams::new().range(Some(range.clone())))
+            .get_object(
+                "test_bucket",
+                key,
+                None,
+                &GetObjectParams::new().range(Some(range.clone())),
+            )
             .await
             .expect("should not fail");
 
@@ -1652,7 +1687,7 @@ mod tests {
             .expect("Should not fail");
 
         client
-            .get_object(bucket, dst_key, &GetObjectParams::new())
+            .get_object(bucket, dst_key, None, &GetObjectParams::new())
             .await
             .expect("get_object should succeed");
     }
@@ -2059,7 +2094,7 @@ mod tests {
         put_request.complete().await.expect("put_object failed");
 
         let mut get_request = client
-            .get_object("test_bucket", "key1", &GetObjectParams::new())
+            .get_object("test_bucket", "key1", None, &GetObjectParams::new())
             .await
             .expect("get_object failed");
 
@@ -2092,7 +2127,7 @@ mod tests {
             .expect("put_object failed");
 
         let get_request = client
-            .get_object("test_bucket", "key1", &GetObjectParams::new())
+            .get_object("test_bucket", "key1", None, &GetObjectParams::new())
             .await
             .expect("get_object failed");
 
@@ -2284,12 +2319,12 @@ mod tests {
                 .expect("rename should succeed");
             assert!(matches!(
                 client
-                    .head_object("test_bucket", "key1", &HeadObjectParams::new())
+                    .head_object("test_bucket", "key1", None, &HeadObjectParams::new())
                     .await,
                 Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
             ));
             client
-                .head_object("test_bucket", "new_key1", &HeadObjectParams::new())
+                .head_object("test_bucket", "new_key1", None, &HeadObjectParams::new())
                 .await
                 .expect("object should now exist with new key");
         }
@@ -2347,12 +2382,12 @@ mod tests {
         // Assert that key2 is accessible, while key1 is not
         assert!(matches!(
             client
-                .head_object("test_bucket", "key1", &HeadObjectParams::new())
+                .head_object("test_bucket", "key1", None, &HeadObjectParams::new())
                 .await,
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
         ));
         client
-            .head_object("test_bucket", "key2", &HeadObjectParams::new())
+            .head_object("test_bucket", "key2", None, &HeadObjectParams::new())
             .await
             .expect("object should now exist with new key");
     }
@@ -2391,7 +2426,10 @@ mod tests {
         put_request.complete().await.unwrap();
 
         // head_object returns storage class
-        let head_result = client.head_object(bucket, key, &HeadObjectParams::new()).await.unwrap();
+        let head_result = client
+            .head_object(bucket, key, None, &HeadObjectParams::new())
+            .await
+            .unwrap();
         assert_eq!(head_result.storage_class.as_deref(), storage_class);
 
         // list_objects returns storage class
@@ -2409,14 +2447,14 @@ mod tests {
         let head_counter_1 = client.new_counter(Operation::HeadObject);
         let delete_counter_1 = client.new_counter(Operation::DeleteObject);
 
-        let _result = client.head_object(bucket, "key", &HeadObjectParams::new()).await;
+        let _result = client.head_object(bucket, "key", None, &HeadObjectParams::new()).await;
         assert_eq!(1, head_counter_1.count());
         assert_eq!(0, delete_counter_1.count());
 
         let head_counter_2 = client.new_counter(Operation::HeadObject);
         assert_eq!(0, head_counter_2.count());
 
-        let _result = client.head_object(bucket, "key", &HeadObjectParams::new()).await;
+        let _result = client.head_object(bucket, "key", None, &HeadObjectParams::new()).await;
         let _result = client.delete_object(bucket, "key").await;
         let _result = client.delete_object(bucket, "key").await;
         let _result = client.delete_object(bucket, "key").await;
@@ -2547,7 +2585,7 @@ mod tests {
             .expect("append failed");
 
         let get_request = client
-            .get_object(bucket, key, &GetObjectParams::default())
+            .get_object(bucket, key, None, &GetObjectParams::default())
             .await
             .expect("get_object failed");
 

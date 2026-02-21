@@ -54,6 +54,14 @@ impl Deref for InodeLockedForReading<'_> {
     }
 }
 
+/// Custom (not the latest one) S3 object version identifier.
+/// If specified in [`InodeInner`], all operations (metadata, reads) performed with this inode,
+/// will actually use this version ID when accessing S3 objects.
+#[derive(Debug, Clone)]
+pub struct S3ObjectVersion {
+    pub version: Box<str>,
+}
+
 #[derive(Debug)]
 struct InodeInner {
     // Immutable inode state -- any changes to these requires a new inode
@@ -101,6 +109,12 @@ impl Inode {
 
     pub fn valid_key(&self) -> &ValidKey {
         &self.inner.valid_key
+    }
+
+    pub fn version(&self) -> Option<String> {
+        self.get_inode_state()
+            .ok()
+            .and_then(|inode| inode.version.as_ref().map(|v| v.version.to_string()))
     }
 
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
@@ -160,6 +174,7 @@ impl Inode {
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
                 pending_upload_hook: None,
+                version: None,
             },
         )
     }
@@ -186,10 +201,12 @@ impl Inode {
                 None,
                 None,
                 new_validity,
+                old_inode_state.stat.version_id.clone(),
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
             pending_upload_hook: None,
+            version: None,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -221,6 +238,18 @@ impl Inode {
         }
     }
 
+    /// Set S3 object version and inode stat.
+    /// [None] means the most recent object version should be used.
+    pub fn set_version(&self, version: Option<&str>, stat: InodeStat) -> Result<(), InodeError> {
+        let mut mut_inode = self.get_mut_inode_state()?;
+        mut_inode.state.stat = stat;
+        mut_inode.state.version = version.map(|version| S3ObjectVersion {
+            version: version.into(),
+        });
+
+        Ok(())
+    }
+
     fn compute_checksum(ino: InodeNo, prefix: &Prefix, key: &str) -> Crc32c {
         let mut hasher = crc32c::Hasher::new();
         hasher.update(ino.to_be_bytes().as_ref());
@@ -245,6 +274,7 @@ pub struct InodeState {
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
     pub pending_upload_hook: Option<PendingUploadHook>,
+    pub version: Option<S3ObjectVersion>,
 }
 
 impl InodeState {
@@ -254,6 +284,7 @@ impl InodeState {
             kind_data: InodeKindData::default_for(kind),
             write_status,
             pending_upload_hook: None,
+            version: stat.version_id.as_ref().map(|v| S3ObjectVersion { version: v.clone() }),
         }
     }
 }
@@ -341,9 +372,10 @@ mod tests {
             &superblock.inner.s3_path.prefix,
             InodeState {
                 write_status: WriteStatus::Remote,
-                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
+                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default(), None),
                 kind_data: InodeKindData::File {},
                 pending_upload_hook: None,
+                version: None,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -483,10 +515,12 @@ mod tests {
                         None,
                         None,
                         NEVER_EXPIRE_TTL,
+                        None,
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
                     pending_upload_hook: None,
+                    version: None,
                 }),
             }),
         };
@@ -542,9 +576,18 @@ mod tests {
                 checksum,
                 sync: RwLock::new(InodeState {
                     write_status: WriteStatus::LocalOpenForWriting,
-                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
+                    stat: InodeStat::for_file(
+                        0,
+                        OffsetDateTime::UNIX_EPOCH,
+                        None,
+                        None,
+                        None,
+                        Default::default(),
+                        None,
+                    ),
                     kind_data: InodeKindData::File {},
                     pending_upload_hook: None,
+                    version: None,
                 }),
             }),
         };

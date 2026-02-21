@@ -41,16 +41,16 @@
 //!   These children are listed only once, at the start of the readdir operation, and so are a
 //!   snapshot in time of the directory.
 
-use std::collections::VecDeque;
-use std::ffi::OsString;
-
 use super::{InodeKindData, LookedUpInode, RemoteLookup, SuperblockInner};
 use crate::metablock::{InodeError, InodeKind, InodeNo, InodeStat};
 use crate::superblock::ValidName;
 use crate::sync::atomic::{AtomicI64, Ordering};
-use crate::sync::{AsyncMutex, Mutex};
+use crate::sync::{AsyncMutex, Mutex, RwLock};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_client::types::RestoreStatus;
+use mountpoint_s3_client::types::{HeadObjectParams, HeadObjectResult, RestoreStatus};
+use std::collections::{HashMap, VecDeque};
+use std::ffi::OsString;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{error, trace, warn};
 
@@ -106,9 +106,21 @@ impl ReaddirHandle {
         };
 
         let iter = if inner.config.s3_personality.is_list_ordered() {
-            ReaddirIter::ordered(&inner.s3_path.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::ordered(
+                &inner.s3_path.bucket,
+                &full_path,
+                page_size,
+                local_entries.into(),
+                inner.versioned_objects.clone(),
+            )
         } else {
-            ReaddirIter::unordered(&inner.s3_path.bucket, &full_path, page_size, local_entries.into())
+            ReaddirIter::unordered(
+                &inner.s3_path.bucket,
+                &full_path,
+                page_size,
+                local_entries.into(),
+                inner.versioned_objects.clone(),
+            )
         };
 
         Ok(Self {
@@ -188,6 +200,7 @@ impl ReaddirHandle {
                 etag,
                 storage_class,
                 restore_status,
+                version_id,
                 ..
             } => {
                 let stat = InodeStat::for_file(
@@ -197,6 +210,7 @@ impl ReaddirHandle {
                     storage_class.as_deref(),
                     *restore_status,
                     inner.config.cache_config.file_ttl,
+                    version_id.as_ref().map(|v| v.clone().into_boxed_str()),
                 );
                 RemoteLookup {
                     stat,
@@ -234,6 +248,9 @@ enum ReaddirEntry {
         restore_status: Option<RestoreStatus>,
         /// Entity tag of this object.
         etag: String,
+        /// Optional version ID of this S3 object.
+        /// Will be [None] if versioning is not enabled for the bucket or the most recent version is used.
+        version_id: Option<String>,
     },
     LocalInode {
         lookup: LookedUpInode,
@@ -271,8 +288,13 @@ impl ReaddirEntry {
             Self::RemotePrefix { name } => {
                 format!("directory '{name}'")
             }
-            Self::RemoteObject { name, full_key, .. } => {
-                format!("file '{name}' (full key {full_key:?})")
+            Self::RemoteObject {
+                name,
+                full_key,
+                version_id,
+                ..
+            } => {
+                format!("file '{name}' (full key {full_key:?}, version id {version_id:?})")
             }
             Self::LocalInode { lookup } => {
                 let kind = match lookup.inode.kind() {
@@ -321,12 +343,36 @@ enum ReaddirIter {
 }
 
 impl ReaddirIter {
-    fn ordered(bucket: &str, full_path: &str, page_size: usize, local_entries: VecDeque<ReaddirEntry>) -> Self {
-        Self::Ordered(ordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
+    fn ordered(
+        bucket: &str,
+        full_path: &str,
+        page_size: usize,
+        local_entries: VecDeque<ReaddirEntry>,
+        versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
+    ) -> Self {
+        Self::Ordered(ordered::ReaddirIter::new(
+            bucket,
+            full_path,
+            page_size,
+            local_entries,
+            versioned_objects,
+        ))
     }
 
-    fn unordered(bucket: &str, full_path: &str, page_size: usize, local_entries: VecDeque<ReaddirEntry>) -> Self {
-        Self::Unordered(unordered::ReaddirIter::new(bucket, full_path, page_size, local_entries))
+    fn unordered(
+        bucket: &str,
+        full_path: &str,
+        page_size: usize,
+        local_entries: VecDeque<ReaddirEntry>,
+        versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
+    ) -> Self {
+        Self::Unordered(unordered::ReaddirIter::new(
+            bucket,
+            full_path,
+            page_size,
+            local_entries,
+            versioned_objects,
+        ))
     }
 
     async fn next(&mut self, client: &impl ObjectClient) -> Result<Option<ReaddirEntry>, InodeError> {
@@ -362,10 +408,17 @@ struct RemoteIter {
     state: RemoteIterState,
     /// Does the S3 implementation return ordered results?
     ordered: bool,
+    versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
 }
 
 impl RemoteIter {
-    fn new(bucket: &str, full_path: &str, page_size: usize, ordered: bool) -> Self {
+    fn new(
+        bucket: &str,
+        full_path: &str,
+        page_size: usize,
+        ordered: bool,
+        versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
+    ) -> Self {
         Self {
             entries: VecDeque::new(),
             bucket: bucket.to_owned(),
@@ -373,6 +426,7 @@ impl RemoteIter {
             page_size,
             state: RemoteIterState::InProgress(None),
             ordered,
+            versioned_objects,
         }
     }
 
@@ -411,18 +465,63 @@ impl RemoteIter {
                     name: prefix[self.full_path.len()..prefix.len() - 1].to_owned(),
                 });
 
-            let objects = result
-                .objects
-                .into_iter()
-                .map(|object_info| ReaddirEntry::RemoteObject {
-                    name: object_info.key[self.full_path.len()..].to_owned(),
-                    full_key: object_info.key,
-                    size: object_info.size,
-                    last_modified: object_info.last_modified,
-                    storage_class: object_info.storage_class,
-                    restore_status: object_info.restore_status,
-                    etag: object_info.etag,
-                });
+            let mut objects = vec![];
+            for object_info in result.objects {
+                let version = self
+                    .versioned_objects
+                    .read()
+                    .unwrap()
+                    .get(object_info.key.as_str())
+                    .cloned();
+
+                // `ListObjectsV2` returns metadata only for latest versions of objects, so if a version
+                // id is specified we need to make a separate `HeadObject` call to get the correct metadata.
+                let entry = if let Some(version) = version {
+                    let HeadObjectResult {
+                        size,
+                        last_modified,
+                        etag,
+                        storage_class,
+                        restore_status,
+                        version_id,
+                        ..
+                    } = client
+                        .head_object(&self.bucket, &object_info.key, Some(&version), &HeadObjectParams::new())
+                        .await
+                        .map_err(|e| {
+                            InodeError::client_error(
+                                e,
+                                "HeadObject failed for versioned object",
+                                &self.bucket,
+                                &object_info.key,
+                            )
+                        })?;
+
+                    ReaddirEntry::RemoteObject {
+                        name: object_info.key[self.full_path.len()..].to_owned(),
+                        full_key: object_info.key,
+                        size,
+                        last_modified,
+                        storage_class,
+                        restore_status,
+                        etag: etag.into_inner(),
+                        version_id,
+                    }
+                } else {
+                    ReaddirEntry::RemoteObject {
+                        name: object_info.key[self.full_path.len()..].to_owned(),
+                        full_key: object_info.key,
+                        size: object_info.size,
+                        last_modified: object_info.last_modified,
+                        storage_class: object_info.storage_class,
+                        restore_status: object_info.restore_status,
+                        etag: object_info.etag,
+                        version_id: None,
+                    }
+                };
+
+                objects.push(entry);
+            }
 
             if self.ordered {
                 // ListObjectsV2 results are sorted, so ideally we'd just merge-sort the two streams.
@@ -466,9 +565,10 @@ mod ordered {
             full_path: &str,
             page_size: usize,
             local_entries: VecDeque<ReaddirEntry>,
+            versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
         ) -> Self {
             Self {
-                remote: RemoteIter::new(bucket, full_path, page_size, true),
+                remote: RemoteIter::new(bucket, full_path, page_size, true, versioned_objects),
                 local: LocalIter::new(local_entries),
                 next_remote: None,
                 next_local: None,
@@ -573,6 +673,7 @@ mod unordered {
             full_path: &str,
             page_size: usize,
             local_entries: VecDeque<ReaddirEntry>,
+            versioned_objects: Arc<RwLock<HashMap<Box<str>, Box<str>>>>,
         ) -> Self {
             let local_map = local_entries
                 .into_iter()
@@ -585,7 +686,7 @@ mod unordered {
                 .collect::<HashMap<_, _>>();
 
             Self {
-                remote: RemoteIter::new(bucket, full_path, page_size, false),
+                remote: RemoteIter::new(bucket, full_path, page_size, false, versioned_objects),
                 local: local_map,
                 local_iter: VecDeque::new(),
             }

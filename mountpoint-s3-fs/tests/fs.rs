@@ -570,7 +570,7 @@ async fn test_sequential_write(write_size: usize) {
 
     // Check that the object made it to S3 as we expected
     let get = client
-        .get_object(BUCKET_NAME, "dir1/file2.bin", &GetObjectParams::new())
+        .get_object(BUCKET_NAME, "dir1/file2.bin", None, &GetObjectParams::new())
         .await
         .unwrap();
     let actual = get.collect().await.unwrap();

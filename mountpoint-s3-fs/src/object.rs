@@ -23,18 +23,33 @@ impl Debug for ObjectId {
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct InnerObjectId {
     key: String,
+    version: Option<String>,
     etag: ETag,
 }
 
 impl ObjectId {
     pub fn new(key: String, etag: ETag) -> Self {
         Self {
-            inner: Arc::new(InnerObjectId { key, etag }),
+            inner: Arc::new(InnerObjectId {
+                key,
+                version: None,
+                etag,
+            }),
+        }
+    }
+
+    pub fn new_with_version(key: String, version: Option<String>, etag: ETag) -> Self {
+        Self {
+            inner: Arc::new(InnerObjectId { key, version, etag }),
         }
     }
 
     pub fn key(&self) -> &str {
         &self.inner.key
+    }
+
+    pub fn version(&self) -> Option<&str> {
+        self.inner.version.as_deref()
     }
 
     pub fn etag(&self) -> &ETag {

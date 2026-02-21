@@ -51,6 +51,8 @@ pub struct InodeStat {
     /// are only readable after restoration. For objects with other storage classes
     /// this field should be always `true`.
     pub is_readable: bool,
+    /// Version ID of the object, if versioning is enabled
+    pub version_id: Option<Box<str>>,
 }
 
 impl InodeStat {
@@ -96,6 +98,7 @@ impl InodeStat {
         storage_class: Option<&str>,
         restore_status: Option<mountpoint_s3_client::types::RestoreStatus>,
         validity: Duration,
+        version_id: Option<Box<str>>,
     ) -> InodeStat {
         let is_readable = Self::is_readable(storage_class, restore_status);
         InodeStat {
@@ -106,6 +109,7 @@ impl InodeStat {
             mtime: datetime,
             etag,
             is_readable,
+            version_id,
         }
     }
 
@@ -119,6 +123,7 @@ impl InodeStat {
             mtime: datetime,
             etag: None,
             is_readable: true,
+            version_id: None,
         }
     }
 }
