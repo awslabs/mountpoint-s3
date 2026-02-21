@@ -1270,7 +1270,7 @@ mod tests {
 
         for (key, expected) in [("key_a", expected_a), ("key_b", expected_b)] {
             let get_request = client
-                .get_object(bucket, key, &GetObjectParams::default())
+                .get_object(bucket, key, None, &GetObjectParams::default())
                 .await
                 .expect("get_object failed");
             let actual = get_request.collect().await.expect("failed to collect body");

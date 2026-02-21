@@ -12,7 +12,6 @@ mountpoint-s3-fuser = { workspace = true }
 mountpoint-s3-client = { workspace = true }
 mountpoint-s3-ioctl = { workspace = true }
 
-
 anyhow = { version = "1.0.103", features = ["backtrace"] }
 async-channel = "2.5.0"
 async-lock = "3.4.2"

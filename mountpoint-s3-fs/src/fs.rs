@@ -854,7 +854,14 @@ where
             // Recreate the read handle with the new version.
             let lookup = self.metablock.getattr(ino, false).await?;
             let new_handle = NewHandle::read(lookup.clone());
-            let handle_state = FileHandleState::new(&new_handle, OpenFlags::empty(), self).await?;
+            let handle_state = FileHandleState::new(
+                new_handle.mode,
+                &new_handle.lookup,
+                new_handle.write_slot,
+                OpenFlags::empty(),
+                self,
+            )
+            .await?;
             let handle = Arc::new(FileHandle {
                 ino,
                 open_pid: handle.open_pid,
