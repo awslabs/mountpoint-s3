@@ -13,7 +13,7 @@ use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::S3Path;
 
 use rand::rngs::SmallRng;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 use std::fs;
 use std::time::Duration;
 use tempfile::TempDir;

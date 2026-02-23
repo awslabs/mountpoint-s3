@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.13.7)
+
+* Upgrade rand dependency.
 
 ## v0.13.6 (January 22, 2026)
 

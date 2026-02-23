@@ -637,7 +637,7 @@ mod tests {
     use futures::task::SpawnExt;
     use mountpoint_s3_client::types::ETag;
     use rand::rngs::SmallRng;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use test_case::test_case;
 
     use crate::sync::Arc;

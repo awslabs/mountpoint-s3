@@ -1,11 +1,3 @@
-use crate::common::fuse::{self, TestSession, TestSessionConfig, read_dir_to_entry_names};
-use mountpoint_s3_fs::S3FilesystemConfig;
-use mountpoint_s3_fs::fs::CacheConfig;
-use mountpoint_s3_fs::s3::S3Personality;
-#[cfg(target_os = "linux")]
-use nix::fcntl::RenameFlags;
-use rand::Rng;
-use rand::distr::Alphanumeric;
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::ffi::CString;
@@ -16,8 +8,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
+
+use mountpoint_s3_fs::S3FilesystemConfig;
+use mountpoint_s3_fs::fs::CacheConfig;
+use mountpoint_s3_fs::s3::S3Personality;
+#[cfg(target_os = "linux")]
+use nix::fcntl::RenameFlags;
+use rand::RngExt;
+use rand::distr::Alphanumeric;
 use test_case::test_case;
 use tracing::{debug, info};
+
+use crate::common::fuse::{self, TestSession, TestSessionConfig, read_dir_to_entry_names};
 
 /// Simple test cases, assuming a file isn't open for reading elsewhere.
 fn rename_basic_tests<F>(creator_fn: F, prefix: &str)

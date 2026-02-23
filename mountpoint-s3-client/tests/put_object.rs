@@ -8,7 +8,7 @@ use std::time::Duration;
 use common::*;
 
 use futures::{FutureExt, StreamExt, pin_mut};
-use rand::Rng;
+use rand::RngExt;
 use test_case::test_case;
 
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};

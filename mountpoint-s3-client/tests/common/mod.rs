@@ -1,5 +1,8 @@
 #![cfg(feature = "s3_tests")]
 
+use std::ops::Range;
+use std::sync::Arc;
+
 use aws_config::BehaviorVersion;
 use aws_sdk_s3 as s3;
 use aws_sdk_s3::config::Region;
@@ -15,10 +18,8 @@ use mountpoint_s3_client::{NewClientError, OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
 use mountpoint_s3_crt::common::uri::Uri;
-use rand::TryRngCore;
-use rand::rngs::OsRng;
-use std::ops::Range;
-use std::sync::Arc;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -56,7 +57,7 @@ pub fn get_unique_test_prefix(test_name: &str) -> String {
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
     assert!(prefix.ends_with('/'), "S3_BUCKET_TEST_PREFIX should end in '/'");
     // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.try_next_u64().unwrap();
+    let nonce = SysRng.try_next_u64().unwrap();
     let prefix = format!("{prefix}{test_name}/{nonce}/");
     prefix
 }
