@@ -715,7 +715,7 @@ fn mount_with_sse(
     credentials: Option<aws_sdk_s3::config::Credentials>,
 ) -> Child {
     let region = get_test_region();
-    let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.stdout(Stdio::piped())
         .arg(bucket)
         .arg(mount_point)
@@ -1103,7 +1103,7 @@ fn write_with_sse_kms_key_id_unsupported(key_id: &str) {
     let (bucket, prefix) = get_test_bucket_and_prefix("write_with_sse_kms_key_id_unsupported");
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
     let region = get_test_region();
-    let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.stdout(Stdio::piped())
         .arg(bucket)
         .arg(mount_point.path())
