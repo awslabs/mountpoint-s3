@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770742576541,
+  "lastUpdate": 1772042687404,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "63d79f65d2b4142fd16613472e9cc328a42f9ba6",
-          "message": "Fix workflow permissions to publish benchmark results (#1722)\n\nThe changes in #1695 resulted in benchmark actions on push to main to\nfail when trying to publish results. This change will allow benchmark\nworkflows to write to github pages by fixing their permissions.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-12-10T17:51:26Z",
-          "tree_id": "dd3d1b999ab4c31439f0769cccf0f63bae29c556",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/63d79f65d2b4142fd16613472e9cc328a42f9ba6"
-        },
-        "date": 1765396468073,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 2187.33203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 33.03515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 2195.82421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 33.08203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 2224.36328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 27.48828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 2183.96875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 38.5703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 2288.39453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 35.21875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 2236.234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 38.62109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2178.578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 25.7265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2376.6953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2180.9296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 26.19921875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 23.95703125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34b47ffe8231583e4da2035d3d9db2bab8d65c08",
+          "message": "Fix remaining cargo_bin warnings (#1772)\n\nFix remaining cargo_bin invocations. Leftover from #1742.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-02-25T15:55:05Z",
+          "tree_id": "920dc8f71acc3a3f84dfe205cd062116d0c937ee",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/34b47ffe8231583e4da2035d3d9db2bab8d65c08"
+        },
+        "date": 1772042687343,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 2438.9921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 33.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 2512.890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 33.96484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 2177.92578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 42.15234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 2195.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 41.39453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 2194.57421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 33.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 2167.921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 39.44140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2168.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 24.91796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2182.1640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2187.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 25.04296875,
             "unit": "MiB"
           }
         ]
