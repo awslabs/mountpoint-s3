@@ -1,10 +1,7 @@
 use aws_credential_types::Credentials;
 
-#[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::get_test_region;
-#[cfg(not(feature = "s3express_tests"))]
 use aws_config::{Region, sts::AssumeRoleProvider};
-#[cfg(not(feature = "s3express_tests"))]
 use aws_credential_types::provider::ProvideCredentials;
 
 /// Detect if running on GitHub Actions (GHA) and if so,
@@ -50,7 +47,6 @@ pub fn get_subsession_iam_role() -> String {
 /// See the [session policies section of the AWS IAM User Guide][session_policies] for more detail.
 ///
 /// [session_policies]: https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies.html#policies_session
-#[cfg(not(feature = "s3express_tests"))]
 pub async fn get_scoped_down_credentials<Policy: AsRef<str>>(policy: Policy) -> Credentials {
     let provider = AssumeRoleProvider::builder(get_subsession_iam_role())
         .region(Region::new(get_test_region()))
