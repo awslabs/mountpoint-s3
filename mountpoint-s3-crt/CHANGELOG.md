@@ -1,7 +1,6 @@
 ## Unreleased (v0.13.7)
 
 * Upgrade rand dependency.
-
 * Add `'static + Send` bounds to `MemoryPool` trait, and add `get_buffer_async` method to `MemoryPool`. ([#1768](https://github.com/awslabs/mountpoint-s3/pull/1768))
 
 ## v0.13.6 (January 22, 2026)

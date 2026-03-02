@@ -147,37 +147,18 @@ impl MemoryPoolFactoryWrapper {
             drop_fn: drop_pool_factory::<PoolFactory>,
         }))
     }
-
-    /// Returns the factory pointer.
-    pub(crate) fn factory_ptr(&self) -> NonNull<libc::c_void> {
-        self.0.factory_ptr
-    }
-
-    /// Returns the C callback function pointer.
-    pub(crate) fn factory_fn(&self) -> aws_s3_buffer_pool_factory_fn {
-        self.0.factory_fn
-    }
 }
 
 /// Factory used by [Client](`super::client::Client`) to create CRT wrappers for [MemoryPool] implementations.
-#[derive(Debug, Clone)]
-pub struct CrtBufferPoolFactory(Arc<CrtBufferPoolFactoryInner>);
+#[derive(Debug)]
+pub struct CrtBufferPoolFactory(Box<CrtBufferPoolFactoryInner>);
 
 #[derive(Debug)]
 struct CrtBufferPoolFactoryInner {
-    /// Copied from the wrapper for direct access in the C callback
-    /// (the callback receives a pointer to this struct as `user_data`).
-    factory_ptr: NonNull<libc::c_void>,
-    factory_fn: aws_s3_buffer_pool_factory_fn,
     event_loop_group: EventLoopGroup,
     /// Keeps the wrapper alive so its `Drop` impl frees the factory pointer exactly once.
-    _wrapper: MemoryPoolFactoryWrapper,
+    wrapper: MemoryPoolFactoryWrapper,
 }
-
-// SAFETY: `CrtBufferPoolFactoryInner` is safe to transfer across threads because it wraps a [MemoryPoolFactory] implementation that is [Send].
-unsafe impl Send for CrtBufferPoolFactoryInner {}
-// SAFETY: `CrtBufferPoolFactoryInner` is safe to share across threads because it wraps a [MemoryPoolFactory] implementation that is [Sync].
-unsafe impl Sync for CrtBufferPoolFactoryInner {}
 
 impl CrtBufferPoolFactory {
     /// Builds a CRT buffer pool factory from a type-erased wrapper and an [EventLoopGroup].
@@ -185,13 +166,9 @@ impl CrtBufferPoolFactory {
     /// The wrapper provides the type-erased factory pointer and C callback.
     /// The [EventLoopGroup] is stored directly and passed to each [`CrtBufferPool`].
     pub fn new(wrapper: MemoryPoolFactoryWrapper, event_loop_group: EventLoopGroup) -> Self {
-        let factory_ptr = wrapper.factory_ptr();
-        let factory_fn = wrapper.factory_fn();
-        Self(Arc::new(CrtBufferPoolFactoryInner {
-            factory_ptr,
-            factory_fn,
+        Self(Box::new(CrtBufferPoolFactoryInner {
             event_loop_group,
-            _wrapper: wrapper,
+            wrapper,
         }))
     }
 
@@ -199,10 +176,15 @@ impl CrtBufferPoolFactory {
     ///
     /// The user_data pointer points to the `CrtBufferPoolFactoryInner` so that the
     /// C callback can access both the pool factory and the [EventLoopGroup].
+    ///
+    /// # Safety
     /// The caller MUST keep this `CrtBufferPoolFactory` alive for as long as the CRT
     /// may invoke the callback.
-    pub(crate) fn as_inner(&self) -> (aws_s3_buffer_pool_factory_fn, *mut ::libc::c_void) {
-        (self.0.factory_fn, Arc::as_ptr(&self.0) as *mut ::libc::c_void)
+    pub(crate) unsafe fn as_inner(&self) -> (aws_s3_buffer_pool_factory_fn, *mut ::libc::c_void) {
+        (
+            self.0.wrapper.0.factory_fn,
+            &*self.0 as *const CrtBufferPoolFactoryInner as *mut ::libc::c_void,
+        )
     }
 }
 
@@ -212,11 +194,11 @@ unsafe extern "C" fn buffer_pool_factory<PoolFactory: MemoryPoolFactory>(
     user_data: *mut libc::c_void,
 ) -> *mut aws_s3_buffer_pool {
     // SAFETY: `user_data` points to a `CrtBufferPoolFactoryInner` kept alive by the
-    // `Arc` in `CrtBufferPoolFactory` (held by `ClientConfig`).
+    // `Box` in `CrtBufferPoolFactory` (held by `ClientConfig`).
     let factory_inner = unsafe { &*(user_data as *const CrtBufferPoolFactoryInner) };
 
-    // SAFETY: `factory_ptr` references a pinned box owned by the `CrtBufferPoolFactory` instance.
-    let pool_factory = unsafe { &*(factory_inner.factory_ptr.as_ptr() as *mut PoolFactory) };
+    // SAFETY: `factory_ptr` references a pinned box owned by the `MemoryPoolFactoryWrapper`.
+    let pool_factory = unsafe { &*(factory_inner.wrapper.0.factory_ptr.as_ptr() as *mut PoolFactory) };
 
     let event_loop_group = factory_inner.event_loop_group.clone();
 
