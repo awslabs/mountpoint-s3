@@ -11,7 +11,7 @@ use tracing::{Instrument, field, instrument};
 use crate::fs::{
     DirectoryEntry, DirectoryReplier, InodeNo, S3Filesystem, ToErrno, error_metadata::MOUNTPOINT_EVENT_READY,
 };
-use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS};
+use crate::metrics::defs::{ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS, FUSE_TOTAL_BYTES};
 #[cfg(target_os = "macos")]
 use fuser::ReplyXTimes;
 use fuser::{
@@ -160,7 +160,7 @@ where
             Err(err) => fuse_error!("read", reply, err, self, req),
         }
 
-        metrics::counter!("fuse.total_bytes", "type" => "read").increment(bytes_sent as u64);
+        metrics::counter!(FUSE_TOTAL_BYTES, ATTR_FUSE_REQUEST => "read").increment(bytes_sent as u64);
         metrics::histogram!(FUSE_IO_SIZE, ATTR_FUSE_REQUEST => "read").record(bytes_sent as f64);
     }
 
@@ -342,7 +342,7 @@ where
         ) {
             Ok(bytes_written) => {
                 reply.written(bytes_written);
-                metrics::counter!("fuse.total_bytes", "type" => "write").increment(bytes_written as u64);
+                metrics::counter!(FUSE_TOTAL_BYTES, ATTR_FUSE_REQUEST => "write").increment(bytes_written as u64);
                 metrics::histogram!(FUSE_IO_SIZE, ATTR_FUSE_REQUEST => "write").record(bytes_written as f64);
             }
             Err(e) => fuse_error!("write", reply, e, self, req),

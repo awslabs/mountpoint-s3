@@ -25,6 +25,7 @@ pub const FUSE_REQUEST_ERRORS: &str = "fuse.request_errors";
 pub const FUSE_IDLE_THREADS: &str = "fuse.idle_threads";
 pub const FUSE_TOTAL_THREADS: &str = "fuse.total_threads";
 pub const FUSE_CACHE_HIT: &str = "fuse.cache_hit";
+pub const FUSE_TOTAL_BYTES: &str = "fuse.total_bytes";
 
 pub const PROCESS_MEMORY_USAGE: &str = "process.memory_usage";
 
@@ -74,6 +75,11 @@ pub fn lookup_config(name: &str) -> MetricConfig {
             unit: Unit::Count,
             stability: MetricStability::Experimental,
             otlp_attributes: &[],
+        },
+        FUSE_TOTAL_BYTES => MetricConfig {
+            unit: Unit::Bytes,
+            stability: MetricStability::Stable,
+            otlp_attributes: &[ATTR_FUSE_REQUEST],
         },
         S3_REQUEST_COUNT => MetricConfig {
             unit: Unit::Count,

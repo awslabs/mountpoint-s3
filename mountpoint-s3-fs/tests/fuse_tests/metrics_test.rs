@@ -13,7 +13,7 @@ use mountpoint_s3_fs::metrics::defs::{
 };
 
 use mountpoint_s3_fs::metrics::defs::{
-    ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS, FUSE_REQUEST_LATENCY, PREFETCH_RESET_STATE,
+    ATTR_FUSE_REQUEST, FUSE_IO_SIZE, FUSE_REQUEST_ERRORS, FUSE_REQUEST_LATENCY, FUSE_TOTAL_BYTES, PREFETCH_RESET_STATE,
 };
 use rusty_fork::rusty_fork_test;
 use std::fs::File;
@@ -118,7 +118,8 @@ rusty_fork_test! {
         let write_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "write")]);
         assert_eq!(write_latency.len(), 3, "should have 3 write operations");
 
-        assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "write")]);
+        let total_bytes_write = get_metric!(&recorder, FUSE_TOTAL_BYTES, &[(ATTR_FUSE_REQUEST, "write")]);
+        assert_eq!(total_bytes_write.counter(), 3 * 1024, "should have written 3 * 1024 bytes total");
 
         verify_common_metrics(&recorder);
     }
@@ -164,7 +165,8 @@ rusty_fork_test! {
         let read_latency = get_histogram!(&recorder, FUSE_REQUEST_LATENCY, &[(ATTR_FUSE_REQUEST, "read")]);
         assert!(!read_latency.is_empty(), "should have at least 1 read latency metric");
 
-        assert_metric_exists(&recorder, "fuse.total_bytes", &[("type", "read")]);
+        let total_bytes_read = get_metric!(&recorder, FUSE_TOTAL_BYTES, &[(ATTR_FUSE_REQUEST, "read")]);
+        assert_eq!(total_bytes_read.counter(), 1024, "should have read 1024 bytes total");
         verify_common_metrics(&recorder);
     }
 
