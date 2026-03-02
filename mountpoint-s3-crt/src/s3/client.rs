@@ -218,7 +218,9 @@ impl ClientConfig {
     ///
     /// When not set, the client will use the default pool with the configured memory limit.
     pub fn buffer_pool_factory(&mut self, pool_factory: CrtBufferPoolFactory) -> &mut Self {
-        let (factory_fn, user_data) = pool_factory.as_inner();
+        // SAFETY: `pool_factory` is stored in `self.pool_factory` below so that it
+        // remains alive until the client is initialized.
+        let (factory_fn, user_data) = unsafe { pool_factory.as_inner() };
         self.inner.buffer_pool_factory_fn = factory_fn;
         self.inner.buffer_pool_user_data = user_data;
         self.pool_factory = Some(pool_factory);
