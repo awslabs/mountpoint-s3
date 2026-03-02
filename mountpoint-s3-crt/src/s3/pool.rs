@@ -164,7 +164,6 @@ impl CrtBufferPoolFactory {
     /// Builds a CRT buffer pool factory from a type-erased wrapper and an [EventLoopGroup].
     ///
     /// The wrapper provides the type-erased factory pointer and C callback.
-    /// The [EventLoopGroup] is stored directly and passed to each [`CrtBufferPool`].
     pub fn new(wrapper: MemoryPoolFactoryWrapper, event_loop_group: EventLoopGroup) -> Self {
         Self(Box::new(CrtBufferPoolFactoryInner {
             event_loop_group,
