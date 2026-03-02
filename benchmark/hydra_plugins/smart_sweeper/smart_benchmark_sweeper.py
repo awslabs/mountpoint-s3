@@ -8,6 +8,7 @@ from hydra.core.config_store import ConfigStore
 from hydra.core.override_parser.overrides_parser import OverridesParser
 from hydra.core.override_parser.types import Override
 from hydra.core.plugins import Plugins
+from hydra.core.utils import JobStatus
 from hydra.plugins.launcher import Launcher
 from hydra.plugins.sweeper import Sweeper
 from hydra.types import TaskFunction
@@ -18,6 +19,16 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class SmartBenchmarkSweeperConf:
+    """Configuration for SmartBenchmarkSweeper.
+
+    Attributes:
+        max_batch_size: Maximum number of jobs to run in a single batch (currently unused)
+        params: Base parameters to apply to all benchmark configurations
+        fail_fast: If True, stops execution immediately after first benchmark failure.
+                   Use True for quick validation during development/debugging.
+                   Use False (default) to run all benchmarks and collect all results.
+    """
+
     _target_: str = "hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper"
     max_batch_size: Optional[int] = None
     params: Optional[Dict[str, str]] = None
@@ -90,22 +101,38 @@ class SmartBenchmarkSweeper(Sweeper):
         initial_job_idx = 0
         if all_combinations:
             self.validate_batch_is_legal(all_combinations)
+            returns = self._execute_batches(all_combinations, initial_job_idx)
 
-            # Determine batch size: run all at once (fail_fast=False) or one at a time (fail_fast=True)
-            batch_size = 1 if self.fail_fast else len(all_combinations)
+        return returns
 
-            for i in range(0, len(all_combinations), batch_size):
-                batch = all_combinations[i : i + batch_size]
-                results = self.launcher.launch(batch, initial_job_idx=initial_job_idx)
+    def _execute_batches(self, all_combinations: List[List[str]], initial_job_idx: int) -> List[Any]:
+        """
+        Execute benchmark combinations in batches.
 
-                # Check results immediately if fail_fast enabled
-                # Accessing return_value raises an exception if the job failed (hydra/core/utils.py:251-258)
-                if self.fail_fast:
-                    for r in results:
-                        _ = r.return_value  # Raises on failure, stopping the sweep
+        When fail_fast=False: Launches all combinations in one batch
+        When fail_fast=True: Launches one combination at a time, stopping on first failure
 
-                initial_job_idx += len(batch)
-                returns.append(results)
+        Args:
+            all_combinations: List of parameter combinations to execute
+            initial_job_idx: Starting job index for the launcher
+
+        Returns:
+            List of results from launcher.launch() calls
+        """
+        returns = []
+        batch_size = 1 if self.fail_fast else len(all_combinations)
+
+        for i in range(0, len(all_combinations), batch_size):
+            batch = all_combinations[i : i + batch_size]
+            results = self.launcher.launch(batch, initial_job_idx=i)
+
+            # Check results immediately if fail_fast enabled
+            if self.fail_fast:
+                for r in results:
+                    if r.status == JobStatus.FAILED:
+                        raise r._return_value
+
+            returns.append(results)
 
         return returns
 
