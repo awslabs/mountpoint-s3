@@ -8,19 +8,19 @@ repository = "https://github.com/awslabs/mountpoint-s3"
 description = "Rust interface to the AWS Common Runtime for Mountpoint for Amazon S3."
 
 [dependencies]
-mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.16.0" }
+mountpoint-s3-crt-sys = { path = "../mountpoint-s3-crt-sys", version = "0.16.1" }
 
-futures = "0.3.31"
-libc = "0.2.179"
+futures = "0.3.32"
+libc = "0.2.182"
 log = "0.4.29"
 smallstr = "0.3.1"
 static_assertions = "1.1.0"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 
 [dev-dependencies]
-anyhow = { version = "1.0.100", features = ["backtrace"] }
-clap = { version = "4.5.54", features = ["derive"] }
-criterion = "0.8.1"
+anyhow = { version = "1.0.102", features = ["backtrace"] }
+clap = { version = "4.5.60", features = ["derive"] }
+criterion = "0.8.2"
 ctor = "0.6.3"
 rand = "0.10.0"
 serde_json = "1.0.149"

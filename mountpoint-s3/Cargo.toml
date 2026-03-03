@@ -10,35 +10,35 @@ default-run = "mount-s3"
 mountpoint-s3-fs = { path = "../mountpoint-s3-fs", version = "0.9.1" }
 mountpoint-s3-client = { path = "../mountpoint-s3-client", version = "0.19.7" }
 
-anyhow = { version = "1.0.100", features = ["backtrace"] }
-clap = { version = "4.5.54", features = ["derive"] }
+anyhow = { version = "1.0.102", features = ["backtrace"] }
+clap = { version = "4.5.60", features = ["derive"] }
 const_format = "0.2.35"
-futures = "0.3.31"
-nix = { version = "0.30.1", default-features = false, features = ["fs", "process", "signal", "user"] }
-owo-colors = { version = "4.2.3", features = ["supports-colors"] }
-regex = "1.12.2"
+futures = "0.3.32"
+nix = { version = "0.31.2", default-features = false, features = ["fs", "process", "signal", "user"] }
+owo-colors = { version = "4.3.0", features = ["supports-colors"] }
+regex = "1.12.3"
 serde = "1.0.228"
 serde_json = "1.0.149"
-sysinfo = "0.37.2"
+sysinfo = "0.38.3"
 tracing = "0.1.44"
 
 [dev-dependencies]
 mountpoint-s3-client = { path = "../mountpoint-s3-client", features = ["mock"] }
 mountpoint-s3-fuser = { path = "../mountpoint-s3-fuser" }
-assert_cmd = "2.1.1"
+assert_cmd = "2.1.2"
 assert_fs = "1.1.3"
-aws-config = "1.8.12"
-aws-credential-types = "1.2.11"
-aws-sdk-s3 = { version = "1.120.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
-futures = { version = "0.3.31", features = ["thread-pool"] }
-predicates = "3.1.3"
-proptest = "1.9.0"
-proptest-derive = "0.7.0"
-syscalls = "0.7.0"
+aws-config = "1.8.14"
+aws-credential-types = "1.2.13"
+aws-sdk-s3 = { version = "1.124.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
+futures = { version = "0.3.32", features = ["thread-pool"] }
+predicates = "3.1.4"
+proptest = "1.10.0"
+proptest-derive = "0.8.0"
+syscalls = "0.8.1"
 rand = "0.10.0"
 serde = { version = "1.0.228", features = ["derive"] }
 test-case = "3.3.1"
-tempfile = "3.24.0"
+tempfile = "3.26.0"
 tokio = { version = "1.49.0" }
 tracing = { version = "0.1.44", features = ["log"] }
 
