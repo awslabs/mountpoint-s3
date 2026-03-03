@@ -97,13 +97,9 @@ class SmartBenchmarkSweeper(Sweeper):
 
         log.info(f"Generated {len(all_combinations)} total combinations")
 
-        returns = []
         initial_job_idx = 0
-        if all_combinations:
-            self.validate_batch_is_legal(all_combinations)
-            returns = self._execute_batches(all_combinations, initial_job_idx)
-
-        return returns
+        self.validate_batch_is_legal(all_combinations)
+        return self._execute_batches(all_combinations, initial_job_idx)
 
     def _execute_batches(self, all_combinations: List[List[str]], initial_job_idx: int) -> List[Any]:
         """

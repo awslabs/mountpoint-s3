@@ -20,11 +20,9 @@ class TestExecuteBatches:
     def test_fail_fast_true_stops_on_first_failure(self):
         sweeper = SmartBenchmarkSweeper(fail_fast=True)
 
-        # We create Mock launcher that returns JobReturn objects to simulate a set of benchmarking jobs
         mock_launcher = Mock()
         sweeper.launcher = mock_launcher
 
-        # side_effect makes mock return different values on each call: 1st call gets 1st item, 2nd call gets 2nd item, etc.
         mock_launcher.launch.side_effect = [
             [JobReturn(status=JobStatus.COMPLETED, _return_value="success")],
             [
@@ -70,4 +68,6 @@ class TestExecuteBatches:
         assert mock_launcher.launch.call_count == 1
         assert len(results) == 1
         assert len(results[0]) == 3
+        assert results[0][0].status == JobStatus.COMPLETED  # Verify first job succeeded
         assert results[0][1].status == JobStatus.FAILED  # Verify failure is captured
+        assert results[0][2].status == JobStatus.COMPLETED  # Verify third job succeeded
