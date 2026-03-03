@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772450001531,
+  "lastUpdate": 1772500655045,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2c8b96b3cc004645bc24bdae903d4007f7f02fca",
-          "message": "Fix benchmarks not running on PRs (#1731)\n\nAddress an issue introduced in #1722 where benchmark workflows would not\nrun on PRs (enabled when setting the \"performance\" label).\n\n### Does this change impact existing behavior?\n\nNo, CI only.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2025-12-17T17:23:34Z",
-          "tree_id": "b730453a5da4939aabc07d8f540a14e303006298",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/2c8b96b3cc004645bc24bdae903d4007f7f02fca"
-        },
-        "date": 1766000570829,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3536.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4898.78515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8627.28515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 25.5859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 51.60546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 27.046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 48.8203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 19.55859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 30.0625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 20.34375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 29.71875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8158.9921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 51.6484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8102.18359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 53.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2112.38671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 25.59765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2111.8125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2111.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 23.98828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 793.40234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 484.5703125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 441.28515625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61f2416088f120238aa393b66247bfc487a7658e",
+          "message": "Make `MemoryPool` buffer acquisition async-ready (#1768)\n\n**What changed and why?**\n\nThis PR makes the `MemoryPool` trait async-capable by adding a new\n`get_buffer_async()` method, and wires up the CRT bridge so that buffer\nacquisition on the read path is spawned on a CRT event loop. (Note that\non write-path we must keep doing `get_buffer()` in a sync way due to CRT\nlimitation\n[here](https://github.com/awslabs/aws-c-s3/blob/main/source/s3_meta_request.c#L2618-L2631))\n\nCurrently, when the S3 client needs a memory buffer, it calls\n`get_buffer` and blocks until the buffer is allocated. This works fine\nnow because allocation is instant. But we want to support a future\nscenario where the pool is full and needs to wait for memory to free up.\nAdding `get_buffer_async` lays the groundwork — the actual behavior\ndoesn't change much (allocations are still instant, but they now execute\non a separate Task/Future on the read path), but the infrastructure is\nin place.\n\nThe async future is spawned on existing CRT's `EventLoopGroup`. Note\nthat there is a timing issue: we create the `CrtBufferPoolFactory`\n(wrapping `MemoryPoolFactory`) when building `S3ClientConfig`, but the\n`EventLoopGroup` doesn't exist yet — it's created inside\n`S3CrtClientInner::new()`. So the factory must be constructed before the\nthread pool it needs to reference. The solution is to create wrapper\n`MemoryPoolFactoryWrapper`.\n\n### Does this change impact existing behavior?\n\n- Get buffer on read-path is now fulfilled on a separate spawned\nTask/Future instead of immediately in a sync way.\n- `MemoryPool` trait has now `'static + Send` bounds\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-03-02T22:57:56Z",
+          "tree_id": "8c343884699c4747da1913cb7573998c70b0d541",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/61f2416088f120238aa393b66247bfc487a7658e"
+        },
+        "date": 1772500654995,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3512.28515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4853.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8506.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 22.7890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 49.05078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 24.27734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 48.3359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 19.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 25.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 19.79296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 28.05078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8154.0546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 51.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8057.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 49.78125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2107.22265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 25.9296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2107.69140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2112.09765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 22.53515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 640.9921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 432.734375,
             "unit": "MiB"
           }
         ]
