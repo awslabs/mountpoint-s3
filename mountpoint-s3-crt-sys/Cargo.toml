@@ -77,13 +77,13 @@ exclude = [
 bindgen = { version = "0.72.1", default-features = false, features = [
     "runtime",
 ] }
-cc = "1.2.51"
+cc = "1.2.56"
 cmake = "0.1.57"
 rustflags = "0.1.7"
 which = "8.0.0"
 
 [dependencies]
-libc = "0.2.179"
+libc = "0.2.182"
 
 [lib]
 # this prevents C docs being interpreted as rustdoc tests after bindgen

@@ -1380,7 +1380,7 @@ enum MockObjectParts {
 #[cfg(test)]
 mod tests {
     use futures::StreamExt;
-    use rand::{Rng, RngCore, SeedableRng};
+    use rand::{Rng, RngExt, SeedableRng};
     use std::ops::Range;
     use test_case::test_case;
 

@@ -269,7 +269,7 @@ mod tests {
     use super::*;
 
     use bytes::Bytes;
-    use rand::Rng;
+    use rand::RngExt;
     use test_case::{test_case, test_matrix};
 
     fn copy_from_slice(pool: &PagedPool, original: &[u8]) -> Bytes {

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::data_cache::InMemoryDataCache;
 use rand::rngs::SmallRng;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use test_case::test_matrix;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};

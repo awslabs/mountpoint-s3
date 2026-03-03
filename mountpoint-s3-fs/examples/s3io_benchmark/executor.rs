@@ -12,7 +12,7 @@ use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_pcg::Pcg64;
 use thiserror::Error;
 
@@ -35,8 +35,8 @@ pub enum ExecutionError {
 }
 
 pub struct Executor {
-    client: S3CrtClient,
-    uploader: Uploader<S3CrtClient>,
+    pub client: S3CrtClient,
+    pub uploader: Uploader<S3CrtClient>,
     prefetcher: Prefetcher<S3CrtClient>,
 }
 

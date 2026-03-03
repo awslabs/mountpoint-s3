@@ -2,6 +2,7 @@ mod config;
 mod executor;
 mod monitoring;
 mod results;
+mod test_object_generator;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -45,7 +46,7 @@ async fn run_benchmark() -> Result<()> {
     let config = parse_config_file(&cli.config_file).context("Failed to load configuration file")?;
 
     eprintln!("Preparing and validating jobs...");
-    let resolved_jobs = prepare_jobs(config.clone()).context("Failed to prepare jobs")?;
+    let resolved_jobs = prepare_jobs(config.clone()).await.context("Failed to prepare jobs")?;
 
     eprintln!("Found {} job(s) to execute", resolved_jobs.len());
 

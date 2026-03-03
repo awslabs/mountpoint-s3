@@ -4,6 +4,8 @@ use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
 
+use crate::test_object_generator::generate_test_objects;
+
 /// Top-level configuration structure
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Config {
@@ -58,6 +60,9 @@ pub struct JobConfig {
     /// If specified then job is time-based instead of reading until total bytes equal to file size.
     #[serde(default, with = "humantime_serde")]
     pub iteration_duration: Option<Duration>,
+    /// Whether to generate test objects before running read benchmarks.
+    /// Only applies to read workloads. Default: true.
+    pub generate_object: Option<bool>,
 }
 
 /// Configuration for a single job execution
@@ -77,6 +82,7 @@ pub struct ResolvedJobConfig {
     pub iterations: usize,
     pub max_duration: Option<Duration>,
     pub iteration_duration: Option<Duration>,
+    pub generate_object: bool,
 }
 
 /// Workload type: read or write
@@ -144,7 +150,7 @@ pub fn parse_config_string(content: &str) -> Result<Config, ConfigError> {
 }
 
 /// Prepare jobs by resolving configuration inheritance and validating
-pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigError> {
+pub async fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigError> {
     // Validate global network interfaces if specified
     if let Some(bind) = &config.global.bind {
         if bind.is_empty() {
@@ -194,7 +200,9 @@ pub fn prepare_jobs(config: Config) -> Result<Vec<ResolvedJobConfig>, ConfigErro
         }
     }
 
-    // TODO: Generate/upload test objects for read workloads
+    generate_test_objects(&resolved_jobs, &config.global)
+        .await
+        .map_err(|e| ConfigError::Validation(format!("Object generation failed: {}", e)))?;
 
     Ok(resolved_jobs)
 }
@@ -254,6 +262,12 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
     // iteration_duration: Optional, no default (random read only)
     let iteration_duration = job.iteration_duration.or(global.job_defaults.iteration_duration);
 
+    // generate_object: Optional with default of true
+    let generate_object = job
+        .generate_object
+        .or(global.job_defaults.generate_object)
+        .unwrap_or(true);
+
     Ok(ResolvedJobConfig {
         name: job_name.to_string(),
         workload_type,
@@ -268,5 +282,6 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         iterations,
         max_duration,
         iteration_duration,
+        generate_object,
     })
 }

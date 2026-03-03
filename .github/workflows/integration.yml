@@ -83,7 +83,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
@@ -147,7 +147,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
@@ -198,7 +198,7 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
@@ -241,7 +241,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
@@ -291,7 +291,7 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
@@ -359,7 +359,7 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
     - name: Upload SRPM artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: srpm-package
         path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
@@ -395,13 +395,13 @@ jobs:
         chmod 0400 /etc/shadow
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
 
     - name: Download SRPM artifact
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@v8
       with:
         name: srpm-package
         path: /tmp/srpms

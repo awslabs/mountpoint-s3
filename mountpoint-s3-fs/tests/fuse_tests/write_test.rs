@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use mountpoint_s3_client::types::{Checksum, ChecksumAlgorithm, PutObjectSingleParams, UploadChecksum};
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use test_case::{test_case, test_matrix};
 
 use mountpoint_s3_fs::S3FilesystemConfig;

@@ -1,8 +1,8 @@
 use crate::tokio_block_on;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use rand::TryRngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 
 pub fn get_test_region() -> String {
     std::env::var("S3_REGION").expect("Set S3_REGION to run integration tests")
@@ -79,7 +79,7 @@ pub fn get_test_bucket_and_prefix(test_name: &str) -> (String, String) {
 
 pub fn get_test_prefix(test_name: &str) -> String {
     // Generate a random nonce to make sure this prefix is truly unique
-    let nonce = OsRng.try_next_u64().unwrap();
+    let nonce = SysRng.try_next_u64().unwrap();
 
     // Prefix always has a trailing "/" to keep meaning in sync with the S3 API.
     let prefix = std::env::var("S3_BUCKET_TEST_PREFIX").unwrap_or(String::from("mountpoint-test/"));
