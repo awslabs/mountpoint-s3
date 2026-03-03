@@ -1,3 +1,4 @@
+mod cache_available_space_limit_test;
 #[cfg(feature = "s3_tests")]
 mod cache_test;
 mod consistency_test;
