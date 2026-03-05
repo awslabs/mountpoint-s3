@@ -110,6 +110,7 @@ The `docs/INSTALL.md` has a section on building from source which can get you st
 For running tests, you should [install cargo-nextest](https://nexte.st/docs/installation/pre-built-binaries/).
 
 You will need a Linux environment that has FUSE support.
+If you wish to use macOS, there is a container available to support testing in `dev-container/`.
 
 You should also have AWS credentials available for testing.
 Short-term AWS credentials are recommended.
