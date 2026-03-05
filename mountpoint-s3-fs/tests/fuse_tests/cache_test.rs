@@ -1,38 +1,46 @@
 use crate::common::cache::CacheTestWrapper;
-use crate::common::fuse::{self, TestSessionConfig, create_fuse_session};
-use crate::common::fuse::s3_session::create_crt_client;
-use crate::common::s3::{get_test_prefix, get_test_s3_path};
-
-use mountpoint_s3_client::S3CrtClient;
-use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::data_cache::{CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DataCache, DiskDataCache, DiskDataCacheConfig};
-use mountpoint_s3_fs::fuse::session::FuseSession;
-use mountpoint_s3_fs::memory::PagedPool;
-use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::s3::S3Path;
-
+use crate::common::fuse::{self, TestSessionConfig};
+use mountpoint_s3_fs::data_cache::{CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DiskDataCache, DiskDataCacheConfig};
 use rand::rngs::SmallRng;
-use rand::{Rng, RngExt, SeedableRng};
+use rand::{Rng, SeedableRng};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
-use tempfile::TempDir;
-use test_case::test_case;
 use tracing::{debug, info, warn};
+
+#[cfg(feature = "s3_tests")]
+use {
+    crate::common::fuse::create_fuse_session,
+    crate::common::fuse::s3_session::create_crt_client,
+    crate::common::s3::{get_test_prefix, get_test_s3_path},
+    mountpoint_s3_client::S3CrtClient,
+    mountpoint_s3_fs::Runtime,
+    mountpoint_s3_fs::data_cache::DataCache,
+    mountpoint_s3_fs::fuse::session::FuseSession,
+    mountpoint_s3_fs::memory::PagedPool,
+    mountpoint_s3_fs::object::ObjectId,
+    mountpoint_s3_fs::prefetch::Prefetcher,
+    mountpoint_s3_fs::s3::S3Path,
+    rand::RngExt,
+    std::time::Duration,
+    tempfile::TempDir,
+    test_case::test_case,
+};
+
+#[cfg(feature = "s3express_tests")]
+use {
+    crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_standard_bucket, get_test_kms_key_id},
+    mountpoint_s3_client::ObjectClient,
+    mountpoint_s3_fs::data_cache::{BlockIndex, ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key},
+};
 
 #[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
 use crate::common::s3::{get_bucket_owner, get_external_express_bucket, get_test_endpoint_config};
-#[cfg(feature = "s3express_tests")]
-use crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_standard_bucket, get_test_kms_key_id};
-#[cfg(feature = "s3express_tests")]
-use mountpoint_s3_client::ObjectClient;
-#[cfg(feature = "s3express_tests")]
-use mountpoint_s3_fs::data_cache::{BlockIndex, ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key};
 
+#[cfg(feature = "s3_tests")]
 const CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
+#[cfg(feature = "s3_tests")]
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 
 /// A test that checks that an invalid block may not be served from the cache
@@ -128,6 +136,7 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
 #[test_case("£", 100, 1024; "non-ascii key")]
 #[test_case("key", 1024, 1024; "long key")]
 #[test_case("key", 100, 1024 * 1024; "big file")]
+#[cfg(feature = "s3_tests")]
 fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
@@ -181,6 +190,7 @@ async fn express_cache_read_empty() {
 }
 
 #[tokio::test]
+#[cfg(feature = "s3_tests")]
 async fn disk_cache_read_empty() {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
@@ -271,6 +281,7 @@ async fn express_cache_verify_fail_forbidden() {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "s3_tests")]
 fn cache_write_read_base<Cache>(
     client: S3CrtClient,
     s3_path: S3Path,
@@ -311,6 +322,7 @@ fn cache_write_read_base<Cache>(
     );
 }
 
+#[cfg(feature = "s3_tests")]
 async fn cache_read_empty<Cache>(cache: Cache, test_name: &str)
 where
     Cache: DataCache + Send + Sync + 'static,
@@ -393,6 +405,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
 }
 
 /// Generates random data of the specified size
+#[cfg(feature = "s3_tests")]
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::rng().random();
     let mut rng = SmallRng::seed_from_u64(seed);
@@ -403,6 +416,7 @@ fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
 
 /// Creates a random key which has a size of at least `min_size_in_bytes`
 /// The `key_prefix` is not included in the return value.
+#[cfg(feature = "s3_tests")]
 fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
     let random_suffix: u64 = rand::rng().random();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"
@@ -413,6 +427,7 @@ fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
     format!("{last_key_part}{padding}")
 }
 
+#[cfg(feature = "s3_tests")]
 fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, pool: PagedPool, s3_path: S3Path) -> (TempDir, FuseSession)
 where
     Cache: DataCache + Send + Sync + 'static,
@@ -432,6 +447,7 @@ where
     (mount_point, session)
 }
 
+#[cfg(feature = "s3_tests")]
 fn get_object_id(prefix: &str, key: &str, etag: &str) -> ObjectId {
     ObjectId::new(format!("{prefix}{key}"), etag.into())
 }
