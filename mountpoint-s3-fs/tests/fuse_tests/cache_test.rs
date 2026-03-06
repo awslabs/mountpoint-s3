@@ -458,11 +458,6 @@ fn get_express_cache_block_key(bucket: &str, cache_key: &ObjectId, block_idx: Bl
     get_s3_key(&block_key_prefix, cache_key, block_idx)
 }
 
-const AVAILABLE_SPACE_TEST_FILE_SIZE: usize = 10 * 1024 * 1024; // 10 MiB per file
-const AVAILABLE_SPACE_TEST_NUM_FILES: usize = 100; // 100 files = 1000 MiB total (matches cache size)
-const AVAILABLE_SPACE_TEST_TOLERANCE_RATIO: f64 = 0.02; // 2% tolerance for filesystem metadata overhead
-const AVAILABLE_SPACE_TEST_LOOP_DEVICE_SIZE_MIB: u64 = 1024; // 1 GiB loop device
-
 /// Get filesystem statistics for a given path
 fn get_filesystem_stats(path: &Path) -> (u64, u64) {
     let stat = nix::sys::statvfs::statvfs(path).expect("Failed to get filesystem stats");
@@ -477,8 +472,12 @@ fn get_filesystem_stats(path: &Path) -> (u64, u64) {
 /// Note: requires `sudo` for loop device mount/umount operations.
 #[test]
 fn available_space_cache_limit_test_mock() {
-    let loop_fs = LoopDeviceFilesystem::new(AVAILABLE_SPACE_TEST_LOOP_DEVICE_SIZE_MIB)
-        .expect("Failed to create loop device filesystem");
+    const FILE_SIZE: usize = 4 * 1024 * 1024; // 4 MiB per file
+    const NUM_FILES: usize = 50; // 50 files = 200 MiB total data
+    const TOLERANCE_RATIO: f64 = 0.02; // 2% tolerance for filesystem metadata overhead
+    const LOOP_DEVICE_SIZE_MIB: u64 = 128; // 128 MiB loop device - total data (200 MiB) intentionally exceeds this
+
+    let loop_fs = LoopDeviceFilesystem::new(LOOP_DEVICE_SIZE_MIB).expect("Failed to create loop device filesystem");
     let cache_path = loop_fs.mount_path().to_path_buf();
 
     let test_session = fuse::mock_session::new_with_cache(|block_size, pool| {
@@ -494,9 +493,9 @@ fn available_space_cache_limit_test_mock() {
 
     // Create test files
     let mut rng = SmallRng::seed_from_u64(0x12345678);
-    let mut file_data = vec![0u8; AVAILABLE_SPACE_TEST_FILE_SIZE];
+    let mut file_data = vec![0u8; FILE_SIZE];
 
-    for i in 0..AVAILABLE_SPACE_TEST_NUM_FILES {
+    for i in 0..NUM_FILES {
         rng.fill_bytes(&mut file_data);
         let key = format!("file-{}.bin", i + 1);
         test_session.client().put_object(&key, &file_data).unwrap();
@@ -507,7 +506,7 @@ fn available_space_cache_limit_test_mock() {
     let mut has_violation = false;
 
     // Sequential read pattern - read each file once
-    for i in 0..AVAILABLE_SPACE_TEST_NUM_FILES {
+    for i in 0..NUM_FILES {
         let key = format!("file-{}.bin", i + 1);
         let path = test_session.mount_path().join(&key);
 
@@ -515,12 +514,7 @@ fn available_space_cache_limit_test_mock() {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        assert_eq!(
-            buffer.len(),
-            AVAILABLE_SPACE_TEST_FILE_SIZE,
-            "File {} has incorrect size",
-            key
-        );
+        assert_eq!(buffer.len(), FILE_SIZE, "File {} has incorrect size", key);
 
         // Check filesystem available space
         let (_, current_available) = get_filesystem_stats(&cache_path);
@@ -531,7 +525,7 @@ fn available_space_cache_limit_test_mock() {
 
         // Check if we're preserving at least 5% available space of total filesystem with 2% tolerance.
         // This margin is necessary because Mountpoint currently slightly exceeds the limit occasionally.
-        let tolerance = (total_space as f64 * AVAILABLE_SPACE_TEST_TOLERANCE_RATIO) as u64;
+        let tolerance = (total_space as f64 * TOLERANCE_RATIO) as u64;
         let min_required_available = (total_space as f64 * DEFAULT_CACHE_MIN_AVAILABLE_RATIO) as u64;
 
         if current_available < min_required_available.saturating_sub(tolerance) {
@@ -571,6 +565,18 @@ fn available_space_cache_limit_test_mock() {
         final_used_percent,
     );
 
+    // Assert that eviction actually triggered - the cache should have gotten close to the limit.
+    let max_expected_available = (total_space as f64 * (DEFAULT_CACHE_MIN_AVAILABLE_RATIO + TOLERANCE_RATIO)) as u64;
+    assert!(
+        min_available_space <= max_expected_available,
+        "Cache eviction may not have triggered - available space never got close to the limit. \
+        Min available: {} bytes ({:.1}%), expected to reach within {:.1}% above the {:.1}% minimum",
+        min_available_space,
+        min_available_space_percent,
+        TOLERANCE_RATIO * 100.0,
+        DEFAULT_CACHE_MIN_AVAILABLE_RATIO * 100.0,
+    );
+
     // Assert no violations (with the tolerance)
     assert!(
         !has_violation,
@@ -578,7 +584,7 @@ fn available_space_cache_limit_test_mock() {
         min_available_space,
         min_available_space_percent,
         DEFAULT_CACHE_MIN_AVAILABLE_RATIO * 100.0,
-        AVAILABLE_SPACE_TEST_TOLERANCE_RATIO * 100.0
+        TOLERANCE_RATIO * 100.0
     );
 }
 
