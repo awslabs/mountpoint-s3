@@ -1,6 +1,7 @@
 ## Unreleased (v0.16.1)
 
 * Upgrade cargo dependencies.
+* Update to latest CRT dependencies.
 
 ## v0.16.0 (January 22, 2026)
 
