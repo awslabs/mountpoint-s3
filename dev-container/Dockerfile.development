@@ -1,0 +1,43 @@
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023
+
+RUN dnf upgrade -y && \
+    dnf install -y \
+        fuse \
+        fuse-devel \
+        cmake3 \
+        clang \
+        clang-devel \
+        git \
+        pkg-config \
+        jq && \
+    dnf clean all
+
+# Configure FUSE
+RUN echo "user_allow_other" >> /etc/fuse.conf
+
+# Create non-root user
+RUN useradd -m -s /bin/bash dev-user && \
+    usermod -aG wheel dev-user
+
+# Install Rust as dev-user
+USER dev-user
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+ENV PATH="/home/dev-user/.cargo/bin:${PATH}"
+
+# Set colored prompt
+RUN echo 'PS1="\[\033[1;36m\][dev-container]:\[\033[1;34m\]\w\[\033[0m\] \$ "' >> /home/dev-user/.bashrc
+
+WORKDIR /workspace
+
+RUN mkdir -p /workspace/target
+
+# Install cargo-nextest and Rust version based on toolchain config at build time
+COPY --chown=dev-user:dev-user rust-toolchain.toml ./
+RUN rustup show && cargo install cargo-nextest --locked
+
+ENV RUST_BACKTRACE=1
+
+COPY --chown=dev-user:dev-user dev-container/entrypoint.sh /home/dev-user/entrypoint.sh
+RUN chmod +x /home/dev-user/entrypoint.sh
+
+ENTRYPOINT ["/home/dev-user/entrypoint.sh"]
