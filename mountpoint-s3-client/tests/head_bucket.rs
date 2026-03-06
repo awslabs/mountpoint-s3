@@ -2,8 +2,10 @@
 
 pub mod common;
 
+use common::creds::{as_crt_cred_provider, get_scoped_down_credentials};
 use common::*;
 use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::config::{Allocator, S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadBucketError, ObjectClientError};
 
 #[tokio::test]
@@ -36,8 +38,19 @@ async fn test_head_bucket_wrong_region() {
 
 #[tokio::test]
 async fn test_head_bucket_forbidden() {
-    let client = get_test_client();
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, _prefix) = get_test_bucket_and_prefix("test_head_bucket_forbidden");
+
+    // Get credentials with no permissions to trigger 403 on HeadBucket.
+    let policy = r#"{"Statement": [
+        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+    ]}"#;
+    let credentials = get_scoped_down_credentials(policy).await;
+
+    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client = get_test_client_with_config(config);
 
     let result = client.head_bucket(&bucket).await;
 
