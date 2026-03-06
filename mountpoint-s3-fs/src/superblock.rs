@@ -280,11 +280,11 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
 
         {
             let mut sync = inode.get_mut_inode_state()?;
-            let is_remote = sync.write_status == WriteStatus::Remote;
+            let has_local_state = sync.write_status != WriteStatus::Remote || sync.pending_upload_hook.is_some();
 
-            if !is_remote || !force_revalidate_if_remote {
-                // If the inode is local (open/unopened), extend its stat's validity before returning
-                if !is_remote {
+            if has_local_state || !force_revalidate_if_remote {
+                // If the inode is local (open/unopened) and/or has a pending upload, extend its stat's validity before returning
+                if has_local_state {
                     let validity = match inode.kind() {
                         InodeKind::File => self.inner.config.cache_config.file_ttl,
                         InodeKind::Directory => self.inner.config.cache_config.dir_ttl,
@@ -848,9 +848,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             ));
         }
 
+        let inode = looked_up_inode.inode;
         let (pending_upload_hook, inode_lookup) = {
-            let inode = looked_up_inode.inode.clone();
-            let mut locked_inode = looked_up_inode.inode.get_mut_inode_state()?;
+            let mut locked_inode = inode.get_mut_inode_state()?;
 
             let pending_upload_hook = match mode {
                 ReadWriteMode::Read => self.start_reading(&mut locked_inode, inode.clone(), fh)?,
@@ -870,10 +870,19 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             (pending_upload_hook, inode_lookup)
         };
 
-        let lookup = if let Some(upload_hook) = pending_upload_hook
-            && let Some(lookup_after_upload) = upload_hook.wait_for_completion().await?
-        {
-            lookup_after_upload
+        let lookup = if let Some(upload_hook) = pending_upload_hook {
+            if let Some(lookup_after_upload) = upload_hook.wait_for_completion().await? {
+                lookup_after_upload
+            } else {
+                // Return up-to-date lookup.
+                let locked_inode = inode.get_inode_state()?;
+                Lookup::new(
+                    inode.ino(),
+                    locked_inode.stat.clone(),
+                    inode.kind(),
+                    Some(S3Location::new(self.inner.s3_path.clone(), inode.valid_key().clone())),
+                )
+            }
         } else {
             inode_lookup
         };
@@ -1670,8 +1679,10 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             (None, None) => Err(InodeError::FileDoesNotExist(name.to_owned(), parent.err())),
             (Some(remote), Some(existing_inode)) => {
                 let mut existing_state = existing_inode.get_mut_inode_state()?;
+                let existing_has_local_state =
+                    existing_state.write_status != WriteStatus::Remote || existing_state.pending_upload_hook.is_some();
                 if remote.kind == existing_inode.kind()
-                    && existing_state.write_status == WriteStatus::Remote
+                    && !existing_has_local_state
                     && existing_state.stat.etag == remote.stat.etag
                 {
                     trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place");
@@ -1758,11 +1769,12 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                 // being consistent with our stated semantics about implicit directories and how
                 // directories shadow files.
                 let mut existing_state = existing_inode.get_mut_inode_state()?;
-                let existing_is_remote = existing_state.write_status == WriteStatus::Remote;
+                let existing_has_local_state =
+                    existing_state.write_status != WriteStatus::Remote || existing_state.pending_upload_hook.is_some();
 
                 // Remote files are always shadowed by existing local files/directories, so do
                 // nothing and return the existing inode.
-                if remote.kind == InodeKind::File && !existing_is_remote {
+                if remote.kind == InodeKind::File && existing_has_local_state {
                     return Ok(LookedUpInode {
                         inode: existing_inode.clone(),
                         stat: existing_state.stat.clone(),
@@ -1776,10 +1788,10 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                 // updating the parent.
                 let same_kind = remote.kind == existing_inode.kind();
                 let same_etag = existing_state.stat.etag == remote.stat.etag;
-                if same_kind && same_etag && (existing_is_remote || remote.kind == InodeKind::Directory) {
+                if same_kind && same_etag && (!existing_has_local_state || remote.kind == InodeKind::Directory) {
                     trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "updating inode in place (slow path)");
                     existing_state.stat = remote.stat.clone();
-                    if remote.kind == InodeKind::Directory && !existing_is_remote {
+                    if remote.kind == InodeKind::Directory && existing_has_local_state {
                         trace!(parent=?existing_inode.parent(), name=?existing_inode.name(), ino=?existing_inode.ino(), "local directory has become remote");
                         existing_state.write_status = WriteStatus::Remote;
                         let InodeKindData::Directory { writing_children, .. } = &mut parent_state.kind_data else {
@@ -1799,7 +1811,7 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                     ino=?existing_inode.ino(),
                     same_kind,
                     same_etag,
-                    existing_is_remote,
+                    existing_has_local_state,
                     remote_is_dir = remote.kind == InodeKind::Directory,
                     "inode could not be updated in place",
                 );
