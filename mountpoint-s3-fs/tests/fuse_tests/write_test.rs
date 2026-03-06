@@ -1174,6 +1174,66 @@ fn overwrite_after_read_test_mock(prefix: &str) {
     overwrite_after_read_test(fuse::mock_session::new, prefix);
 }
 
+fn concurrent_open_after_overwrite_truncate_test(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    rw_mode: ReadWriteMode,
+) {
+    let filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    };
+    let test_config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let test_session = creator_fn(prefix, test_config);
+
+    // Make sure there's an existing directory and a file
+    test_session
+        .client()
+        .put_object("dir/hello.txt", b"hello world")
+        .unwrap();
+
+    let _subdir = test_session.mount_path().join("dir");
+    let path = test_session.mount_path().join("dir/hello.txt");
+
+    // File should be empty when opened with O_TRUNC even without any write
+    let write_fh = File::options()
+        .rw_mode(rw_mode)
+        .truncate(true)
+        .open(&path)
+        .expect("open should succeed");
+    drop(write_fh);
+
+    fn check_empty(path: impl AsRef<Path>) {
+        let mut read_fh = File::options().read(true).open(&path).unwrap();
+        let mut hello_contents = String::new();
+        read_fh.read_to_string(&mut hello_contents).unwrap();
+        assert!(hello_contents.is_empty());
+    }
+
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            check_empty(&path);
+        });
+        s.spawn(|| {
+            check_empty(&path);
+        });
+    });
+}
+
+#[cfg(feature = "s3_tests")]
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn concurrent_open_after_overwrite_truncate_test_s3(rw_mode: ReadWriteMode) {
+    concurrent_open_after_overwrite_truncate_test(fuse::s3_session::new, "concurrent_open_after_overwrite_truncate_test", rw_mode);
+}
+
+#[test_matrix([WRITE_ONLY, READ_WRITE])]
+fn concurrent_open_after_overwrite_truncate_test_mock(rw_mode: ReadWriteMode) {
+    concurrent_open_after_overwrite_truncate_test(fuse::mock_session::new, "concurrent_open_after_overwrite_truncate_test", rw_mode);
+}
+
 fn write_handle_no_update_existing_empty_file(
     creator_fn: impl TestSessionCreator,
     prefix: &str,
