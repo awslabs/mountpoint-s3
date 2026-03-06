@@ -1,34 +1,46 @@
 use crate::common::cache::CacheTestWrapper;
-use crate::common::fuse::create_fuse_session;
-use crate::common::fuse::s3_session::create_crt_client;
-use crate::common::s3::{get_test_prefix, get_test_s3_path};
-
-use mountpoint_s3_client::S3CrtClient;
-use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::data_cache::{DataCache, DiskDataCache, DiskDataCacheConfig};
-use mountpoint_s3_fs::fuse::session::FuseSession;
-use mountpoint_s3_fs::memory::PagedPool;
-use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::Prefetcher;
-use mountpoint_s3_fs::s3::S3Path;
-
+use crate::common::fuse::{self, TestSessionConfig};
+use mountpoint_s3_fs::data_cache::{CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DiskDataCache, DiskDataCacheConfig};
 use rand::rngs::SmallRng;
-use rand::{Rng, RngExt, SeedableRng};
-use std::fs;
-use std::time::Duration;
-use tempfile::TempDir;
-use test_case::test_case;
+use rand::{Rng, SeedableRng};
+use std::fs::{self, File};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use tracing::{debug, info, warn};
+
+#[cfg(feature = "s3_tests")]
+use {
+    crate::common::fuse::create_fuse_session,
+    crate::common::fuse::s3_session::create_crt_client,
+    crate::common::s3::{get_test_prefix, get_test_s3_path},
+    mountpoint_s3_client::S3CrtClient,
+    mountpoint_s3_fs::Runtime,
+    mountpoint_s3_fs::data_cache::DataCache,
+    mountpoint_s3_fs::fuse::session::FuseSession,
+    mountpoint_s3_fs::memory::PagedPool,
+    mountpoint_s3_fs::object::ObjectId,
+    mountpoint_s3_fs::prefetch::Prefetcher,
+    mountpoint_s3_fs::s3::S3Path,
+    rand::RngExt,
+    std::time::Duration,
+    tempfile::TempDir,
+    test_case::test_case,
+};
+
+#[cfg(feature = "s3express_tests")]
+use {
+    crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_standard_bucket, get_test_kms_key_id},
+    mountpoint_s3_client::ObjectClient,
+    mountpoint_s3_fs::data_cache::{BlockIndex, ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key},
+};
 
 #[cfg(all(feature = "s3express_tests", feature = "second_account_tests"))]
 use crate::common::s3::{get_bucket_owner, get_external_express_bucket, get_test_endpoint_config};
-#[cfg(feature = "s3express_tests")]
-use crate::common::s3::{get_express_bucket, get_express_sse_kms_bucket, get_standard_bucket, get_test_kms_key_id};
-#[cfg(feature = "s3express_tests")]
-use mountpoint_s3_client::ObjectClient;
-#[cfg(feature = "s3express_tests")]
-use mountpoint_s3_fs::data_cache::{BlockIndex, ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key};
 
+#[cfg(feature = "s3_tests")]
 const CACHE_BLOCK_SIZE: u64 = 1024 * 1024;
+#[cfg(feature = "s3_tests")]
 const CLIENT_PART_SIZE: usize = 8 * 1024 * 1024;
 
 /// A test that checks that an invalid block may not be served from the cache
@@ -124,6 +136,7 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
 #[test_case("£", 100, 1024; "non-ascii key")]
 #[test_case("key", 1024, 1024; "long key")]
 #[test_case("key", 100, 1024 * 1024; "big file")]
+#[cfg(feature = "s3_tests")]
 fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
@@ -177,6 +190,7 @@ async fn express_cache_read_empty() {
 }
 
 #[tokio::test]
+#[cfg(feature = "s3_tests")]
 async fn disk_cache_read_empty() {
     let cache_dir = tempfile::tempdir().unwrap();
     let cache_config = DiskDataCacheConfig {
@@ -267,6 +281,7 @@ async fn express_cache_verify_fail_forbidden() {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "s3_tests")]
 fn cache_write_read_base<Cache>(
     client: S3CrtClient,
     s3_path: S3Path,
@@ -307,6 +322,7 @@ fn cache_write_read_base<Cache>(
     );
 }
 
+#[cfg(feature = "s3_tests")]
 async fn cache_read_empty<Cache>(cache: Cache, test_name: &str)
 where
     Cache: DataCache + Send + Sync + 'static,
@@ -389,6 +405,7 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
 }
 
 /// Generates random data of the specified size
+#[cfg(feature = "s3_tests")]
 fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
     let seed = rand::rng().random();
     let mut rng = SmallRng::seed_from_u64(seed);
@@ -399,6 +416,7 @@ fn random_binary_data(size_in_bytes: usize) -> Vec<u8> {
 
 /// Creates a random key which has a size of at least `min_size_in_bytes`
 /// The `key_prefix` is not included in the return value.
+#[cfg(feature = "s3_tests")]
 fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) -> String {
     let random_suffix: u64 = rand::rng().random();
     let last_key_part = format!("{key_suffix}{random_suffix}"); // part of the key after all the "/"
@@ -409,6 +427,7 @@ fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
     format!("{last_key_part}{padding}")
 }
 
+#[cfg(feature = "s3_tests")]
 fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, pool: PagedPool, s3_path: S3Path) -> (TempDir, FuseSession)
 where
     Cache: DataCache + Send + Sync + 'static,
@@ -428,6 +447,7 @@ where
     (mount_point, session)
 }
 
+#[cfg(feature = "s3_tests")]
 fn get_object_id(prefix: &str, key: &str, etag: &str) -> ObjectId {
     ObjectId::new(format!("{prefix}{key}"), etag.into())
 }
@@ -436,4 +456,200 @@ fn get_object_id(prefix: &str, key: &str, etag: &str) -> ObjectId {
 fn get_express_cache_block_key(bucket: &str, cache_key: &ObjectId, block_idx: BlockIndex) -> String {
     let block_key_prefix = build_prefix(bucket, CACHE_BLOCK_SIZE);
     get_s3_key(&block_key_prefix, cache_key, block_idx)
+}
+
+/// Get filesystem statistics for a given path
+fn get_filesystem_stats(path: &Path) -> (u64, u64) {
+    let stat = nix::sys::statvfs::statvfs(path).expect("Failed to get filesystem stats");
+    let block_size = stat.block_size();
+    (stat.blocks() * block_size, stat.blocks_available() * block_size)
+}
+
+/// Test that the cache respects the available space limit (default 5% free) during sequential reads.
+///
+/// An isolated loop device filesystem is used for the cache, ensuring Mountpoint calculates the 95% limit based on the isolated filesystem, not the entire host.
+///
+/// Note: requires `sudo` for loop device mount/umount operations.
+#[test]
+fn available_space_cache_limit_test_mock() {
+    const FILE_SIZE: usize = 4 * 1024 * 1024; // 4 MiB per file
+    const NUM_FILES: usize = 50; // 50 files = 200 MiB total data
+    const TOLERANCE_RATIO: f64 = 0.02; // 2% tolerance for filesystem metadata overhead
+    const LOOP_DEVICE_SIZE_MIB: u64 = 128; // 128 MiB loop device - total data (200 MiB) intentionally exceeds this
+
+    let loop_fs = LoopDeviceFilesystem::new(LOOP_DEVICE_SIZE_MIB).expect("Failed to create loop device filesystem");
+    let cache_path = loop_fs.mount_path().to_path_buf();
+
+    let test_session = fuse::mock_session::new_with_cache(|block_size, pool| {
+        let cache_config = DiskDataCacheConfig {
+            cache_directory: cache_path.clone(),
+            block_size,
+            limit: CacheLimit::AvailableSpace {
+                min_ratio: DEFAULT_CACHE_MIN_AVAILABLE_RATIO,
+            },
+        };
+        CacheTestWrapper::new(DiskDataCache::new(cache_config, pool))
+    })("available_space_cache_limit_test", TestSessionConfig::default());
+
+    // Create test files
+    let mut rng = SmallRng::seed_from_u64(0x12345678);
+    let mut file_data = vec![0u8; FILE_SIZE];
+
+    for i in 0..NUM_FILES {
+        rng.fill_bytes(&mut file_data);
+        let key = format!("file-{}.bin", i + 1);
+        test_session.client().put_object(&key, &file_data).unwrap();
+    }
+
+    let (total_space, initial_available) = get_filesystem_stats(&cache_path);
+    let mut min_available_space = initial_available;
+    let mut has_violation = false;
+
+    // Sequential read pattern - read each file once
+    for i in 0..NUM_FILES {
+        let key = format!("file-{}.bin", i + 1);
+        let path = test_session.mount_path().join(&key);
+
+        let mut file = File::open(&path).unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        assert_eq!(buffer.len(), FILE_SIZE, "File {} has incorrect size", key);
+
+        // Check filesystem available space
+        let (_, current_available) = get_filesystem_stats(&cache_path);
+        min_available_space = min_available_space.min(current_available);
+
+        let available_ratio = current_available as f64 / total_space as f64;
+        let used_percent = ((total_space - current_available) as f64 / total_space as f64) * 100.0;
+
+        // Check if we're preserving at least 5% available space of total filesystem with 2% tolerance.
+        // This margin is necessary because Mountpoint currently slightly exceeds the limit occasionally.
+        let tolerance = (total_space as f64 * TOLERANCE_RATIO) as u64;
+        let min_required_available = (total_space as f64 * DEFAULT_CACHE_MIN_AVAILABLE_RATIO) as u64;
+
+        if current_available < min_required_available.saturating_sub(tolerance) {
+            has_violation = true;
+            let shortage = min_required_available - current_available;
+            let shortage_pct = (shortage as f64 / total_space as f64) * 100.0;
+            warn!(
+                "File {}: Available space {} bytes ({:.1}% used) - BELOW minimum {} bytes (shortage: {} bytes, {:.2}%)",
+                i + 1,
+                current_available,
+                used_percent,
+                min_required_available,
+                shortage,
+                shortage_pct
+            );
+        } else if (i + 1) % 10 == 0 {
+            debug!(
+                "File {}: Used space {} bytes, Available {} bytes ({:.1}% used, {:.1}% free)",
+                i + 1,
+                total_space - current_available,
+                current_available,
+                used_percent,
+                available_ratio * 100.0
+            );
+        }
+    }
+
+    let min_available_space_percent = (min_available_space as f64 / total_space as f64) * 100.0;
+    let (_, final_available) = get_filesystem_stats(&cache_path);
+    let final_used_percent = ((total_space - final_available) as f64 / total_space as f64) * 100.0;
+    info!(
+        "Filesystem Total: {} MiB, Initial available: {} MiB, Min available: {} MiB ({:.1}%), Final usage: {:.1}%",
+        total_space / (1024 * 1024),
+        initial_available / (1024 * 1024),
+        min_available_space / (1024 * 1024),
+        min_available_space_percent,
+        final_used_percent,
+    );
+
+    // Assert that eviction actually triggered - the cache should have gotten close to the limit.
+    let max_expected_available = (total_space as f64 * (DEFAULT_CACHE_MIN_AVAILABLE_RATIO + TOLERANCE_RATIO)) as u64;
+    assert!(
+        min_available_space <= max_expected_available,
+        "Cache eviction may not have triggered - available space never got close to the limit. \
+        Min available: {} bytes ({:.1}%), expected to reach within {:.1}% above the {:.1}% minimum",
+        min_available_space,
+        min_available_space_percent,
+        TOLERANCE_RATIO * 100.0,
+        DEFAULT_CACHE_MIN_AVAILABLE_RATIO * 100.0,
+    );
+
+    // Assert no violations (with the tolerance)
+    assert!(
+        !has_violation,
+        "Cache violated available space limit. Min available: {} bytes ({:.1}%), Required: {:.1}% (tolerance: {:.1}%)",
+        min_available_space,
+        min_available_space_percent,
+        DEFAULT_CACHE_MIN_AVAILABLE_RATIO * 100.0,
+        TOLERANCE_RATIO * 100.0
+    );
+}
+
+/// Represents an isolated loop device filesystem for cache testing
+struct LoopDeviceFilesystem {
+    mount_path: PathBuf,
+    /// Kept alive to ensure the temp directory is not deleted before `Drop` unmounts the loop device.
+    _temp_dir: tempfile::TempDir,
+}
+
+impl LoopDeviceFilesystem {
+    /// Create a new loop device filesystem with the specified size in MiB
+    fn new(size_mib: u64) -> std::io::Result<Self> {
+        let temp_dir = tempfile::tempdir()?;
+        let image_path = temp_dir.path().join("cache-device.img");
+        let mount_path = temp_dir.path().join("cache-mount");
+
+        fs::create_dir_all(&mount_path)?;
+
+        // Create a sparse file for the loop device
+        let file = File::create(&image_path)?;
+        file.set_len(size_mib * 1024 * 1024)?;
+        drop(file);
+
+        // Create ext4 filesystem on the image
+        let output = Command::new("mkfs.ext4").arg("-F").arg(&image_path).output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::other(format!(
+                "mkfs.ext4 failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        let output = Command::new("sudo")
+            .args(["mount", "-o", "loop"])
+            .arg(&image_path)
+            .arg(&mount_path)
+            .output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::other(format!(
+                "mount failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        // Make the mount point writable
+        let output = Command::new("sudo").args(["chmod", "777"]).arg(&mount_path).output()?;
+        if !output.status.success() {
+            warn!("chmod failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+
+        Ok(Self {
+            mount_path,
+            _temp_dir: temp_dir,
+        })
+    }
+
+    /// Get the mount path for the loop device
+    fn mount_path(&self) -> &Path {
+        &self.mount_path
+    }
+}
+
+impl Drop for LoopDeviceFilesystem {
+    fn drop(&mut self) {
+        let _ = Command::new("sudo").arg("umount").arg(&self.mount_path).output();
+    }
 }
