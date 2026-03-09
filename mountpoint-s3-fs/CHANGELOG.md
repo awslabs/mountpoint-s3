@@ -1,9 +1,10 @@
-## Unreleased (v0.9.1)
+## Unreleased
 
-* Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in `mountpoint-s3-fs` v0.9.0.
-  ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
-* Upgrade cargo dependencies.
+## v0.9.1 (March 9, 2026)
+
+* Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in `mountpoint-s3-fs` v0.9.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
 * Fix incorrect validation of default data cache limit which would cause Mountpoint to preserve less than 5% of available space ([#1779](https://github.com/awslabs/mountpoint-s3/pull/1779))
+* Upgrade cargo dependencies.
 
 ## v0.9.0 (January 22, 2026)
 

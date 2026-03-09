@@ -1,4 +1,6 @@
-## Unreleased (v0.16.1)
+## Unreleased
+
+## v0.16.1 (March 9, 2026)
 
 * Upgrade cargo dependencies.
 
