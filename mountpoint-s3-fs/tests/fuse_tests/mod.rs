@@ -1,4 +1,3 @@
-#[cfg(feature = "s3_tests")]
 mod cache_test;
 mod consistency_test;
 #[cfg(all(feature = "manifest", feature = "event_log"))]

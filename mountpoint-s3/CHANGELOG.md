@@ -1,6 +1,7 @@
 ## Unreleased (v1.22.1)
 
 * Upgrade cargo dependencies.
+* Fix incorrect validation of default data cache limit which would cause Mountpoint to preserve less than 5% of available space ([#1779](https://github.com/awslabs/mountpoint-s3/pull/1779))
 
 ## v1.22.0 (January 22, 2026)
 

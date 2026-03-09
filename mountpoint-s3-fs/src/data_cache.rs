@@ -15,7 +15,9 @@ use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
 pub use crate::data_cache::cache_directory::ManagedCacheDir;
-pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+pub use crate::data_cache::disk_data_cache::{
+    CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DiskDataCache, DiskDataCacheConfig,
+};
 pub use crate::data_cache::express_data_cache::{ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 pub use crate::data_cache::multilevel_cache::MultilevelDataCache;
