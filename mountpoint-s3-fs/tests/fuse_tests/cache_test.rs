@@ -461,8 +461,11 @@ fn get_express_cache_block_key(bucket: &str, cache_key: &ObjectId, block_idx: Bl
 /// Get filesystem statistics for a given path
 fn get_filesystem_stats(path: &Path) -> (u64, u64) {
     let stat = nix::sys::statvfs::statvfs(path).expect("Failed to get filesystem stats");
-    let block_size = stat.block_size();
-    (stat.blocks() * block_size, stat.blocks_available() * block_size)
+    let block_size = stat.block_size() as u64;
+    (
+        stat.blocks() as u64 * block_size,
+        stat.blocks_available() as u64 * block_size,
+    )
 }
 
 /// Test that the cache respects the available space limit (default 5% free) during sequential reads.
