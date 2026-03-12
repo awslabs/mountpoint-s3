@@ -10,15 +10,34 @@ The container uses runtime builds with persistent caching:
 
 ## Quick Start
 
+Populate a `.env` file with environment variables required for the tests.
+The script will automatically set the variables in the container.
+
+For example (some entries omitted for brevity):
+
+```env
+# .env
+S3_BUCKET_NAME=amzn-s3-demo-bucket
+S3_REGION=us-east-1
+S3_SUBSESSION_IAM_ROLE=arn:aws:iam::111122223333:role/Mountpoint-Dev-SubSessionIamRole
+S3_BUCKET_TEST_PREFIX=github-actions-tmp/
+AWS_PROFILE=dev-container
+```
+
+Then use the script to interact with the container as below.
+
 ```bash
 # Build and run the container
-./dev-container/run.py --build
+./dev-container/dev.py build
 
 # Interactive shell
-./dev-container/run.py
+./dev-container/dev.py run
 
-# Run a command (use -- to separate script args from container args)
-./dev-container/run.py --use-credentials-from-aws-config -- cargo nextest run --features s3_tests,fuse_tests -p mountpoint-s3-fs
+# Run a command (use -- to separate script args from container args), environment is auto populated from .env file
+./dev-container/dev.py run --use-credentials-from-aws-config -- cargo nextest run --features s3_tests,fuse_tests -p mountpoint-s3-fs
+
+# Find help information for all the options available
+./dev-container/dev.py --help
 ```
 
 ## Credential Options
@@ -27,6 +46,9 @@ You'll need to configure AWS credentials if you want to run things like the inte
 
 As an example, you might have credentials available in your `~/.aws/` folder.
 You can use the `--use-credentials-from-aws-config` option to bind mount that directory into the container.
+
+You may even want to configure an AWS profile which you use inside the container.
+In this case, you may have credentials inside `~/.aws/credentials` and then add `AWS_PROFILE` to your dotenv file.
 
 See `--help` for more available arguments.
 
@@ -41,10 +63,8 @@ You do **not** need to rebuild when:
 
 ## Cleanup
 
-To remove the cached rustup volume (e.g., when old toolchains accumulate):
+To remove resources like Docker volumes (e.g., when old toolchains accumulate):
 
 ```bash
-./dev-container/run.py --drop-rustup-volume
+./dev-container/dev.py clean
 ```
-
-Build artifacts and cargo dependencies are cached in Docker volumes between runs, so you don't need to rebuild for code or dependency changes.

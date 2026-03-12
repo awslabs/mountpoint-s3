@@ -70,7 +70,16 @@ def main():
     subparsers.add_parser('build', help='Build the development container image')
 
     # run
-    run_parser = subparsers.add_parser('run', help='Run the development container')
+    run_parser = subparsers.add_parser(
+        'run',
+        help='Run the development container',
+        description="""
+        Run the development container and start a shell inside or execute the commands directly if provided after '--'.
+        For example:
+        dev.py run -- cargo check
+        """,
+        epilog='Environment variables in a dotenv file (.env) will be passed through to the container automatically.',
+    )
     creds_group = run_parser.add_mutually_exclusive_group()
     creds_group.add_argument('--use-credentials-from-env', action='store_true', help='Pass through AWS env vars')
     creds_group.add_argument('--use-credentials-from-aws-config', action='store_true', help='Mount ~/.aws as read-only')
