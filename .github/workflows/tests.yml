@@ -91,10 +91,10 @@ jobs:
       run: cargo test --doc --workspace --exclude mountpoint-s3-crt-sys --exclude mountpoint-s3-fuser --features $RUST_FEATURES
 
   macos-test:
-    name: Tests (MacOS)
+    name: Clippy & Tests (macOS)
 
     # We don't strictly support macOS,
-    # checking latest macOS version passes unit tests is enough.
+    # checking latest macOS version passes clippy and unit tests is enough.
     runs-on: macos-latest
 
     steps:
@@ -114,6 +114,7 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+        components: clippy
     - name: Install nextest
       uses: taiki-e/install-action@v2
       with:
@@ -128,6 +129,8 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Run Clippy
+      run: make clippy
     - name: Build tests
       run: cargo nextest run --profile ci --no-run
     - name: Run tests
