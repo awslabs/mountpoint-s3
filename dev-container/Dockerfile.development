@@ -8,16 +8,22 @@ RUN dnf upgrade -y && \
         clang \
         clang-devel \
         git \
+        iproute \
+        jq \
         pkg-config \
-        jq && \
+        sudo \
+        e2fsprogs \
+        && \
     dnf clean all
 
 # Configure FUSE
 RUN echo "user_allow_other" >> /etc/fuse.conf
 
-# Create non-root user
+# Create non-root user with sudo access.
+# /etc/shadow has the wrong permission bits (000) in the container for some reason while it typically is 640.
 RUN useradd -m -s /bin/bash dev-user && \
-    usermod -aG wheel dev-user
+    echo "dev-user ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/dev-user && \
+    chmod 640 /etc/shadow
 
 # Install Rust as dev-user
 USER dev-user
