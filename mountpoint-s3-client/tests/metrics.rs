@@ -14,11 +14,13 @@ use std::option::Option::None;
 use std::sync::{Arc, Mutex};
 
 use aws_sdk_s3::primitives::ByteStream;
+use common::creds::{as_crt_cred_provider, get_scoped_down_credentials};
 use common::*;
 use futures::TryStreamExt;
 use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::metrics::{
     ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_ERRORS, S3_REQUEST_FIRST_BYTE_LATENCY,
@@ -26,6 +28,7 @@ use mountpoint_s3_client::metrics::{
 };
 use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams};
 use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient, S3RequestError};
+use mountpoint_s3_crt::common::allocator::Allocator;
 use mountpoint_s3_crt::s3::client::RequestMetrics;
 use regex::Regex;
 use rusty_fork::rusty_fork_test;
@@ -239,8 +242,21 @@ rusty_fork_test! {
 
 /// Test metrics and log messages for a get object error
 async fn test_get_object_metrics_403() {
-    let (_bucket, prefix) = get_test_bucket_and_prefix("XXXXXXXXXXXXXXXXXXX");
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_metrics_403");
+
+    // Get credentials with no S3 permissions to trigger 403.
+    // An empty policy denies all actions including s3express:CreateSession for S3 Express.
+    let policy = r#"{"Statement": [
+        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+    ]}"#;
+    let credentials = get_scoped_down_credentials(policy).await;
+
+    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
+
     let key = format!("{prefix}/nonexistent_key");
 
     // Set up metrics recording
@@ -248,13 +264,11 @@ async fn test_get_object_metrics_403() {
     metrics::set_global_recorder(recorder.clone()).unwrap();
     let guard = TracingTestLayer::enable();
 
-    let client: S3CrtClient = get_test_client();
-
     // Trigger a 403 error
     let _err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
-        .expect_err("get_object should fail");
+        .expect_err("get_object with no perms should fail");
 
     // Get metrics after the request
     drop(guard);
@@ -321,17 +335,28 @@ rusty_fork_test! {
 
 /// Test metrics and log messages for a head object that gets a 403 error
 async fn test_head_object_403() {
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, _prefix) = get_test_bucket_and_prefix("test_head_object_403");
+
+    // Get credentials with no S3 permissions to trigger 403.
+    // An empty policy denies all actions including s3express:CreateSession for S3 Express.
+    let policy = r#"{"Statement": [
+        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+    ]}"#;
+    let credentials = get_scoped_down_credentials(policy).await;
+
+    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
 
     let recorder = TestRecorder::default();
     metrics::set_global_recorder(recorder.clone()).unwrap();
     let _guard = TracingTestLayer::enable();
-
-    let client: S3CrtClient = get_test_client();
     let err = client
         .head_object(&bucket, "some-key", &HeadObjectParams::new())
         .await
-        .expect_err("head to no-permissions bucket should fail");
+        .expect_err("head_object with no perms should fail");
     assert!(matches!(
         err,
         ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))

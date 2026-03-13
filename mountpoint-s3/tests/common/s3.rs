@@ -19,10 +19,6 @@ pub fn get_express_bucket() -> String {
         .expect("Set S3_EXPRESS_ONE_ZONE_BUCKET_NAME to run integration tests")
 }
 
-pub fn get_test_bucket_forbidden() -> String {
-    std::env::var("S3_FORBIDDEN_BUCKET_NAME").expect("Set S3_FORBIDDEN_BUCKET_NAME to run integration tests")
-}
-
 #[cfg(not(feature = "s3express_tests"))]
 pub fn get_test_kms_key_id() -> String {
     std::env::var("KMS_TEST_KEY_ID").expect("Set KMS_TEST_KEY_ID to run integration tests")
