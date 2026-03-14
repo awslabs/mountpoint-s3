@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Add S3 client error covering failures to create S3 Express session. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+
 ## v0.19.7 (March 9, 2026)
 
 * Add `'static + Send` bounds to `MemoryPool` trait, and add `get_buffer_async` method to `MemoryPool`. ([#1768](https://github.com/awslabs/mountpoint-s3/pull/1768))

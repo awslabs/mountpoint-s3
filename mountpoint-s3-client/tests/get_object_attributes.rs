@@ -6,10 +6,13 @@ use aws_sdk_s3::operation::complete_multipart_upload::CompleteMultipartUploadOut
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart};
 use bytes::Bytes;
+use common::creds::{as_crt_cred_provider, get_scoped_down_credentials};
 use common::*;
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectAttributesError, ObjectClientError};
 use mountpoint_s3_client::types::ObjectAttribute;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
+use mountpoint_s3_crt::common::allocator::Allocator;
 use test_case::test_case;
 
 fn default_storage_class() -> &'static str {
@@ -495,20 +498,38 @@ async fn test_get_attributes_404_bucket() {
 
 #[tokio::test]
 async fn test_get_attributes_no_perm() {
-    let (_bucket, prefix) = get_test_bucket_and_prefix("test_get_attributes_no_perm");
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_attributes_no_perm");
+
+    // Get credentials with no S3 permissions to trigger 403.
+    // An empty policy denies all actions including s3express:CreateSession for S3 Express.
+    let policy = r#"{"Statement": [
+        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+    ]}"#;
+    let credentials = get_scoped_down_credentials(policy).await;
+
+    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
 
     let key = format!("{prefix}/some_key");
-
-    let client: S3CrtClient = get_test_client();
     let object_attributes = vec![ObjectAttribute::ETag];
 
-    let result = client
+    let err = client
         .get_object_attributes(&bucket, &key, None, None, object_attributes.as_ref())
-        .await;
+        .await
+        .expect_err("should fail if no permission to access S3");
 
-    assert!(matches!(
-        result,
-        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)))
-    ));
+    if cfg!(feature = "s3express_tests") {
+        assert!(matches!(
+            err,
+            ObjectClientError::ClientError(S3RequestError::CreateSessionError),
+        ));
+    } else {
+        assert!(matches!(
+            err,
+            ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)),
+        ));
+    }
 }
