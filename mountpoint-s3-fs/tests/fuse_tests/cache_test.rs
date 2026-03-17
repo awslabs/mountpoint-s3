@@ -1,5 +1,6 @@
 use crate::common::cache::CacheTestWrapper;
 use crate::common::fuse::{self, TestSessionConfig};
+use anyhow::{Context, anyhow};
 use mountpoint_s3_fs::data_cache::{CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DiskDataCache, DiskDataCacheConfig};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -600,37 +601,36 @@ struct LoopDeviceFilesystem {
 
 impl LoopDeviceFilesystem {
     /// Create a new loop device filesystem with the specified size in MiB
-    fn new(size_mib: u64) -> std::io::Result<Self> {
-        let temp_dir = tempfile::tempdir()?;
+    fn new(size_mib: u64) -> anyhow::Result<Self> {
+        let temp_dir = tempfile::tempdir().context("failed to create temporary directory")?;
         let image_path = temp_dir.path().join("cache-device.img");
         let mount_path = temp_dir.path().join("cache-mount");
 
-        fs::create_dir_all(&mount_path)?;
+        fs::create_dir_all(&mount_path).context("failed to create directories for loopback setup")?;
 
         // Create a sparse file for the loop device
-        let file = File::create(&image_path)?;
+        let file = File::create(&image_path).context("failed to create image file")?;
         file.set_len(size_mib * 1024 * 1024)?;
         drop(file);
 
         // Create ext4 filesystem on the image
-        let output = Command::new("mkfs.ext4").arg("-F").arg(&image_path).output()?;
+        let output = Command::new("mkfs.ext4")
+            .arg("-F")
+            .arg(&image_path)
+            .output()
+            .context("failed to execute mkfs.ext4")?;
         if !output.status.success() {
-            return Err(std::io::Error::other(format!(
-                "mkfs.ext4 failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
+            return Err(anyhow!("mkfs.ext4 failed: {}", String::from_utf8_lossy(&output.stderr)));
         }
 
         let output = Command::new("sudo")
             .args(["mount", "-o", "loop"])
             .arg(&image_path)
             .arg(&mount_path)
-            .output()?;
+            .output()
+            .context("failed to execute sudo")?;
         if !output.status.success() {
-            return Err(std::io::Error::other(format!(
-                "mount failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
+            return Err(anyhow!("mount failed: {}", String::from_utf8_lossy(&output.stderr)));
         }
 
         // Make the mount point writable
