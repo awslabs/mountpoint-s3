@@ -6,11 +6,12 @@ use mountpoint_s3_client::types::{
     ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
+use crate::content_type::{ContentTypeDetection, infer_content_type};
 
 use super::UploadError;
 
@@ -36,6 +37,7 @@ pub struct UploadRequestParams {
     pub server_side_encryption: ServerSideEncryption,
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub storage_class: Option<String>,
+    pub content_type_detection: ContentTypeDetection,
 }
 
 impl<Client> UploadRequest<Client>
@@ -63,6 +65,10 @@ where
 
         if let Some(storage_class) = &params.storage_class {
             put_object_params = put_object_params.storage_class(storage_class.clone());
+        }
+        if let Some(content_type) = infer_content_type(&params.key, None, params.content_type_detection) {
+            trace!(key=%params.key, content_type, "detected content type by extension for atomic upload");
+            put_object_params = put_object_params.add_custom_header("Content-Type".to_owned(), content_type);
         }
         // If we have detected corruption of SSE settings, we return an error, which will currently be reported as
         // `libc::EIO` on `open()`. MP won't be able to open files for write from this point, but this is a relatively

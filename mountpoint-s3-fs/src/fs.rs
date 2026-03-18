@@ -160,7 +160,8 @@ where
             UploaderConfig::new(client.write_part_size())
                 .storage_class(config.storage_class.to_owned())
                 .server_side_encryption(config.server_side_encryption.clone())
-                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c)),
+                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c))
+                .content_type_detection(config.content_type_detection),
         );
 
         Self {
