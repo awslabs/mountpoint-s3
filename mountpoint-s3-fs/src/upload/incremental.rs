@@ -15,6 +15,7 @@ use tracing::{Instrument, debug_span, trace};
 
 use crate::ServerSideEncryption;
 use crate::async_util::Runtime;
+use crate::content_type::{ContentTypeDetection, infer_content_type_async};
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
 use crate::sync::Arc;
@@ -50,6 +51,7 @@ pub struct AppendUploadQueueParams {
     /// If the object already exists, its current algorithm will be used instead.
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub capacity: usize,
+    pub content_type_detection: ContentTypeDetection,
 }
 
 impl<Client> AppendUploadRequest<Client>
@@ -368,12 +370,23 @@ where
     let bucket = params.bucket;
     let key = params.key;
     let sse = params.server_side_encryption;
+    let content_type_detection = params.content_type_detection;
     let mut etag = params.initial_etag;
     let mut offset = params.initial_offset;
 
     while let Ok(buffer) = buffer_receiver.recv().await {
         let buffer_len = buffer.len();
-        let result = append(&client, &bucket, &key, buffer, offset, etag.take(), sse.clone()).await?;
+        let result = append(
+            &client,
+            &bucket,
+            &key,
+            buffer,
+            offset,
+            etag.take(),
+            sse.clone(),
+            content_type_detection,
+        )
+        .await?;
 
         offset += buffer_len as u64;
         etag = Some(result.etag.clone());
@@ -387,6 +400,7 @@ where
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn append<Client: ObjectClient>(
     client: &Client,
     bucket: &str,
@@ -395,6 +409,7 @@ async fn append<Client: ObjectClient>(
     offset: u64,
     etag: Option<ETag>,
     server_side_encryption: ServerSideEncryption,
+    content_type_detection: ContentTypeDetection,
 ) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
     trace!(key, offset, len = buffer.len(), "preparing PutObject request");
     let (data, checksum) = buffer.freeze()?;
@@ -409,6 +424,12 @@ async fn append<Client: ObjectClient>(
     request_params.checksum = checksum;
     request_params.server_side_encryption = sse_type;
     request_params.ssekms_key_id = key_id;
+    if offset == 0
+        && let Some(content_type) = infer_content_type_async(key, Some(data.as_ref()), content_type_detection).await
+    {
+        trace!(key, content_type, "detected content type for incremental upload");
+        request_params = request_params.add_custom_header("Content-Type".to_owned(), content_type);
+    }
     client
         .put_object_single(bucket, key, &request_params, data)
         .await
