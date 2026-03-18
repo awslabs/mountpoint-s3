@@ -7,6 +7,7 @@ use clap::{ArgGroup, Parser, ValueEnum, value_parser};
 use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
+use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
 use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
@@ -402,6 +403,13 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
+        help = "Automatically detect and set Content-Type for uploaded objects based on file content or extension",
+        help_heading = BUCKET_OPTIONS_HEADER,
+    )]
+    pub content_type_detection: bool,
+
+    #[clap(
+        long,
         help = "One or more network interfaces for Mountpoint to use when accessing S3. Requires Linux 5.7+ or running as root. This feature is a work-in-progress.",
         help_heading = CLIENT_OPTIONS_HEADER,
         value_name = "NETWORK_INTERFACE",
@@ -538,6 +546,11 @@ impl CliArgs {
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+        filesystem_config.content_type_detection = if self.content_type_detection {
+            ContentTypeDetection::Auto
+        } else {
+            ContentTypeDetection::Disabled
+        };
         filesystem_config
     }
 
