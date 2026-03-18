@@ -31,8 +31,20 @@ mod integ_only {
     use aws_config::Region;
     use aws_config::sts::AssumeRoleProvider;
     use aws_credential_types::provider::ProvideCredentials;
+    use mountpoint_s3_client::config::{Allocator, CredentialsProviderStaticOptions};
+    use mountpoint_s3_crt::auth::credentials::CredentialsProvider;
 
     use crate::common::get_test_region;
+
+    /// Transform a Rust SDK [Credentials] struct into a CRT static [CredentialsProvider].
+    pub fn as_crt_cred_provider(creds: Credentials, allocator: &Allocator) -> CredentialsProvider {
+        let provider_options = CredentialsProviderStaticOptions {
+            access_key_id: creds.access_key_id(),
+            secret_access_key: creds.secret_access_key(),
+            session_token: creds.session_token(),
+        };
+        CredentialsProvider::new_static(allocator, provider_options).expect("crt cred provider should allocate ok")
+    }
 
     /// Grab a set of SDK [Credentials] from the default credential provider chain.
     pub async fn get_sdk_default_chain_creds() -> Credentials {

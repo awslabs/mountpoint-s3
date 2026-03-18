@@ -10,17 +10,18 @@ use std::str::FromStr;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::ChecksumAlgorithm;
 use bytes::Bytes;
+use common::creds::{as_crt_cred_provider, get_scoped_down_credentials};
 use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
-use mountpoint_s3_client::config::S3ClientConfig;
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{
     Checksum, ChecksumMode, ClientBackpressureHandle, ETag, GetBodyPart, GetObjectParams, GetObjectResponse,
 };
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
-
+use mountpoint_s3_crt::common::allocator::Allocator;
 use test_case::test_case;
 
 #[test_case(1, None; "1-byte object")]
@@ -326,25 +327,47 @@ async fn test_get_object_412_if_match() {
 
 #[tokio::test]
 async fn test_get_object_403() {
-    let (_bucket, prefix) = get_test_bucket_and_prefix("test_get_object_403");
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_403");
+
+    // Get credentials with no S3 permissions to trigger 403.
+    // An empty policy denies all actions including s3express:CreateSession for S3 Express.
+    let policy = r#"{"Statement": [
+        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+    ]}"#;
+    let credentials = get_scoped_down_credentials(policy).await;
+
+    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
 
     let key = format!("{prefix}/nonexistent_key");
-
-    let client: S3CrtClient = get_test_client();
 
     let err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
         .expect_err("get_object should fail");
 
-    assert!(matches!(
-        err,
-        ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
-    ));
-    assert_eq!(err.meta().http_code, Some(403));
-    assert_eq!(err.meta().error_code, Some("AccessDenied".to_string()));
-    assert!(err.meta().error_message.is_some());
+    if cfg!(feature = "s3express_tests") {
+        assert!(matches!(
+            err,
+            ObjectClientError::ClientError(S3RequestError::CreateSessionError),
+        ));
+
+        // Sadly, no meta info for S3 Express session creation failures.
+        assert_eq!(err.meta().http_code, None);
+        assert_eq!(err.meta().error_code, None);
+        assert!(err.meta().error_message.is_none());
+    } else {
+        assert!(matches!(
+            err,
+            ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)),
+        ));
+        assert_eq!(err.meta().http_code, Some(403));
+        assert_eq!(err.meta().error_code, Some("AccessDenied".to_string()));
+        assert!(err.meta().error_message.is_some());
+    }
 }
 
 // Not sure how to trigger IncorrectRegion with directory buckets: failure occurs on dns resolution (CrtError / AWS_IO_DNS_INVALID_NAME).
