@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v1.22.2 (Mar 20, 2026)
+
+* Update CRT submodules to latest releases. ([#1778](https://github.com/awslabs/mountpoint-s3/pull/1778))
+
 ## v1.22.1 (March 9, 2026)
 
 * Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in v1.22.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
