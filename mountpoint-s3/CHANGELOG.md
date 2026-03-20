@@ -2,7 +2,7 @@
 
 ## v1.22.2 (Mar 20, 2026)
 
-* Update CRT submodules to latest releases. ([#1778](https://github.com/awslabs/mountpoint-s3/pull/1778))
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1778](https://github.com/awslabs/mountpoint-s3/pull/1778))
 
 ## v1.22.1 (March 9, 2026)
 
