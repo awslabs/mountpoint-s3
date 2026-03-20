@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774027915056,
+  "lastUpdate": 1774032170358,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "sahityad@amazon.com",
-            "name": "Sahitya Damera",
-            "username": "sahityadg"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": false,
-          "id": "6f34b6826b437ee3fc33e6dda40433964f041592",
-          "message": "Udpate docs with cache metrics for OTLP export (#1739)\n\nUpdates documentation with new cache metrics available for OTLP export\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Sahitya Damera <sahityad@amazon.com>",
-          "timestamp": "2026-01-22T12:04:41Z",
-          "tree_id": "1787e28a58736bcfaf6d8a5ca150e09fb991df7b",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/6f34b6826b437ee3fc33e6dda40433964f041592"
-        },
-        "date": 1769091765593,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3564.19140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4961.921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8478.74609375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 25.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 52.0703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 26.546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 49.83203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 21.3515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 28.0234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 19.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 27.3046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8233.078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 48.3046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8220.92578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 50.55859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2114.2109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 25.7890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2113.484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2112.7734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 27.3359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 777.52734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 448.79296875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 544.80078125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "renanmag@amazon.co.uk",
+            "name": "Renan Magagnin",
+            "username": "renanmagagnin"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55d81b6a748372c4e9e4164dfbf80bf02168c257",
+          "message": "Update usages of GPG public keys with new rotated key (#1795)\n\nWe have a new GPG public key because the old one will expire soon. In\nthis PR we:\n- Update the usages of the public keys in the documentation with the new\none.\n- Simplify the `docker/Dockerfile` by installing `mount-s3` from AL2023\npackage repository\n\nTesting:\n```\n$ docker build -t mountpoint-s3 docker/\n[+] Building 16.9s (7/7) FINISHED                                                                                                                                                                                                                                              docker:default\n => [internal] load build definition from Dockerfile                                                                                                                                                                                                                                     0.0s\n => => transferring dockerfile: 334B                                                                                                                                                                                                                                                     0.0s\n => [internal] load metadata for public.ecr.aws/amazonlinux/amazonlinux:2023                                                                                                                                                                                                             1.2s\n => [internal] load .dockerignore                                                                                                                                                                                                                                                        0.0s\n => => transferring context: 2B                                                                                                                                                                                                                                                          0.0s\n => CACHED [1/3] FROM public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:139c488a2b47155ccb61262cfe299509793a8edad74572473e14960630f1559a                                                                                                                                                0.0s\n => => resolve public.ecr.aws/amazonlinux/amazonlinux:2023@sha256:139c488a2b47155ccb61262cfe299509793a8edad74572473e14960630f1559a                                                                                                                                                       0.0s\n => [2/3] RUN dnf upgrade -y &&     dnf install -y mount-s3 &&     dnf clean all                                                                                                                                                                                                        14.9s\n => [3/3] RUN echo \"user_allow_other\" >> /etc/fuse.conf                                                                                                                                                                                                                                  0.6s\n => exporting to image                                                                                                                                                                                                                                                                   0.1s \n => => exporting layers                                                                                                                                                                                                                                                                  0.1s \n => => writing image sha256:3ba80d05a326e4049cfeefb1d09697d977eaebfdcfcce565308e5de293a5f143                                                                                                                                                                                             0.0s \n => => naming to docker.io/library/mountpoint-s3                                                                                                                                                                                                                                         0.0s \n\n$ docker run --rm mountpoint-s3 --version\nmount-s3 1.22.0+1.amzn2023\n```\n\n### Does this change impact existing behavior?\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\nYes (in the release commit) and no.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>",
+          "timestamp": "2026-03-20T16:22:45Z",
+          "tree_id": "aa7c2c082e5e2d9d5d865e1e51099f70768a366b",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/55d81b6a748372c4e9e4164dfbf80bf02168c257"
+        },
+        "date": 1774032170296,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3879.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4851.63671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8570.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 24.28125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 51.875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 24.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 51.76171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 19.0703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 27.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 21.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 29.546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8060.046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 49.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8122.06640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 51.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2109.734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 24.82421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2107.90234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2110.8359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 22.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 854.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 546.33203125,
             "unit": "MiB"
           }
         ]
