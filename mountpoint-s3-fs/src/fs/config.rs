@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use nix::unistd::{getgid, getuid};
 
+use crate::content_type::ContentTypeDetection;
 use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
@@ -43,6 +44,8 @@ pub struct S3FilesystemConfig {
     pub mem_limit: u64,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
+    /// Content type detection mode for uploaded objects
+    pub content_type_detection: ContentTypeDetection,
     /// Limits the number of concurrent FUSE requests that the kernel may send. Default is 64.
     /// This option may also be configured by `UNSTABLE_MOUNTPOINT_MAX_BACKGROUND` environment variable,
     /// but the value specified in the config takes priority.
@@ -69,6 +72,7 @@ impl Default for S3FilesystemConfig {
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
+            content_type_detection: ContentTypeDetection::Disabled,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,
