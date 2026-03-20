@@ -1,5 +1,9 @@
 ## Unreleased
 
+## v0.9.2 (March 20, 2026)
+
+* Update to latest CRT dependencies.
+
 ## v0.9.1 (March 9, 2026)
 
 * Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in `mountpoint-s3-fs` v0.9.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))

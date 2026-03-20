@@ -1,5 +1,10 @@
 ## Unreleased
 
+## v1.22.2 (Mar 20, 2026)
+
+* Signing key rotation: We have updated the GnuPG key used to sign new Mountpoint for Amazon S3 releases. If you are following the [Verifying the signature of the Mountpoint for Amazon S3 package](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) instructions, make sure to use the latest version of the KEYS file.
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1778](https://github.com/awslabs/mountpoint-s3/pull/1778))
+
 ## v1.22.1 (March 9, 2026)
 
 * Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in v1.22.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
