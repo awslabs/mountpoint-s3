@@ -9,6 +9,12 @@ CARGO_CACHE_VOLUME = 'mountpoint-s3-cargo-cache'
 CARGO_TARGET_VOLUME = 'mountpoint-s3-target-cache'
 RUSTUP_VOLUME = 'mountpoint-s3-rustup-home'
 
+# List of env vars to always propagate.
+ALLOWLISTED_ENV_VARS_TO_PROPAGATE = [
+    'MOUNTPOINT_LOG',
+    'RUST_LOG',
+]
+
 
 def handle_build(args):
     subprocess.run(['docker', 'build', '-f', 'dev-container/Dockerfile.development', '-t', args.image, '.'], check=True)
@@ -40,6 +46,10 @@ def handle_run(args, container_args):
         aws_dir = os.path.expanduser('~/.aws')
         if os.path.exists(aws_dir):
             docker_args.extend(['-v', f'{aws_dir}:/home/{CONTAINER_USER}/.aws:ro'])
+
+    for env_var in ALLOWLISTED_ENV_VARS_TO_PROPAGATE:
+        if env_var in os.environ:
+            docker_args.extend(['-e', env_var])
 
     if container_args:
         docker_args.extend([args.image, '/bin/bash', '-c', ' '.join(container_args)])
