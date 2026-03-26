@@ -9,6 +9,13 @@ members = [
 ]
 resolver = "2"
 
+[workspace.dependencies]
+mountpoint-s3-fs = { version = "0.9.2", path = "./mountpoint-s3-fs" }
+mountpoint-s3-client = { version = "0.19.8", path = "./mountpoint-s3-client" }
+mountpoint-s3-crt = { version = "0.13.8", path = "./mountpoint-s3-crt" }
+mountpoint-s3-crt-sys = { version = "0.16.2", path = "./mountpoint-s3-crt-sys" }
+mountpoint-s3-fuser = { version = "0.1.1", path = "./mountpoint-s3-fuser", features = ["abi-7-28", "libfuse"] }
+
 [profile.release]
 debug = 2
 opt-level = 3
