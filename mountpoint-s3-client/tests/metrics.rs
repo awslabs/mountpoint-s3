@@ -21,18 +21,18 @@ use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
-use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::metrics::{
     ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_ERRORS, S3_REQUEST_FIRST_BYTE_LATENCY,
     S3_REQUEST_TOTAL_LATENCY,
 };
 use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams};
-use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::s3::client::RequestMetrics;
 use regex::Regex;
 use rusty_fork::rusty_fork_test;
 use tracing::Level;
 
+use crate::common::creds::assert_no_permissions_error;
 use crate::tracing_test::TracingTestLayer;
 
 /// A test metrics recorder that just remembers the current values of gauges and counters, and all
@@ -367,17 +367,7 @@ async fn test_head_object_403() {
         .head_object(&bucket, "some-key", &HeadObjectParams::new())
         .await
         .expect_err("should fail if no permission to access S3");
-    if cfg!(feature = "s3express_tests") {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::CreateSessionError)
-        ));
-    } else {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
-        ));
-    }
+    assert_no_permissions_error!(err);
 
     drop(_guard);
     let metrics = recorder.metrics.lock().unwrap().clone();

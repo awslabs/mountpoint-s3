@@ -23,6 +23,8 @@ use mountpoint_s3_client::types::{
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use test_case::test_case;
 
+use crate::common::creds::assert_no_permissions_error;
+
 #[test_case(1, None; "1-byte object")]
 #[test_case(10, None; "small object")]
 #[test_case(30000000, None; "large object")]
@@ -341,21 +343,13 @@ async fn test_get_object_403() {
         .await
         .expect_err("get_object should fail");
 
+    assert_no_permissions_error!(err);
     if cfg!(feature = "s3express_tests") {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::CreateSessionError),
-        ));
-
         // Sadly, no meta info for S3 Express session creation failures.
         assert_eq!(err.meta().http_code, None);
         assert_eq!(err.meta().error_code, None);
         assert!(err.meta().error_message.is_none());
     } else {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)),
-        ));
         assert_eq!(err.meta().http_code, Some(403));
         assert_eq!(err.meta().error_code, Some("AccessDenied".to_string()));
         assert!(err.meta().error_message.is_some());
