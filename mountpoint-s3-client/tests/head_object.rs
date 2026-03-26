@@ -10,15 +10,14 @@ use aws_sdk_s3::types::ChecksumAlgorithm;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::types::{GlacierJobParameters, RestoreRequest, Tier};
 use bytes::Bytes;
-use common::creds::{as_crt_cred_provider, get_scoped_down_credentials};
+use common::creds::{assert_no_permissions_error, get_no_permissions_provider};
 use common::*;
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError};
 #[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::types::RestoreStatus;
 use mountpoint_s3_client::types::{ChecksumMode, HeadObjectParams};
-use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
-use mountpoint_s3_crt::common::allocator::Allocator;
+use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use test_case::test_case;
 
 #[tokio::test]
@@ -186,13 +185,7 @@ async fn test_head_object_404_bucket() {
 async fn test_head_object_no_perm() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_head_object_no_perm");
 
-    // Get credentials with no S3 permissions to trigger 403.
-    let policy = r#"{"Statement": [
-        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
-    ]}"#;
-    let credentials = get_scoped_down_credentials(policy).await;
-
-    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let provider = get_no_permissions_provider().await;
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
         .endpoint_config(get_test_endpoint_config());
@@ -204,17 +197,7 @@ async fn test_head_object_no_perm() {
         .head_object(&bucket, &key, &HeadObjectParams::new())
         .await
         .expect_err("should fail if no permission to access S3");
-    if cfg!(feature = "s3express_tests") {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::CreateSessionError),
-        ));
-    } else {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)),
-        ));
-    }
+    assert_no_permissions_error!(err);
 }
 
 // This test relies on s3's expedited object restoration, it takes 1-5 minutes to complete

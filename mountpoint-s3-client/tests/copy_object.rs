@@ -3,13 +3,11 @@
 pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
-use common::creds::{as_crt_cred_provider, get_scoped_down_credentials};
+use common::creds::{assert_no_permissions_error, get_no_permissions_provider};
 use common::*;
-use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{CopyObjectError, ObjectClientError};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_crt::common::allocator::Allocator;
 
 #[tokio::test]
 async fn test_copy_objects() {
@@ -48,14 +46,7 @@ async fn test_copy_objects() {
 async fn test_copy_object_no_permission() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_copy_object_no_permission");
 
-    // Get credentials with no S3 permissions to trigger 403.
-    // An empty policy denies all actions including s3express:CreateSession for S3 Express.
-    let policy = r#"{"Statement": [
-        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
-    ]}"#;
-    let credentials = get_scoped_down_credentials(policy).await;
-
-    let provider = as_crt_cred_provider(credentials, &Allocator::default());
+    let provider = get_no_permissions_provider().await;
     let config = S3ClientConfig::new()
         .auth_config(S3ClientAuthConfig::Provider(provider))
         .endpoint_config(get_test_endpoint_config());
@@ -68,17 +59,7 @@ async fn test_copy_object_no_permission() {
         .copy_object(&bucket, &key, &bucket, &copy_key, &Default::default())
         .await
         .expect_err("should fail if no permission to access S3");
-    if cfg!(feature = "s3express_tests") {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::CreateSessionError),
-        ));
-    } else {
-        assert!(matches!(
-            err,
-            ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)),
-        ));
-    }
+    assert_no_permissions_error!(err);
 }
 
 #[tokio::test]

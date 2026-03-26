@@ -86,6 +86,54 @@ mod integ_only {
         credentials
     }
 
+    /// Get a CRT [CredentialsProvider] that has no S3 permissions.
+    ///
+    /// Uses a deny-all IAM policy to ensure all S3 actions (including `s3express:CreateSession`) are denied.
+    pub async fn get_no_permissions_provider() -> CredentialsProvider {
+        let policy = r#"{"Statement": [
+            { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+        ]}"#;
+        let credentials = get_scoped_down_credentials(policy).await;
+        as_crt_cred_provider(credentials, &Allocator::default())
+    }
+
+    /// Assert that the given error is the expected "no permissions" error variant.
+    ///
+    /// For S3 Express, this is [S3RequestError::CreateSessionError].
+    /// For general purpose buckets, this is [S3RequestError::Forbidden].
+    // The macro is not used in all test binaries, so allow unused
+    #[allow(unused_macros)]
+    macro_rules! assert_no_permissions_error {
+        ($err:expr) => {
+            if cfg!(feature = "s3express_tests") {
+                assert!(
+                    matches!(
+                        $err,
+                        mountpoint_s3_client::error::ObjectClientError::ClientError(
+                            mountpoint_s3_client::S3RequestError::CreateSessionError,
+                        )
+                    ),
+                    "expected CreateSessionError, got {:?}",
+                    $err,
+                );
+            } else {
+                assert!(
+                    matches!(
+                        $err,
+                        mountpoint_s3_client::error::ObjectClientError::ClientError(
+                            mountpoint_s3_client::S3RequestError::Forbidden(_, _),
+                        )
+                    ),
+                    "expected Forbidden, got {:?}",
+                    $err,
+                );
+            }
+        };
+    }
+    // The macro is not used in all test binaries, so allow unused
+    #[allow(unused_imports)]
+    pub(crate) use assert_no_permissions_error;
+
     /// ARN of an AWS IAM Role that can be assumed by individual tests to scope down permissions.
     ///
     /// You should use other functions in this module to obtain session credentials.
