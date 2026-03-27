@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Add S3 client error covering failures to create S3 Express session. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+
 ## v0.19.8 (March 20, 2026)
 
 * Update to latest CRT dependencies.
