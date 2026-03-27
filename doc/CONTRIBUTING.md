@@ -94,8 +94,8 @@ Mountpoint (`mountpoint-s3`) change example:
 * The latest release, as reported on the changelog, is `0.14.0`.
 * The patch version number should be incremented compared to the published version as this is new behavior for an unstable crate,
   so the new version should be `0.14.1`.
-* The dependents of this package - both `mountpoint-s3` and `mountpoint-s3-fs` - should update their declared dependency
-  from `0.14.0` to `0.14.1`.
+* The declared dependencies of the workspace should be updated within the root `Cargo.toml`.
+  In this case, the dependency for the client should be updated to be `0.14.1`.
 
 For any versioning change, we should ensure that the workspace lock file is updated and committed.
 This can be done by running a build, or something like `cargo check`.
