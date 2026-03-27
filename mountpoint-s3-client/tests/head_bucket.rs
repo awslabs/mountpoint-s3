@@ -4,6 +4,8 @@ pub mod common;
 
 use common::creds::{assert_no_permissions_error, get_no_permissions_provider};
 use common::*;
+#[cfg(not(feature = "s3express_tests"))]
+use mountpoint_s3_client::S3RequestError;
 use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadBucketError, ObjectClientError};
 
