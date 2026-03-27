@@ -132,6 +132,7 @@ where
         mem_limiter: Arc<MemoryLimiter>,
         config: UploaderConfig,
     ) -> Self {
+        assert!(config.buffer_size > 0, "buffer_size should be greater than 0 for uploads");
         Self {
             client,
             runtime,
