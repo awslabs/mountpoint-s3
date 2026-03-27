@@ -1195,6 +1195,10 @@ pub enum S3RequestError {
     #[error("No signing credentials available, see CRT debug logs")]
     NoSigningCredentials,
 
+    /// The client was unable to get S3 Express session credentials.
+    #[error("Failed to create S3 Express session, see CRT debug logs")]
+    CreateSessionError,
+
     /// The request was canceled
     #[error("Request canceled")]
     RequestCanceled,
@@ -1385,11 +1389,13 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
-    /// Try to look for error related to no signing credentials, returns generic error otherwise
+    /// Try to look for error related to failing to have credentials to make S3 requests, return generic error otherwise
     fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
         if crt_error_code == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
             S3RequestError::NoSigningCredentials
+        } else if crt_error_code == mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED as i32 {
+            S3RequestError::CreateSessionError
         } else {
             S3RequestError::CrtError(crt_error_code.into())
         }

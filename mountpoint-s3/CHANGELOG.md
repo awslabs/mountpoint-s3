@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Improve error message when S3 Express session creation fails. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+
 ## v1.22.2 (Mar 20, 2026)
 
 * Signing key rotation: We have updated the GnuPG key used to sign new Mountpoint for Amazon S3 releases. If you are following the [Verifying the signature of the Mountpoint for Amazon S3 package](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) instructions, make sure to use the latest version of the KEYS file.

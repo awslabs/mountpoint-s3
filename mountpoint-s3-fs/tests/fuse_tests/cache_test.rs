@@ -275,7 +275,11 @@ async fn express_cache_verify_fail_forbidden() {
 
     if let DataCacheError::IoFailure(err) = err {
         let body = format!("{err:?}");
-        assert!(body.contains("AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED"))
+        const PATTERN: &str = "Failed to create S3 Express session";
+        assert!(
+            body.contains(PATTERN),
+            "expected pattern {PATTERN:?} to appear in the following body: {body:?}",
+        )
     } else {
         panic!("wrong error type");
     }
