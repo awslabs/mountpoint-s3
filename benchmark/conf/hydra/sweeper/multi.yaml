@@ -3,3 +3,4 @@ defaults:
   - base
 
 _target_: hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper
+fail_fast: false
