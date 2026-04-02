@@ -21,15 +21,18 @@ use test_case::test_case;
 
 mod common;
 
-use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
+#[cfg(not(feature = "s3express_tests"))]
+use common::creds::get_scoped_down_credentials;
+use common::creds::{
+    apply_creds_to_command, get_credentials_no_permissions, get_sdk_default_chain_creds, get_subsession_iam_role,
+};
 use common::fuse::{mount_for_passing_fuse_fd, read_dir_to_entry_names};
 use common::s3::{
-    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_endpoint_url, get_test_region,
-    get_test_sdk_client,
+    create_objects, get_test_bucket_and_prefix, get_test_endpoint_url, get_test_region, get_test_sdk_client,
 };
-use common::tokio_block_on;
 #[cfg(not(feature = "s3express_tests"))]
-use common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
+use common::s3::{get_non_test_region, get_test_kms_key_id};
+use common::tokio_block_on;
 
 const MOUNT_OPTION_READ_ONLY: &str = "--read-only";
 const MOUNT_OPTION_AUTO_UNMOUNT: &str = "--auto-unmount";
@@ -263,10 +266,12 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
-    // the mount would fail from error 403 on HeadBucket
-    let bucket = get_test_bucket_forbidden();
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_with_passed_fuse_fd_fail_on_mount");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
+
+    // Get credentials with no S3 permissions to trigger 403 on initial ListObjectsV2
+    let credentials = tokio_block_on(get_credentials_no_permissions());
 
     let (fd, mount) = mount_for_passing_fuse_fd(
         mount_point.path(),
@@ -274,10 +279,11 @@ fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn s
     );
 
     let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
-    let cmd = cmd
-        .arg(&bucket)
+    cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .arg(format!("--prefix={prefix}"))
         .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -298,16 +304,22 @@ fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn s
 
 #[test]
 fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
-    // the mount would fail from error 403 on HeadBucket
-    let bucket = get_test_bucket_forbidden();
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_fail_on_mount");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
+    // Get credentials with no S3 permissions to trigger 403 on initial ListObjectsV2
+    let credentials = tokio_block_on(get_credentials_no_permissions());
+
     let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
-    cmd.arg(&bucket).arg(mount_point.path()).arg("--auto-unmount");
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
-        cmd.arg(format!("--region={region}"));
     }
 
     let child = cmd.spawn().expect("unable to spawn child");
@@ -322,17 +334,21 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
-    // the mount would fail from error 403 on HeadBucket
-    let bucket = get_test_bucket_forbidden();
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_foreground_fail_on_mount");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
+
+    // Get credentials with no S3 permissions to trigger 403 on ListObjectsV2
+    let credentials = tokio_block_on(get_credentials_no_permissions());
 
     let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg("--foreground")
         .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -662,12 +678,8 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
-        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-    if let Some(token) = credentials.session_token() {
-        cmd.env("AWS_SESSION_TOKEN", token);
-    }
+        .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -685,12 +697,8 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
         .arg(mount_point.path())
         .arg(format!("--prefix={subprefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
-        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-    if let Some(token) = credentials.session_token() {
-        cmd.env("AWS_SESSION_TOKEN", token);
-    }
+        .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
@@ -726,11 +734,7 @@ fn mount_with_sse(
         .arg("--auto-unmount")
         .arg("--foreground");
     if let Some(credentials) = credentials {
-        cmd.env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-            .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-        if let Some(token) = credentials.session_token() {
-            cmd.env("AWS_SESSION_TOKEN", token);
-        }
+        apply_creds_to_command(&mut cmd, &credentials);
     }
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
