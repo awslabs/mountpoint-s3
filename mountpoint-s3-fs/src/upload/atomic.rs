@@ -66,7 +66,7 @@ where
         if let Some(storage_class) = &params.storage_class {
             put_object_params = put_object_params.storage_class(storage_class.clone());
         }
-        if let Some(content_type) = infer_content_type(&params.key, None, params.content_type_detection) {
+        if let Some(content_type) = infer_content_type(&params.key, params.content_type_detection) {
             trace!(key=%params.key, content_type, "detected content type by extension for atomic upload");
             put_object_params = put_object_params.add_custom_header("Content-Type".to_owned(), content_type);
         }

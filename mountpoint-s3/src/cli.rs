@@ -402,7 +402,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Automatically detect and set Content-Type for uploaded objects based on file content or extension",
+        help = "Automatically detect and set Content-Type for uploaded objects based on file extension",
         help_heading = BUCKET_OPTIONS_HEADER,
     )]
     pub content_type_detection: bool,
