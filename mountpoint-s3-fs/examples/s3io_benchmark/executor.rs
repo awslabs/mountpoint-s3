@@ -6,7 +6,7 @@ use std::time::Instant;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
+use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
@@ -46,11 +46,9 @@ impl Executor {
         let read_part_size = global.read_part_size.unwrap_or(8 * 1024 * 1024);
         let write_part_size = global.write_part_size.unwrap_or(8 * 1024 * 1024);
 
-        let max_memory_target = global.max_memory_target.unwrap_or_else(|| {
-            use sysinfo::{RefreshKind, System};
-            let sys = System::new_with_specifics(RefreshKind::everything());
-            ((sys.total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize
-        });
+        let max_memory_target = global
+            .max_memory_target
+            .unwrap_or_else(|| ((effective_total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize);
 
         let bind = global.bind.clone().unwrap_or_default();
 

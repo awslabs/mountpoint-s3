@@ -2605,7 +2605,6 @@ dependencies = [
  "serde",
  "serde_json",
  "syscalls",
- "sysinfo",
  "tempfile",
  "test-case",
  "tokio",
