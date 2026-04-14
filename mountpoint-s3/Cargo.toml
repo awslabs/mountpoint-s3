@@ -35,7 +35,7 @@ predicates = "3.1.4"
 proptest = "1.10.0"
 proptest-derive = "0.8.0"
 syscalls = "0.8.1"
-rand = "0.10.0"
+rand = "0.10.1"
 serde = { version = "1.0.228", features = ["derive"] }
 test-case = "3.3.1"
 tempfile = "3.26.0"

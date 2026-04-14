@@ -34,7 +34,7 @@ libc = "0.2.182"
 linked-hash-map = "0.5.6"
 metrics = "0.24.3"
 nix = { version = "0.31.2", default-features = false, features = ["fs", "process", "signal", "user"] }
-rand = "0.10.0"
+rand = "0.10.1"
 regex = "1.12.3"
 rusqlite = { version = "0.38.0", features = ["bundled", "fallible_uint"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }

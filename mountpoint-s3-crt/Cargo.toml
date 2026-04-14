@@ -22,7 +22,7 @@ anyhow = { version = "1.0.102", features = ["backtrace"] }
 clap = { version = "4.5.60", features = ["derive"] }
 criterion = "0.8.2"
 ctor = "0.6.3"
-rand = "0.10.0"
+rand = "0.10.1"
 serde_json = "1.0.149"
 test-case = "3.3.1"
 tracing = { version = "0.1.44", default-features = false, features = ["std", "log"] }
