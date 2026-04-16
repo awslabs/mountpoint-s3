@@ -275,3 +275,171 @@ jobs:
       run: |
         .github/actions/scripts/copy-static-files.sh dev/cache_bench dev/cache_bench/peak_mem_usage
         git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
+
+  mem-limited-bench:
+    name: Benchmark (Memory-Limited Throughput)
+    runs-on: [self-hosted, linux, x64, nvme-high-performance]
+
+    needs: approval
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
+        aws-region: ${{ vars.S3_BENCH_REGION }}
+        role-duration-seconds: 21600
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        rustflags: ""
+    - name: Build
+      run: cargo build --release --features mem_limiter
+    - name: Run Benchmark
+      run: mountpoint-s3/scripts/fs_bench.sh read_mem_limited write_mem_limited mix_mem_limited
+    - name: Save benchmark results in S3
+      if: inputs.s3_bench_results_prefix
+      run: .github/actions/scripts/save-benchmark-results.sh
+      env:
+        S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
+        S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/mem-limited-bench
+        COMMIT_ID: ${{ inputs.ref }}
+    - name: Check benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: Memory-Limited Throughput Benchmark (S3 Standard)
+        tool: 'customBiggerIsBetter'
+        output-file-path: results/output.json
+        benchmark-data-dir-path: dev/mem_limited_bench
+        alert-threshold: "200%"
+        fail-on-alert: false
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
+        comment-on-alert: false
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
+        summary-always: true
+    - name: Check resource utilization
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: Memory-Limited Throughput Benchmark - Peak Memory Usage (S3 Standard)
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/peak_mem_usage.json
+        benchmark-data-dir-path: dev/mem_limited_bench/peak_mem_usage
+        alert-threshold: "200%"
+        fail-on-alert: false
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
+        comment-on-alert: false
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
+        skip-fetch-gh-pages: true
+        summary-always: true
+    - name: Provision static content and push benchmark results
+      # Store the results and deploy GitHub pages if the results are from main branch
+      if: ${{ inputs.publish }}
+      run: |
+        .github/actions/scripts/copy-static-files.sh dev/mem_limited_bench dev/mem_limited_bench/peak_mem_usage
+        git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages
+
+  mem-limited-cache-bench:
+    name: Benchmark (Memory-Limited Cache)
+    runs-on: [self-hosted, linux, x64, nvme-high-performance]
+
+    needs: approval
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
+        aws-region: ${{ vars.S3_BENCH_REGION }}
+        role-duration-seconds: 21600
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+    - name: Install operating system dependencies
+      uses: ./.github/actions/install-dependencies
+      with:
+        fuseVersion: 2
+        libunwind: true
+        fio: true
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
+        # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
+        rustflags: ""
+    - name: Build
+      run: cargo build --release --features mem_limiter
+    - name: Run Benchmark
+      env:
+        S3_MOUNT_LOCAL_STORAGE: yes
+      run: mountpoint-s3/scripts/fs_cache_bench.sh read_mem_limited
+    - name: Save benchmark results in S3
+      if: inputs.s3_bench_results_prefix
+      run: .github/actions/scripts/save-benchmark-results.sh
+      env:
+        S3_BENCH_REGION: ${{ vars.S3_BENCH_REGION }}
+        S3_BENCH_BUCKET_NAME: ${{ vars.S3_BENCH_RESULTS_BUCKET_NAME }}
+        S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/mem-limited-cache-bench
+        COMMIT_ID: ${{ inputs.ref }}
+    - name: Check benchmark results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: Memory-Limited Cache Throughput Benchmark (S3 Standard)
+        tool: 'customBiggerIsBetter'
+        output-file-path: results/output.json
+        benchmark-data-dir-path: dev/mem_limited_cache_bench
+        alert-threshold: "200%"
+        fail-on-alert: false
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
+        comment-on-alert: false
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
+        summary-always: true
+    - name: Check resource utilization
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: Memory-Limited Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)
+        tool: 'customSmallerIsBetter'
+        output-file-path: results/peak_mem_usage.json
+        benchmark-data-dir-path: dev/mem_limited_cache_bench/peak_mem_usage
+        alert-threshold: "200%"
+        fail-on-alert: false
+        # GitHub API token to make a commit comment
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        # Make sure to add this chart to the step provisioning static content and pushing the changes
+        auto-push: false
+        comment-on-alert: false
+        max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
+        skip-fetch-gh-pages: true
+        summary-always: true
+    - name: Provision static content and push benchmark results
+      # Store the results and deploy GitHub pages if the results are from main branch
+      if: ${{ inputs.publish }}
+      run: |
+        .github/actions/scripts/copy-static-files.sh dev/mem_limited_cache_bench dev/mem_limited_cache_bench/peak_mem_usage
+        git push 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git' gh-pages:gh-pages

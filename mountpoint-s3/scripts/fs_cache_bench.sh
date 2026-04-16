@@ -40,6 +40,10 @@ if [[ -n "${S3_DEBUG}" ]]; then
   optional_args+=" --debug"
 fi
 
+if [[ -n "${S3_INCREMENTAL_UPLOAD}" ]]; then
+  optional_args+=" --incremental-upload"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -51,6 +55,28 @@ iterations=10
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
+
+# Accept a single FIO category name as a positional argument, defaulting to
+# "read" when no arg provided. Detect memory-limited mode by checking if the category
+# contains "_mem_limited".
+category="${1:-read}"
+is_mem_limited=false
+if [[ "$category" == *_mem_limited* ]]; then
+  is_mem_limited=true
+fi
+
+# Extract the memory target from the _mem{N} suffix in a FIO job name.
+# Returns the extracted value if the suffix is present.
+# Exits with an error if the suffix is missing and is_mem_limited is true.
+get_memory_target_for_job() {
+  local basename=$1
+  if [[ "${basename}" =~ _mem([0-9]+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    echo "ERROR: FIO job '${basename}' is missing the required _mem{N} suffix in a memory-limited category"
+    exit 1
+  fi
+}
 
 run_fio_job() {
   job_file=$1
@@ -88,7 +114,14 @@ run_fio_job() {
   echo "done"
 
   # combine the results and find an average value
-  jq -n 'reduce inputs.jobs[] as $job (null; .name = $job.jobname | .len += 1 | .value += (if ($job."job options".rw == "read")
+  # For memory-limited runs, append _mem{N} to FIO's .jobname (e.g. sequential_read -> sequential_read_mem512)
+  # so the memory target is visible in the chart label while keeping the human-readable FIO name.
+  if [[ "${is_mem_limited}" == true ]]; then
+    mem_suffix="_mem$(get_memory_target_for_job "${job_name}")"
+  else
+    mem_suffix=""
+  fi
+  jq -n --arg mem_suffix "${mem_suffix}" 'reduce inputs.jobs[] as $job (null; .name = ($job.jobname + $mem_suffix) | .len += 1 | .value += (if ($job."job options".rw == "read")
       then $job.read.bw / 1024
       elif ($job."job options".rw == "randread") then $job.read.bw / 1024
       elif ($job."job options".rw == "randwrite") then $job.write.bw / 1024
@@ -120,7 +153,8 @@ should_setup_storage() {
 }
 
 cache_benchmark () {
-  jobs_dir=mountpoint-s3/scripts/fio/read
+  # Use the category from script argument
+  jobs_dir=mountpoint-s3/scripts/fio/${category}
 
   if should_setup_storage; then
     local_storage=/localstorage
@@ -164,9 +198,19 @@ cache_benchmark () {
     rm -rf ${log_dir}
     mkdir -p ${log_dir}
 
+    # Resolve memory target for this job from filename when in memory-limited mode
+    if [[ "${is_mem_limited}" == true ]]; then
+      job_memory_target=$(get_memory_target_for_job "${job_name}")
+      memory_target_option="--max-memory-target=${job_memory_target}"
+      features_option="--features mem_limiter"
+    else
+      unset memory_target_option
+      unset features_option
+    fi
+
     # mount file system
     set +e
-    cargo run --quiet --release -- \
+    cargo run --quiet --release $features_option -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
       --allow-overwrite \
@@ -175,6 +219,7 @@ cache_benchmark () {
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --part-size=16777216 \
       --log-metrics \
+      $memory_target_option \
       ${optional_args}
     mount_status=$?
     set -e
@@ -215,3 +260,33 @@ echo "Throughput:"
 jq -n '[inputs]' ${results_dir}/*_parsed.json | tee ${results_dir}/output.json
 echo "Peak memory usage:"
 jq -n '[inputs]' ${results_dir}/*_peak_mem.json | tee ${results_dir}/peak_mem_usage.json
+
+# Breach detection summary for memory-limited runs
+if [[ "${is_mem_limited}" == true ]]; then
+  echo ""
+  echo "=== Memory Breach Detection ==="
+
+  summary_table="| Test | Peak Memory (MiB) | Memory Limit (MiB) | Status |\n"
+  summary_table+="|---|---|---|---|\n"
+
+  for peak_mem_file in ${results_dir}/*_peak_mem.json; do
+    test_name=$(jq -r '.name' "${peak_mem_file}")
+    peak_value=$(jq -r '.value' "${peak_mem_file}")
+    mem_target=$(get_memory_target_for_job "${test_name}")
+
+    if (( $(echo "${peak_value} > ${mem_target}" | bc -l) )); then
+      status="❌ BREACHED"
+    else
+      status="✅ OK"
+    fi
+    summary_table+="| ${test_name} | ${peak_value} | ${mem_target} | ${status} |\n"
+  done
+
+  echo -e "${summary_table}"
+
+  if [[ -n "${GITHUB_STEP_SUMMARY}" ]]; then
+    echo "## Memory Breach Detection" >> "${GITHUB_STEP_SUMMARY}"
+    echo "" >> "${GITHUB_STEP_SUMMARY}"
+    echo -e "${summary_table}" >> "${GITHUB_STEP_SUMMARY}"
+  fi
+fi
