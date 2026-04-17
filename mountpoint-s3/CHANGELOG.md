@@ -1,4 +1,4 @@
-## Unreleased
+## Unreleased (v1.22.3)
 
 * Improve error message when S3 Express session creation fails. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
 
