@@ -41,7 +41,7 @@ cd ${project_dir}
 results_dir=results
 runtime_seconds=30
 startdelay_seconds=30
-: ${iterations:=10}
+: ${iterations:=1}  # TEMPORARY: reduced from 10 for faster dev iteration
 
 rm -rf ${results_dir}
 mkdir -p ${results_dir}
