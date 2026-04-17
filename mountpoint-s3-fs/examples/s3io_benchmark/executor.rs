@@ -176,7 +176,7 @@ impl Executor {
                 break;
             }
 
-            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), 0, size);
             let mut offset = 0;
             while offset < size {
                 if let Some(max_dur) = max_duration
@@ -251,9 +251,7 @@ impl Executor {
             }
 
             let iteration_start = Instant::now();
-            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
-
-            // Create a unique, deterministic seed by combining randseed with object_id hash
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), 0, size);
             // and iteration. This ensures each object/iteration has a different but reproducible
             // random access pattern.
             let randseed = config.randseed;

@@ -218,7 +218,7 @@ where
     }
 
     /// Start a new prefetch request to the specified object.
-    pub fn prefetch(&self, bucket: String, object_id: ObjectId, size: u64) -> PrefetchGetObject<Client>
+    pub fn prefetch(&self, bucket: String, object_id: ObjectId, handle_id: u64, size: u64) -> PrefetchGetObject<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
@@ -227,6 +227,7 @@ where
             self.config,
             bucket,
             object_id,
+            handle_id,
             size,
             self.mem_limiter.clone(),
         )
@@ -255,6 +256,8 @@ where
     next_request_offset: u64,
     size: u64,
     mem_limiter: Arc<MemoryLimiter>,
+    /// File handle ID that owns this prefetch request, for per-handle memory accounting.
+    handle_id: u64,
 }
 
 impl<Client> PrefetchGetObject<Client>
@@ -267,6 +270,7 @@ where
         config: PrefetcherConfig,
         bucket: String,
         object_id: ObjectId,
+        handle_id: u64,
         size: u64,
         mem_limiter: Arc<MemoryLimiter>,
     ) -> Self {
@@ -289,6 +293,7 @@ where
             object_id,
             size,
             mem_limiter,
+            handle_id,
         }
     }
 
@@ -430,6 +435,7 @@ where
         let config = RequestTaskConfig {
             bucket: self.bucket.clone(),
             object_id: self.object_id.clone(),
+            handle_id: Some(self.handle_id),
             range,
             read_part_size,
             preferred_part_size: self.preferred_part_size,
@@ -649,7 +655,8 @@ mod tests {
 
         let prefetcher = build_prefetcher(client.clone(), prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, size);
+        let fh = 1;
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, size);
 
         let mut next_offset = 0;
         loop {
@@ -730,7 +737,8 @@ mod tests {
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size as u64);
+        let fh = 1;
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size as u64);
         let result = block_on(request.read(0, read_size));
         assert!(matches!(result, Err(PrefetchReadError::BackpressurePreconditionFailed)));
     }
@@ -815,7 +823,8 @@ mod tests {
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, size);
+        let fh = 1;
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, size);
 
         let mut next_offset = 0;
         loop {
@@ -945,7 +954,8 @@ mod tests {
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
+        let fh = 1;
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
 
         for (offset, length) in reads {
             assert!(offset < object_size);
@@ -1108,7 +1118,8 @@ mod tests {
         let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
         block_on(async {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
+            let fh = 1;
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
 
             // The first read should trigger the prefetcher to try and get the whole object (in 2 parts).
             _ = request.read(0, 1).await.expect("first read should succeed");
@@ -1171,7 +1182,8 @@ mod tests {
 
         block_on(async {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
+            let fh = 1;
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
 
             // First read will terminate early
             assert!(matches!(
@@ -1226,7 +1238,8 @@ mod tests {
         // Try every possible seek from first_read_size
         for offset in first_read_size + 1..OBJECT_SIZE {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
+            let fh = 1;
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
             if first_read_size > 0 {
                 let _first_read = block_on(request.read(0, first_read_size)).unwrap();
             }
@@ -1261,7 +1274,8 @@ mod tests {
         // Try every possible seek from first_read_size
         for offset in 0..first_read_size {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
+            let fh = 1;
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
             if first_read_size > 0 {
                 let _first_read = block_on(request.read(0, first_read_size)).unwrap();
             }
@@ -1310,7 +1324,8 @@ mod tests {
 
         let prefetcher = build_prefetcher(client.clone(), PrefetcherType::Default, prefetcher_config);
         let object_id = ObjectId::new("test-object".to_owned(), etag);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
+        let fh = 1;
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
 
         // Perform sequential reads to test the download functionality
         let mut next_offset = 0;
@@ -1379,7 +1394,8 @@ mod tests {
             let prefetcher =
                 Prefetcher::default_builder(client).build(Runtime::new(ShuttleRuntime), mem_limiter, prefetcher_config);
             let object_id = ObjectId::new("hello".to_owned(), file_etag);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
+            let fh = 1;
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
 
             let mut next_offset = 0;
             loop {
@@ -1441,7 +1457,8 @@ mod tests {
             let prefetcher =
                 Prefetcher::default_builder(client).build(Runtime::new(ShuttleRuntime), mem_limiter, prefetcher_config);
             let object_id = ObjectId::new("hello".to_owned(), file_etag);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
+            let fh = 1;
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
 
             let num_reads = rng.gen_range(10usize..50);
             for _ in 0..num_reads {

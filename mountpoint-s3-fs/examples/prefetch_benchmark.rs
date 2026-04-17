@@ -207,7 +207,7 @@ fn main() -> anyhow::Result<()> {
             for (object_id, size) in &object_metadata {
                 let received_bytes = received_bytes.clone();
                 let object_id = object_id.clone();
-                let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+                let request = manager.prefetch(bucket.to_string(), object_id.clone(), 0, *size);
                 let read_size = args.read_size;
 
                 let task = scope.spawn(move || {

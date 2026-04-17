@@ -58,6 +58,7 @@ where
     Client: ObjectClient + Clone + Send + Sync,
 {
     pub async fn new(
+        fh: u64,
         handle: &NewHandle,
         flags: OpenFlags,
         fs: &S3Filesystem<Client>,
@@ -76,7 +77,7 @@ where
                     Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
                 };
                 let object_id = ObjectId::new(full_key.into(), etag);
-                let request = fs.prefetcher.prefetch(bucket.to_string(), object_id, object_size);
+                let request = fs.prefetcher.prefetch(bucket.to_string(), object_id, fh, object_size);
                 let handle = FileHandleState::Read {
                     request,
                     flushed: false,

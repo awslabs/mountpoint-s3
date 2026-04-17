@@ -36,6 +36,7 @@ pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static>
 pub struct RequestTaskConfig {
     pub bucket: String,
     pub object_id: ObjectId,
+    pub handle_id: Option<u64>,
     pub range: RequestRange,
     pub read_part_size: usize,
     pub preferred_part_size: usize,
@@ -265,6 +266,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
                         config.object_id.clone(),
                         initial_request_end_offset,
                         config.range,
+                        config.handle_id,
                     );
 
                     let part_composer = ClientPartComposer {
@@ -345,6 +347,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     object_id: ObjectId,
     initial_request_end_offset: u64,
     range: RequestRange,
+    handle_id: Option<u64>,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
@@ -357,6 +360,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 first_req_range.into(),
+                handle_id,
             );
             pin_mut!(first_request_stream);
             while let Some(next) = first_request_stream.next().await {
@@ -409,6 +413,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 range.into(),
+                handle_id,
             );
             pin_mut!(request_stream);
             while let Some(next) = request_stream.next().await {
@@ -427,10 +432,11 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
+    handle_id: Option<u64>,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).handle_id(handle_id))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
