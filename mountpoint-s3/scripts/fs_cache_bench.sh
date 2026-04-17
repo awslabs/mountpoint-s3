@@ -270,8 +270,8 @@ if [[ "${is_mem_limited}" == true ]]; then
   echo ""
   echo "=== Memory Breach Detection ==="
 
-  summary_table="| Test | Peak RSS (MiB) | Prefetch Reserved (MiB) | Upload Reserved (MiB) | Memory Limit (MiB) | Status |\n"
-  summary_table+="|---|---|---|---|---|---|\n"
+  summary_table="| Test | Peak RSS (MiB) | Peak Prefetch Reserved (MiB) | Peak Upload Reserved (MiB) | Peak Pool GetObject (MiB) | Peak Pool PutObject (MiB) | Memory Limit (MiB) | Status |\n"
+  summary_table+="|---|---|---|---|---|---|---|---|\n"
 
   for peak_mem_file in ${results_dir}/*_peak_mem.json; do
     test_name=$(jq -r '.name' "${peak_mem_file}")
@@ -279,25 +279,25 @@ if [[ "${is_mem_limited}" == true ]]; then
     mem_target=$(get_memory_target_for_job "${test_name}")
 
     # Read extra metrics if available
-    prefetch_file="${results_dir}/extra_metrics/${test_name}_prefetch_reserved.json"
-    upload_file="${results_dir}/extra_metrics/${test_name}_upload_reserved.json"
-    if [[ -f "${prefetch_file}" ]]; then
-      prefetch_value=$(jq -r '.value' "${prefetch_file}")
-    else
-      prefetch_value="N/A"
-    fi
-    if [[ -f "${upload_file}" ]]; then
-      upload_value=$(jq -r '.value' "${upload_file}")
-    else
-      upload_value="N/A"
-    fi
+    read_extra_metric() {
+      local file="${results_dir}/extra_metrics/${test_name}_${1}.json"
+      if [[ -f "${file}" ]]; then
+        jq -r '.value' "${file}"
+      else
+        echo "N/A"
+      fi
+    }
+    prefetch_value=$(read_extra_metric "prefetch_reserved")
+    upload_value=$(read_extra_metric "upload_reserved")
+    pool_get_value=$(read_extra_metric "pool_get_object")
+    pool_put_value=$(read_extra_metric "pool_put_object")
 
     if (( $(echo "${peak_value} > ${mem_target}" | bc -l) )); then
       status="❌ BREACHED"
     else
       status="✅ OK"
     fi
-    summary_table+="| ${test_name} | ${peak_value} | ${prefetch_value} | ${upload_value} | ${mem_target} | ${status} |\n"
+    summary_table+="| ${test_name} | ${peak_value} | ${prefetch_value} | ${upload_value} | ${pool_get_value} | ${pool_put_value} | ${mem_target} | ${status} |\n"
   done
 
   echo -e "${summary_table}"
