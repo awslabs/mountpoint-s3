@@ -2,10 +2,8 @@
 //!
 //! Extracts the following peak metrics from Mountpoint log files:
 //! - `process.memory_usage` (bytes) — total RSS of the Mountpoint process
-//! - `mem.bytes_reserved[area=prefetch]` — memory reserved by the MemoryLimiter for read buffers
-//! - `mem.bytes_reserved[area=upload]` — memory reserved by the MemoryLimiter for write buffers (incremental uploads)
-//! - `pool.reserved_bytes[kind=get_object]` — pool memory reserved for download (GetObject) buffers
-//! - `pool.reserved_bytes[kind=put_object]` — pool memory reserved for upload (PutObject/MPU) buffers
+//! - `mem.bytes_reserved[area=prefetch]` — memory reserved by the prefetcher (read buffers)
+//! - `mem.bytes_reserved[area=upload]` — memory reserved by the uploader (write buffers)
 //!
 //! The primary output file contains peak RSS (for benchmark charts).
 //! An optional `--extra-metrics-dir` writes per-metric JSON files for CI summaries.
@@ -37,7 +35,7 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "Directory to write extra per-metric JSON files for CI summaries",
+        help = "Directory to write extra per-metric JSON files (prefetch_reserved, upload_reserved)",
         value_name = "EXTRA_METRICS_DIR"
     )]
     extra_metrics_dir: Option<PathBuf>,
@@ -47,14 +45,10 @@ struct CliArgs {
 struct MetricCollector {
     /// Peak values for process.memory_usage (in bytes)
     peak_mem_usage: Vec<u64>,
-    /// Peak value for mem.bytes_reserved[area=prefetch] (bytes, gauge)
+    /// Peak value for mem.bytes_reserved[area=prefetch] (gauge, unitless in logs)
     peak_prefetch_reserved: f64,
-    /// Peak value for mem.bytes_reserved[area=upload] (bytes, gauge)
+    /// Peak value for mem.bytes_reserved[area=upload] (gauge, unitless in logs)
     peak_upload_reserved: f64,
-    /// Peak value for pool.reserved_bytes[kind=get_object] (bytes, gauge)
-    peak_pool_get_object: f64,
-    /// Peak value for pool.reserved_bytes[kind=put_object] (bytes, gauge)
-    peak_pool_put_object: f64,
 }
 
 impl MetricCollector {
@@ -63,30 +57,7 @@ impl MetricCollector {
             peak_mem_usage: Vec::new(),
             peak_prefetch_reserved: 0.0,
             peak_upload_reserved: 0.0,
-            peak_pool_get_object: 0.0,
-            peak_pool_put_object: 0.0,
         }
-    }
-
-    /// Update a peak value if the new value is larger.
-    fn update_peak(current: &mut f64, new_value: f64) {
-        if new_value > *current {
-            *current = new_value;
-        }
-    }
-}
-
-/// Parse a float value from a regex capture group.
-fn parse_f64_capture(caps: &regex::Captures, group: usize, metric_name: &str) -> anyhow::Result<Option<f64>> {
-    match caps.get(group) {
-        Some(value_str) => {
-            let value: f64 = value_str
-                .as_str()
-                .parse()
-                .map_err(|e| anyhow!("Unable to parse {} value '{}': {}", metric_name, value_str.as_str(), e))?;
-            Ok(Some(value))
-        }
-        None => Ok(None),
     }
 }
 
@@ -97,21 +68,13 @@ fn main() -> anyhow::Result<()> {
     // Example: process.memory_usage(bytes): 1234567
     let mem_usage_pattern = Regex::new(r"process\.memory_usage.*:\s(\d+)$")?;
 
-    // Pattern for mem.bytes_reserved[area=prefetch] — gauge value
+    // Pattern for mem.bytes_reserved[area=prefetch] — gauge value, logged as a float
     // Example: mem.bytes_reserved[area=prefetch]: 1234567
     let prefetch_reserved_pattern = Regex::new(r"mem\.bytes_reserved\[area=prefetch\]:\s([\d.]+(?:e[+-]?\d+)?)$")?;
 
-    // Pattern for mem.bytes_reserved[area=upload] — gauge value
+    // Pattern for mem.bytes_reserved[area=upload] — gauge value, logged as a float
     // Example: mem.bytes_reserved[area=upload]: 1234567
     let upload_reserved_pattern = Regex::new(r"mem\.bytes_reserved\[area=upload\]:\s([\d.]+(?:e[+-]?\d+)?)$")?;
-
-    // Pattern for pool.reserved_bytes[kind=get_object] — gauge value
-    // Example: pool.reserved_bytes[kind=get_object]: 1234567
-    let pool_get_object_pattern = Regex::new(r"pool\.reserved_bytes\[kind=get_object\]:\s([\d.]+(?:e[+-]?\d+)?)$")?;
-
-    // Pattern for pool.reserved_bytes[kind=put_object] — gauge value
-    // Example: pool.reserved_bytes[kind=put_object]: 1234567
-    let pool_put_object_pattern = Regex::new(r"pool\.reserved_bytes\[kind=put_object\]:\s([\d.]+(?:e[+-]?\d+)?)$")?;
 
     let paths = fs::read_dir(&args.log_dir)?;
     let mut collector = MetricCollector::new();
@@ -141,29 +104,29 @@ fn main() -> anyhow::Result<()> {
 
                 // Check for mem.bytes_reserved[area=prefetch]
                 if let Some(caps) = prefetch_reserved_pattern.captures(&line) {
-                    if let Some(value) = parse_f64_capture(&caps, 1, "prefetch_reserved")? {
-                        MetricCollector::update_peak(&mut collector.peak_prefetch_reserved, value);
+                    if let Some(value_str) = caps.get(1) {
+                        let value: f64 = value_str.as_str().parse().map_err(|e| {
+                            anyhow!(
+                                "Unable to parse prefetch reserved value '{}': {}",
+                                value_str.as_str(),
+                                e
+                            )
+                        })?;
+                        if value > collector.peak_prefetch_reserved {
+                            collector.peak_prefetch_reserved = value;
+                        }
                     }
                 }
 
                 // Check for mem.bytes_reserved[area=upload]
                 if let Some(caps) = upload_reserved_pattern.captures(&line) {
-                    if let Some(value) = parse_f64_capture(&caps, 1, "upload_reserved")? {
-                        MetricCollector::update_peak(&mut collector.peak_upload_reserved, value);
-                    }
-                }
-
-                // Check for pool.reserved_bytes[kind=get_object]
-                if let Some(caps) = pool_get_object_pattern.captures(&line) {
-                    if let Some(value) = parse_f64_capture(&caps, 1, "pool_get_object")? {
-                        MetricCollector::update_peak(&mut collector.peak_pool_get_object, value);
-                    }
-                }
-
-                // Check for pool.reserved_bytes[kind=put_object]
-                if let Some(caps) = pool_put_object_pattern.captures(&line) {
-                    if let Some(value) = parse_f64_capture(&caps, 1, "pool_put_object")? {
-                        MetricCollector::update_peak(&mut collector.peak_pool_put_object, value);
+                    if let Some(value_str) = caps.get(1) {
+                        let value: f64 = value_str.as_str().parse().map_err(|e| {
+                            anyhow!("Unable to parse upload reserved value '{}': {}", value_str.as_str(), e)
+                        })?;
+                        if value > collector.peak_upload_reserved {
+                            collector.peak_upload_reserved = value;
+                        }
                     }
                 }
             }
@@ -190,13 +153,12 @@ fn main() -> anyhow::Result<()> {
     if let Some(extra_dir) = &args.extra_metrics_dir {
         fs::create_dir_all(extra_dir)?;
 
-        let to_mib = |bytes: f64| bytes / (1024.0 * 1024.0);
+        let peak_prefetch_mib = collector.peak_prefetch_reserved / (1024.0 * 1024.0);
+        let peak_upload_mib = collector.peak_upload_reserved / (1024.0 * 1024.0);
 
         let extra_metrics: HashMap<&str, f64> = HashMap::from([
-            ("prefetch_reserved", to_mib(collector.peak_prefetch_reserved)),
-            ("upload_reserved", to_mib(collector.peak_upload_reserved)),
-            ("pool_get_object", to_mib(collector.peak_pool_get_object)),
-            ("pool_put_object", to_mib(collector.peak_pool_put_object)),
+            ("prefetch_reserved", peak_prefetch_mib),
+            ("upload_reserved", peak_upload_mib),
         ]);
 
         for (metric_name, value) in &extra_metrics {
