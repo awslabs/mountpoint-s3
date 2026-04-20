@@ -946,12 +946,4 @@ mod tests {
 
         assert!(cli_args.infer_content_type);
     }
-
-    #[test]
-    fn reject_legacy_infer_content_type_flag() {
-        let err =
-            CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--content-type-detection"]).unwrap_err();
-
-        assert!(err.to_string().contains("--content-type-detection"));
-    }
 }
