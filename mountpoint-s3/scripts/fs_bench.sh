@@ -30,6 +30,20 @@ if [[ -n "${S3_DEBUG}" ]]; then
   optional_args+=" --debug"
 fi
 
+cargo_feature_args=""
+mem_target_arg=""
+log_analyzer_mem_arg=""
+if [[ -n "${S3_MAX_MEMORY_TARGET_MIB}" ]]; then
+  # Memory-limited variant: build with the mem_limiter feature, cap Mountpoint at the
+  # requested MiB, and ask the log analyzer to additionally emit
+  # results/<job>_extra_metrics.json which is consumed only by the GitHub Actions
+  # memory summary table (render-mem-summary.sh). These files are not fed into the
+  # gh-pages benchmark charts.
+  cargo_feature_args="--features mem_limiter"
+  mem_target_arg="--max-memory-target=${S3_MAX_MEMORY_TARGET_MIB}"
+  log_analyzer_mem_arg="--mem-limit-mib=${S3_MAX_MEMORY_TARGET_MIB}"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -155,7 +169,7 @@ run_benchmarks() {
       unset part_size_option
     fi
     set +e
-    cargo run --quiet --release -- \
+    cargo run --quiet --release ${cargo_feature_args} -- \
       ${S3_BUCKET_NAME} ${mount_dir} \
       --allow-delete \
       --allow-overwrite \
@@ -163,7 +177,8 @@ run_benchmarks() {
       --prefix=${S3_BUCKET_TEST_PREFIX} \
       --log-metrics \
       $part_size_option \
-      ${optional_args}
+      ${optional_args} \
+      ${mem_target_arg}
     mount_status=$?
     set -e
     if [ $mount_status -ne 0 ]; then
@@ -184,7 +199,7 @@ run_benchmarks() {
     run_fio_job $job_file $mount_dir $log_dir
 
     # collect resource utilization metrics (peak memory usage)
-    cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name}
+    cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name} ${log_analyzer_mem_arg}
 
     cleanup
     trap - EXIT
