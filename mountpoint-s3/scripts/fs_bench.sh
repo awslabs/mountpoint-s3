@@ -235,12 +235,8 @@ run_benchmarks() {
     echo >&2 Running $job_file
     run_fio_job $job_file $mount_dir $log_dir
 
-    # collect resource utilization metrics (peak memory usage + extra metrics for mem-limited runs)
-    extra_metrics_args=""
-    if [[ "${is_mem_limited}" == true ]]; then
-      extra_metrics_args="--extra-metrics-dir ${results_dir}/extra_metrics"
-    fi
-    cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name} ${extra_metrics_args}
+    # collect resource utilization metrics (peak memory usage)
+    cargo run --bin mount-s3-log-analyzer ${log_dir} ${results_dir}/${job_name}_peak_mem.json ${job_name}
 
     cleanup
     trap - EXIT
@@ -264,34 +260,20 @@ if [[ "${is_mem_limited}" == true ]]; then
   echo ""
   echo "=== Memory Breach Detection ==="
 
-  summary_table="| Test | Peak RSS (MiB) | Prefetch Reserved (MiB) | Upload Reserved (MiB) | Memory Limit (MiB) | Status |\n"
-  summary_table+="|---|---|---|---|---|---|\n"
+  summary_table="| Test | Peak Memory (MiB) | Memory Limit (MiB) | Status |\n"
+  summary_table+="|---|---|---|---|\n"
 
   for peak_mem_file in ${results_dir}/*_peak_mem.json; do
     test_name=$(jq -r '.name' "${peak_mem_file}")
     peak_value=$(jq -r '.value' "${peak_mem_file}")
     mem_target=$(get_memory_target_for_job "${test_name}")
 
-    # Read extra metrics if available
-    prefetch_file="${results_dir}/extra_metrics/${test_name}_prefetch_reserved.json"
-    upload_file="${results_dir}/extra_metrics/${test_name}_upload_reserved.json"
-    if [[ -f "${prefetch_file}" ]]; then
-      prefetch_value=$(jq -r '.value' "${prefetch_file}")
-    else
-      prefetch_value="N/A"
-    fi
-    if [[ -f "${upload_file}" ]]; then
-      upload_value=$(jq -r '.value' "${upload_file}")
-    else
-      upload_value="N/A"
-    fi
-
     if (( $(echo "${peak_value} > ${mem_target}" | bc -l) )); then
       status="❌ BREACHED"
     else
       status="✅ OK"
     fi
-    summary_table+="| ${test_name} | ${peak_value} | ${prefetch_value} | ${upload_value} | ${mem_target} | ${status} |\n"
+    summary_table+="| ${test_name} | ${peak_value} | ${mem_target} | ${status} |\n"
   done
 
   echo -e "${summary_table}"
