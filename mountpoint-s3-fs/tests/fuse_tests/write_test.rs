@@ -1975,14 +1975,14 @@ fn open_disallowed_when_writer_exists() {
 }
 
 #[cfg(feature = "s3_tests")]
-fn content_type_detection_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+fn infer_content_type_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
     let mut filesystem_config = S3FilesystemConfig::default().upload_mode(upload_mode);
-    filesystem_config.content_type_detection = ContentTypeDetection::Auto;
+    filesystem_config.infer_content_type = ContentTypeDetection::Auto;
     let config = TestSessionConfig {
         filesystem_config,
         ..Default::default()
     };
-    let test_session = creator_fn("content_type_detection_test", config);
+    let test_session = creator_fn("infer_content_type_test", config);
 
     let key = "image.png";
     let path = test_session.mount_path().join(key);
@@ -1998,12 +1998,12 @@ fn content_type_detection_test(creator_fn: impl TestSessionCreator, upload_mode:
 
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 #[test]
-fn content_type_detection_test_s3_atomic() {
-    content_type_detection_test(fuse::s3_session::new, ATOMIC_UPLOAD);
+fn infer_content_type_test_s3_atomic() {
+    infer_content_type_test(fuse::s3_session::new, ATOMIC_UPLOAD);
 }
 
 #[cfg(feature = "s3express_tests")]
 #[test]
-fn content_type_detection_test_s3_incremental() {
-    content_type_detection_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
+fn infer_content_type_test_s3_incremental() {
+    infer_content_type_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
 }

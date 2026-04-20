@@ -1,6 +1,7 @@
 ## Unreleased
 
 * Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
+* Add support for automatic content type detection on file uploads. When the `--infer-content-type` flag is specified, Mountpoint will infer the `Content-Type` of new objects based on their file extension instead of using the default `binary/octet-stream`. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
 
 ## v1.22.3 (April 28, 2026)
 

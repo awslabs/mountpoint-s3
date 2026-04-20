@@ -42,8 +42,8 @@ pub struct Uploader<Client: ObjectClient> {
     /// Only [ChecksumAlgorithm::Crc32c] is supported for multi-part uploads.
     /// For existing objects, Mountpoint will instead append using the existing checksum algorithm on the object.
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
-    /// Content type detection mode for uploaded objects
-    content_type_detection: ContentTypeDetection,
+    /// Content type inference mode for uploaded objects
+    infer_content_type: ContentTypeDetection,
 }
 
 #[derive(Debug, Error)]
@@ -95,7 +95,7 @@ pub struct UploaderConfig {
     server_side_encryption: ServerSideEncryption,
     buffer_size: usize,
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
-    content_type_detection: ContentTypeDetection,
+    infer_content_type: ContentTypeDetection,
 }
 
 impl UploaderConfig {
@@ -105,7 +105,7 @@ impl UploaderConfig {
             server_side_encryption: Default::default(),
             buffer_size,
             default_checksum_algorithm: None,
-            content_type_detection: ContentTypeDetection::Disabled,
+            infer_content_type: ContentTypeDetection::Disabled,
         }
     }
 
@@ -124,8 +124,8 @@ impl UploaderConfig {
         self
     }
 
-    pub fn content_type_detection(mut self, content_type_detection: ContentTypeDetection) -> Self {
-        self.content_type_detection = content_type_detection;
+    pub fn infer_content_type(mut self, infer_content_type: ContentTypeDetection) -> Self {
+        self.infer_content_type = infer_content_type;
         self
     }
 }
@@ -151,7 +151,7 @@ where
             server_side_encryption: config.server_side_encryption,
             buffer_size: config.buffer_size,
             default_checksum_algorithm: config.default_checksum_algorithm,
-            content_type_detection: config.content_type_detection,
+            infer_content_type: config.infer_content_type,
         }
     }
 
@@ -167,7 +167,7 @@ where
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             storage_class: self.storage_class.clone(),
-            content_type_detection: self.content_type_detection,
+            infer_content_type: self.infer_content_type,
         };
         UploadRequest::new(&self.runtime, self.client.clone(), params)
     }
@@ -191,7 +191,7 @@ where
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             capacity,
-            content_type_detection: self.content_type_detection,
+            infer_content_type: self.infer_content_type,
         };
         AppendUploadRequest::new(
             &self.runtime,

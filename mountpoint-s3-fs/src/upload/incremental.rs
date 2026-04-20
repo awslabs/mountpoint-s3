@@ -51,7 +51,7 @@ pub struct AppendUploadQueueParams {
     /// If the object already exists, its current algorithm will be used instead.
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub capacity: usize,
-    pub content_type_detection: ContentTypeDetection,
+    pub infer_content_type: ContentTypeDetection,
 }
 
 impl<Client> AppendUploadRequest<Client>
@@ -374,7 +374,7 @@ where
     let mut offset = params.initial_offset;
     // Only meaningful for the first PutObject (offset == 0); computed once up front.
     let content_type = if offset == 0 {
-        infer_content_type(&key, params.content_type_detection)
+        infer_content_type(&key, params.infer_content_type)
     } else {
         None
     };

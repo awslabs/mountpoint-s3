@@ -405,7 +405,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         help = "Automatically detect and set Content-Type for uploaded objects based on file extension",
         help_heading = BUCKET_OPTIONS_HEADER,
     )]
-    pub content_type_detection: bool,
+    pub infer_content_type: bool,
 
     #[clap(
         long,
@@ -544,7 +544,7 @@ impl CliArgs {
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
-        filesystem_config.content_type_detection = if self.content_type_detection {
+        filesystem_config.infer_content_type = if self.infer_content_type {
             ContentTypeDetection::Auto
         } else {
             ContentTypeDetection::Disabled
@@ -937,5 +937,21 @@ mod tests {
         } else {
             parsed.expect_err("invalid kms key identifier");
         }
+    }
+
+    #[test]
+    fn parse_infer_content_type_flag() {
+        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--infer-content-type"])
+            .expect("new content type flag should parse");
+
+        assert!(cli_args.infer_content_type);
+    }
+
+    #[test]
+    fn reject_legacy_infer_content_type_flag() {
+        let err =
+            CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--content-type-detection"]).unwrap_err();
+
+        assert!(err.to_string().contains("--content-type-detection"));
     }
 }
