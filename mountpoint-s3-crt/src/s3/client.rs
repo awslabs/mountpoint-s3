@@ -286,6 +286,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Finish callback, if provided (and not already called, since it's FnOnce).
     on_finish: Option<FinishCallback>,
 
+    /// Opaque identifier for this meta request, readable from the buffer pool reserve path.
+    request_id: u64,
+
     /// Pin this struct because inner.user_data will be a pointer to this object.
     _pinned: PhantomPinned,
 }
@@ -358,6 +361,7 @@ impl<'a> MetaRequestOptions<'a> {
             on_body_ex: None,
             on_upload_review: None,
             on_finish: None,
+            request_id: 0,
             _pinned: Default::default(),
         });
 
@@ -506,6 +510,30 @@ impl<'a> MetaRequestOptions<'a> {
         options.inner.copy_source_uri = unsafe { options.copy_source_uri.as_mut().unwrap().as_aws_byte_cursor() };
         self
     }
+
+    /// Set an opaque identifier for this meta request. This value can be retrieved
+    /// from the buffer pool reserve path via [`meta_request_id`].
+    pub fn request_id(&mut self, id: u64) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.request_id = id;
+        self
+    }
+}
+
+/// Retrieve the request id stored in a meta request's user_data.
+///
+/// # Safety
+///
+/// `meta_request` must be a valid pointer to an `aws_s3_meta_request` whose
+/// `user_data` was set by [`MetaRequestOptions`].
+pub(crate) unsafe fn meta_request_id(meta_request: *const aws_s3_meta_request) -> u64 {
+    // SAFETY: caller guarantees `meta_request` is a valid pointer.
+    let user_data = unsafe { (*meta_request).user_data };
+    debug_assert!(!user_data.is_null());
+    // SAFETY: `user_data` was set to point to a valid `MetaRequestOptionsInner` in `MetaRequestOptions::new`.
+    let options = unsafe { &*(user_data as *const MetaRequestOptionsInner) };
+    options.request_id
 }
 
 impl Default for MetaRequestOptions<'_> {

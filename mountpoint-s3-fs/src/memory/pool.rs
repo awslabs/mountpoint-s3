@@ -156,7 +156,7 @@ impl PagedPool {
 impl MemoryPool for PagedPool {
     type Buffer = PoolBuffer;
 
-    fn get_buffer(&self, size: usize, meta_request_type: MetaRequestType) -> Self::Buffer {
+    fn get_buffer(&self, size: usize, meta_request_type: MetaRequestType, _request_id: u64) -> Self::Buffer {
         self.get_buffer(size, meta_request_type.into())
     }
 

@@ -12,7 +12,7 @@ struct NoReusePool();
 impl MemoryPool for NoReusePool {
     type Buffer = Box<[u8]>;
 
-    fn get_buffer(&self, size: usize, _type: MetaRequestType) -> Self::Buffer {
+    fn get_buffer(&self, size: usize, _type: MetaRequestType, _request_id: u64) -> Self::Buffer {
         vec![0u8; size].into_boxed_slice()
     }
 
