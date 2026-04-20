@@ -9,7 +9,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
+use mountpoint_s3_fs::prefetch::{HandleId, Prefetcher, PrefetcherConfig};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use rand::{RngExt, SeedableRng};
@@ -153,6 +153,11 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
+        let handle_id = {
+            let mut h = DefaultHasher::new();
+            config.name.hash(&mut h);
+            HandleId::new(h.finish())
+        };
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -176,7 +181,7 @@ impl Executor {
                 break;
             }
 
-            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), 0, size);
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), handle_id, size);
             let mut offset = 0;
             while offset < size {
                 if let Some(max_dur) = max_duration
@@ -226,6 +231,11 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
+        let handle_id = {
+            let mut h = DefaultHasher::new();
+            config.name.hash(&mut h);
+            HandleId::new(h.finish())
+        };
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -251,7 +261,9 @@ impl Executor {
             }
 
             let iteration_start = Instant::now();
-            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), 0, size);
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), handle_id, size);
+
+            // Create a unique, deterministic seed by combining randseed with object_id hash
             // and iteration. This ensures each object/iteration has a different but reproducible
             // random access pattern.
             let randseed = config.randseed;

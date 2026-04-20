@@ -14,6 +14,7 @@ use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
+use super::HandleId;
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
 use super::part::{Part, PartSource};
@@ -36,7 +37,7 @@ pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static>
 pub struct RequestTaskConfig {
     pub bucket: String,
     pub object_id: ObjectId,
-    pub handle_id: Option<u64>,
+    pub handle_id: HandleId,
     pub range: RequestRange,
     pub read_part_size: usize,
     pub preferred_part_size: usize,
@@ -347,7 +348,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     object_id: ObjectId,
     initial_request_end_offset: u64,
     range: RequestRange,
-    handle_id: Option<u64>,
+    handle_id: HandleId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
@@ -432,11 +433,13 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
-    handle_id: Option<u64>,
+    handle_id: HandleId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
+    // TODO: Pass handle_id to GetObjectParams once the client crate exposes the field
+    let _ = handle_id;
     try_stream! {
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).handle_id(handle_id))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
