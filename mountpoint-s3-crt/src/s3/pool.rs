@@ -29,7 +29,9 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     type Buffer: AsMut<[u8]> + Send;
 
     /// Get a buffer of at least `size` bytes for the given meta request.
-    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer;
+    ///
+    /// The `meta_request` is reference-counted and may be cloned if needed.
+    fn get_buffer(&self, size: usize, meta_request: MetaRequest) -> Self::Buffer;
 
     /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
     /// Returns a future that resolves to the buffer.
@@ -41,7 +43,7 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     /// The default implementation wraps [`get_buffer`](Self::get_buffer) in a
     /// ready future. Override this when the pool needs to wait for memory to free up.
     fn get_buffer_async(&self, size: usize, meta_request: MetaRequest) -> impl Future<Output = Self::Buffer> + Send {
-        ready(self.get_buffer(size, &meta_request))
+        ready(self.get_buffer(size, meta_request))
     }
 
     /// Trim the pool.
@@ -327,7 +329,7 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         if can_block {
             // The write path in s3_meta_request.c expects the ticket to be fulfilled
             // synchronously — it treats an unfulfilled future as error.
-            let buffer = self.pool.get_buffer(size, &meta_request);
+            let buffer = self.pool.get_buffer(size, meta_request);
             let ticket = CrtTicket::new(buffer, ticket_vtable);
             future.set(ticket);
         } else {
@@ -361,9 +363,7 @@ unsafe extern "C" fn pool_reserve<Pool: MemoryPool>(
     let crt_pool = unsafe { CrtBufferPool::<Pool>::ref_from_raw(&pool) };
 
     // SAFETY: `meta.meta_request` is a valid pointer to an `aws_s3_meta_request` whose
-    // `user_data` was initialised by `MetaRequestOptions`. `from_raw_acquire` increments
-    // the ref-count so the `MetaRequest` is safe to use and drop independently of the
-    // lifetime of the callback's `meta` argument.
+    // `user_data` was initialised by `MetaRequestOptions`.
     let meta_request = unsafe { MetaRequest::from_raw_acquire(meta.meta_request) };
     let future = crt_pool.reserve(meta.size, meta_request, meta.can_block);
 

@@ -711,14 +711,16 @@ pub struct MetaRequest {
 }
 
 impl MetaRequest {
-    /// Acquires a reference to an `aws_s3_meta_request` raw pointer, incrementing its ref-count.
+    /// Creates a new instance from an `aws_s3_meta_request` raw pointer, incrementing its ref-count.
     ///
     /// # Safety
     ///
     /// `raw` must be a valid, non-null pointer to an `aws_s3_meta_request` whose `user_data`
     /// was initialised by [`MetaRequestOptions`].
     pub(crate) unsafe fn from_raw_acquire(raw: *mut aws_s3_meta_request) -> Self {
-        // SAFETY: caller guarantees `raw` is valid and non-null.
+        // SAFETY: caller guarantees `raw` is a valid `aws_s3_meta_request`, and
+        // `aws_s3_meta_request_acquire` increments the reference count for it
+        // (and always returns a copy of the input, which is non-null).
         let inner = unsafe { NonNull::new_unchecked(aws_s3_meta_request_acquire(raw)) };
         Self { inner }
     }
@@ -1787,28 +1789,10 @@ impl UploadReviewPart {
 
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
-
     use test_case::test_case;
 
     use crate::aws_s3_request_type;
-    use crate::s3::client::{MetaRequestOptions, RequestType};
-
-    #[test]
-    fn meta_request_options_custom_id_round_trip() {
-        let mut options = MetaRequestOptions::new();
-        options.custom_id(42);
-        // SAFETY: directly accessing inner struct for testing, not moving out of it.
-        let inner = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut options.0)) };
-        assert_eq!(inner.custom_id, Some(42));
-    }
-
-    #[test]
-    fn meta_request_options_default_custom_id_is_none() {
-        let options = MetaRequestOptions::new();
-        // `Pin<Box<T>>` implements `Deref<Target=T>` so no unsafe needed for shared access.
-        assert_eq!(options.0.custom_id, None);
-    }
+    use crate::s3::client::RequestType;
 
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]

@@ -25,7 +25,6 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer};
 
 pub mod creds;
-#[cfg(feature = "pool_tests")]
 pub mod memory_pool;
 pub mod tracing_test;
 

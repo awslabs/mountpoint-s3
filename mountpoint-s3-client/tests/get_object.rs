@@ -6,16 +6,16 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::option::Option::None;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::ChecksumAlgorithm;
 use bytes::Bytes;
 use common::creds::get_no_permissions_provider;
+use common::memory_pool::RecordingMemoryPool;
 use common::*;
 use futures::pin_mut;
 use futures::stream::StreamExt;
-use mountpoint_s3_client::config::{MemoryPool, MetaRequest, S3ClientAuthConfig, S3ClientConfig};
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{
@@ -25,36 +25,6 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 use test_case::test_case;
 
 use crate::common::creds::assert_no_permissions_error;
-
-#[derive(Clone)]
-struct RecordingMemoryPool {
-    observed_custom_ids: Arc<Mutex<Vec<Option<u64>>>>,
-}
-
-impl RecordingMemoryPool {
-    fn new() -> Self {
-        Self {
-            observed_custom_ids: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn observed_custom_ids(&self) -> Vec<Option<u64>> {
-        self.observed_custom_ids.lock().unwrap().clone()
-    }
-}
-
-impl MemoryPool for RecordingMemoryPool {
-    type Buffer = Box<[u8]>;
-
-    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
-        self.observed_custom_ids.lock().unwrap().push(meta_request.custom_id());
-        vec![0u8; size].into_boxed_slice()
-    }
-
-    fn trim(&self) -> bool {
-        false
-    }
-}
 
 #[test_case(1, None; "1-byte object")]
 #[test_case(10, None; "small object")]
@@ -112,7 +82,7 @@ async fn test_get_object_custom_id_propagates_to_memory_pool() {
     let client_config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .memory_pool(recording_pool.clone());
-    let client = get_test_client_with_config(client_config);
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
 
     let custom_id = 4242;
     let result = client

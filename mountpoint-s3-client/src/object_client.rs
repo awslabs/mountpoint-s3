@@ -269,7 +269,8 @@ impl GetObjectParams {
         self
     }
 
-    /// Set the custom identifier for memory pool buffer allocations.
+    /// Set an optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
     pub fn custom_id(mut self, value: Option<u64>) -> Self {
         self.custom_id = value;
         self
@@ -609,7 +610,8 @@ impl PutObjectParams {
         self
     }
 
-    /// Set the custom identifier for memory pool buffer allocations.
+    /// Set an optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
     pub fn custom_id(mut self, value: Option<u64>) -> Self {
         self.custom_id = value;
         self
