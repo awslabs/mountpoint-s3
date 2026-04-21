@@ -523,23 +523,6 @@ impl<'a> MetaRequestOptions<'a> {
     }
 }
 
-/// Retrieve the caller-supplied custom identifier stored in a meta request's user_data.
-///
-/// Returns `None` if no custom id was set via [`MetaRequestOptions::custom_id`].
-///
-/// # Safety
-///
-/// `meta_request` must be a valid pointer to an `aws_s3_meta_request` whose
-/// `user_data` was set by [`MetaRequestOptions`].
-pub(crate) unsafe fn meta_request_custom_id(meta_request: *const aws_s3_meta_request) -> Option<u64> {
-    // SAFETY: caller guarantees `meta_request` is a valid pointer.
-    let user_data = unsafe { (*meta_request).user_data };
-    debug_assert!(!user_data.is_null());
-    // SAFETY: `user_data` was set to point to a valid `MetaRequestOptionsInner` in `MetaRequestOptions::new`.
-    let options = unsafe { &*(user_data as *const MetaRequestOptionsInner) };
-    options.custom_id
-}
-
 impl Default for MetaRequestOptions<'_> {
     fn default() -> Self {
         Self::new()
@@ -718,9 +701,8 @@ impl MetaRequest {
     /// `raw` must be a valid, non-null pointer to an `aws_s3_meta_request` whose `user_data`
     /// was initialised by [`MetaRequestOptions`].
     pub(crate) unsafe fn from_raw_acquire(raw: *mut aws_s3_meta_request) -> Self {
-        // SAFETY: caller guarantees `raw` is a valid `aws_s3_meta_request`, and
-        // `aws_s3_meta_request_acquire` increments the reference count for it
-        // (and always returns a copy of the input, which is non-null).
+        // SAFETY: caller guarantees `raw` is valid and non-null.
+        // `aws_s3_meta_request_acquire` always returns its input, which is non-null.
         let inner = unsafe { NonNull::new_unchecked(aws_s3_meta_request_acquire(raw)) };
         Self { inner }
     }
@@ -733,9 +715,13 @@ impl MetaRequest {
 
     /// Returns the caller-supplied custom identifier, or `None` if not set.
     pub fn custom_id(&self) -> Option<u64> {
-        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` whose `user_data` was set by
-        // `MetaRequestOptions`.
-        unsafe { meta_request_custom_id(self.inner.as_ptr()) }
+        // SAFETY: self.inner is a valid aws_s3_meta_request whose user_data was set
+        // to point to a valid MetaRequestOptionsInner in MetaRequestOptions::new.
+        let user_data = unsafe { (*self.inner.as_ptr()).user_data };
+        debug_assert!(!user_data.is_null());
+        // SAFETY: `user_data` points to a valid `MetaRequestOptionsInner` set in `MetaRequestOptions::new`.
+        let options = unsafe { &*(user_data as *const MetaRequestOptionsInner) };
+        options.custom_id
     }
 
     /// Cancel the meta request. Does nothing (but does not fail/panic) if the request has already

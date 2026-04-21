@@ -62,10 +62,12 @@ async fn test_put_object_custom_id_propagates_to_memory_pool() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_custom_id_propagates_to_memory_pool");
     let key = format!("{prefix}hello");
 
-    let recording_pool = RecordingMemoryPool::new();
+    let recording_pool = RecordingMemoryPool::default();
     let client_config = S3ClientConfig::new()
         .endpoint_config(get_test_endpoint_config())
         .memory_pool(recording_pool.clone());
+    // Constructing the client directly instead of using get_test_client_with_config,
+    // which would override our RecordingMemoryPool in some test configurations.
     let client = S3CrtClient::new(client_config).expect("could not create test client");
 
     let custom_id = 31337;

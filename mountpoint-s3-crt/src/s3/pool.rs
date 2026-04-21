@@ -29,9 +29,7 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     type Buffer: AsMut<[u8]> + Send;
 
     /// Get a buffer of at least `size` bytes for the given meta request.
-    ///
-    /// The `meta_request` is reference-counted and may be cloned if needed.
-    fn get_buffer(&self, size: usize, meta_request: MetaRequest) -> Self::Buffer;
+    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer;
 
     /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
     /// Returns a future that resolves to the buffer.
@@ -42,7 +40,7 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     ///
     /// The default implementation wraps [`get_buffer`](Self::get_buffer) in a
     /// ready future. Override this when the pool needs to wait for memory to free up.
-    fn get_buffer_async(&self, size: usize, meta_request: MetaRequest) -> impl Future<Output = Self::Buffer> + Send {
+    fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> impl Future<Output = Self::Buffer> + Send {
         ready(self.get_buffer(size, meta_request))
     }
 
@@ -329,7 +327,7 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         if can_block {
             // The write path in s3_meta_request.c expects the ticket to be fulfilled
             // synchronously — it treats an unfulfilled future as error.
-            let buffer = self.pool.get_buffer(size, meta_request);
+            let buffer = self.pool.get_buffer(size, &meta_request);
             let ticket = CrtTicket::new(buffer, ticket_vtable);
             future.set(ticket);
         } else {
@@ -345,7 +343,7 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
             // in-flight ticket futures. If one is added, we could propagate it to
             // `get_buffer_async` to avoid the wasteful buffer allocation.
             let _handle = self.event_loop_group.spawn_future(async move {
-                let buffer = pool.get_buffer_async(size, meta_request).await;
+                let buffer = pool.get_buffer_async(size, &meta_request).await;
                 let ticket = CrtTicket::new(buffer, ticket_vtable);
                 future_clone.set(ticket);
             });
