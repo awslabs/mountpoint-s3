@@ -14,7 +14,9 @@ if [ ${#files[@]} -eq 0 ]; then
   exit 0
 fi
 
-out="| Test | Peak RSS (MiB) | Memory Limit (MiB) | Status | Peak Prefetch Reserved (MiB) | Peak Upload Reserved (MiB) | Peak Pool GetObject (MiB) | Peak Pool PutObject (MiB) |
+out="## Memory Breach Detection
+
+| Test | Peak RSS (MiB) | Memory Limit (MiB) | Status | Peak Prefetch Reserved (MiB) | Peak Upload Reserved (MiB) | Peak Pool GetObject (MiB) | Peak Pool PutObject (MiB) |
 |---|---|---|---|---|---|---|---|
 "
 for f in "${files[@]}"; do
