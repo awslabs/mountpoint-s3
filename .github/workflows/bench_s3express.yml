@@ -43,7 +43,6 @@ jobs:
 
   bench:
     name: Benchmark (Throughput)
-    if: false  # TEMPORARY: disabled for mem-limited development iteration
     runs-on: [self-hosted, linux, x64, nvme-high-performance]
 
     needs: approval
@@ -127,7 +126,6 @@ jobs:
 
   latency-bench:
     name: Benchmark (Latency)
-    if: false  # TEMPORARY: disabled for mem-limited development iteration
     runs-on: [self-hosted, linux, x64, nvme-high-performance]
 
     needs: approval
