@@ -1,13 +1,13 @@
 //! A helper binary for parsing Mountpoint logs and collecting metrics.
 //!
 //! Extracts peak memory usage (RSS) from `process.memory_usage` log lines.
-//! Optionally, when `--mem-limit-mib` is provided, also extracts peak values for labeled
-//! metrics `mem.bytes_reserved[area=...]` and `pool.reserved_bytes[kind=...]` and writes
-//! an additional `<out_file_dir>/<test_name>_extra_metrics.json` file.
+//! Optionally, when both `--mem-limit-mib` and `--extra-metrics-out` are provided, also
+//! extracts peak values for labeled metrics `mem.bytes_reserved[area=...]` and
+//! `pool.reserved_bytes[kind=...]` and writes them to the given path.
 //!
-//! The `_extra_metrics.json` files are consumed only by the memory-limited CI jobs'
+//! The extra-metrics file is consumed only by the memory-limited CI jobs'
 //! `render-mem-summary.sh` step to populate the GitHub Actions step summary table and
-//! are not fed into the gh-pages benchmark charts.
+//! is not fed into the gh-pages benchmark charts.
 //!
 //! This binary is intended only for use in testing and development of Mountpoint.
 
@@ -35,10 +35,19 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "If set, also write <out_file_dir>/<test_name>_extra_metrics.json with extra memory metrics and a breach flag against this limit",
-        value_name = "MiB"
+        help = "Memory limit (MiB) to compare peak RSS against",
+        value_name = "MiB",
+        requires = "extra_metrics_out"
     )]
     mem_limit_mib: Option<u64>,
+
+    #[clap(
+        long,
+        help = "Output path for the JSON file with mem-related metrics",
+        value_name = "FILE",
+        requires = "mem_limit_mib"
+    )]
+    extra_metrics_out: Option<PathBuf>,
 }
 
 /// Extra memory metrics we track from Mountpoint metric log lines. Each entry is the
@@ -105,7 +114,7 @@ fn main() -> anyhow::Result<()> {
                         let value: u64 = cap[1]
                             .parse()
                             .map_err(|e| anyhow!("Unable to parse metric value: {}", e))?;
-                        mem_metric_peaks[i] = Some(mem_metric_peaks[i].unwrap_or(0).max(value));
+                        mem_metric_peaks[i] = mem_metric_peaks[i].max(Some(value));
                         break;
                     }
                 }
@@ -128,7 +137,7 @@ fn main() -> anyhow::Result<()> {
     serde_json::to_writer(&mut writer, &contents)?;
     writer.flush()?;
 
-    if let Some(limit_mib) = args.mem_limit_mib {
+    if let (Some(limit_mib), Some(extra_path)) = (args.mem_limit_mib, args.extra_metrics_out) {
         let mut extra = serde_json::Map::new();
         extra.insert("test".into(), json!(args.test_name));
         extra.insert("peak_rss_mib".into(), json!(peak_rss_mib));
@@ -139,8 +148,6 @@ fn main() -> anyhow::Result<()> {
                 extra.insert((*field).into(), json!(bytes as f64 / (1024 * 1024) as f64));
             }
         }
-        let dir = args.out_file.parent().expect("out_file should have a parent");
-        let extra_path = dir.join(format!("{}_extra_metrics.json", args.test_name));
         let file = File::create(&extra_path)?;
         let mut writer = BufWriter::new(file);
         serde_json::to_writer(&mut writer, &serde_json::Value::Object(extra))?;
