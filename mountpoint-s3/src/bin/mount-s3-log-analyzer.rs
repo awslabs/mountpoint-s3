@@ -47,19 +47,19 @@ fn main() -> anyhow::Result<()> {
     // prefixed with a tracing-subscriber timestamp/level/target, so the pattern is not
     // anchored at the start of line.
     const RSS_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
-    // Matches log lines ending in `<name>(unit)?[labels]: <number>` for the labeled
+    // Matches log lines ending in `<name>(unit)?[labels]: <number>` for the memory
     // metrics we care about. Captures the metric name and the labels content.
-    const LABELED_LOG_PATTERN: &str =
+    const MEM_METRICS_LOG_PATTERN: &str =
         r"(mem\.bytes_reserved|pool\.reserved_bytes)(?:\([^)]*\))?\[([^\]]*)\]:\s(\d+)$";
 
     let args = CliArgs::parse();
     let paths = fs::read_dir(&args.log_dir)?;
     let rss_re = Regex::new(RSS_LOG_PATTERN)?;
-    let labeled_re = Regex::new(LABELED_LOG_PATTERN)?;
+    let mem_metrics_re = Regex::new(MEM_METRICS_LOG_PATTERN)?;
 
     let mut rss_values: Vec<u64> = Vec::new();
     // Peak value (bytes) per (metric_name, labels) pair.
-    let mut labeled_peaks: HashMap<(String, String), u64> = HashMap::new();
+    let mut mem_metric_peaks: HashMap<(String, String), u64> = HashMap::new();
 
     // collect metrics from all log files in the given directory
     for path in paths {
@@ -83,14 +83,14 @@ fn main() -> anyhow::Result<()> {
                     rss_values.push(value);
                 }
             } else if args.mem_limit_mib.is_some()
-                && let Some(cap) = labeled_re.captures(&line)
+                && let Some(cap) = mem_metrics_re.captures(&line)
             {
                 let name = cap[1].to_string();
                 let labels = cap[2].to_string();
                 let value: u64 = cap[3]
                     .parse()
                     .map_err(|e| anyhow!("Unable to parse metric value: {}", e))?;
-                let entry = labeled_peaks.entry((name, labels)).or_insert(0);
+                let entry = mem_metric_peaks.entry((name, labels)).or_insert(0);
                 if value > *entry {
                     *entry = value;
                 }
@@ -111,28 +111,29 @@ fn main() -> anyhow::Result<()> {
     writer.flush()?;
 
     if let Some(limit_mib) = args.mem_limit_mib {
-        let lookup = |name: &str, labels: &str| -> f64 {
-            labeled_peaks
-                .get(&(name.to_string(), labels.to_string()))
-                .copied()
-                .map(|v| v as f64 / (1024 * 1024) as f64)
-                .unwrap_or(0.0)
-        };
-        let extra = json!({
-            "test": args.test_name,
-            "peak_rss_mib": peak_rss_mib,
-            "mem_limit_mib": limit_mib,
-            "breached": peak_rss_mib > limit_mib as f64,
-            "peak_prefetch_reserved_mib": lookup("mem.bytes_reserved", "area=prefetch"),
-            "peak_upload_reserved_mib": lookup("mem.bytes_reserved", "area=upload"),
-            "peak_pool_get_object_mib": lookup("pool.reserved_bytes", "kind=get_object"),
-            "peak_pool_put_object_mib": lookup("pool.reserved_bytes", "kind=put_object"),
-        });
+        let mut extra = serde_json::Map::new();
+        extra.insert("test".into(), json!(args.test_name));
+        extra.insert("peak_rss_mib".into(), json!(peak_rss_mib));
+        extra.insert("mem_limit_mib".into(), json!(limit_mib));
+        extra.insert("breached".into(), json!(peak_rss_mib > limit_mib as f64));
+        // Only include mem metrics that were actually observed in the logs. Absent keys
+        // are dropped from the JSON and rendered as "N/A" in the GH step summary table.
+        let fields = [
+            ("peak_prefetch_reserved_mib", "mem.bytes_reserved", "area=prefetch"),
+            ("peak_upload_reserved_mib", "mem.bytes_reserved", "area=upload"),
+            ("peak_pool_get_object_mib", "pool.reserved_bytes", "kind=get_object"),
+            ("peak_pool_put_object_mib", "pool.reserved_bytes", "kind=put_object"),
+        ];
+        for (field, name, labels) in fields {
+            if let Some(bytes) = mem_metric_peaks.get(&(name.to_string(), labels.to_string())) {
+                extra.insert(field.into(), json!(*bytes as f64 / (1024 * 1024) as f64));
+            }
+        }
         let dir = args.out_file.parent().unwrap_or_else(|| std::path::Path::new("."));
         let extra_path = dir.join(format!("{}_extra_metrics.json", args.test_name));
         let file = File::create(&extra_path)?;
         let mut writer = BufWriter::new(file);
-        serde_json::to_writer(&mut writer, &extra)?;
+        serde_json::to_writer(&mut writer, &serde_json::Value::Object(extra))?;
         writer.flush()?;
     }
 

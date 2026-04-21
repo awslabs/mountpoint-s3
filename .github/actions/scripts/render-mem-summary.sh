@@ -20,7 +20,7 @@ out="| Test | Peak RSS (MiB) | Memory Limit (MiB) | Status | Peak Prefetch Reser
 for f in "${files[@]}"; do
   row=$(jq -r '
     (if .breached then "❌ BREACHED" else "✅ OK" end) as $status
-    | "| \(.test) | \(.peak_rss_mib) | \(.mem_limit_mib) | \($status) | \(.peak_prefetch_reserved_mib) | \(.peak_upload_reserved_mib) | \(.peak_pool_get_object_mib) | \(.peak_pool_put_object_mib) |"
+    | "| \(.test) | \(.peak_rss_mib) | \(.mem_limit_mib) | \($status) | \(.peak_prefetch_reserved_mib // "N/A") | \(.peak_upload_reserved_mib // "N/A") | \(.peak_pool_get_object_mib // "N/A") | \(.peak_pool_put_object_mib // "N/A") |"
   ' "$f")
   out+="${row}
 "
