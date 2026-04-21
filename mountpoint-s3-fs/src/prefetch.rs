@@ -71,7 +71,7 @@ impl HandleId {
         Self(id)
     }
 
-    pub fn get(&self) -> u64 {
+    pub fn as_raw(&self) -> u64 {
         self.0
     }
 }

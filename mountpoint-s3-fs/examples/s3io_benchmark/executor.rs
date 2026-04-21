@@ -38,6 +38,7 @@ pub struct Executor {
     pub client: S3CrtClient,
     pub uploader: Uploader<S3CrtClient>,
     prefetcher: Prefetcher<S3CrtClient>,
+    next_handle_id: std::sync::atomic::AtomicU64,
 }
 
 impl Executor {
@@ -118,6 +119,7 @@ impl Executor {
             client,
             uploader,
             prefetcher,
+            next_handle_id: std::sync::atomic::AtomicU64::new(1),
         })
     }
 
@@ -153,11 +155,7 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
-        let handle_id = {
-            let mut h = DefaultHasher::new();
-            config.name.hash(&mut h);
-            HandleId::new(h.finish())
-        };
+        let handle_id = HandleId::new(self.next_handle_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -231,11 +229,7 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
-        let handle_id = {
-            let mut h = DefaultHasher::new();
-            config.name.hash(&mut h);
-            HandleId::new(h.finish())
-        };
+        let handle_id = HandleId::new(self.next_handle_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
