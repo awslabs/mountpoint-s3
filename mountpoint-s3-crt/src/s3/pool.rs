@@ -18,8 +18,7 @@ use crate::ToAwsByteCursor as _;
 use crate::common::allocator::Allocator;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::futures::FutureSpawner;
-use crate::s3::client::MetaRequestType;
-use crate::s3::client::meta_request_id;
+use crate::s3::client::MetaRequest;
 
 /// A custom memory pool.
 ///
@@ -29,11 +28,10 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     /// Associated buffer type.
     type Buffer: AsMut<[u8]> + Send;
 
-    /// Get a buffer of at least the requested size.
-    /// `request_id` is a lightweight per-request identifier for tracking/correlation.
-    fn get_buffer(&self, size: usize, meta_request_type: MetaRequestType, request_id: u64) -> Self::Buffer;
+    /// Get a buffer of at least `size` bytes for the given meta request.
+    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer;
 
-    /// Get a buffer of at least the requested size asynchronously.
+    /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
     /// Returns a future that resolves to the buffer.
     ///
     /// Implementations must always eventually resolve. If memory is not immediately
@@ -42,13 +40,8 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     ///
     /// The default implementation wraps [`get_buffer`](Self::get_buffer) in a
     /// ready future. Override this when the pool needs to wait for memory to free up.
-    fn get_buffer_async(
-        &self,
-        size: usize,
-        meta_request_type: MetaRequestType,
-        request_id: u64,
-    ) -> impl Future<Output = Self::Buffer> + Send {
-        ready(self.get_buffer(size, meta_request_type, request_id))
+    fn get_buffer_async(&self, size: usize, meta_request: MetaRequest) -> impl Future<Output = Self::Buffer> + Send {
+        ready(self.get_buffer(size, &meta_request))
     }
 
     /// Trim the pool.
@@ -327,20 +320,14 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         self.pool.trim();
     }
 
-    fn reserve(
-        &self,
-        size: usize,
-        meta_request_type: MetaRequestType,
-        request_id: u64,
-        can_block: bool,
-    ) -> CrtTicketFuture {
+    fn reserve(&self, size: usize, meta_request: MetaRequest, can_block: bool) -> CrtTicketFuture {
         let future = CrtTicketFuture::new(&self.allocator);
         let ticket_vtable = self.ticket_vtable;
 
         if can_block {
             // The write path in s3_meta_request.c expects the ticket to be fulfilled
             // synchronously — it treats an unfulfilled future as error.
-            let buffer = self.pool.get_buffer(size, meta_request_type, request_id);
+            let buffer = self.pool.get_buffer(size, &meta_request);
             let ticket = CrtTicket::new(buffer, ticket_vtable);
             future.set(ticket);
         } else {
@@ -356,7 +343,7 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
             // in-flight ticket futures. If one is added, we could propagate it to
             // `get_buffer_async` to avoid the wasteful buffer allocation.
             let _handle = self.event_loop_group.spawn_future(async move {
-                let buffer = pool.get_buffer_async(size, meta_request_type, request_id).await;
+                let buffer = pool.get_buffer_async(size, meta_request).await;
                 let ticket = CrtTicket::new(buffer, ticket_vtable);
                 future_clone.set(ticket);
             });
@@ -373,12 +360,12 @@ unsafe extern "C" fn pool_reserve<Pool: MemoryPool>(
     // SAFETY: `pool` was obtained through `CrtMemoryPool::leak`.
     let crt_pool = unsafe { CrtBufferPool::<Pool>::ref_from_raw(&pool) };
 
-    // SAFETY: `meta.meta_request` is a pointer to a valid `aws_s3_meta_request`.
-    let request_type = unsafe { (*meta.meta_request).type_ };
-    // SAFETY: `meta.meta_request` is a pointer to a valid `aws_s3_meta_request` whose
-    // user_data was initialized by `MetaRequestOptions`.
-    let request_id = unsafe { meta_request_id(meta.meta_request) };
-    let future = crt_pool.reserve(meta.size, request_type.into(), request_id, meta.can_block);
+    // SAFETY: `meta.meta_request` is a valid pointer to an `aws_s3_meta_request` whose
+    // `user_data` was initialised by `MetaRequestOptions`. `from_raw_acquire` increments
+    // the ref-count so the `MetaRequest` is safe to use and drop independently of the
+    // lifetime of the callback's `meta` argument.
+    let meta_request = unsafe { MetaRequest::from_raw_acquire(meta.meta_request) };
+    let future = crt_pool.reserve(meta.size, meta_request, meta.can_block);
 
     // SAFETY: the CRT will take ownership of the future.
     unsafe { future.into_inner_ptr() }

@@ -3,6 +3,7 @@
 pub mod common;
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
@@ -12,13 +13,43 @@ use rand::RngExt;
 use test_case::test_case;
 
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
-use mountpoint_s3_client::config::S3ClientConfig;
+use mountpoint_s3_client::config::{MemoryPool, MetaRequest, S3ClientConfig};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
     PutObjectTrailingChecksums,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3RequestError};
+
+#[derive(Clone)]
+struct RecordingMemoryPool {
+    observed_custom_ids: Arc<Mutex<Vec<Option<u64>>>>,
+}
+
+impl RecordingMemoryPool {
+    fn new() -> Self {
+        Self {
+            observed_custom_ids: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn observed_custom_ids(&self) -> Vec<Option<u64>> {
+        self.observed_custom_ids.lock().unwrap().clone()
+    }
+}
+
+impl MemoryPool for RecordingMemoryPool {
+    type Buffer = Box<[u8]>;
+
+    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
+        self.observed_custom_ids.lock().unwrap().push(meta_request.custom_id());
+        vec![0u8; size].into_boxed_slice()
+    }
+
+    fn trim(&self) -> bool {
+        false
+    }
+}
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
@@ -55,6 +86,34 @@ async fn test_put_object(
 }
 
 object_client_test!(test_put_object);
+
+#[tokio::test]
+async fn test_put_object_custom_id_propagates_to_memory_pool() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_custom_id_propagates_to_memory_pool");
+    let key = format!("{prefix}hello");
+
+    let recording_pool = RecordingMemoryPool::new();
+    let client_config = S3ClientConfig::new()
+        .endpoint_config(get_test_endpoint_config())
+        .memory_pool(recording_pool.clone());
+    let client = get_test_client_with_config(client_config);
+
+    let custom_id = 31337;
+    let mut request = client
+        .put_object(&bucket, &key, &PutObjectParams::new().custom_id(Some(custom_id)))
+        .await
+        .expect("put_object should succeed");
+
+    let body = vec![0x7f; 1024];
+    request.write(&body).await.expect("write should succeed");
+    let _ = request.complete().await.expect("complete should succeed");
+
+    let observed = recording_pool.observed_custom_ids();
+    assert!(
+        observed.contains(&Some(custom_id)),
+        "expected to observe custom id {custom_id}, observed: {observed:?}"
+    );
+}
 
 // Simple test for PUT object. Puts a single, empty object and checks that the (empty)
 // contents are correct with a GET.

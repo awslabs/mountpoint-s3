@@ -286,8 +286,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Finish callback, if provided (and not already called, since it's FnOnce).
     on_finish: Option<FinishCallback>,
 
-    /// Opaque identifier for this meta request, readable from the buffer pool reserve path.
-    request_id: u64,
+    /// Opaque caller-supplied identifier for this meta request, readable from the buffer pool
+    /// reserve path. Not related to the S3 request ID returned by the service.
+    custom_id: Option<u64>,
 
     /// Pin this struct because inner.user_data will be a pointer to this object.
     _pinned: PhantomPinned,
@@ -361,7 +362,7 @@ impl<'a> MetaRequestOptions<'a> {
             on_body_ex: None,
             on_upload_review: None,
             on_finish: None,
-            request_id: 0,
+            custom_id: None,
             _pinned: Default::default(),
         });
 
@@ -511,29 +512,32 @@ impl<'a> MetaRequestOptions<'a> {
         self
     }
 
-    /// Set an opaque identifier for this meta request. This value can be retrieved
-    /// from the buffer pool reserve path via [`meta_request_id`].
-    pub fn request_id(&mut self, id: u64) -> &mut Self {
+    /// Set an opaque caller-supplied identifier for this meta request.
+    ///
+    /// Not related to the S3 request ID returned by the service.
+    pub fn custom_id(&mut self, id: u64) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
-        options.request_id = id;
+        options.custom_id = Some(id);
         self
     }
 }
 
-/// Retrieve the request id stored in a meta request's user_data.
+/// Retrieve the caller-supplied custom identifier stored in a meta request's user_data.
+///
+/// Returns `None` if no custom id was set via [`MetaRequestOptions::custom_id`].
 ///
 /// # Safety
 ///
 /// `meta_request` must be a valid pointer to an `aws_s3_meta_request` whose
 /// `user_data` was set by [`MetaRequestOptions`].
-pub(crate) unsafe fn meta_request_id(meta_request: *const aws_s3_meta_request) -> u64 {
+pub(crate) unsafe fn meta_request_custom_id(meta_request: *const aws_s3_meta_request) -> Option<u64> {
     // SAFETY: caller guarantees `meta_request` is a valid pointer.
     let user_data = unsafe { (*meta_request).user_data };
     debug_assert!(!user_data.is_null());
     // SAFETY: `user_data` was set to point to a valid `MetaRequestOptionsInner` in `MetaRequestOptions::new`.
     let options = unsafe { &*(user_data as *const MetaRequestOptionsInner) };
-    options.request_id
+    options.custom_id
 }
 
 impl Default for MetaRequestOptions<'_> {
@@ -544,7 +548,7 @@ impl Default for MetaRequestOptions<'_> {
 
 /// What transformation to apply to a single [MetaRequest] to transform it into a collection of
 /// requests to S3.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaRequestType {
     /// Send the request as-is (no transformation)
     Default,
@@ -707,6 +711,31 @@ pub struct MetaRequest {
 }
 
 impl MetaRequest {
+    /// Acquires a reference to an `aws_s3_meta_request` raw pointer, incrementing its ref-count.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a valid, non-null pointer to an `aws_s3_meta_request` whose `user_data`
+    /// was initialised by [`MetaRequestOptions`].
+    pub(crate) unsafe fn from_raw_acquire(raw: *mut aws_s3_meta_request) -> Self {
+        // SAFETY: caller guarantees `raw` is valid and non-null.
+        let inner = unsafe { NonNull::new_unchecked(aws_s3_meta_request_acquire(raw)) };
+        Self { inner }
+    }
+
+    /// Returns the type of this meta request.
+    pub fn meta_request_type(&self) -> MetaRequestType {
+        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` since we hold a ref count to it.
+        unsafe { (*self.inner.as_ptr()).type_ }.into()
+    }
+
+    /// Returns the caller-supplied custom identifier, or `None` if not set.
+    pub fn custom_id(&self) -> Option<u64> {
+        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` whose `user_data` was set by
+        // `MetaRequestOptions`.
+        unsafe { meta_request_custom_id(self.inner.as_ptr()) }
+    }
+
     /// Cancel the meta request. Does nothing (but does not fail/panic) if the request has already
     /// completed. If the request has not already completed, parts may still be delivered to the
     /// `body_callback` after this method completes, and the `finish_callback` will still be
@@ -1758,10 +1787,28 @@ impl UploadReviewPart {
 
 #[cfg(test)]
 mod tests {
+    use std::pin::Pin;
+
     use test_case::test_case;
 
     use crate::aws_s3_request_type;
-    use crate::s3::client::RequestType;
+    use crate::s3::client::{MetaRequestOptions, RequestType};
+
+    #[test]
+    fn meta_request_options_custom_id_round_trip() {
+        let mut options = MetaRequestOptions::new();
+        options.custom_id(42);
+        // SAFETY: directly accessing inner struct for testing, not moving out of it.
+        let inner = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut options.0)) };
+        assert_eq!(inner.custom_id, Some(42));
+    }
+
+    #[test]
+    fn meta_request_options_default_custom_id_is_none() {
+        let options = MetaRequestOptions::new();
+        // `Pin<Box<T>>` implements `Deref<Target=T>` so no unsafe needed for shared access.
+        assert_eq!(options.0.custom_id, None);
+    }
 
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]

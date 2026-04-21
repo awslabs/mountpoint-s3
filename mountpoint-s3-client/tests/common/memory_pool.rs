@@ -1,4 +1,4 @@
-use mountpoint_s3_client::config::{MemoryPool, MetaRequestType};
+use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
 /// Creates a memory pool to use in tests.
 pub fn new_for_tests() -> impl MemoryPool {
@@ -12,7 +12,7 @@ struct NoReusePool();
 impl MemoryPool for NoReusePool {
     type Buffer = Box<[u8]>;
 
-    fn get_buffer(&self, size: usize, _type: MetaRequestType, _request_id: u64) -> Self::Buffer {
+    fn get_buffer(&self, size: usize, _meta_request: &MetaRequest) -> Self::Buffer {
         vec![0u8; size].into_boxed_slice()
     }
 
