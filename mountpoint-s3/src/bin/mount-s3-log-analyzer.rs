@@ -42,60 +42,64 @@ struct CliArgs {
     mem_limit_mib: Option<u64>,
 }
 
-fn bytes_to_mib(bytes: u64) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0)
-}
+fn main() -> anyhow::Result<()> {
+    // Matches log lines ending in `process.memory_usage...: <number>`. The log lines are
+    // prefixed with a tracing-subscriber timestamp/level/target, so the pattern is not
+    // anchored at the start of line.
+    const RSS_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
+    // Matches log lines ending in `<name>(unit)?[labels]: <number>` for the labeled
+    // metrics we care about. Captures the metric name and the labels content.
+    const LABELED_LOG_PATTERN: &str =
+        r"(mem\.bytes_reserved|pool\.reserved_bytes)(?:\([^)]*\))?\[([^\]]*)\]:\s(\d+)$";
 
-fn analyze(log_dir: &PathBuf) -> anyhow::Result<(u64, HashMap<(String, String), u64>)> {
-    // Matches: `process.memory_usage: 12345`
-    let rss_re = Regex::new(r"^process\.memory_usage(?:\([^)]*\))?:\s+(\d+)$")?;
-    // Matches: `<name>(unit)?[labels]?: 12345` for the labeled metrics we care about.
-    let labeled_re =
-        Regex::new(r"^(mem\.bytes_reserved|pool\.reserved_bytes)(?:\([^)]*\))?\[([^\]]*)\]:\s+(\d+)$")?;
+    let args = CliArgs::parse();
+    let paths = fs::read_dir(&args.log_dir)?;
+    let rss_re = Regex::new(RSS_LOG_PATTERN)?;
+    let labeled_re = Regex::new(LABELED_LOG_PATTERN)?;
 
-    let mut peak_rss: u64 = 0;
-    let mut peaks: HashMap<(String, String), u64> = HashMap::new();
+    let mut rss_values: Vec<u64> = Vec::new();
+    // Peak value (bytes) per (metric_name, labels) pair.
+    let mut labeled_peaks: HashMap<(String, String), u64> = HashMap::new();
 
-    for path in fs::read_dir(log_dir)? {
+    // collect metrics from all log files in the given directory
+    for path in paths {
         let path = path?;
-        if !path.file_type()?.is_file() {
+        let file_type = path.file_type()?;
+        if !file_type.is_file() {
             continue;
         }
         let file = File::open(path.path())?;
         let reader = BufReader::new(file);
+
         for line in reader.lines() {
             let Ok(line) = line else { continue };
-            let line = line.trim_end();
-            if let Some(cap) = rss_re.captures(line) {
-                let v: u64 = cap[1]
-                    .parse()
-                    .map_err(|e| anyhow!("Unable to parse RSS value: {}", e))?;
-                if v > peak_rss {
-                    peak_rss = v;
+
+            if rss_re.is_match(&line) {
+                let iter = line.split_whitespace();
+                if let Some(parsed_result) = iter.last().map(|last| last.parse::<u64>()) {
+                    let Ok(value) = parsed_result else {
+                        return Err(anyhow!("Unable to parse metric value: {}", parsed_result.unwrap_err()));
+                    };
+                    rss_values.push(value);
                 }
-            } else if let Some(cap) = labeled_re.captures(line) {
+            } else if args.mem_limit_mib.is_some()
+                && let Some(cap) = labeled_re.captures(&line)
+            {
                 let name = cap[1].to_string();
                 let labels = cap[2].to_string();
-                let v: u64 = cap[3]
+                let value: u64 = cap[3]
                     .parse()
                     .map_err(|e| anyhow!("Unable to parse metric value: {}", e))?;
-                let entry = peaks.entry((name, labels)).or_insert(0);
-                if v > *entry {
-                    *entry = v;
+                let entry = labeled_peaks.entry((name, labels)).or_insert(0);
+                if value > *entry {
+                    *entry = value;
                 }
             }
         }
     }
 
-    Ok((peak_rss, peaks))
-}
-
-fn main() -> anyhow::Result<()> {
-    let args = CliArgs::parse();
-    let (peak_rss, peaks) = analyze(&args.log_dir)?;
-
-    // Existing output: peak RSS in MiB.
-    let peak_rss_mib = bytes_to_mib(peak_rss);
+    let peak_rss_bytes = rss_values.iter().max().copied().unwrap_or(0);
+    let peak_rss_mib = peak_rss_bytes as f64 / (1024 * 1024) as f64;
     let contents = json!({
         "name": args.test_name,
         "value": peak_rss_mib,
@@ -108,10 +112,10 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(limit_mib) = args.mem_limit_mib {
         let lookup = |name: &str, labels: &str| -> f64 {
-            peaks
+            labeled_peaks
                 .get(&(name.to_string(), labels.to_string()))
                 .copied()
-                .map(bytes_to_mib)
+                .map(|v| v as f64 / (1024 * 1024) as f64)
                 .unwrap_or(0.0)
         };
         let extra = json!({
@@ -134,4 +138,3 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
