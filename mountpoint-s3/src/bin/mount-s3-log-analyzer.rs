@@ -43,10 +43,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    // Matches log lines ending in `process.memory_usage...: <number>`. The log lines are
-    // prefixed with a tracing-subscriber timestamp/level/target, so the pattern is not
-    // anchored at the start of line.
-    const RSS_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
+    const MEM_USAGE_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
     // Matches log lines ending in `<name>(unit)?[labels]: <number>` for the memory
     // metrics we care about. Captures the metric name and the labels content.
     const MEM_METRICS_LOG_PATTERN: &str =
@@ -54,10 +51,10 @@ fn main() -> anyhow::Result<()> {
 
     let args = CliArgs::parse();
     let paths = fs::read_dir(&args.log_dir)?;
-    let rss_re = Regex::new(RSS_LOG_PATTERN)?;
+    let log_pattern = Regex::new(MEM_USAGE_LOG_PATTERN)?;
     let mem_metrics_re = Regex::new(MEM_METRICS_LOG_PATTERN)?;
 
-    let mut rss_values: Vec<u64> = Vec::new();
+    let mut metric_values: Vec<u64> = Vec::new();
     // Peak value (bytes) per (metric_name, labels) pair.
     let mut mem_metric_peaks: HashMap<(String, String), u64> = HashMap::new();
 
@@ -74,13 +71,13 @@ fn main() -> anyhow::Result<()> {
         for line in reader.lines() {
             let Ok(line) = line else { continue };
 
-            if rss_re.is_match(&line) {
+            if log_pattern.is_match(&line) {
                 let iter = line.split_whitespace();
                 if let Some(parsed_result) = iter.last().map(|last| last.parse::<u64>()) {
                     let Ok(value) = parsed_result else {
                         return Err(anyhow!("Unable to parse metric value: {}", parsed_result.unwrap_err()));
                     };
-                    rss_values.push(value);
+                    metric_values.push(value);
                 }
             } else if args.mem_limit_mib.is_some()
                 && let Some(cap) = mem_metrics_re.captures(&line)
@@ -98,8 +95,11 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let peak_rss_bytes = rss_values.iter().max().copied().unwrap_or(0);
-    let peak_rss_mib = peak_rss_bytes as f64 / (1024 * 1024) as f64;
+    let peak_rss_mib = if let Some(value) = metric_values.iter().max() {
+        *value as f64 / (1024 * 1024) as f64
+    } else {
+        0.0
+    };
     let contents = json!({
         "name": args.test_name,
         "value": peak_rss_mib,
