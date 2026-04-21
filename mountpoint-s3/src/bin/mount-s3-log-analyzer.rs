@@ -36,7 +36,7 @@ struct CliArgs {
 
     #[clap(
         long,
-        help = "If set, also write <out_file_dir>/<test_name>_extra_metrics.json with reserved memory peaks and breach flag",
+        help = "If set, also write <out_file_dir>/<test_name>_extra_metrics.json with extra memory metrics and a breach flag against this limit",
         value_name = "MiB"
     )]
     mem_limit_mib: Option<u64>,
@@ -44,8 +44,6 @@ struct CliArgs {
 
 fn main() -> anyhow::Result<()> {
     const MEM_USAGE_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
-    // Matches log lines ending in `<name>(unit)?[labels]: <number>` for the memory
-    // metrics we care about. Captures the metric name and the labels content.
     const MEM_METRICS_LOG_PATTERN: &str =
         r"(mem\.bytes_reserved|pool\.reserved_bytes)(?:\([^)]*\))?\[([^\]]*)\]:\s(\d+)$";
 
@@ -129,7 +127,7 @@ fn main() -> anyhow::Result<()> {
                 extra.insert(field.into(), json!(*bytes as f64 / (1024 * 1024) as f64));
             }
         }
-        let dir = args.out_file.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let dir = args.out_file.parent().expect("out_file should have a parent");
         let extra_path = dir.join(format!("{}_extra_metrics.json", args.test_name));
         let file = File::create(&extra_path)?;
         let mut writer = BufWriter::new(file);
