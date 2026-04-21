@@ -12,7 +12,6 @@
 //! This binary is intended only for use in testing and development of Mountpoint.
 
 use std::{
-    collections::HashMap,
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
     path::PathBuf,
@@ -42,19 +41,42 @@ struct CliArgs {
     mem_limit_mib: Option<u64>,
 }
 
+/// Extra memory metrics we track from Mountpoint metric log lines. Each entry is the
+/// JSON field name for the peak (in MiB) and the regex matching lines ending in that
+/// metric's value (bytes). Absent entries are omitted from `_extra_metrics.json` and
+/// rendered as "N/A" in the GH step summary table.
+fn mem_metric_patterns() -> [(&'static str, Regex); 4] {
+    [
+        (
+            "peak_prefetch_reserved_mib",
+            Regex::new(r"mem\.bytes_reserved\[area=prefetch\]:\s(\d+)$").unwrap(),
+        ),
+        (
+            "peak_upload_reserved_mib",
+            Regex::new(r"mem\.bytes_reserved\[area=upload\]:\s(\d+)$").unwrap(),
+        ),
+        (
+            "peak_pool_get_object_mib",
+            Regex::new(r"pool\.reserved_bytes\[kind=get_object\]:\s(\d+)$").unwrap(),
+        ),
+        (
+            "peak_pool_put_object_mib",
+            Regex::new(r"pool\.reserved_bytes\[kind=put_object\]:\s(\d+)$").unwrap(),
+        ),
+    ]
+}
+
 fn main() -> anyhow::Result<()> {
     const MEM_USAGE_LOG_PATTERN: &str = r"process\.memory_usage.*:\s\d+$";
-    const MEM_METRICS_LOG_PATTERN: &str =
-        r"(mem\.bytes_reserved|pool\.reserved_bytes)(?:\([^)]*\))?\[([^\]]*)\]:\s(\d+)$";
 
     let args = CliArgs::parse();
     let paths = fs::read_dir(&args.log_dir)?;
     let log_pattern = Regex::new(MEM_USAGE_LOG_PATTERN)?;
-    let mem_metrics_re = Regex::new(MEM_METRICS_LOG_PATTERN)?;
+    let mem_metrics = mem_metric_patterns();
 
     let mut metric_values: Vec<u64> = Vec::new();
-    // Peak value (bytes) per (metric_name, labels) pair.
-    let mut mem_metric_peaks: HashMap<(String, String), u64> = HashMap::new();
+    // Peak value (bytes) per mem-metric field; None until first observation.
+    let mut mem_metric_peaks: [Option<u64>; 4] = [None; 4];
 
     // collect metrics from all log files in the given directory
     for path in paths {
@@ -77,17 +99,15 @@ fn main() -> anyhow::Result<()> {
                     };
                     metric_values.push(value);
                 }
-            } else if args.mem_limit_mib.is_some()
-                && let Some(cap) = mem_metrics_re.captures(&line)
-            {
-                let name = cap[1].to_string();
-                let labels = cap[2].to_string();
-                let value: u64 = cap[3]
-                    .parse()
-                    .map_err(|e| anyhow!("Unable to parse metric value: {}", e))?;
-                let entry = mem_metric_peaks.entry((name, labels)).or_insert(0);
-                if value > *entry {
-                    *entry = value;
+            } else if args.mem_limit_mib.is_some() {
+                for (i, (_, re)) in mem_metrics.iter().enumerate() {
+                    if let Some(cap) = re.captures(&line) {
+                        let value: u64 = cap[1]
+                            .parse()
+                            .map_err(|e| anyhow!("Unable to parse metric value: {}", e))?;
+                        mem_metric_peaks[i] = Some(mem_metric_peaks[i].unwrap_or(0).max(value));
+                        break;
+                    }
                 }
             }
         }
@@ -114,17 +134,9 @@ fn main() -> anyhow::Result<()> {
         extra.insert("peak_rss_mib".into(), json!(peak_rss_mib));
         extra.insert("mem_limit_mib".into(), json!(limit_mib));
         extra.insert("breached".into(), json!(peak_rss_mib > limit_mib as f64));
-        // Only include mem metrics that were actually observed in the logs. Absent keys
-        // are dropped from the JSON and rendered as "N/A" in the GH step summary table.
-        let fields = [
-            ("peak_prefetch_reserved_mib", "mem.bytes_reserved", "area=prefetch"),
-            ("peak_upload_reserved_mib", "mem.bytes_reserved", "area=upload"),
-            ("peak_pool_get_object_mib", "pool.reserved_bytes", "kind=get_object"),
-            ("peak_pool_put_object_mib", "pool.reserved_bytes", "kind=put_object"),
-        ];
-        for (field, name, labels) in fields {
-            if let Some(bytes) = mem_metric_peaks.get(&(name.to_string(), labels.to_string())) {
-                extra.insert(field.into(), json!(*bytes as f64 / (1024 * 1024) as f64));
+        for (i, (field, _)) in mem_metrics.iter().enumerate() {
+            if let Some(bytes) = mem_metric_peaks[i] {
+                extra.insert((*field).into(), json!(bytes as f64 / (1024 * 1024) as f64));
             }
         }
         let dir = args.out_file.parent().expect("out_file should have a parent");
