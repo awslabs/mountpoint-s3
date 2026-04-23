@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776877393124,
+  "lastUpdate": 1776964597692,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "alexpax@amazon.co.uk",
-            "name": "Alessandro Passaro",
-            "username": "passaro"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "34b47ffe8231583e4da2035d3d9db2bab8d65c08",
-          "message": "Fix remaining cargo_bin warnings (#1772)\n\nFix remaining cargo_bin invocations. Leftover from #1742.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
-          "timestamp": "2026-02-25T15:55:05Z",
-          "tree_id": "920dc8f71acc3a3f84dfe205cd062116d0c937ee",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/34b47ffe8231583e4da2035d3d9db2bab8d65c08"
-        },
-        "date": 1772042687343,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 2438.9921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 33.22265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 2512.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 33.96484375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 2177.92578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 42.15234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 2195.20703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 41.39453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 2194.57421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 33.83984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 2167.921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 39.44140625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2168.625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 24.91796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2182.1640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2187.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 25.04296875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 30.2421875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "prikaru@amazon.com",
+            "name": "Priyankakarumuru1",
+            "username": "Priyankakarumuru1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e31ed5bca353e0b3c912c58769b040e117970dc",
+          "message": "Pass HandleId as custom_id in S3 request params (#1815)\n\nConnects the file handle ID to S3 request params, completing the link\nbetween PR #1809 (HandleId through prefetcher) and PR #1812 (custom_id\nthrough CRT buffer pool).\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. \n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
+          "timestamp": "2026-04-23T15:11:04Z",
+          "tree_id": "10430fff1d46b8832452ee6de66be30c0717b765",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/2e31ed5bca353e0b3c912c58769b040e117970dc"
+        },
+        "date": 1776964597634,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 2185.41015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 33.37109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 2176.9296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 32.83984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 2181.125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 42.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 2415.07421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 39.88671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 2187.71875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 33.98046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 2183.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 35.6875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2299.078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 30.0234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2571.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2189.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 31.8671875,
             "unit": "MiB"
           }
         ]
