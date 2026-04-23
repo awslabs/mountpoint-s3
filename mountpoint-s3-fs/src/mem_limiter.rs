@@ -4,7 +4,8 @@ use humansize::make_format;
 use metrics::atomics::AtomicU64;
 use tracing::{debug, trace};
 
-use crate::memory::{BufferKind, PagedPool};
+use crate::memory::PagedPool;
+use crate::sync::Arc;
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -60,7 +61,7 @@ pub struct MemoryLimiter {
     mem_limit: u64,
     /// Reserved memory for allocations we are tracking, such as buffers we allocate for prefetching.
     /// The memory may not be used yet but has been reserved.
-    mem_reserved: AtomicU64,
+    mem_reserved: Arc<AtomicU64>,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -78,10 +79,15 @@ impl MemoryLimiter {
             formatter(mem_limit),
             formatter(reserved_mem)
         );
+        let mem_reserved = Arc::new(AtomicU64::new(0));
+        let mem_reserved_cb = mem_reserved.clone();
+        pool.set_on_reserve(Arc::new(move |bytes| {
+            mem_reserved_cb.fetch_sub(bytes as u64, Ordering::SeqCst);
+        }));
         Self {
             pool,
             mem_limit,
-            mem_reserved: AtomicU64::new(0),
+            mem_reserved,
             additional_mem_reserved: reserved_mem,
         }
     }

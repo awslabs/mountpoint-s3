@@ -1,4 +1,5 @@
 use std::ops::Index;
+use std::sync::OnceLock;
 
 use mountpoint_s3_client::config::MetaRequestType;
 
@@ -6,9 +7,20 @@ use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
 /// Usage stats for a pool.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PoolStats {
     reserved_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
+    /// Optional callback invoked whenever bytes are reserved in the pool.
+    on_reserve: OnceLock<Arc<dyn Fn(usize) + Send + Sync>>,
+}
+
+impl std::fmt::Debug for PoolStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PoolStats")
+            .field("reserved_bytes", &self.reserved_bytes)
+            .field("on_reserve", &self.on_reserve.get().map(|_| "<callback>"))
+            .finish()
+    }
 }
 
 impl PoolStats {
@@ -20,8 +32,15 @@ impl PoolStats {
         self.reserved_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
     }
 
+    pub fn set_on_reserve(&self, callback: Arc<dyn Fn(usize) + Send + Sync>) {
+        let _ = self.on_reserve.set(callback);
+    }
+
     pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind) {
         self.reserved_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
+        if let Some(cb) = self.on_reserve.get() {
+            cb(bytes);
+        }
         metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).increment(bytes as f64);
     }
 

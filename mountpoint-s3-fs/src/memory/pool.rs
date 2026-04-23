@@ -115,6 +115,12 @@ impl PagedPool {
         self.inner.stats.total_reserved_bytes()
     }
 
+    /// Register a callback to be invoked whenever bytes are reserved in the pool.
+    /// Must be called before any pool allocations occur to ensure accurate accounting.
+    pub fn set_on_reserve(&self, callback: Arc<dyn Fn(usize) + Send + Sync>) {
+        self.inner.stats.set_on_reserve(callback);
+    }
+
     /// Get a new empty mutable buffer from the pool with the requested capacity.
     pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind) -> PoolBufferMut {
         let buffer = self.get_buffer(capacity, kind);
