@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
@@ -128,6 +129,8 @@ impl Executor {
         match config.access_pattern {
             AccessPattern::Sequential => self.execute_sequential_read(config).await,
             AccessPattern::Random => self.execute_random_read(config).await,
+            AccessPattern::MultiCursorSequential => self.execute_multi_cursor_read(config).await,
+            AccessPattern::OverlappingCursors => self.execute_overlapping_cursors_read(config).await,
         }
     }
 
@@ -182,7 +185,7 @@ impl Executor {
                     break;
                 }
 
-                let read_size = std::cmp::min(config.read_size as u64, size - offset);
+                let read_size = min(config.read_size as u64, size - offset);
 
                 match request.read(offset, read_size as usize).await {
                     Ok(bytes) => {
@@ -202,6 +205,160 @@ impl Executor {
             }
 
             if offset >= size {
+                iterations_completed += 1;
+            }
+        }
+
+        let duration = job_start.elapsed();
+
+        Ok(JobResult {
+            job_name: config.name.clone(),
+            workload_type: "read".to_string(),
+            iterations_completed,
+            total_bytes,
+            elapsed_seconds: duration,
+            errors,
+        })
+    }
+
+    /// `num_cursors` interleaved sequential cursors partitioning the object into contiguous,
+    /// non-overlapping regions (the last cursor absorbs any remainder).
+    async fn execute_multi_cursor_read(&self, config: &ResolvedJobConfig) -> Result<JobResult, ExecutionError> {
+        let num_cursors = config.num_cursors;
+        self.run_interleaved_cursors(config, |size| {
+            let region_size = size / num_cursors as u64;
+            (0..num_cursors)
+                .map(|i| {
+                    let start = i as u64 * region_size;
+                    let end = if i == num_cursors - 1 {
+                        size
+                    } else {
+                        start + region_size
+                    };
+                    (start, end)
+                })
+                .collect()
+        })
+        .await
+    }
+
+    /// `num_cursors` interleaved sequential cursors, each starting at an evenly-spaced offset but
+    /// all reading to the end of the file.
+    ///
+    /// Note that total bytes read exceeds the object size (each cursor reads from its start to EOF).
+    async fn execute_overlapping_cursors_read(&self, config: &ResolvedJobConfig) -> Result<JobResult, ExecutionError> {
+        let num_cursors = config.num_cursors;
+        self.run_interleaved_cursors(config, |size| {
+            // Evenly-spaced start offsets; every cursor's end is EOF (this is the overlap).
+            let spacing = size / num_cursors as u64;
+            (0..num_cursors).map(|i| (i as u64 * spacing, size)).collect()
+        })
+        .await
+    }
+
+    /// Shared helper for multi-cursor read patterns. Round-robins through a set of cursors, reading
+    /// up to `bytes_per_cursor_visit` from each before advancing to the next so the cursors stay
+    /// concurrently live. `build_ranges` maps the object size to each cursor's `[start, end)`
+    /// range; ranges may overlap (as in `overlapping_cursors`), in which case `total_bytes` exceeds
+    /// the object size.
+    async fn run_interleaved_cursors(
+        &self,
+        config: &ResolvedJobConfig,
+        build_ranges: impl Fn(u64) -> Vec<(u64, u64)>,
+    ) -> Result<JobResult, ExecutionError> {
+        let client = &self.client;
+        let prefetcher = &self.prefetcher;
+        let bucket = &config.bucket;
+        let object_key = &config.object_key;
+
+        let head_result = client
+            .head_object(bucket, object_key, &HeadObjectParams::new())
+            .await
+            .map_err(|e| ExecutionError::S3Error(format!("HeadObject failed: {}", e)))?;
+
+        let object_id = ObjectId::new(object_key.to_string(), head_result.etag);
+        let size = head_result.size;
+
+        let num_cursors = config.num_cursors;
+        let bytes_per_visit = config.bytes_per_cursor_visit as u64;
+
+        if size < num_cursors as u64 {
+            return Err(ExecutionError::ExecutionFailed(format!(
+                "Object size ({}) is smaller than num_cursors ({})",
+                size, num_cursors
+            )));
+        }
+
+        let ranges = build_ranges(size);
+        let expected_bytes: u64 = ranges.iter().map(|(start, end)| end - start).sum();
+
+        let mut total_bytes = 0u64;
+        let mut errors = Vec::new();
+        let mut iterations_completed = 0usize;
+
+        let job_start = Instant::now();
+        let max_duration = config.max_duration;
+
+        for _iteration in 0..config.iterations {
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
+            }
+
+            // Each cursor starts at its range start and runs to its range end.
+            let mut offsets: Vec<u64> = ranges.iter().map(|(start, _)| *start).collect();
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
+            let mut iteration_bytes = 0u64;
+            let mut finished_count = 0;
+            let mut had_error = false;
+
+            'outer: loop {
+                if finished_count >= ranges.len() {
+                    break;
+                }
+
+                for (offset, &(_, end)) in offsets.iter_mut().zip(ranges.iter()) {
+                    if *offset >= end {
+                        continue;
+                    }
+
+                    if let Some(max_dur) = max_duration
+                        && job_start.elapsed() >= max_dur
+                    {
+                        break 'outer;
+                    }
+
+                    // Read up to bytes_per_visit from this cursor, then yield to the next so the
+                    // cursors stay concurrently live and interleaved.
+                    let visit_end = (*offset + bytes_per_visit).min(end);
+                    while *offset < visit_end {
+                        let read_size = min(config.read_size as u64, visit_end - *offset);
+                        match request.read(*offset, read_size as usize).await {
+                            Ok(bytes) => {
+                                let n = bytes.len() as u64;
+                                *offset += n;
+                                iteration_bytes += n;
+                                total_bytes += n;
+                            }
+                            Err(e) => {
+                                errors.push(ErrorInfo {
+                                    error_type: "ReadError".to_string(),
+                                    message: format!("Read failed at offset {}: {}", offset, e),
+                                });
+                                had_error = true;
+                                break 'outer;
+                            }
+                        }
+                    }
+
+                    if *offset >= end {
+                        finished_count += 1;
+                    }
+                }
+            }
+
+            if !had_error && iteration_bytes == expected_bytes {
                 iterations_completed += 1;
             }
         }
@@ -287,7 +444,7 @@ impl Executor {
                 }
 
                 let offset = rng.random_range(0..=max_offset);
-                let read_size = std::cmp::min(config.read_size as u64, size - offset);
+                let read_size = min(config.read_size as u64, size - offset);
 
                 match request.read(offset, read_size as usize).await {
                     Ok(bytes) => {

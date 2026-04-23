@@ -63,6 +63,11 @@ pub struct JobConfig {
     /// Whether to generate test objects before running read benchmarks.
     /// Only applies to read workloads. Default: true.
     pub generate_object: Option<bool>,
+    /// Number of interleaved sequential cursors (multi_cursor_sequential only).
+    pub num_cursors: Option<usize>,
+    /// Bytes to read from each cursor before advancing to the next
+    /// (multi_cursor_sequential only).
+    pub bytes_per_cursor_visit: Option<usize>,
 }
 
 /// Configuration for a single job execution
@@ -83,6 +88,8 @@ pub struct ResolvedJobConfig {
     pub max_duration: Option<Duration>,
     pub iteration_duration: Option<Duration>,
     pub generate_object: bool,
+    pub num_cursors: usize,
+    pub bytes_per_cursor_visit: usize,
 }
 
 /// Workload type: read or write
@@ -95,10 +102,17 @@ pub enum WorkloadType {
 
 /// Access pattern for read operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum AccessPattern {
     Sequential,
     Random,
+    /// `num_cursors` sequential cursors, each starting at an evenly-spaced offset, and reading up
+    /// to the start point of the next cursor.
+    MultiCursorSequential,
+    /// `num_cursors` sequential cursors, each starting at an evenly-spaced offset but all reading
+    /// to the *end of the file* (unlike `MultiCursorSequential`, where each cursor is confined to
+    /// its own region).
+    OverlappingCursors,
 }
 
 /// Server-side encryption type
@@ -270,6 +284,27 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         .or(global.job_defaults.generate_object)
         .unwrap_or(true);
 
+    // num_cursors: Optional with default of 8
+    let num_cursors = job.num_cursors.or(global.job_defaults.num_cursors).unwrap_or(8);
+    if num_cursors < 1 {
+        return Err(ConfigError::Validation(format!(
+            "Job '{}': Invalid value for 'num_cursors': must be at least 1",
+            job_name
+        )));
+    }
+
+    // bytes_per_cursor_visit: Optional with default of 1 MiB
+    let bytes_per_cursor_visit = job
+        .bytes_per_cursor_visit
+        .or(global.job_defaults.bytes_per_cursor_visit)
+        .unwrap_or(1024 * 1024);
+    if bytes_per_cursor_visit < 1 {
+        return Err(ConfigError::Validation(format!(
+            "Job '{}': Invalid value for 'bytes_per_cursor_visit': must be at least 1",
+            job_name
+        )));
+    }
+
     Ok(ResolvedJobConfig {
         name: job_name.to_string(),
         workload_type,
@@ -285,5 +320,7 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         max_duration,
         iteration_duration,
         generate_object,
+        num_cursors,
+        bytes_per_cursor_visit,
     })
 }
