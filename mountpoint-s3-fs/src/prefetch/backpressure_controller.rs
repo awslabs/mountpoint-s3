@@ -164,7 +164,6 @@ impl BackpressureController {
             // Note, that this may come from a backwards seek, so offsets observed by this method are not necessarily ascending
             BackpressureFeedbackEvent::DataRead { offset, length } => {
                 self.next_read_offset = offset + length as u64;
-                self.mem_limiter.release(BufferArea::Prefetch, length as u64);
                 let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset) as usize;
 
                 // Increment the read window only if the remaining window reaches some threshold i.e. half of it left.
@@ -286,7 +285,10 @@ impl Drop for BackpressureController {
             self.next_read_offset <= self.request_end_offset,
             "invariant: the next read offset should never be larger than the request end offset",
         );
-        // Free up memory we have reserved for the read window.
+        // TODO: This release is inaccurate. It releases the full remaining window, but some of
+        // those bytes may have already been decremented from mem_reserved by the pool's on_reserve
+        // callback (when the CRT allocated buffers). We need per-handle reservation tracking in the
+        // MemoryLimiter to know the exact unallocated portion of the window to release here.
         let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset);
         self.mem_limiter.release(BufferArea::Prefetch, remaining_window);
     }
