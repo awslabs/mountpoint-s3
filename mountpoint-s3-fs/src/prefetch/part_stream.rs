@@ -435,11 +435,9 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     request_range: Range<u64>,
     handle_id: HandleId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
-    // TODO: Pass handle_id to GetObjectParams once the client crate exposes the field
-    let _ = handle_id;
     try_stream! {
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(handle_id.as_raw())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
