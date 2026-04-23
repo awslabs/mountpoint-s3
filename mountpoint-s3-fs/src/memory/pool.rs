@@ -110,6 +110,11 @@ impl PagedPool {
         self.inner.stats.reserved_bytes(kind)
     }
 
+    /// Return the total reserved memory in bytes across all buffer kinds.
+    pub fn total_reserved_bytes(&self) -> usize {
+        self.inner.stats.total_reserved_bytes()
+    }
+
     /// Get a new empty mutable buffer from the pool with the requested capacity.
     pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind) -> PoolBufferMut {
         let buffer = self.get_buffer(capacity, kind);

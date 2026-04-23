@@ -16,6 +16,10 @@ impl PoolStats {
         self.reserved_bytes[kind].load(Ordering::SeqCst)
     }
 
+    pub fn total_reserved_bytes(&self) -> usize {
+        self.reserved_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
+    }
+
     pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind) {
         self.reserved_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
         metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).increment(bytes as f64);
