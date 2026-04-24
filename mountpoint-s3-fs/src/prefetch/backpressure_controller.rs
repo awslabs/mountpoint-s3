@@ -7,6 +7,7 @@ use tracing::trace;
 
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 
+use super::HandleId;
 use super::PrefetchReadError;
 
 #[derive(Debug)]
@@ -92,6 +93,8 @@ pub struct BackpressureController {
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter>,
+    /// File handle ID for per-handle memory accounting.
+    handle_id: HandleId,
     /// Enable alignment of read window end to part boundary
     read_window_alignment_config: ReadWindowAlignmentConfig,
 }
@@ -118,12 +121,13 @@ pub struct BackpressureLimiter {
 /// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
 pub fn new_backpressure_controller(
     config: BackpressureConfig,
+    handle_id: HandleId,
     mem_limiter: Arc<MemoryLimiter>,
 ) -> (BackpressureController, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
-    mem_limiter.reserve(BufferArea::Prefetch, config.initial_read_window_size as u64);
+    mem_limiter.reserve(handle_id, BufferArea::Prefetch, config.initial_read_window_size as u64);
 
     let (read_window_updater, read_window_increment_queue) = unbounded();
     let read_window_increment_queue = ReadWindowIncrementQueue::new(read_window_increment_queue);
@@ -137,6 +141,7 @@ pub fn new_backpressure_controller(
         read_window_end_offset,
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
+        handle_id,
         mem_limiter,
         read_window_alignment_config: config.read_window_alignment_config,
     };
@@ -193,14 +198,18 @@ impl BackpressureController {
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
                         trace!(new_read_window_end_offset, "sending a read window increment");
-                        self.mem_limiter.reserve(BufferArea::Prefetch, to_increase as u64);
+                        self.mem_limiter
+                            .reserve(self.handle_id, BufferArea::Prefetch, to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
                     }
 
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
-                    if self.mem_limiter.try_reserve(BufferArea::Prefetch, to_increase as u64) {
+                    if self
+                        .mem_limiter
+                        .try_reserve(self.handle_id, BufferArea::Prefetch, to_increase as u64)
+                    {
                         trace!(new_read_window_end_offset, "sending a read window increment");
                         self.increment_read_window(to_increase).await;
                         break;
@@ -281,16 +290,10 @@ impl BackpressureController {
 
 impl Drop for BackpressureController {
     fn drop(&mut self) {
-        debug_assert!(
-            self.next_read_offset <= self.request_end_offset,
-            "invariant: the next read offset should never be larger than the request end offset",
-        );
-        // TODO: This release is inaccurate. It releases the full remaining window, but some of
-        // those bytes may have already been decremented from mem_reserved by the pool's on_reserve
-        // callback (when the CRT allocated buffers). We need per-handle reservation tracking in the
-        // MemoryLimiter to know the exact unallocated portion of the window to release here.
-        let remaining_window = self.read_window_end_offset.saturating_sub(self.next_read_offset);
-        self.mem_limiter.release(BufferArea::Prefetch, remaining_window);
+        // Release whatever remains of this handle's reservation. The per-handle counter
+        // tracks only the unallocated portion — pool allocations already decremented it
+        // via the on_reserve callback.
+        self.mem_limiter.release_handle(self.handle_id, BufferArea::Prefetch);
     }
 }
 
@@ -506,6 +509,6 @@ mod tests {
             pool,
             backpressure_config.max_read_window_size as u64,
         ));
-        new_backpressure_controller(backpressure_config, mem_limiter.clone())
+        new_backpressure_controller(backpressure_config, HandleId::new(1), mem_limiter.clone())
     }
 }

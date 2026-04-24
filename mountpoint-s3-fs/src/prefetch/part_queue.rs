@@ -5,6 +5,8 @@ use tracing::trace;
 
 use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::sync::Arc;
+
+use super::HandleId;
 use crate::sync::async_channel::{Receiver, RecvError, Sender, unbounded};
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
@@ -24,6 +26,7 @@ pub struct PartQueue<Client: ObjectClient> {
     /// The total number of bytes sent to the underlying queue of `self.receiver`
     bytes_received: Arc<AtomicUsize>,
     mem_limiter: Arc<MemoryLimiter>,
+    handle_id: HandleId,
 }
 
 /// Producer side of the queue of [Part]s.
@@ -37,6 +40,7 @@ pub struct PartQueueProducer<E: std::error::Error> {
 /// Creates an unbounded [PartQueue] and its related [PartQueueProducer].
 pub fn unbounded_part_queue<Client: ObjectClient>(
     mem_limiter: Arc<MemoryLimiter>,
+    handle_id: HandleId,
 ) -> (PartQueue<Client>, PartQueueProducer<Client::ClientError>) {
     let (sender, receiver) = unbounded();
     let bytes_counter = Arc::new(AtomicUsize::new(0));
@@ -46,6 +50,7 @@ pub fn unbounded_part_queue<Client: ObjectClient>(
         failed: false,
         bytes_received: Arc::clone(&bytes_counter),
         mem_limiter,
+        handle_id,
     };
     let part_queue_producer = PartQueueProducer {
         sender,
@@ -105,7 +110,8 @@ impl<Client: ObjectClient> PartQueue<Client> {
         metrics::gauge!("prefetch.bytes_in_queue").increment(part.len() as f64);
         // The backpressure controller is not aware of the parts from backwards seek,
         // so we have to reserve memory for them here.
-        self.mem_limiter.reserve(BufferArea::Prefetch, part.len() as u64);
+        self.mem_limiter
+            .reserve(self.handle_id, BufferArea::Prefetch, part.len() as u64);
         self.front_queue.push(part);
         Ok(())
     }
@@ -177,7 +183,8 @@ mod tests {
         let pool = PagedPool::new_with_candidate_sizes([1024]);
         let mem_limiter = MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT);
         let part_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into());
+        let handle_id = HandleId::new(1);
+        let (mut part_queue, part_queue_producer) = unbounded_part_queue::<MockClient>(mem_limiter.into(), handle_id);
         let mut current_offset = 0;
         let mut current_length = 0;
         for op in ops {

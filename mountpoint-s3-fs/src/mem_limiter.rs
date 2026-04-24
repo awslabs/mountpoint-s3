@@ -1,10 +1,12 @@
 use std::{sync::atomic::Ordering, time::Instant};
 
+use dashmap::DashMap;
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
 use tracing::{debug, trace};
 
 use crate::memory::PagedPool;
+use crate::prefetch::HandleId;
 use crate::sync::Arc;
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
@@ -27,10 +29,10 @@ impl BufferArea {
 
 /// `MemoryLimiter` tracks memory used by Mountpoint and makes decisions if a new memory reservation request can be accepted.
 /// Currently, there are two metrics we take into account:
-/// 1) the memory directly reserved on the limiter by prefetcher and (incremental) uploader instances.
-/// 2) the memory reserved on the memory pool by the CRT client for any request (downloads, atomic uploads, etc.)
+/// 1) the memory directly reserved on the limiter by prefetcher instances (read path).
+/// 2) the memory allocated in the memory pool for downloads, uploads, and disk cache.
 ///
-/// Single instance of this struct is shared among all of the prefetchers (file handles) and (incremental) uploaders.
+/// Single instance of this struct is shared among all of the prefetchers (file handles) and uploaders.
 ///
 /// Each file handle makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` on the first
 /// `read()` call. This is accepted unconditionally since we want to allow any file handle to make
@@ -38,30 +40,15 @@ impl BufferArea {
 /// backpressure read window is incremented to fetch more data from underlying part streams. Those reservations may be
 /// rejected if there is no available memory.
 ///
-/// Release of the reserved memory happens on one of the following events:
-/// 1) prefetcher is destroyed (`RequestTask` will be dropped and remaining data in the backpressure read window will be released).
-/// 2) data is moved out of the part queue.
-///
-/// Following is the visualisation of a single prefetcher instance's data stream:
-///
-/// backwards_seek_start        part_queue_start         in_part_queue                 window_end_offset      preferred_window_end_offset
-///  │                              │                           │                               │                            │
-/// ─┼──────────────────────────────┼───────────────────────────┼───────────────────────────────┼────────────────────────────┼───────────-►
-///  │                              │                                                           │
-///  └──────────────────────────────┤                                                           │
-///  mem reserved by the part queue │                                                           │
-///                                 └───────────────────────────────────────────────────────────┤
-///                                     mem reserved by the backpressure controller
-///                                     (on `BackpressureFeedbackEvent`)
-///
-/// Incremental uploder instances may try to reserve multiple buffers to queue append requests. Under memory pressure,
-/// each instance will limit to a single buffer.
+/// Incremental uploader instances check available memory before allocating buffers to queue append
+/// requests. Under memory pressure, each instance will limit to a single buffer.
 #[derive(Debug)]
 pub struct MemoryLimiter {
     mem_limit: u64,
-    /// Reserved memory for allocations we are tracking, such as buffers we allocate for prefetching.
-    /// The memory may not be used yet but has been reserved.
+    /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
+    /// Per-handle reservation tracking. Used for accurate release on handle drop.
+    mem_reserved_per_handle: DashMap<HandleId, AtomicU64>,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -88,19 +75,20 @@ impl MemoryLimiter {
             pool,
             mem_limit,
             mem_reserved,
+            mem_reserved_per_handle: DashMap::new(),
             additional_mem_reserved: reserved_mem,
         }
     }
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
-    pub fn reserve(&self, area: BufferArea, size: u64) {
-        self.mem_reserved.fetch_add(size, Ordering::SeqCst);
+    pub fn reserve(&self, handle_id: HandleId, area: BufferArea, size: u64) {
+        self.add_reservation(handle_id, size);
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub fn try_reserve(&self, area: BufferArea, size: u64) -> bool {
+    pub fn try_reserve(&self, handle_id: HandleId, area: BufferArea, size: u64) -> bool {
         let start = Instant::now();
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
@@ -123,6 +111,10 @@ impl MemoryLimiter {
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
+                    self.mem_reserved_per_handle
+                        .entry(handle_id)
+                        .or_default()
+                        .fetch_add(size, Ordering::SeqCst);
                     metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
                     metrics::histogram!("mem.reserve_latency_us", "area" => area.as_str())
                         .record(start.elapsed().as_micros() as f64);
@@ -134,9 +126,18 @@ impl MemoryLimiter {
     }
 
     /// Release the reserved memory.
-    pub fn release(&self, area: BufferArea, size: u64) {
-        self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
+    pub fn release(&self, handle_id: HandleId, area: BufferArea, size: u64) {
+        self.sub_reservation(handle_id, size);
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(size as f64);
+    }
+
+    /// Release all remaining reservation for a handle and remove it from tracking.
+    pub fn release_handle(&self, handle_id: HandleId, area: BufferArea) {
+        if let Some((_, reservation)) = self.mem_reserved_per_handle.remove(&handle_id) {
+            let remaining = reservation.load(Ordering::SeqCst);
+            self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
+            metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(remaining as f64);
+        }
     }
 
     /// Query available memory tracked by the memory limiter.
@@ -149,11 +150,25 @@ impl MemoryLimiter {
             .saturating_sub(self.additional_mem_reserved)
     }
 
+    /// Increment both the global total and the per-handle reservation.
+    fn add_reservation(&self, handle_id: HandleId, size: u64) {
+        self.mem_reserved.fetch_add(size, Ordering::SeqCst);
+        self.mem_reserved_per_handle
+            .entry(handle_id)
+            .or_default()
+            .fetch_add(size, Ordering::SeqCst);
+    }
+
+    /// Decrement both the global total and the per-handle reservation.
+    fn sub_reservation(&self, handle_id: HandleId, size: u64) {
+        self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
+        if let Some(reservation) = self.mem_reserved_per_handle.get(&handle_id) {
+            reservation.fetch_sub(size, Ordering::SeqCst);
+        }
+    }
+
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
     fn pool_mem_reserved(&self) -> u64 {
-        // All pool buffer kinds are accounted for here. Note that after task 2 is complete,
-        // mem_reserved will be decremented on pool allocation, so there will be no double-counting
-        // for buffers (which currently go through both mem_reserved and the pool).
         self.pool.total_reserved_bytes() as u64
     }
 }

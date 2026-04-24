@@ -15,7 +15,7 @@ use tracing::{Instrument, debug_span, trace};
 
 use crate::ServerSideEncryption;
 use crate::async_util::Runtime;
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
+use crate::mem_limiter::MemoryLimiter;
 use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
 use crate::sync::Arc;
 
@@ -266,7 +266,7 @@ where
             }
         };
         while self.requests_in_queue > 0 {
-            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, self.mem_limiter.clone())? {
+            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, &self.mem_limiter)? {
                 Some(buffer) => return Ok(buffer),
                 None => {
                     // wait for requests in the queue to complete before trying to reserve memory again
@@ -278,12 +278,7 @@ where
             }
         }
         // no more requests in the queue, so we force creating a new buffer
-        Ok(UploadBuffer::new(
-            capacity,
-            &checksum_algorithm,
-            &self.pool,
-            self.mem_limiter.clone(),
-        )?)
+        Ok(UploadBuffer::new(capacity, &checksum_algorithm, &self.pool)?)
     }
 
     /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
@@ -417,7 +412,7 @@ async fn append<Client: ObjectClient>(
 
 #[derive(Debug)]
 struct UploadBuffer {
-    data: ReservedBuffer,
+    data: PoolBufferMut,
     // Running checksum for the data.
     hasher: ChecksumHasher,
 }
@@ -428,30 +423,22 @@ impl UploadBuffer {
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
         pool: &PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
     ) -> Result<Self, ChecksumHasherError> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
-        mem_limiter.reserve(BufferArea::Upload, capacity as u64);
-        let data = ReservedBuffer {
-            buffer: pool.get_buffer_mut(capacity, BufferKind::Append),
-            mem_limiter,
-        };
+        let data = pool.get_buffer_mut(capacity, BufferKind::Append);
         Ok(Self { data, hasher })
     }
 
-    /// Try creating a new buffer, return `None` if unable to reserve memory for a buffer with the given capacity
+    /// Try creating a new buffer, return `None` if not enough available memory
     fn try_new(
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
         pool: &PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
+        mem_limiter: &MemoryLimiter,
     ) -> Result<Option<Self>, ChecksumHasherError> {
-        if mem_limiter.try_reserve(BufferArea::Upload, capacity as u64) {
+        if mem_limiter.available_mem() >= capacity as u64 {
             let hasher = ChecksumHasher::new(checksum_algorithm)?;
-            let data = ReservedBuffer {
-                buffer: pool.get_buffer_mut(capacity, BufferKind::Append),
-                mem_limiter,
-            };
+            let data = pool.get_buffer_mut(capacity, BufferKind::Append);
             Ok(Some(Self { data, hasher }))
         } else {
             Ok(None)
@@ -461,42 +448,23 @@ impl UploadBuffer {
     /// Write a slice to the buffer. The slice will be trimmed to fit into the buffer,
     /// remaining slice is returned back to the caller.
     fn write<'a>(&mut self, mut slice: &'a [u8]) -> Result<&'a [u8], ChecksumHasherError> {
-        let remaining = self.data.buffer.append_from_slice(&mut slice);
+        let remaining = self.data.append_from_slice(&mut slice);
         self.hasher.update(slice)?;
         Ok(remaining)
     }
 
     fn is_full(&self) -> bool {
-        self.data.buffer.is_full()
+        self.data.is_full()
     }
 
     fn len(&self) -> usize {
-        self.data.buffer.len()
+        self.data.len()
     }
 
     fn freeze(self) -> Result<(Bytes, Option<UploadChecksum>), ChecksumHasherError> {
         let checksum = self.hasher.finalize()?;
         let bytes = Bytes::from_owner(self.data);
         Ok((bytes, checksum))
-    }
-}
-
-#[derive(Debug)]
-struct ReservedBuffer {
-    buffer: PoolBufferMut,
-    mem_limiter: Arc<MemoryLimiter>,
-}
-
-impl Drop for ReservedBuffer {
-    fn drop(&mut self) {
-        self.mem_limiter
-            .release(BufferArea::Upload, self.buffer.capacity() as u64);
-    }
-}
-
-impl AsRef<[u8]> for ReservedBuffer {
-    fn as_ref(&self) -> &[u8] {
-        &self.buffer
     }
 }
 
@@ -584,8 +552,8 @@ mod tests {
 
         // The buffer should be updated
         let buffer = upload_request.buffer.as_ref().unwrap();
-        assert_eq!(buffer_size, buffer.data.buffer.capacity());
-        assert_eq!(&append_data, &buffer.data.as_ref()[..buffer.len()]);
+        assert_eq!(buffer_size, buffer.data.capacity());
+        assert_eq!(&append_data, &buffer.data[..buffer.len()]);
 
         // Write more data to make the buffer full
         let append_data = [0xab; 128];

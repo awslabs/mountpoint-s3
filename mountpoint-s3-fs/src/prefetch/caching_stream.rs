@@ -61,8 +61,8 @@ where
             read_window_alignment_config: ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
         };
         let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, config.handle_id, self.mem_limiter.clone());
+        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone(), config.handle_id);
         trace!(?range, "spawning request");
 
         let request_task = {

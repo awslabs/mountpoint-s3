@@ -299,7 +299,7 @@ where
         // note that this reservation is done in addition to the one in [PartQueue::push_front]
         let seek_window_reservation =
             Self::seek_window_reservation(part_stream.client().read_part_size(), max_backward_seek_distance);
-        mem_limiter.reserve(BufferArea::Prefetch, seek_window_reservation);
+        mem_limiter.reserve(handle_id, BufferArea::Prefetch, seek_window_reservation);
         PrefetchGetObject {
             part_stream,
             config,
@@ -575,7 +575,8 @@ where
             self.part_stream.client().read_part_size(),
             self.backward_seek_window.max_size(),
         );
-        self.mem_limiter.release(BufferArea::Prefetch, seek_window_reservation);
+        self.mem_limiter
+            .release(self.handle_id, BufferArea::Prefetch, seek_window_reservation);
         self.record_contiguous_read_metric();
     }
 }
