@@ -54,15 +54,35 @@ jobs:
           - variant: default
             features: ""
             max_memory_target_mib: ""
+            incremental_upload: ""
+            bench_categories: ""
             name_suffix: ""
             data_path_suffix: ""
             results_subdir_suffix: ""
           - variant: mem-limited
             features: "--features mem_limiter"
             max_memory_target_mib: "512"
+            incremental_upload: ""
+            bench_categories: ""
             name_suffix: ", Memory-Limited"
             data_path_suffix: "/mem_limited"
             results_subdir_suffix: "-mem-limited"
+          - variant: incremental-upload
+            features: ""
+            max_memory_target_mib: ""
+            incremental_upload: "yes"
+            bench_categories: "write mix"
+            name_suffix: ", Incremental Upload"
+            data_path_suffix: "/incremental_upload"
+            results_subdir_suffix: "-incremental-upload"
+          - variant: incremental-upload-mem-limited
+            features: "--features mem_limiter"
+            max_memory_target_mib: "512"
+            incremental_upload: "yes"
+            bench_categories: "write mix"
+            name_suffix: ", Incremental Upload, Memory-Limited"
+            data_path_suffix: "/incremental_upload/mem_limited"
+            results_subdir_suffix: "-incremental-upload-mem-limited"
 
     steps:
     - name: Configure AWS credentials
@@ -94,9 +114,11 @@ jobs:
     - name: Run Benchmark
       env:
         S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
+        S3_INCREMENTAL_UPLOAD: ${{ matrix.incremental_upload }}
+        S3_BENCH_CATEGORIES: ${{ matrix.bench_categories }}
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
-      if: matrix.variant == 'mem-limited'
+      if: matrix.max_memory_target_mib != ''
       run: .github/actions/scripts/render-mem-summary.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix

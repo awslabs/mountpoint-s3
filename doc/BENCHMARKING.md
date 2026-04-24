@@ -29,6 +29,8 @@ We keep the records of benchmarking results in `gh-pages` branch and the perform
 - [throughput chart (memory-limited)](https://awslabs.github.io/mountpoint-s3/dev/bench/mem_limited/)
 - [throughput (with cache) chart (memory-limited)](https://awslabs.github.io/mountpoint-s3/dev/cache_bench/mem_limited/)
 - [throughput (s3-express) chart (memory-limited)](https://awslabs.github.io/mountpoint-s3/dev/s3-express/bench/mem_limited/)
+- [throughput (s3-express, incremental upload) chart](https://awslabs.github.io/mountpoint-s3/dev/s3-express/bench/incremental_upload/)
+- [throughput (s3-express, incremental upload, memory-limited) chart](https://awslabs.github.io/mountpoint-s3/dev/s3-express/bench/incremental_upload/mem_limited/)
 
 ### Running the benchmark
 While our benchmark script is written for CI testing only, it is possible to run manually.

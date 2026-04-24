@@ -41,6 +41,10 @@ if [[ -n "${S3_MAX_MEMORY_TARGET_MIB}" ]]; then
   optional_args+=" --max-memory-target=${S3_MAX_MEMORY_TARGET_MIB}"
 fi
 
+if [[ -n "${S3_INCREMENTAL_UPLOAD}" ]]; then
+  optional_args+=" --incremental-upload"
+fi
+
 base_dir=$(dirname "$0")
 project_dir="${base_dir}/../.."
 cd ${project_dir}
@@ -207,9 +211,9 @@ run_benchmarks() {
   done
 }
 
-run_benchmarks read
-run_benchmarks write
-run_benchmarks mix
+for category in ${S3_BENCH_CATEGORIES:-read write mix}; do
+  run_benchmarks "$category"
+done
 
 # combine all bench results into one json file
 echo "Throughput:"
