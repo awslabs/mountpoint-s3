@@ -69,7 +69,16 @@ impl MemoryLimiter {
         let mem_reserved = Arc::new(AtomicU64::new(0));
         let mem_reserved_cb = mem_reserved.clone();
         pool.set_on_reserve(Arc::new(move |bytes| {
-            mem_reserved_cb.fetch_sub(bytes as u64, Ordering::SeqCst);
+            // Use a CAS loop for saturating subtraction to prevent underflow if the callback
+            // fires after release_handle has already zeroed this handle's reservation.
+            let mut current = mem_reserved_cb.load(Ordering::SeqCst);
+            loop {
+                let new_val = current.saturating_sub(bytes as u64);
+                match mem_reserved_cb.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
+                    Ok(_) => break,
+                    Err(actual) => current = actual,
+                }
+            }
         }));
         Self {
             pool,
