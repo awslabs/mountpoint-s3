@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.dependencies]
 mountpoint-s3-fs = { version = "0.9.3", path = "./mountpoint-s3-fs" }
 mountpoint-s3-client = { version = "0.20.0", path = "./mountpoint-s3-client" }
-mountpoint-s3-crt = { version = "0.13.9", path = "./mountpoint-s3-crt" }
+mountpoint-s3-crt = { version = "0.14.0", path = "./mountpoint-s3-crt" }
 mountpoint-s3-crt-sys = { version = "0.16.3", path = "./mountpoint-s3-crt-sys" }
 mountpoint-s3-fuser = { version = "0.1.1", path = "./mountpoint-s3-fuser", features = ["abi-7-28", "libfuse"] }
 

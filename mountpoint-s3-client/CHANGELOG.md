@@ -1,6 +1,7 @@
-## Unreleased
+## Unreleased (v0.20.0)
 
 * Add S3 client error covering failures to create S3 Express session. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+* Expose the originating `MetaRequest` in `MemoryPool` trait methods. ([#1812](https://github.com/awslabs/mountpoint-s3/pull/1812))
 * Update to latest CRT dependencies.
 
 ## v0.19.8 (March 20, 2026)

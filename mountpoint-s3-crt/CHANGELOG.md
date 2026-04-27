@@ -1,5 +1,6 @@
-## Unreleased
+## Unreleased (v0.14.0)
 
+* Expose the originating `MetaRequest` in `MemoryPool` trait methods. ([#1812](https://github.com/awslabs/mountpoint-s3/pull/1812))
 * Update to latest CRT dependencies.
 
 ## v0.13.8 (March 20, 2026)
