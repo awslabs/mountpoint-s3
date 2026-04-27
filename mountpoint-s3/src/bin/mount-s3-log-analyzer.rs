@@ -54,7 +54,7 @@ struct CliArgs {
 /// JSON field name for the peak (in MiB) and the regex matching lines ending in that
 /// metric's value (bytes). Absent entries are omitted from `_extra_metrics.json` and
 /// rendered as "N/A" in the GH step summary table.
-fn mem_metric_patterns() -> [(&'static str, Regex); 4] {
+fn mem_metric_patterns() -> [(&'static str, Regex); 5] {
     [
         (
             "peak_prefetch_reserved_mib",
@@ -72,6 +72,10 @@ fn mem_metric_patterns() -> [(&'static str, Regex); 4] {
             "peak_pool_put_object_mib",
             Regex::new(r"pool\.reserved_bytes\[kind=put_object\]:\s(\d+)$").unwrap(),
         ),
+        (
+            "peak_pool_append_mib",
+            Regex::new(r"pool\.reserved_bytes\[kind=append\]:\s(\d+)$").unwrap(),
+        ),
     ]
 }
 
@@ -85,7 +89,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut metric_values: Vec<u64> = Vec::new();
     // Peak value (bytes) per mem-metric field; None until first observation.
-    let mut mem_metric_peaks: [Option<u64>; 4] = [None; 4];
+    let mut mem_metric_peaks: [Option<u64>; 5] = [None; 5];
 
     // collect metrics from all log files in the given directory
     for path in paths {
