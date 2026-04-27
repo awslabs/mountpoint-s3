@@ -268,7 +268,6 @@ jobs:
       env:
         S3_MOUNT_LOCAL_STORAGE: yes
         S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
-        S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}cache-bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Render memory summary
       if: matrix.variant == 'mem-limited'
