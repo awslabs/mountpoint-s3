@@ -425,7 +425,7 @@ impl UploadBuffer {
         pool: &PagedPool,
     ) -> Result<Self, ChecksumHasherError> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
-        let data = pool.get_buffer_mut(capacity, BufferKind::Append);
+        let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
         Ok(Self { data, hasher })
     }
 
@@ -438,7 +438,7 @@ impl UploadBuffer {
     ) -> Result<Option<Self>, ChecksumHasherError> {
         if mem_limiter.available_mem() >= capacity as u64 {
             let hasher = ChecksumHasher::new(checksum_algorithm)?;
-            let data = pool.get_buffer_mut(capacity, BufferKind::Append);
+            let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
             Ok(Some(Self { data, hasher }))
         } else {
             Ok(None)

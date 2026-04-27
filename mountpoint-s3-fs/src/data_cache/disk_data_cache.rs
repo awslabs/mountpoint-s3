@@ -266,7 +266,7 @@ impl DiskBlock {
         }
 
         let size = header.block_len as usize;
-        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache);
+        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache, None);
         buffer.fill_from_reader(reader)?;
         let data = buffer.into_bytes();
 

@@ -48,7 +48,7 @@ pub struct MemoryLimiter {
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
     /// Per-handle reservation tracking. Used for accurate release on handle drop.
-    mem_reserved_per_handle: DashMap<HandleId, AtomicU64>,
+    mem_reserved_per_handle: Arc<DashMap<HandleId, AtomicU64>>,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -68,9 +68,12 @@ impl MemoryLimiter {
         );
         let mem_reserved = Arc::new(AtomicU64::new(0));
         let mem_reserved_cb = mem_reserved.clone();
-        pool.set_on_reserve(Arc::new(move |bytes| {
-            // Use a CAS loop for saturating subtraction to prevent underflow if the callback
-            // fires after release_handle has already zeroed this handle's reservation.
+        let mem_reserved_per_handle: Arc<DashMap<HandleId, AtomicU64>> = Arc::new(DashMap::new());
+        let per_handle_cb = mem_reserved_per_handle.clone();
+        pool.set_on_reserve(Arc::new(move |bytes, custom_id| {
+            // Saturating subtraction prevents underflow if this callback races with
+            // release_handle during meta-request cancellation. In that case the global
+            // clamps to 0 — a harmless under-count corrected when the pool buffer is dropped.
             let mut current = mem_reserved_cb.load(Ordering::SeqCst);
             loop {
                 let new_val = current.saturating_sub(bytes as u64);
@@ -79,12 +82,17 @@ impl MemoryLimiter {
                     Err(actual) => current = actual,
                 }
             }
+            if let Some(handle_id) = custom_id
+                && let Some(reservation) = per_handle_cb.get(&HandleId::new(handle_id))
+            {
+                reservation.fetch_sub(bytes as u64, Ordering::SeqCst);
+            }
         }));
         Self {
             pool,
             mem_limit,
             mem_reserved,
-            mem_reserved_per_handle: DashMap::new(),
+            mem_reserved_per_handle,
             additional_mem_reserved: reserved_mem,
         }
     }
@@ -216,7 +224,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // Pool allocation triggers on_reserve callback, decrementing mem_reserved
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject);
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, None);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
@@ -229,17 +237,13 @@ mod tests {
         limiter.reserve(handle, BufferArea::Prefetch, 2048);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 2048);
 
-        // Pool allocates 1024 — callback decrements global by 1024
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject);
+        // Pool allocates 1024 — callback decrements both global and per-handle
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
-        // release_handle releases the remaining 2048 from per-handle (not aware of pool decrement)
-        // Global goes to 1024 - 2048 which would underflow — this is the known limitation
-        // that per-handle tracking doesn't account for pool callback decrements.
-        // For now, release_handle releases the per-handle balance.
+        // release_handle releases the remaining per-handle balance (2048 - 1024 = 1024)
         limiter.release_handle(handle, BufferArea::Prefetch);
-
-        // Per-handle entry is removed
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
         assert!(limiter.mem_reserved_per_handle.is_empty());
     }
 
