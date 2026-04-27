@@ -116,6 +116,7 @@ jobs:
         S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
         S3_INCREMENTAL_UPLOAD: ${{ matrix.incremental_upload }}
         S3_BENCH_CATEGORIES: ${{ matrix.bench_categories }}
+        S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
       if: matrix.max_memory_target_mib != ''
