@@ -1983,7 +1983,7 @@ fn infer_content_type_test(
     expected_content_type: &str,
 ) {
     let mut filesystem_config = S3FilesystemConfig::default().upload_mode(upload_mode);
-    filesystem_config.infer_content_type = ContentTypeDetection::Auto;
+    filesystem_config.content_type_detection = ContentTypeDetection::Auto;
     let config = TestSessionConfig {
         filesystem_config,
         ..Default::default()
@@ -2008,7 +2008,7 @@ fn infer_content_type_overwrite_test(creator_fn: impl TestSessionCreator, upload
         ..Default::default()
     }
     .upload_mode(upload_mode);
-    filesystem_config.infer_content_type = ContentTypeDetection::Auto;
+    filesystem_config.content_type_detection = ContentTypeDetection::Auto;
     let config = TestSessionConfig {
         filesystem_config,
         ..Default::default()

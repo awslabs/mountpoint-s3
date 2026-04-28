@@ -544,7 +544,7 @@ impl CliArgs {
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
-        filesystem_config.infer_content_type = if self.infer_content_type {
+        filesystem_config.content_type_detection = if self.infer_content_type {
             ContentTypeDetection::Auto
         } else {
             ContentTypeDetection::Disabled
@@ -945,5 +945,7 @@ mod tests {
             .expect("new content type flag should parse");
 
         assert!(cli_args.infer_content_type);
+        let filesystem_config = cli_args.filesystem_config(ServerSideEncryption::default(), S3Personality::Standard);
+        assert_eq!(filesystem_config.content_type_detection, ContentTypeDetection::Auto);
     }
 }

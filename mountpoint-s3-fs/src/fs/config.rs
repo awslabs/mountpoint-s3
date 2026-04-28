@@ -45,7 +45,7 @@ pub struct S3FilesystemConfig {
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
     /// Content type inference mode for uploaded objects
-    pub infer_content_type: ContentTypeDetection,
+    pub content_type_detection: ContentTypeDetection,
     /// Limits the number of concurrent FUSE requests that the kernel may send. Default is 64.
     /// This option may also be configured by `UNSTABLE_MOUNTPOINT_MAX_BACKGROUND` environment variable,
     /// but the value specified in the config takes priority.
@@ -72,7 +72,7 @@ impl Default for S3FilesystemConfig {
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
-            infer_content_type: ContentTypeDetection::Disabled,
+            content_type_detection: ContentTypeDetection::Disabled,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,
