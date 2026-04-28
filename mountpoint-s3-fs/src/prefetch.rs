@@ -42,10 +42,8 @@ use tracing::trace;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
 use crate::object::ObjectId;
-use crate::sync::Arc;
 
 mod backpressure_controller;
 mod builder;
@@ -202,7 +200,6 @@ fn determine_max_read_size() -> usize {
 pub struct Prefetcher<Client> {
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
-    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Client> Prefetcher<Client>
@@ -223,12 +220,8 @@ where
     }
 
     /// Create a new [Prefetcher] from the given [ObjectPartStream] instance.
-    pub fn new(part_stream: PartStream<Client>, config: PrefetcherConfig, mem_limiter: Arc<MemoryLimiter>) -> Self {
-        Self {
-            part_stream,
-            config,
-            mem_limiter,
-        }
+    pub fn new(part_stream: PartStream<Client>, config: PrefetcherConfig) -> Self {
+        Self { part_stream, config }
     }
 
     /// Start a new prefetch request to the specified object.
@@ -249,7 +242,6 @@ where
             object_id,
             handle_id,
             size,
-            self.mem_limiter.clone(),
         )
     }
 }
@@ -275,7 +267,6 @@ where
     next_sequential_read_offset: u64,
     next_request_offset: u64,
     size: u64,
-    mem_limiter: Arc<MemoryLimiter>,
     /// File handle ID that owns this prefetch request, for per-handle memory accounting.
     handle_id: HandleId,
 }
@@ -292,14 +283,8 @@ where
         object_id: ObjectId,
         handle_id: HandleId,
         size: u64,
-        mem_limiter: Arc<MemoryLimiter>,
     ) -> Self {
         let max_backward_seek_distance = config.max_backward_seek_distance as usize;
-        // a conservative memory reservation to avoid violating the memory limit with the large number of file handles
-        // note that this reservation is done in addition to the one in [PartQueue::push_front]
-        let seek_window_reservation =
-            Self::seek_window_reservation(part_stream.client().read_part_size(), max_backward_seek_distance);
-        mem_limiter.reserve(handle_id, BufferArea::Prefetch, seek_window_reservation);
         PrefetchGetObject {
             part_stream,
             config,
@@ -312,7 +297,6 @@ where
             bucket,
             object_id,
             size,
-            mem_limiter,
             handle_id,
         }
     }
@@ -541,10 +525,9 @@ where
             trace!("seek failed: not enough data in backwards seek window");
             return Ok(false);
         };
-        // This also increase `prefetcher_mem_reserved` value in memory limiter.
-        // At least one subsequent `RequestTask::read` is required for memory tracking to work correctly
-        // because `BackpressureController::drop` needs to know the start offset of the part queue to
-        // release the right amount of memory.
+        // Re-inject the parts from the seek window back into the part queue.
+        // The pool already tracks the memory for these buffers, so no additional
+        // reservation on the memory limiter is needed.
         task.push_front(parts).await?;
         self.next_sequential_read_offset = offset;
         Ok(true)
@@ -557,13 +540,6 @@ where
         histogram!("prefetch.contiguous_read_len")
             .record((self.next_sequential_read_offset - self.sequential_read_start_offset) as f64);
     }
-
-    /// The amount of memory reserved for a backwards seek window.
-    ///
-    /// The seek window size is rounded up to the nearest multiple of part_size.
-    fn seek_window_reservation(part_size: usize, seek_window_size: usize) -> u64 {
-        (seek_window_size.div_ceil(part_size) * part_size) as u64
-    }
 }
 
 impl<Client> Drop for PrefetchGetObject<Client>
@@ -571,12 +547,6 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     fn drop(&mut self) {
-        let seek_window_reservation = Self::seek_window_reservation(
-            self.part_stream.client().read_part_size(),
-            self.backward_seek_window.max_size(),
-        );
-        self.mem_limiter
-            .release(self.handle_id, BufferArea::Prefetch, seek_window_reservation);
         self.record_contiguous_read_metric();
     }
 }
@@ -1305,14 +1275,6 @@ mod tests {
             let expected = ramp_bytes(0xaa + offset, 1);
             assert_eq!(byte.into_bytes().unwrap()[..], expected[..]);
         }
-    }
-
-    #[test_case(8 * 1024 * 1024, 1 * 1024 * 1024, 8 * 1024 * 1024; "8MiB part_size, 1MiB window")]
-    #[test_case(1 * 1024 * 1024, 1 * 1024 * 1024, 1 * 1024 * 1024; "equal part_size and window")]
-    #[test_case(250 * 1024, 1 * 1024 * 1024, 1250 * 1024; "window larger than part_size")]
-    fn test_seek_window_reservation(part_size: usize, seek_window_size: usize, expected: u64) {
-        let reservation = PrefetchGetObject::<MockClient>::seek_window_reservation(part_size, seek_window_size);
-        assert_eq!(reservation, expected);
     }
 
     #[test_case(8 * MB, 8 * MB, 1 * MB + 128 * KB; "default")]

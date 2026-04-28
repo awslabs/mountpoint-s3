@@ -62,7 +62,7 @@ where
         };
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, config.handle_id, self.mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone(), config.handle_id);
+        let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
         let request_task = {

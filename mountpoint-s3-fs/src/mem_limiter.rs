@@ -40,6 +40,12 @@ impl BufferArea {
 /// backpressure read window is incremented to fetch more data from underlying part streams. Those reservations may be
 /// rejected if there is no available memory.
 ///
+/// Release of the reserved memory happens on one of the following events:
+/// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
+///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
+/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_handle` will
+///    release any remaining unallocated reservation for that handle).
+///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
 /// requests. Under memory pressure, each instance will limit to a single buffer.
 #[derive(Debug)]
@@ -142,12 +148,6 @@ impl MemoryLimiter {
         }
     }
 
-    /// Release the reserved memory.
-    pub fn release(&self, handle_id: HandleId, area: BufferArea, size: u64) {
-        self.sub_reservation(handle_id, size);
-        metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(size as f64);
-    }
-
     /// Release all remaining reservation for a handle and remove it from tracking.
     pub fn release_handle(&self, handle_id: HandleId, area: BufferArea) {
         if let Some((_, reservation)) = self.mem_reserved_per_handle.remove(&handle_id) {
@@ -174,14 +174,6 @@ impl MemoryLimiter {
             .entry(handle_id)
             .or_default()
             .fetch_add(size, Ordering::SeqCst);
-    }
-
-    /// Decrement both the global total and the per-handle reservation.
-    fn sub_reservation(&self, handle_id: HandleId, size: u64) {
-        self.mem_reserved.fetch_sub(size, Ordering::SeqCst);
-        if let Some(reservation) = self.mem_reserved_per_handle.get(&handle_id) {
-            reservation.fetch_sub(size, Ordering::SeqCst);
-        }
     }
 
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
