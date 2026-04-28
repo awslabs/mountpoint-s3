@@ -79,7 +79,7 @@ rusty-fork = "0.3.1"
 serde_with = "3.18.0"
 serial_test = "3.4.0"
 sha2 = "0.11.0"
-shuttle = { version = "0.9.1" }
+shuttle = { version = "0.8.1" }
 syscalls = { version = "0.8.1", default-features = false }
 test-case = "3.3.1"
 tokio = { version = "1.52.1", features = ["rt", "macros", "rt-multi-thread"] }
