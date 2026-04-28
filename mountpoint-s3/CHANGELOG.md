@@ -1,6 +1,9 @@
-## Unreleased (v1.22.3)
+## Unreleased
+
+## v1.22.3 (April 28, 2026)
 
 * Improve error message when S3 Express session creation fails. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1819](https://github.com/awslabs/mountpoint-s3/pull/1819))
 
 ## v1.22.2 (Mar 20, 2026)
 
