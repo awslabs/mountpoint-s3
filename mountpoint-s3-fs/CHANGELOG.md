@@ -1,6 +1,7 @@
 ## Unreleased
 
 * Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
+* Add `S3FilesystemConfig::content_type_detection` option to configure automatic content type inference for new uploads. When set to `ContentTypeDetection::Auto`, Mountpoint will infer the `Content-Type` of new objects based on their file extension. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
 
 ## v0.9.3 (April 28, 2026)
 
