@@ -77,21 +77,28 @@ impl MemoryLimiter {
         let mem_reserved_per_handle: Arc<DashMap<HandleId, AtomicU64>> = Arc::new(DashMap::new());
         let per_handle_cb = mem_reserved_per_handle.clone();
         pool.set_on_reserve(Arc::new(move |bytes, custom_id| {
-            // Saturating subtraction prevents underflow if this callback races with
-            // release_handle during meta-request cancellation. In that case the global
-            // clamps to 0 — a harmless under-count corrected when the pool buffer is dropped.
-            let mut current = mem_reserved_cb.load(Ordering::SeqCst);
-            loop {
-                let new_val = current.saturating_sub(bytes as u64);
-                match mem_reserved_cb.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
-                    Ok(_) => break,
-                    Err(actual) => current = actual,
-                }
-            }
+            // Called by the pool on every buffer allocation. For download buffers with a
+            // known handle, this converts reservation from "intent" (mem_reserved) to
+            // "actual allocation" (pool_total) by decrementing both the global and
+            // per-handle counters.
+            //
+            // This is a no-op when:
+            // - custom_id is None (e.g. disk cache, uploads): these allocations have no
+            //   corresponding mem_reserved entry and are tracked only via pool_total.
+            // - The handle has been removed (cancelled request): release_handle already
+            //   subtracted the full balance, so we skip to avoid double-decrementing.
             if let Some(handle_id) = custom_id
                 && let Some(reservation) = per_handle_cb.get(&HandleId::new(handle_id))
             {
-                reservation.fetch_sub(bytes as u64, Ordering::SeqCst);
+                let mut current = reservation.load(Ordering::SeqCst);
+                let decremented = loop {
+                    let new_val = current.saturating_sub(bytes as u64);
+                    match reservation.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
+                        Ok(_) => break current - new_val,
+                        Err(actual) => current = actual,
+                    }
+                };
+                mem_reserved_cb.fetch_sub(decremented, Ordering::SeqCst);
             }
         }));
         Self {
@@ -216,7 +223,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // Pool allocation triggers on_reserve callback, decrementing mem_reserved
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, None);
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
