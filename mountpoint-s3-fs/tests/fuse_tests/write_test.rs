@@ -1992,7 +1992,7 @@ fn infer_content_type_test(
 
     let path = test_session.mount_path().join(key);
 
-    let mut f = File::options().write(true).create(true).open(&path).unwrap();
+    let mut f = File::options().write(true).create_new(true).open(&path).unwrap();
     f.write_all(b"fake png content").unwrap();
     f.sync_all().unwrap();
     drop(f);
