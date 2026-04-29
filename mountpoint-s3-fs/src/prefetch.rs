@@ -332,6 +332,12 @@ where
             "read"
         );
 
+        // Record the active read range so the pruning/allocation logic knows
+        // this handle has a user waiting for data at this specific range.
+        // The guard ensures the active read is cleared when it goes out of scope,
+        // even on early returns or panics.
+        let _active_read_guard = self.mem_limiter.set_active_read(self.handle_id, offset, length);
+
         match self.try_read(offset, length).await {
             Ok((data, cache_hit)) => {
                 // Record cache hit metric for FUSE layer. We only record a cache hit when ALL parts

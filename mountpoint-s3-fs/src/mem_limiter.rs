@@ -1,11 +1,14 @@
 use std::{sync::atomic::Ordering, time::Instant};
 
+use dashmap::DashMap;
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
 use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::memory::{BufferKind, PagedPool};
+use crate::prefetch::HandleId;
+use crate::sync::Arc;
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -22,6 +25,39 @@ impl BufferArea {
             BufferArea::Upload => "upload",
             BufferArea::Prefetch => "prefetch",
         }
+    }
+}
+
+/// Describes an active FUSE read request for a specific file handle.
+/// Used by the pruning logic to determine which buffers are high priority
+/// (actively being waited on by a user) vs. speculative (prefetched ahead).
+#[derive(Debug, Clone, Copy)]
+pub struct ActiveRead {
+    /// Start offset of the read in the file.
+    pub offset: u64,
+    /// Size of the read in bytes.
+    pub size: usize,
+}
+
+impl ActiveRead {
+    /// Check if this active read overlaps with the given range.
+    pub fn overlaps(&self, offset: u64, size: usize) -> bool {
+        let self_end = self.offset + self.size as u64;
+        let other_end = offset + size as u64;
+        self.offset < other_end && offset < self_end
+    }
+}
+
+/// RAII guard that clears the active read for a handle when dropped.
+/// Ensures the active read is always cleared, even on early returns or panics.
+pub struct ActiveReadGuard {
+    mem_limiter: Arc<MemoryLimiter>,
+    handle_id: HandleId,
+}
+
+impl Drop for ActiveReadGuard {
+    fn drop(&mut self) {
+        self.mem_limiter.clear_active_read(self.handle_id);
     }
 }
 
@@ -68,6 +104,9 @@ pub struct MemoryLimiter {
     /// Since we don't directly control memory usage of multi-part uploads (atomic uploader), we will
     /// rely on the pool's stats for PutObject buffers and adjust the prefetcher read window accordingly.
     pool: PagedPool,
+    /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
+    /// the requested range is stored here. Absence means the handle is speculative.
+    active_reads: DashMap<HandleId, ActiveRead>,
 }
 
 impl MemoryLimiter {
@@ -85,6 +124,7 @@ impl MemoryLimiter {
             mem_limit,
             mem_reserved: AtomicU64::new(0),
             additional_mem_reserved: reserved_mem,
+            active_reads: DashMap::new(),
         }
     }
 
@@ -145,6 +185,29 @@ impl MemoryLimiter {
             .saturating_sub(self.additional_mem_reserved)
     }
 
+    /// Record that a FUSE read is active for the given handle at the specified range.
+    /// Returns a guard that will clear the active read when dropped.
+    pub fn set_active_read(self: &Arc<Self>, handle_id: HandleId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.active_reads.insert(handle_id, ActiveRead { offset, size });
+        ActiveReadGuard {
+            mem_limiter: Arc::clone(self),
+            handle_id,
+        }
+    }
+
+    /// Clear the active read for the given handle (read completed or errored).
+    fn clear_active_read(&self, handle_id: HandleId) {
+        self.active_reads.remove(&handle_id);
+    }
+
+    /// Check if the given handle has an active read overlapping the specified range.
+    pub fn has_active_read_in_range(&self, handle_id: HandleId, offset: u64, size: usize) -> bool {
+        self.active_reads
+            .get(&handle_id)
+            .map(|r| r.overlaps(offset, size))
+            .unwrap_or(false)
+    }
+
     /// Get reserved memory from the memory pool for buffers not tracked by this limiter.
     fn pool_mem_reserved(&self) -> u64 {
         // The limiter already tracks buffers from
@@ -155,6 +218,61 @@ impl MemoryLimiter {
         // * PutObject (multi-part uploads),
         // * Other (currently not used).
         (self.pool.reserved_bytes(BufferKind::PutObject) + self.pool.reserved_bytes(BufferKind::Other)) as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::PagedPool;
+
+    fn new_limiter() -> Arc<MemoryLimiter> {
+        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT))
+    }
+
+    #[test]
+    fn test_active_read_overlap_detection() {
+        let limiter = new_limiter();
+        let handle = HandleId::new(1);
+
+        // Active read at [1000, 5096)
+        let _guard = limiter.set_active_read(handle, 1000, 4096);
+
+        // Overlapping ranges → true
+        assert!(limiter.has_active_read_in_range(handle, 1000, 4096)); // exact match
+        assert!(limiter.has_active_read_in_range(handle, 500, 1000)); // overlap from left
+        assert!(limiter.has_active_read_in_range(handle, 5000, 1000)); // overlap from right
+        assert!(limiter.has_active_read_in_range(handle, 2000, 100)); // contained
+
+        // Non-overlapping ranges → false
+        assert!(!limiter.has_active_read_in_range(handle, 0, 500)); // before
+        assert!(!limiter.has_active_read_in_range(handle, 5096, 1000)); // after
+
+        // Different handle → false
+        assert!(!limiter.has_active_read_in_range(HandleId::new(2), 1000, 4096));
+    }
+
+    /// Simulates the allocation queue's perspective: one thread holds an active read
+    /// while another thread queries whether a given range is active.
+    #[test]
+    fn test_query_active_read_from_another_thread() {
+        let limiter = new_limiter();
+        let handle = HandleId::new(1);
+
+        let guard = limiter.set_active_read(handle, 1000, 4096);
+
+        let limiter_clone = Arc::clone(&limiter);
+        let query_thread = std::thread::spawn(move || {
+            // Allocation for the active range → high priority
+            assert!(limiter_clone.has_active_read_in_range(handle, 1000, 4096));
+            // Allocation for a prefetch-ahead range → low priority
+            assert!(!limiter_clone.has_active_read_in_range(handle, 50000, 4096));
+        });
+        query_thread.join().unwrap();
+
+        drop(guard);
+        assert!(!limiter.has_active_read_in_range(handle, 1000, 4096));
     }
 }
 
