@@ -122,8 +122,8 @@ impl PagedPool {
     }
 
     /// Get a new empty mutable buffer from the pool with the requested capacity.
-    /// If `custom_id` is provided, it will be passed to the on_reserve callback
-    /// for per-handle memory tracking.
+    /// If `custom_id` is provided, it will be passed to the `on_reserve` callback
+    /// for per-request memory tracking.
     pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind, custom_id: Option<u64>) -> PoolBufferMut {
         let buffer = self.get_buffer(capacity, kind, custom_id);
         PoolBufferMut::new(buffer)

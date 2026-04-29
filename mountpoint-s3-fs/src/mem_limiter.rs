@@ -1,13 +1,13 @@
-use std::{sync::atomic::Ordering, time::Instant};
+use std::time::Instant;
 
 use dashmap::DashMap;
 use humansize::make_format;
-use metrics::atomics::AtomicU64;
 use tracing::{debug, trace};
 
 use crate::memory::PagedPool;
 use crate::prefetch::HandleId;
 use crate::sync::Arc;
+use crate::sync::atomic::{AtomicU64, Ordering};
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -87,6 +87,9 @@ impl MemoryLimiter {
             //   corresponding mem_reserved entry and are tracked only via pool_total.
             // - The handle has been removed (cancelled request): release_handle already
             //   subtracted the full balance, so we skip to avoid double-decrementing.
+            //
+            // Saturating subtraction on the per-handle counter prevents wrapping if a late
+            // callback from a cancelled request hits a re-created entry for the same handle.
             if let Some(handle_id) = custom_id
                 && let Some(reservation) = per_handle_cb.get(&HandleId::new(handle_id))
             {
@@ -293,5 +296,83 @@ mod tests {
         // Second call is a no-op
         limiter.release_handle(handle, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn test_callback_noop_after_release_handle() {
+        // Simulates the cancellation race: on_reserve fires after release_handle
+        // removed the entry. The callback should be a no-op.
+        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
+        let handle = HandleId::new(1);
+
+        limiter.reserve(handle, BufferArea::Prefetch, 1024);
+        limiter.release_handle(handle, BufferArea::Prefetch);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+
+        // Late allocation for the cancelled request — handle is gone
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+
+        // mem_reserved should stay at 0, not go negative or wrap
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn test_callback_saturates_on_recreated_handle() {
+        // Simulates the re-creation race: handle is released and re-created (same ID),
+        // then a late callback from the old request hits the new entry.
+        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
+        let handle = HandleId::new(1);
+
+        // First lifecycle: reserve and release
+        limiter.reserve(handle, BufferArea::Prefetch, 1024);
+        limiter.release_handle(handle, BufferArea::Prefetch);
+
+        // Second lifecycle: re-create with a smaller reservation
+        limiter.reserve(handle, BufferArea::Prefetch, 512);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 512);
+
+        // Late callback from old request tries to decrement 1024 from the new entry (which only has 512).
+        // Saturating subtraction should clamp to 0, only decrementing 512 from global.
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+
+        // release_handle should subtract 0 (the per-handle counter is already 0)
+        limiter.release_handle(handle, BufferArea::Prefetch);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn test_available_mem_includes_pool_total() {
+        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
+        let handle = HandleId::new(1);
+
+        let initial_available = limiter.available_mem();
+
+        // Reserve intent — available decreases
+        limiter.reserve(handle, BufferArea::Prefetch, 1024);
+        assert_eq!(limiter.available_mem(), initial_available - 1024);
+
+        // Pool allocates — intent converts to pool_total, available stays the same
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        assert_eq!(limiter.available_mem(), initial_available - 1024);
+
+        // Drop the buffer — pool_total decreases, available goes back up
+        drop(_buffer);
+        assert_eq!(limiter.available_mem(), initial_available);
+    }
+
+    #[test]
+    fn test_upload_allocation_does_not_affect_mem_reserved() {
+        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
+
+        let initial_available = limiter.available_mem();
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+
+        // Upload allocates without custom_id — should not touch mem_reserved
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::Append, None);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+
+        // But available_mem should decrease (pool_total increased)
+        assert_eq!(limiter.available_mem(), initial_available - 1024);
     }
 }
