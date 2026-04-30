@@ -34,12 +34,15 @@ use futures::{FutureExt, select_biased};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, RenameObjectError};
 use mountpoint_s3_client::types::{
-    ETag, HeadObjectParams, HeadObjectResult, RenameObjectParams, RenamePreconditionTypes,
+    CopyObjectMetadataDirective, CopyObjectParams, ETag, HeadObjectParams, HeadObjectResult, RenameObjectParams,
+    RenamePreconditionTypes,
 };
 use thiserror::Error;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc2822;
 use tracing::{debug, error, trace, warn};
 
+use crate::content_type::{ContentTypeDetection, infer_content_type_or_default};
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags};
 use crate::logging;
 use crate::metablock::{
@@ -125,6 +128,7 @@ struct SuperblockInner<OC: ObjectClient + Send + Sync> {
 pub struct SuperblockConfig {
     pub cache_config: CacheConfig,
     pub s3_personality: S3Personality,
+    pub content_type_detection: ContentTypeDetection,
 }
 
 /// A manager for automatically setting and removing the `PendingRename` write status on an inode.
@@ -408,6 +412,117 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             }
         }
     }
+
+    async fn update_renamed_object_content_type(&self, key: &str) -> Option<HeadObjectResult> {
+        let Some(content_type) = infer_content_type_or_default(key, self.inner.config.content_type_detection) else {
+            return None;
+        };
+
+        let bucket = self.inner.s3_path.bucket.as_ref();
+        let head_params = HeadObjectParams::new();
+        let head_result = match self.inner.client.head_object(bucket, key, &head_params).await {
+            Ok(result) => result,
+            Err(error) => {
+                warn!(
+                    ?error,
+                    key, content_type, "failed to read object metadata after rename; content type was not updated"
+                );
+                return None;
+            }
+        };
+
+        if head_result.content_type.as_deref() == Some(content_type.as_str()) {
+            return Some(head_result);
+        }
+
+        let last_modified = match head_result.last_modified.format(&Rfc2822) {
+            Ok(last_modified) => last_modified,
+            Err(error) => {
+                warn!(
+                    ?error,
+                    key, content_type, "failed to format object last-modified time; content type was not updated"
+                );
+                return Some(head_result);
+            }
+        };
+
+        let mut copy_params = CopyObjectParams::new()
+            .metadata_directive(CopyObjectMetadataDirective::Replace)
+            .object_metadata(head_result.object_metadata.clone())
+            .add_custom_header("Content-Type".to_owned(), content_type.clone())
+            .add_custom_header("x-amz-copy-source-if-unmodified-since".to_owned(), last_modified);
+
+        for (name, value) in &head_result.copyable_system_metadata {
+            if !name.eq_ignore_ascii_case("Content-Type") {
+                copy_params = copy_params.add_custom_header(name.clone(), value.clone());
+            }
+        }
+        if !head_result
+            .copyable_system_metadata
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("x-amz-storage-class"))
+            && let Some(storage_class) = &head_result.storage_class
+        {
+            copy_params = copy_params.add_custom_header("x-amz-storage-class".to_owned(), storage_class.clone());
+        }
+        if !head_result
+            .copyable_system_metadata
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("x-amz-server-side-encryption"))
+            && let Some(sse_type) = &head_result.sse_type
+        {
+            copy_params = copy_params.add_custom_header("x-amz-server-side-encryption".to_owned(), sse_type.clone());
+        }
+        if !head_result
+            .copyable_system_metadata
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("x-amz-server-side-encryption-aws-kms-key-id"))
+            && let Some(sse_kms_key_id) = &head_result.sse_kms_key_id
+        {
+            copy_params = copy_params.add_custom_header(
+                "x-amz-server-side-encryption-aws-kms-key-id".to_owned(),
+                sse_kms_key_id.clone(),
+            );
+        }
+
+        trace!(key, content_type, "updating object content type after rename");
+        if let Err(error) = self
+            .inner
+            .client
+            .copy_object(bucket, key, bucket, key, &copy_params)
+            .await
+        {
+            warn!(
+                ?error,
+                key, content_type, "failed to update object content type after rename; rename already succeeded"
+            );
+            return Some(head_result);
+        }
+
+        match self.inner.client.head_object(bucket, key, &head_params).await {
+            Ok(result) => Some(result),
+            Err(error) => {
+                warn!(
+                    ?error,
+                    key, content_type, "failed to refresh object metadata after updating content type"
+                );
+                Some(head_result)
+            }
+        }
+    }
+
+    fn update_inode_stat_from_head(&self, inode: &Inode, metadata: &HeadObjectResult) -> Result<(), InodeError> {
+        let mut state = inode.get_mut_inode_state()?;
+        state.stat = InodeStat::for_file(
+            metadata.size as usize,
+            metadata.last_modified,
+            Some(metadata.etag.clone().into_inner().into_boxed_str()),
+            metadata.storage_class.as_deref(),
+            metadata.restore_status,
+            self.inner.config.cache_config.file_ttl,
+        );
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -546,6 +661,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         };
 
         self.inner.cached_rename_support.cache_success();
+        let renamed_object_metadata = self.update_renamed_object_content_type(&dest_key).await;
         // Invalidate destination from negative cache, as it is now in S3
         self.inner.negative_cache.remove(
             dst_parent.ino(),
@@ -588,6 +704,9 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                         self.inner.config.cache_config.file_ttl,
                         dst_parent_ino,
                     )?;
+                    if let Some(metadata) = &renamed_object_metadata {
+                        self.update_inode_stat_from_head(&new_inode, metadata)?;
+                    }
 
                     // Try to remove the inode from the parent, and notice if it was in an unexpected state.
                     let concurrent_modification_detected =
@@ -2223,6 +2342,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
+                ..Default::default()
             },
         );
 
@@ -2268,6 +2388,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(ttl)),
                 s3_personality: S3Personality::Standard,
+                ..Default::default()
             },
         );
 
@@ -2387,6 +2508,7 @@ mod tests {
             SuperblockConfig {
                 cache_config: CacheConfig::new(TimeToLive::Duration(std::time::Duration::from_secs(24 * 60 * 60))),
                 s3_personality: S3Personality::Standard,
+                ..Default::default()
             },
         );
         (superblock, client)

@@ -20,6 +20,7 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use thiserror::Error;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc2822;
 use tracing::trace;
 
 use crate::checksums::{
@@ -28,14 +29,15 @@ use crate::checksums::{
 };
 use crate::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use crate::object_client::{
-    Checksum, ChecksumAlgorithm, ChecksumMode, ClientBackpressureHandle, CopyObjectError, CopyObjectParams,
-    CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesError,
-    GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectParams, GetObjectResponse,
-    HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
-    ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart,
-    PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
-    PutObjectTrailingChecksums, RenameObjectError, RenameObjectParams, RenameObjectResult, RenamePreconditionTypes,
-    RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+    Checksum, ChecksumAlgorithm, ChecksumMode, ClientBackpressureHandle, CopyObjectError, CopyObjectMetadataDirective,
+    CopyObjectParams, CopyObjectResult, DeleteObjectError, DeleteObjectResult, ETag, GetBodyPart,
+    GetObjectAttributesError, GetObjectAttributesParts, GetObjectAttributesResult, GetObjectError, GetObjectParams,
+    GetObjectResponse, HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult,
+    ObjectAttribute, ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo,
+    ObjectMetadata, ObjectPart, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult,
+    PutObjectSingleParams, PutObjectTrailingChecksums, RenameObjectError, RenameObjectParams, RenameObjectResult,
+    RenamePreconditionTypes, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+    copyable_system_metadata_header_name,
 };
 
 mod leaky_bucket;
@@ -135,6 +137,31 @@ pub struct MockClient {
 
 fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, value: MockObject) {
     objects.write().unwrap().insert(key.to_owned(), value);
+}
+
+fn content_type_from_headers(headers: &[(String, String)]) -> Option<String> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("Content-Type"))
+        .map(|(_, value)| value.clone())
+}
+
+fn copyable_system_metadata_from_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let canonical_name = copyable_system_metadata_header_name(name)?;
+            Some((canonical_name.to_owned(), value.clone()))
+        })
+        .collect()
+}
+
+fn copy_source_if_unmodified_since(params: &CopyObjectParams) -> Option<OffsetDateTime> {
+    params
+        .custom_headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-amz-copy-source-if-unmodified-since"))
+        .and_then(|(_, value)| OffsetDateTime::parse(value, &Rfc2822).ok())
 }
 
 impl MockClient {
@@ -253,6 +280,8 @@ impl MockClient {
         let mut object: MockObject = contents.into();
         object.set_storage_class(params.storage_class.clone());
         object.set_object_metadata(params.object_metadata.clone());
+        object.set_content_type(content_type_from_headers(&params.custom_headers));
+        object.set_copyable_system_metadata(copyable_system_metadata_from_headers(&params.custom_headers));
         object.set_checksum(checksum);
 
         let etag = object.etag.clone();
@@ -455,6 +484,8 @@ impl MockClient {
                 let mut object = MockObject::from(contents);
                 object.set_storage_class(params.storage_class.clone());
                 object.set_object_metadata(params.object_metadata.clone());
+                object.set_content_type(content_type_from_headers(&params.custom_headers));
+                object.set_copyable_system_metadata(copyable_system_metadata_from_headers(&params.custom_headers));
                 object.set_checksum(checksum);
                 objects.insert(key.to_owned(), object);
                 objects.get_mut(key).unwrap()
@@ -545,6 +576,8 @@ pub struct MockObject {
     etag: ETag,
     parts: Option<MockObjectParts>,
     object_metadata: HashMap<String, String>,
+    content_type: Option<String>,
+    copyable_system_metadata: Vec<(String, String)>,
     /// S3 checksums associated with the object.
     ///
     /// Typically, at most one of the checksums should be set.
@@ -568,6 +601,8 @@ impl MockObject {
             etag,
             parts: None,
             object_metadata: HashMap::new(),
+            content_type: None,
+            copyable_system_metadata: Vec::new(),
             checksum: Checksum::empty(),
         }
     }
@@ -582,6 +617,8 @@ impl MockObject {
             etag,
             parts: None,
             object_metadata: HashMap::new(),
+            content_type: None,
+            copyable_system_metadata: Vec::new(),
             checksum: Checksum::empty(),
         }
     }
@@ -606,6 +643,8 @@ impl MockObject {
             etag,
             parts: None,
             object_metadata: HashMap::new(),
+            content_type: None,
+            copyable_system_metadata: Vec::new(),
             checksum: Checksum::empty(),
         }
     }
@@ -646,6 +685,14 @@ impl MockObject {
 
     pub fn set_object_metadata(&mut self, object_metadata: HashMap<String, String>) {
         self.object_metadata = object_metadata;
+    }
+
+    pub fn set_content_type(&mut self, content_type: Option<String>) {
+        self.content_type = content_type;
+    }
+
+    pub fn set_copyable_system_metadata(&mut self, copyable_system_metadata: Vec<(String, String)>) {
+        self.copyable_system_metadata = copyable_system_metadata;
     }
 
     pub fn set_restored(&mut self, restore_status: Option<RestoreStatus>) {
@@ -917,7 +964,7 @@ impl ObjectClient for MockClient {
         source_key: &str,
         destination_bucket: &str,
         destination_key: &str,
-        _params: &CopyObjectParams,
+        params: &CopyObjectParams,
     ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, Self::ClientError> {
         if destination_bucket != self.config.bucket && source_bucket != self.config.bucket {
             return Err(ObjectClientError::ServiceError(CopyObjectError::NotFound));
@@ -925,7 +972,16 @@ impl ObjectClient for MockClient {
 
         let mut objects = self.objects.write().unwrap();
         if let Some(object) = objects.get(source_key) {
-            let cloned_object = object.clone();
+            if copy_source_if_unmodified_since(params).is_some_and(|timestamp| object.last_modified > timestamp) {
+                return Err(ObjectClientError::ServiceError(CopyObjectError::PreconditionFailed));
+            }
+            let mut cloned_object = object.clone();
+            if params.metadata_directive == CopyObjectMetadataDirective::Replace {
+                cloned_object.set_object_metadata(params.object_metadata.clone());
+                cloned_object.set_content_type(content_type_from_headers(&params.custom_headers));
+                cloned_object
+                    .set_copyable_system_metadata(copyable_system_metadata_from_headers(&params.custom_headers));
+            }
             objects.insert(destination_key.to_owned(), cloned_object);
             Ok(CopyObjectResult {})
         } else {
@@ -1026,6 +1082,9 @@ impl ObjectClient for MockClient {
                 checksum,
                 sse_type: None,
                 sse_kms_key_id: None,
+                content_type: object.content_type.clone(),
+                object_metadata: object.object_metadata.clone(),
+                copyable_system_metadata: object.copyable_system_metadata.clone(),
             })
         } else {
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))
@@ -1273,6 +1332,8 @@ impl MockPutObjectRequest {
         let mut object: MockObject = buffer.into();
         object.set_storage_class(self.params.storage_class.clone());
         object.set_object_metadata(self.params.object_metadata.clone());
+        object.set_content_type(content_type_from_headers(&self.params.custom_headers));
+        object.set_copyable_system_metadata(copyable_system_metadata_from_headers(&self.params.custom_headers));
 
         // For S3 Standard, part attributes are only available when additional checksums are used
         if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
@@ -1616,6 +1677,66 @@ mod tests {
             .get_object(bucket, dst_key, &GetObjectParams::new())
             .await
             .expect("get_object should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_copy_object_replace_metadata() {
+        let bucket = "test_bucket";
+        let src_key = "src_copy_key";
+        let dst_key = "dst_copy_key";
+        let client = MockClient::config().bucket(bucket).part_size(1024).build();
+
+        let source_params = PutObjectSingleParams::new()
+            .object_metadata(HashMap::from([("source".to_owned(), "metadata".to_owned())]))
+            .add_custom_header("Content-Type".to_owned(), "text/plain".to_owned())
+            .add_custom_header("Cache-Control".to_owned(), "max-age=60".to_owned());
+        client
+            .put_object_single(bucket, src_key, &source_params, b"test_body")
+            .await
+            .expect("put_object_single should succeed");
+
+        let copy_params = CopyObjectParams::new()
+            .metadata_directive(CopyObjectMetadataDirective::Replace)
+            .object_metadata(HashMap::from([("source".to_owned(), "metadata".to_owned())]))
+            .add_custom_header("Content-Type".to_owned(), "image/png".to_owned())
+            .add_custom_header("Cache-Control".to_owned(), "max-age=60".to_owned());
+        client
+            .copy_object(bucket, src_key, bucket, dst_key, &copy_params)
+            .await
+            .expect("copy_object should succeed");
+
+        let head = client
+            .head_object(bucket, dst_key, &HeadObjectParams::new())
+            .await
+            .expect("head_object should succeed");
+        assert_eq!(head.content_type.as_deref(), Some("image/png"));
+        assert_eq!(
+            head.copyable_system_metadata
+                .iter()
+                .find(|(name, _)| name == "Cache-Control")
+                .map(|(_, value)| value.as_str()),
+            Some("max-age=60")
+        );
+        assert_eq!(head.object_metadata.get("source").map(String::as_str), Some("metadata"));
+    }
+
+    #[tokio::test]
+    async fn test_copy_object_if_unmodified_since() {
+        let bucket = "test_bucket";
+        let src_key = "src_copy_key";
+        let dst_key = "dst_copy_key";
+        let client = MockClient::config().bucket(bucket).part_size(1024).build();
+        client.add_object(src_key, "test_body".into());
+
+        let stale_timestamp = OffsetDateTime::UNIX_EPOCH.format(&Rfc2822).unwrap();
+        let copy_params = CopyObjectParams::new()
+            .add_custom_header("x-amz-copy-source-if-unmodified-since".to_owned(), stale_timestamp);
+        let result = client.copy_object(bucket, src_key, bucket, dst_key, &copy_params).await;
+
+        assert!(matches!(
+            result,
+            Err(ObjectClientError::ServiceError(CopyObjectError::PreconditionFailed))
+        ));
     }
 
     #[tokio::test]
