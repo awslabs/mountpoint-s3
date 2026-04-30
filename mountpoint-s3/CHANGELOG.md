@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
+
 ## v1.22.3 (April 28, 2026)
 
 * Improve error message when S3 Express session creation fails. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
