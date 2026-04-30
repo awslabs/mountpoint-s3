@@ -227,7 +227,6 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
         SuperblockConfig {
             cache_config: filesystem_config.cache_config.clone(),
             s3_personality: filesystem_config.s3_personality,
-            content_type_detection: filesystem_config.content_type_detection,
         },
     );
 

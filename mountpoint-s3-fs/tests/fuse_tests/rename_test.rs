@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
@@ -9,9 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
-use mountpoint_s3_client::types::PutObjectSingleParams;
 use mountpoint_s3_fs::S3FilesystemConfig;
-use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::fs::CacheConfig;
 use mountpoint_s3_fs::s3::S3Personality;
 #[cfg(target_os = "linux")]
@@ -87,62 +85,6 @@ fn rename_basic_tests_s3() {
 #[test_case("rename_basic_tests"; "prefix")]
 fn rename_basic_tests_mock(prefix: &str) {
     rename_basic_tests(fuse::mock_session::new, prefix);
-}
-
-fn rename_reinfers_content_type_test<F>(creator_fn: F, prefix: &str)
-where
-    F: FnOnce(&str, TestSessionConfig) -> TestSession,
-{
-    let mut filesystem_config = S3FilesystemConfig {
-        s3_personality: S3Personality::ExpressOneZone,
-        ..Default::default()
-    };
-    filesystem_config.content_type_detection = ContentTypeDetection::Auto;
-    let test_session_config = TestSessionConfig {
-        filesystem_config,
-        ..Default::default()
-    };
-    let test_session = creator_fn(prefix, test_session_config);
-    let test_client = test_session.client();
-    let mount_point = test_session.mount_path();
-
-    let source_key = "source.txt";
-    let destination_key = "destination.png";
-    let source_path = mount_point.join(source_key);
-    let destination_path = mount_point.join("destination.png");
-
-    let object_metadata = HashMap::from([("source".to_owned(), "metadata".to_owned())]);
-    let put_params = PutObjectSingleParams::new()
-        .object_metadata(object_metadata.clone())
-        .add_custom_header("Content-Type".to_owned(), "text/plain".to_owned())
-        .add_custom_header("Cache-Control".to_owned(), "max-age=60".to_owned());
-    test_client
-        .put_object_single(source_key, b"hello world", put_params)
-        .unwrap();
-
-    let content_type = test_client.get_object_content_type(source_key).unwrap();
-    assert_eq!(content_type.as_deref(), Some("text/plain"));
-
-    fs::rename(&source_path, &destination_path).expect("rename should succeed");
-
-    let content_type = test_client.get_object_content_type(destination_key).unwrap();
-    assert_eq!(content_type.as_deref(), Some("image/png"));
-    let cache_control = test_client.get_object_cache_control(destination_key).unwrap();
-    assert_eq!(cache_control.as_deref(), Some("max-age=60"));
-    let user_metadata = test_client.get_object_user_metadata(destination_key).unwrap();
-    assert_eq!(user_metadata, object_metadata);
-}
-
-#[cfg(feature = "s3express_tests")]
-#[test]
-fn rename_reinfers_content_type_test_s3() {
-    rename_reinfers_content_type_test(fuse::s3_session::new, "rename_reinfers_content_type_test");
-}
-
-#[test_case(""; "no prefix")]
-#[test_case("rename_reinfers_content_type_test"; "prefix")]
-fn rename_reinfers_content_type_test_mock(prefix: &str) {
-    rename_reinfers_content_type_test(fuse::mock_session::new, prefix);
 }
 
 fn rename_simplewithcache_test<F>(creator_fn: F, prefix: &str)

@@ -75,7 +75,6 @@ where
         SuperblockConfig {
             cache_config: config.cache_config.clone(),
             s3_personality: config.s3_personality,
-            content_type_detection: config.content_type_detection,
         },
     );
     S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, config)

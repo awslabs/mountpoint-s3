@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
 use std::os::fd::AsFd;
@@ -55,10 +54,6 @@ pub trait TestClient: Send {
     fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
 
     fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
-
-    fn get_object_cache_control(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
-
-    fn get_object_user_metadata(&self, key: &str) -> Result<HashMap<String, String>, Box<dyn std::error::Error>>;
 
     fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
@@ -224,7 +219,6 @@ where
             SuperblockConfig {
                 cache_config: filesystem_config.cache_config.clone(),
                 s3_personality: filesystem_config.s3_personality,
-                content_type_detection: filesystem_config.content_type_detection,
             },
         ),
         filesystem_config,
@@ -469,38 +463,9 @@ pub mod mock_session {
             Ok(head_object.size as usize)
         }
 
-        fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.client.head_object(
-                BUCKET_NAME,
-                &full_key,
-                &HeadObjectParams::new(),
-            ))?;
-            Ok(head_object.content_type)
-        }
-
-        fn get_object_cache_control(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.client.head_object(
-                BUCKET_NAME,
-                &full_key,
-                &HeadObjectParams::new(),
-            ))?;
-            Ok(head_object
-                .copyable_system_metadata
-                .iter()
-                .find(|(name, _)| name == "Cache-Control")
-                .map(|(_, value)| value.clone()))
-        }
-
-        fn get_object_user_metadata(&self, key: &str) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.client.head_object(
-                BUCKET_NAME,
-                &full_key,
-                &HeadObjectParams::new(),
-            ))?;
-            Ok(head_object.object_metadata)
+        fn get_object_content_type(&self, _key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+            // MockClient's HeadObject does not expose Content-Type headers.
+            Ok(None)
         }
 
         fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -782,18 +747,6 @@ pub mod s3_session {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
             Ok(head_object.content_type().map(|s| s.to_owned()))
-        }
-
-        fn get_object_cache_control(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
-            Ok(head_object.cache_control().map(|s| s.to_owned()))
-        }
-
-        fn get_object_user_metadata(&self, key: &str) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-            let full_key = format!("{}{}", self.prefix, key);
-            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
-            Ok(head_object.metadata().cloned().unwrap_or_default())
         }
 
         // Schedule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.

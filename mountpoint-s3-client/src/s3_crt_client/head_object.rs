@@ -8,10 +8,7 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc2822;
 
-use crate::object_client::{
-    COPYABLE_SYSTEM_METADATA_HEADERS, HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult,
-    ObjectMetadata, RestoreStatus,
-};
+use crate::object_client::{HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult, RestoreStatus};
 
 use super::{ChecksumMode, S3CrtClient, S3Operation, S3RequestError, parse_checksum};
 
@@ -77,9 +74,6 @@ impl HeadObjectResult {
         let restore_status = Self::parse_restore_status(headers)?;
         let sse_type = headers.get_as_optional_string("x-amz-server-side-encryption")?;
         let sse_kms_key_id = headers.get_as_optional_string("x-amz-server-side-encryption-aws-kms-key-id")?;
-        let content_type = headers.get_as_optional_string("Content-Type")?;
-        let object_metadata = Self::parse_object_metadata(headers);
-        let copyable_system_metadata = Self::parse_copyable_system_metadata(headers)?;
         let checksum = parse_checksum(headers)?;
         let result = HeadObjectResult {
             size,
@@ -90,33 +84,8 @@ impl HeadObjectResult {
             checksum,
             sse_type,
             sse_kms_key_id,
-            content_type,
-            object_metadata,
-            copyable_system_metadata,
         };
         Ok(result)
-    }
-
-    fn parse_object_metadata(headers: &Headers) -> ObjectMetadata {
-        headers
-            .iter()
-            .filter_map(|(key, value)| {
-                let metadata_header = key.to_str()?.strip_prefix("x-amz-meta-")?;
-                let value = value.to_str()?;
-                Some((metadata_header.to_string(), value.to_string()))
-            })
-            .collect()
-    }
-
-    fn parse_copyable_system_metadata(headers: &Headers) -> Result<Vec<(String, String)>, ParseError> {
-        COPYABLE_SYSTEM_METADATA_HEADERS
-            .iter()
-            .filter_map(|header_name| match headers.get_as_optional_string(*header_name) {
-                Ok(Some(value)) => Some(Ok(((*header_name).to_string(), value))),
-                Ok(None) => None,
-                Err(error) => Some(Err(error.into())),
-            })
-            .collect()
     }
 }
 

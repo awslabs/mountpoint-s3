@@ -1,23 +1,12 @@
-use std::ffi::OsString;
 use std::ops::Deref;
 use std::os::unix::prelude::OsStrExt;
 
 use mountpoint_s3_crt::{http::request_response::Header, s3::client::MetaRequestResult};
 use tracing::trace;
 
-use crate::object_client::{
-    CopyObjectError, CopyObjectMetadataDirective, CopyObjectParams, CopyObjectResult, ObjectClientResult,
-};
+use crate::object_client::{CopyObjectError, CopyObjectParams, CopyObjectResult, ObjectClientResult};
 
-use super::{S3CrtClient, S3Operation, S3RequestError, URLENCODE_PATH_FRAGMENT, write_encoded_fragment};
-
-fn encoded_copy_source(source_bucket: &str, source_key: &str) -> OsString {
-    let mut source = OsString::from("/");
-    write_encoded_fragment(&mut source, source_bucket, URLENCODE_PATH_FRAGMENT);
-    source.push("/");
-    write_encoded_fragment(&mut source, source_key, URLENCODE_PATH_FRAGMENT);
-    source
-}
+use super::{S3CrtClient, S3Operation, S3RequestError};
 
 impl S3CrtClient {
     /// Create and begin a new CopyObject request.
@@ -27,7 +16,7 @@ impl S3CrtClient {
         source_key: &str,
         destination_bucket: &str,
         destination_key: &str,
-        params: &CopyObjectParams,
+        _params: &CopyObjectParams,
     ) -> ObjectClientResult<CopyObjectResult, CopyObjectError, S3RequestError> {
         let request = {
             let mut message = self
@@ -40,28 +29,9 @@ impl S3CrtClient {
             message
                 .set_header(&Header::new(
                     "x-amz-copy-source",
-                    encoded_copy_source(source_bucket, source_key),
+                    format!("/{source_bucket}/{source_key}"),
                 ))
                 .map_err(S3RequestError::construction_failure)?;
-            if params.metadata_directive != CopyObjectMetadataDirective::Copy {
-                message
-                    .set_header(&Header::new(
-                        "x-amz-metadata-directive",
-                        params.metadata_directive.as_header_value(),
-                    ))
-                    .map_err(S3RequestError::construction_failure)?;
-            }
-            for (name, value) in &params.object_metadata {
-                message
-                    .set_header(&Header::new(format!("x-amz-meta-{name}"), value))
-                    .map_err(S3RequestError::construction_failure)?;
-            }
-            for (name, value) in &params.custom_headers {
-                message
-                    .inner
-                    .add_header(&Header::new(name, value))
-                    .map_err(S3RequestError::construction_failure)?;
-            }
 
             let span = request_span!(
                 self.inner,
@@ -73,7 +43,6 @@ impl S3CrtClient {
             );
 
             let mut options = message.into_options(S3Operation::CopyObject);
-            // This meta request type performs multipart copies for objects too large for a single CopyObject call.
             let uri = self
                 .inner
                 .endpoint_config
@@ -81,10 +50,7 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?
                 .uri()
                 .map_err(S3RequestError::construction_failure)?;
-            let mut source_uri = uri.as_os_str().to_owned();
-            source_uri.push("/");
-            write_encoded_fragment(&mut source_uri, source_key, URLENCODE_PATH_FRAGMENT);
-            let source_uri = source_uri.to_string_lossy().into_owned();
+            let source_uri = format!("{}/{source_key}", uri.as_os_str().to_string_lossy());
             trace!(source_uri, "resolved source uri");
             options.copy_source_uri(source_uri);
             self.inner
@@ -110,7 +76,6 @@ fn parse_copy_object_error(result: &MetaRequestResult) -> Option<CopyObjectError
             }
         }
         404 => Some(CopyObjectError::NotFound),
-        412 => Some(CopyObjectError::PreconditionFailed),
         _ => None,
     }
 }
@@ -141,19 +106,5 @@ mod tests {
         let result = make_result(404, OsStr::from_bytes(&body[..]));
         let result = parse_copy_object_error(&result);
         assert_eq!(result, Some(CopyObjectError::NotFound));
-    }
-
-    #[test]
-    fn parse_412_error() {
-        let body = br#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>PreconditionFailed</Code></Error>"#;
-        let result = make_result(412, OsStr::from_bytes(&body[..]));
-        let result = parse_copy_object_error(&result);
-        assert_eq!(result, Some(CopyObjectError::PreconditionFailed));
-    }
-
-    #[test]
-    fn encoded_copy_source_encodes_special_characters() {
-        let encoded = encoded_copy_source("test-bucket", "dir/a b#c?.txt");
-        assert_eq!(encoded.to_string_lossy(), "/test-bucket/dir/a%20b%23c%3F.txt");
     }
 }

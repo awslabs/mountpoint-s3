@@ -824,7 +824,6 @@ mod tests {
             SuperblockConfig {
                 cache_config: fs_config.cache_config.clone(),
                 s3_personality: fs_config.s3_personality,
-                content_type_detection: fs_config.content_type_detection,
             },
         );
         let mut fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
@@ -1088,7 +1087,6 @@ mod tests {
             SuperblockConfig {
                 cache_config: fs_config.cache_config.clone(),
                 s3_personality: fs_config.s3_personality,
-                content_type_detection: fs_config.content_type_detection,
             },
         );
         S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config)

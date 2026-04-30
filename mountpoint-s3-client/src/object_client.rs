@@ -204,12 +204,6 @@ impl ProvideErrorMetadata for DeleteObjectError {
     }
 }
 
-impl ProvideErrorMetadata for CopyObjectError {
-    fn meta(&self) -> ClientErrorMetadata {
-        Default::default()
-    }
-}
-
 impl ProvideErrorMetadata for RenameObjectError {
     fn meta(&self) -> ClientErrorMetadata {
         Default::default()
@@ -372,15 +366,6 @@ pub struct HeadObjectResult {
 
     /// Server-side encryption KMS key ID that was used to store the object.
     pub sse_kms_key_id: Option<String>,
-
-    /// Content-Type metadata for the object.
-    pub content_type: Option<String>,
-
-    /// User-defined object metadata.
-    pub object_metadata: ObjectMetadata,
-
-    /// System metadata headers that can be replayed on a CopyObject request with metadata replacement.
-    pub copyable_system_metadata: Vec<(String, String)>,
 }
 
 /// Errors returned by a [`head_object`](ObjectClient::head_object) request
@@ -425,65 +410,19 @@ pub enum CopyObjectError {
 
     #[error("The source object of the COPY action is not in the active tier and is only stored in Amazon S3 Glacier.")]
     ObjectNotInActiveTierError,
-
-    #[error("A precondition for the copy request failed")]
-    PreconditionFailed,
-}
-
-/// How metadata is handled by a [`copy_object`](ObjectClient::copy_object) request.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum CopyObjectMetadataDirective {
-    /// Copy object metadata from the source object.
-    #[default]
-    Copy,
-    /// Replace object metadata with metadata provided in the request.
-    Replace,
-}
-
-impl CopyObjectMetadataDirective {
-    /// Header value for `x-amz-metadata-directive`.
-    pub fn as_header_value(self) -> &'static str {
-        match self {
-            Self::Copy => "COPY",
-            Self::Replace => "REPLACE",
-        }
-    }
 }
 
 /// Parameters to a [`copy_object`](ObjectClient::copy_object) request
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct CopyObjectParams {
-    /// How object metadata is handled during copy.
-    pub metadata_directive: CopyObjectMetadataDirective,
-    /// Custom headers to add to the request.
-    pub custom_headers: Vec<(String, String)>,
-    /// User-defined object metadata.
-    pub object_metadata: ObjectMetadata,
+    // TODO: Populate this struct with fields as and when required to satisfy various use cases.
 }
 
 impl CopyObjectParams {
     /// Create a default [CopyObjectParams].
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Set metadata directive.
-    pub fn metadata_directive(mut self, value: CopyObjectMetadataDirective) -> Self {
-        self.metadata_directive = value;
-        self
-    }
-
-    /// Add a custom header to the request.
-    pub fn add_custom_header(mut self, name: String, value: String) -> Self {
-        self.custom_headers.push((name, value));
-        self
-    }
-
-    /// Set user-defined object metadata.
-    pub fn object_metadata(mut self, value: ObjectMetadata) -> Self {
-        self.object_metadata = value;
-        self
     }
 }
 
@@ -606,32 +545,6 @@ pub enum RenameObjectError {
 }
 
 pub type ObjectMetadata = HashMap<String, String>;
-
-/// System metadata headers that can be copied from HeadObject to CopyObject when replacing metadata.
-pub const COPYABLE_SYSTEM_METADATA_HEADERS: &[&str] = &[
-    "Cache-Control",
-    "Content-Disposition",
-    "Content-Encoding",
-    "Content-Language",
-    "Content-Type",
-    "Expires",
-    "x-amz-website-redirect-location",
-    "x-amz-storage-class",
-    "x-amz-server-side-encryption",
-    "x-amz-server-side-encryption-aws-kms-key-id",
-    "x-amz-server-side-encryption-context",
-    "x-amz-server-side-encryption-bucket-key-enabled",
-    "x-amz-object-lock-mode",
-    "x-amz-object-lock-retain-until-date",
-    "x-amz-object-lock-legal-hold",
-];
-
-pub fn copyable_system_metadata_header_name(name: &str) -> Option<&'static str> {
-    COPYABLE_SYSTEM_METADATA_HEADERS
-        .iter()
-        .copied()
-        .find(|header| header.eq_ignore_ascii_case(name))
-}
 
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
 #[derive(Debug, Default, Clone)]
