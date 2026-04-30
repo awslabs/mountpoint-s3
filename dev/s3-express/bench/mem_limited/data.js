@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777399272835,
+  "lastUpdate": 1777574677189,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark (S3 Express One Zone, Memory-Limited)": [
@@ -535,6 +535,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "sequential_write",
             "value": 991.43720703125,
+            "unit": "MiB/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0de1563d1a9d383a0f7b7c8bfb595ee19109a589",
+          "message": "fix: Use cgroup-aware memory detection in mem limiter (#1806)\n\n**What changed and why?** \n\nReplace direct `sysinfo::System::total_memory()` call with a new\n`effective_total_memory()` helper that respects `cgroup` memory limits.\nThis fixes incorrect memory limit detection when running inside\ncontainers with memory constraints.\n\nChanges:\n- Add `effective_total_memory()` to `mem_limiter` that checks\n`sysinfo`'s `cgroup_limits()` before falling back to total physical\nmemory\n- Library automatically handles cgroup v1 vs v2, path resolution, no\nlimit, Linux vs non-Linux, and other edge cases:\nhttps://github.com/GuillaumeGomez/sysinfo/blob/main/src/unix/linux/cgroup.rs\n- Update `cli.rs` and `benchmark` examples to use the new helper\n- Add CI job to run cgroup memory detection test in a memory-limited\ncontainer\n\n### Does this change impact existing behavior?\n\nNo - it prevents potential OOM in containers with memory constraints.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nDone.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-04-30T16:27:04Z",
+          "tree_id": "ce92a20e2db111b1eeb3ed3c3e763ff953907be7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0de1563d1a9d383a0f7b7c8bfb595ee19109a589"
+        },
+        "date": 1777574675818,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "sequential_read,sequential_write_four_threads",
+            "value": 4170.7962890625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_two_threads,sequential_write_two_threads",
+            "value": 2382.6509765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads,sequential_write",
+            "value": 2028.35546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io",
+            "value": 109.11083984375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_direct_io_small_file",
+            "value": 148.91884765625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads",
+            "value": 105.4435546875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_four_threads_small_file",
+            "value": 137.29072265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io",
+            "value": 26.29052734375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_direct_io_small_file",
+            "value": 36.12939453125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read",
+            "value": 25.65849609375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "random_read_small_file",
+            "value": 33.96767578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io",
+            "value": 1812.9697265625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_direct_io_small_file",
+            "value": 531.2662109375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads",
+            "value": 1778.75068359375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_four_threads_small_file",
+            "value": 535.85986328125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io",
+            "value": 1157.53203125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_direct_io_small_file",
+            "value": 130.13681640625,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read",
+            "value": 1056.34248046875,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 997.89501953125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_read_small_file",
+            "value": 130.91767578125,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write_direct_io",
+            "value": 1432.69365234375,
+            "unit": "MiB/s"
+          },
+          {
+            "name": "sequential_write",
+            "value": 1030.80283203125,
             "unit": "MiB/s"
           }
         ]
