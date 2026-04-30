@@ -86,6 +86,17 @@ impl HandleId {
 // to avoid the latency hit of the second request.
 pub const INITIAL_REQUEST_SIZE: usize = 1024 * 1024 + 128 * 1024;
 
+/// Classifies the type of seek needed before a read.
+#[derive(Debug, PartialEq)]
+enum SeekKind {
+    /// No seek needed — sequential read.
+    None,
+    /// Forward seek — skip ahead, may need to consume intermediate bytes.
+    Forward,
+    /// Backward seek — served from in-memory seek window, or becomes a reset.
+    Backward,
+}
+
 #[derive(Debug, Error)]
 pub enum PrefetchReadError<E> {
     #[error("get object request failed")]
@@ -332,12 +343,6 @@ where
             "read"
         );
 
-        // Record the active read range so the pruning/allocation logic knows
-        // this handle has a user waiting for data at this specific range.
-        // The guard ensures the active read is cleared when it goes out of scope,
-        // even on early returns or panics.
-        let _active_read_guard = self.mem_limiter.set_active_read(self.handle_id, offset, length);
-
         match self.try_read(offset, length).await {
             Ok((data, cache_hit)) => {
                 // Record cache hit metric for FUSE layer. We only record a cache hit when ALL parts
@@ -382,25 +387,23 @@ where
         }
         let mut to_read = (length as u64).min(remaining);
 
-        // Try to seek if this read is not sequential, and if seeking fails, cancel and reset the
-        // prefetcher.
-        if self.next_sequential_read_offset != offset {
-            if self.try_seek(offset).await? {
-                trace!("seek succeeded");
-            } else {
-                trace!(
-                    expected = self.next_sequential_read_offset,
-                    actual = offset,
-                    "out-of-order read, resetting prefetch"
-                );
-                counter!(PREFETCH_RESET_STATE).increment(1);
+        // Determine the seek kind and active read range (cheap, no awaits).
+        let (seek_kind, active_start) = if self.next_sequential_read_offset == offset {
+            (SeekKind::None, offset)
+        } else if offset > self.next_sequential_read_offset {
+            (SeekKind::Forward, self.next_sequential_read_offset)
+        } else {
+            (SeekKind::Backward, offset)
+        };
+        let active_size = (offset + length as u64 - active_start) as usize;
 
-                // This is an approximation, tolerating some seeking caused by concurrent readahead.
-                self.record_contiguous_read_metric();
+        // Set the active read range BEFORE any blocking so the allocator knows this range is high priority.
+        let _active_read_guard = self
+            .mem_limiter
+            .set_active_read(self.handle_id, active_start, active_size);
 
-                self.reset_prefetch_to_offset(offset);
-            }
-        }
+        // Act on the seek (may block/await).
+        self.perform_seek(seek_kind, offset).await?;
         assert_eq!(self.next_sequential_read_offset, offset);
 
         if self.backpressure_task.is_none() {
@@ -479,6 +482,33 @@ where
         self.sequential_read_start_offset = offset;
         self.next_sequential_read_offset = offset;
         self.next_request_offset = offset;
+    }
+
+    /// Act on the seek decision. This may block waiting for S3 data (forward seek)
+    /// or reset the prefetcher (random seek). The active read must already be set
+    /// before calling this method.
+    async fn perform_seek(
+        &mut self,
+        seek_kind: SeekKind,
+        offset: u64,
+    ) -> Result<(), PrefetchReadError<Client::ClientError>> {
+        if seek_kind != SeekKind::None {
+            if self.try_seek(offset).await? {
+                trace!("seek succeeded");
+            } else {
+                trace!(
+                    expected = self.next_sequential_read_offset,
+                    actual = offset,
+                    "out-of-order read, resetting prefetch"
+                );
+                counter!(PREFETCH_RESET_STATE).increment(1);
+
+                // This is an approximation, tolerating some seeking caused by concurrent readahead.
+                self.record_contiguous_read_metric();
+                self.reset_prefetch_to_offset(offset);
+            }
+        }
+        Ok(())
     }
 
     /// Try to seek within the current inflight requests without restarting them. Returns true if
