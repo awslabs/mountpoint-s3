@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777400795219,
+  "lastUpdate": 1777575770061,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
@@ -435,6 +435,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 25.73046875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "20302932+yerzhan7@users.noreply.github.com",
+            "name": "Yerzhan Mazhkenov",
+            "username": "yerzhan7"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0de1563d1a9d383a0f7b7c8bfb595ee19109a589",
+          "message": "fix: Use cgroup-aware memory detection in mem limiter (#1806)\n\n**What changed and why?** \n\nReplace direct `sysinfo::System::total_memory()` call with a new\n`effective_total_memory()` helper that respects `cgroup` memory limits.\nThis fixes incorrect memory limit detection when running inside\ncontainers with memory constraints.\n\nChanges:\n- Add `effective_total_memory()` to `mem_limiter` that checks\n`sysinfo`'s `cgroup_limits()` before falling back to total physical\nmemory\n- Library automatically handles cgroup v1 vs v2, path resolution, no\nlimit, Linux vs non-Linux, and other edge cases:\nhttps://github.com/GuillaumeGomez/sysinfo/blob/main/src/unix/linux/cgroup.rs\n- Update `cli.rs` and `benchmark` examples to use the new helper\n- Add CI job to run cgroup memory detection test in a memory-limited\ncontainer\n\n### Does this change impact existing behavior?\n\nNo - it prevents potential OOM in containers with memory constraints.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nDone.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Yerzhan Mazhkenov <20302932+yerzhan7@users.noreply.github.com>",
+          "timestamp": "2026-04-30T16:27:04Z",
+          "tree_id": "ce92a20e2db111b1eeb3ed3c3e763ff953907be7",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/0de1563d1a9d383a0f7b7c8bfb595ee19109a589"
+        },
+        "date": 1777575769997,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 396.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 30.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 411.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 29.8046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 409.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 53.21484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 419.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 22.328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 396.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 30.515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 431.375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 39.4609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 393.47265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 23.80078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 411.0625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 408.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 20.7890625,
             "unit": "MiB"
           }
         ]
