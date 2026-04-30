@@ -5,6 +5,7 @@ pub mod common;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use common::memory_pool::RecordingMemoryPool;
 use common::*;
 
 use futures::{FutureExt, StreamExt, pin_mut};
@@ -18,7 +19,7 @@ use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
     PutObjectTrailingChecksums,
 };
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
@@ -55,6 +56,36 @@ async fn test_put_object(
 }
 
 object_client_test!(test_put_object);
+
+#[tokio::test]
+async fn test_put_object_custom_id_propagates_to_memory_pool() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_custom_id_propagates_to_memory_pool");
+    let key = format!("{prefix}hello");
+
+    let recording_pool = RecordingMemoryPool::default();
+    let client_config = S3ClientConfig::new()
+        .endpoint_config(get_test_endpoint_config())
+        .memory_pool(recording_pool.clone());
+    // Constructing the client directly instead of using get_test_client_with_config,
+    // which would override our RecordingMemoryPool in some test configurations.
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+
+    let custom_id = 31337;
+    let mut request = client
+        .put_object(&bucket, &key, &PutObjectParams::new().custom_id(Some(custom_id)))
+        .await
+        .expect("put_object should succeed");
+
+    let body = vec![0x7f; 1024];
+    request.write(&body).await.expect("write should succeed");
+    let _ = request.complete().await.expect("complete should succeed");
+
+    let observed = recording_pool.observed_custom_ids();
+    assert!(
+        observed.contains(&Some(custom_id)),
+        "expected to observe custom id {custom_id}, observed: {observed:?}"
+    );
+}
 
 // Simple test for PUT object. Puts a single, empty object and checks that the (empty)
 // contents are correct with a GET.

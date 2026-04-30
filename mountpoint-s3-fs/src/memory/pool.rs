@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mountpoint_s3_client::config::{MemoryPool, MetaRequestType};
+use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
 use crate::sync::{Arc, RwLock};
 
@@ -156,8 +156,8 @@ impl PagedPool {
 impl MemoryPool for PagedPool {
     type Buffer = PoolBuffer;
 
-    fn get_buffer(&self, size: usize, meta_request_type: MetaRequestType) -> Self::Buffer {
-        self.get_buffer(size, meta_request_type.into())
+    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
+        self.get_buffer(size, meta_request.meta_request_type().into())
     }
 
     fn trim(&self) -> bool {

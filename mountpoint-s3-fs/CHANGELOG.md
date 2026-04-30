@@ -1,6 +1,9 @@
 ## Unreleased
 
 * Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
+
+## v0.9.3 (April 28, 2026)
+
 * Update to latest S3 client. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
 
 ## v0.9.2 (March 20, 2026)

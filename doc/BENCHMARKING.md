@@ -26,6 +26,9 @@ We keep the records of benchmarking results in `gh-pages` branch and the perform
 - [throughput (s3-express) chart](https://awslabs.github.io/mountpoint-s3/dev/s3-express/bench)
 - [latency chart](https://awslabs.github.io/mountpoint-s3/dev/latency_bench/)
 - [latency (s3-express) chart](https://awslabs.github.io/mountpoint-s3/dev/s3-express/latency_bench/)
+- [throughput chart (memory-limited)](https://awslabs.github.io/mountpoint-s3/dev/bench/mem_limited/)
+- [throughput (with cache) chart (memory-limited)](https://awslabs.github.io/mountpoint-s3/dev/cache_bench/mem_limited/)
+- [throughput (s3-express) chart (memory-limited)](https://awslabs.github.io/mountpoint-s3/dev/s3-express/bench/mem_limited/)
 
 ### Running the benchmark
 While our benchmark script is written for CI testing only, it is possible to run manually.

@@ -78,6 +78,9 @@ impl S3CrtClient {
 
             let mut options = message.into_options(S3Operation::GetObject);
             options.part_size(self.inner.read_part_size as u64);
+            if let Some(id) = params.custom_id {
+                options.custom_id(id);
+            }
 
             let mut headers_sender = Some(event_sender.clone());
             let part_sender = event_sender.clone();
