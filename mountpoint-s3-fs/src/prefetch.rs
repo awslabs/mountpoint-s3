@@ -380,7 +380,7 @@ where
         // the skipped bytes the prefetcher must consume to reach the requested offset.
         let active_start = self.next_sequential_read_offset.min(offset);
         let active_size = (offset + length as u64 - active_start) as usize;
-        let mut _active_read_guard = self
+        let _active_read_guard = self
             .mem_limiter
             .set_active_read(self.handle_id, active_start, active_size);
 
@@ -400,13 +400,6 @@ where
                 // This is an approximation, tolerating some seeking caused by concurrent readahead.
                 self.record_contiguous_read_metric();
                 self.reset_prefetch_to_offset(offset);
-
-                // A failed forward seek resets the prefetcher to `offset`, so the widened
-                // active range is no longer valid. Replace with just the requested range.
-                if active_start != offset {
-                    drop(_active_read_guard);
-                    _active_read_guard = self.mem_limiter.set_active_read(self.handle_id, offset, length);
-                }
             }
         }
         assert_eq!(self.next_sequential_read_offset, offset);

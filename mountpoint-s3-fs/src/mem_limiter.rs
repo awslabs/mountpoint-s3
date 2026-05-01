@@ -221,6 +221,18 @@ impl MemoryLimiter {
     }
 }
 
+/// Returns the effective total memory available to this process in bytes.
+///
+/// On Linux, this respects cgroup memory limits when set.
+/// On other platforms, returns the total physical memory.
+pub fn effective_total_memory() -> u64 {
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.cgroup_limits()
+        .map(|cg| cg.total_memory)
+        .unwrap_or_else(|| sys.total_memory())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,23 +286,6 @@ mod tests {
         drop(guard);
         assert!(!limiter.has_active_read_in_range(handle, 1000, 4096));
     }
-}
-
-/// Returns the effective total memory available to this process in bytes.
-///
-/// On Linux, this respects cgroup memory limits when set.
-/// On other platforms, returns the total physical memory.
-pub fn effective_total_memory() -> u64 {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    sys.cgroup_limits()
-        .map(|cg| cg.total_memory)
-        .unwrap_or_else(|| sys.total_memory())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a
     /// container started with `--memory=4g`), verify that [effective_total_memory]
