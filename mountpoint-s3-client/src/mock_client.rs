@@ -1808,7 +1808,7 @@ mod tests {
         let prefixes: HashSet<_> = result1
             .common_prefixes
             .into_iter()
-            .chain(result2.common_prefixes.into_iter())
+            .chain(result2.common_prefixes)
             .collect();
         let objects: HashSet<_> = result1
             .objects
@@ -1873,7 +1873,7 @@ mod tests {
                 .expect("should not fail");
             continuation_token = result.next_continuation_token;
 
-            prefixes.extend(result.common_prefixes.into_iter());
+            prefixes.extend(result.common_prefixes);
             objects.extend(result.objects.into_iter().map(|o| o.key));
 
             if continuation_token.is_none() {
@@ -1940,7 +1940,7 @@ mod tests {
                 .expect("should not fail");
             continuation_token = result.next_continuation_token;
 
-            prefixes.extend(result.common_prefixes.into_iter());
+            prefixes.extend(result.common_prefixes);
             objects.extend(result.objects.into_iter().map(|o| o.key));
 
             if continuation_token.is_none() {

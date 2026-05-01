@@ -2,6 +2,7 @@ use std::{sync::atomic::Ordering, time::Instant};
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
+use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::memory::{BufferKind, PagedPool};
@@ -154,5 +155,62 @@ impl MemoryLimiter {
         // * PutObject (multi-part uploads),
         // * Other (currently not used).
         (self.pool.reserved_bytes(BufferKind::PutObject) + self.pool.reserved_bytes(BufferKind::Other)) as u64
+    }
+}
+
+/// Returns the effective total memory available to this process in bytes.
+///
+/// On Linux, this respects cgroup memory limits when set.
+/// On other platforms, returns the total physical memory.
+pub fn effective_total_memory() -> u64 {
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.cgroup_limits()
+        .map(|cg| cg.total_memory)
+        .unwrap_or_else(|| sys.total_memory())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a
+    /// container started with `--memory=4g`), verify that [effective_total_memory]
+    /// returns a value equal to the cgroup limit rather than the host's total RAM.
+    ///
+    /// This test is run by the `cgroup-mem-limit` CI job (see `.github/workflows/tests.yml`)
+    /// inside a memory-limited container. Outside that job the env var is unset and the
+    /// test is skipped.
+    #[test]
+    fn test_effective_total_memory_respects_cgroup() {
+        let Ok(expected_str) = std::env::var("TEST_CGROUP_MEM_LIMIT_MB") else {
+            // Nothing to check outside the dedicated CI container job.
+            return;
+        };
+        let expected_bytes: u64 = expected_str.parse::<u64>().expect("invalid TEST_CGROUP_MEM_LIMIT_MB") * 1024 * 1024;
+        let mem = effective_total_memory();
+        assert_eq!(
+            mem, expected_bytes,
+            "effective_total_memory() returned {mem} bytes, expected exactly {expected_bytes} bytes (cgroup limit). \
+             The function may not be reading the cgroup memory constraint.",
+        );
+    }
+
+    /// When no cgroup memory limit is active, [effective_total_memory] should
+    /// fall back to the total physical memory reported by the system.
+    #[test]
+    fn test_effective_total_memory_falls_back_to_system_memory() {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        if sys.cgroup_limits().is_some() {
+            // A cgroup limit is active on this machine — the fallback path
+            // won't be exercised, so there's nothing to assert here.
+            return;
+        }
+        assert_eq!(
+            effective_total_memory(),
+            sys.total_memory(),
+            "without a cgroup limit, effective_total_memory() should equal total physical memory",
+        );
     }
 }

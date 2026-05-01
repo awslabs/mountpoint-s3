@@ -7,15 +7,15 @@ use clap::{ArgGroup, Parser, ValueEnum, value_parser};
 use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
+use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
 use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive};
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
-use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
+use mountpoint_s3_fs::mem_limiter::{MINIMUM_MEM_LIMIT, effective_total_memory};
 use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path, S3PathError, S3Personality};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
-use sysinfo::{RefreshKind, System};
 
 use crate::build_info;
 
@@ -402,6 +402,13 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
+        help = "Automatically infer the Content-Type of uploaded objects from their file extension. Content-Type is not updated on rename.",
+        help_heading = BUCKET_OPTIONS_HEADER,
+    )]
+    pub infer_content_type: bool,
+
+    #[clap(
+        long,
         help = "One or more network interfaces for Mountpoint to use when accessing S3. Requires Linux 5.7+ or running as root. This feature is a work-in-progress.",
         help_heading = CLIENT_OPTIONS_HEADER,
         value_name = "NETWORK_INTERFACE",
@@ -486,8 +493,7 @@ impl CliArgs {
     fn mem_limit(&self) -> u64 {
         let mut mem_limit = MINIMUM_MEM_LIMIT;
 
-        let sys = System::new_with_specifics(RefreshKind::everything());
-        let default_mem_target = (sys.total_memory() as f64 * 0.95) as u64;
+        let default_mem_target = (effective_total_memory() as f64 * 0.95) as u64;
         mem_limit = mem_limit.max(default_mem_target);
 
         #[cfg(feature = "mem_limiter")]
@@ -538,6 +544,11 @@ impl CliArgs {
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+        filesystem_config.content_type_detection = if self.infer_content_type {
+            ContentTypeDetection::Auto
+        } else {
+            ContentTypeDetection::Disabled
+        };
         filesystem_config
     }
 
@@ -926,5 +937,15 @@ mod tests {
         } else {
             parsed.expect_err("invalid kms key identifier");
         }
+    }
+
+    #[test]
+    fn parse_infer_content_type_flag() {
+        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--infer-content-type"])
+            .expect("new content type flag should parse");
+
+        assert!(cli_args.infer_content_type);
+        let filesystem_config = cli_args.filesystem_config(ServerSideEncryption::default(), S3Personality::Standard);
+        assert_eq!(filesystem_config.content_type_detection, ContentTypeDetection::Auto);
     }
 }

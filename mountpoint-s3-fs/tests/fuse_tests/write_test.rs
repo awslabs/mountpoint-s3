@@ -15,6 +15,8 @@ use test_case::{test_case, test_matrix};
 use mountpoint_s3_fs::S3FilesystemConfig;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::ServerSideEncryption;
+#[cfg(feature = "s3_tests")]
+use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::fs::CacheConfig;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
@@ -1970,4 +1972,118 @@ fn open_disallowed_when_writer_exists() {
         .expect("reading from a new read file handle should succeed");
     assert_eq!(hello_contents, "hello world2");
     drop(read_fh);
+}
+
+#[cfg(feature = "s3_tests")]
+fn infer_content_type_test(
+    creator_fn: impl TestSessionCreator,
+    test_name: &str,
+    upload_mode: UploadMode,
+    key: &str,
+    expected_content_type: &str,
+) {
+    let mut filesystem_config = S3FilesystemConfig::default().upload_mode(upload_mode);
+    filesystem_config.content_type_detection = ContentTypeDetection::Auto;
+    let config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let test_session = creator_fn(test_name, config);
+
+    let path = test_session.mount_path().join(key);
+
+    let mut f = File::options().write(true).create_new(true).open(&path).unwrap();
+    f.write_all(b"fake png content").unwrap();
+    f.sync_all().unwrap();
+    drop(f);
+
+    let content_type = test_session.client().get_object_content_type(key).unwrap();
+    assert_eq!(content_type.as_deref(), Some(expected_content_type));
+}
+
+#[cfg(feature = "s3_tests")]
+fn infer_content_type_overwrite_test(creator_fn: impl TestSessionCreator, upload_mode: UploadMode) {
+    let mut filesystem_config = S3FilesystemConfig {
+        allow_overwrite: true,
+        ..Default::default()
+    }
+    .upload_mode(upload_mode);
+    filesystem_config.content_type_detection = ContentTypeDetection::Auto;
+    let config = TestSessionConfig {
+        filesystem_config,
+        ..Default::default()
+    };
+    let test_session = creator_fn("infer_content_type_overwrite_test", config);
+
+    let key = "image.png";
+    test_session.client().put_object(key, b"existing content").unwrap();
+
+    let path = test_session.mount_path().join(key);
+    let mut f = File::options().write(true).truncate(true).open(&path).unwrap();
+    f.write_all(b"updated png content").unwrap();
+    f.sync_all().unwrap();
+    drop(f);
+
+    let content_type = test_session.client().get_object_content_type(key).unwrap();
+    assert_eq!(content_type.as_deref(), Some("image/png"));
+}
+
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+#[test]
+fn infer_content_type_test_s3_atomic() {
+    infer_content_type_test(
+        fuse::s3_session::new,
+        "infer_content_type_test_s3_atomic",
+        ATOMIC_UPLOAD,
+        "image.png",
+        "image/png",
+    );
+}
+
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+#[test]
+fn infer_content_type_without_extension_test_s3_atomic() {
+    infer_content_type_test(
+        fuse::s3_session::new,
+        "infer_content_type_without_extension_test_s3_atomic",
+        ATOMIC_UPLOAD,
+        "no_extension",
+        "binary/octet-stream",
+    );
+}
+
+#[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
+#[test]
+fn infer_content_type_overwrite_test_s3_atomic() {
+    infer_content_type_overwrite_test(fuse::s3_session::new, ATOMIC_UPLOAD);
+}
+
+#[cfg(feature = "s3express_tests")]
+#[test]
+fn infer_content_type_test_s3_incremental() {
+    infer_content_type_test(
+        fuse::s3_session::new,
+        "infer_content_type_test_s3_incremental",
+        INCREMENTAL_UPLOAD,
+        "image.png",
+        "image/png",
+    );
+}
+
+#[cfg(feature = "s3express_tests")]
+#[test]
+fn infer_content_type_without_extension_test_s3_incremental() {
+    infer_content_type_test(
+        fuse::s3_session::new,
+        "infer_content_type_without_extension_test_s3_incremental",
+        INCREMENTAL_UPLOAD,
+        "no_extension",
+        "binary/octet-stream",
+    );
+}
+
+#[cfg(feature = "s3express_tests")]
+#[test]
+fn infer_content_type_overwrite_test_s3_incremental() {
+    infer_content_type_overwrite_test(fuse::s3_session::new, INCREMENTAL_UPLOAD);
 }
