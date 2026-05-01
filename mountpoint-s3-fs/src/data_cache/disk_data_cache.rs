@@ -26,6 +26,7 @@ use crate::metrics::defs::{
     CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY, CACHE_TOTAL_SIZE,
 };
 use crate::object::ObjectId;
+use crate::prefetch::HandleId;
 use crate::sync::Mutex;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
@@ -262,7 +263,7 @@ impl DiskBlock {
         reader: &mut impl Read,
         block_size: u64,
         pool: &PagedPool,
-        custom_id: Option<u64>,
+        handle_id: Option<HandleId>,
     ) -> Result<Self, DiskBlockReadWriteError> {
         let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
 
@@ -271,7 +272,7 @@ impl DiskBlock {
         }
 
         let size = header.block_len as usize;
-        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache, custom_id);
+        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache, handle_id);
         buffer.fill_from_reader(reader)?;
         let data = buffer.into_bytes();
 
@@ -342,7 +343,7 @@ impl DiskDataCache {
         cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
-        custom_id: Option<u64>,
+        handle_id: Option<HandleId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         trace!(
             key = ?cache_key.key(),
@@ -366,7 +367,7 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block = DiskBlock::read(&mut file, self.block_size(), &self.pool, custom_id)
+        let block = DiskBlock::read(&mut file, self.block_size(), &self.pool, handle_id)
             .inspect_err(|e| warn!(path = ?path.as_ref(), "block could not be deserialized: {:?}", e))?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
@@ -470,7 +471,7 @@ impl DataCache for DiskDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
         _object_size: usize,
-        custom_id: Option<u64>,
+        handle_id: Option<HandleId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
@@ -478,7 +479,7 @@ impl DataCache for DiskDataCache {
         let start = Instant::now();
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        let result = match self.read_block(&path, cache_key, block_idx, block_offset, custom_id) {
+        let result = match self.read_block(&path, cache_key, block_idx, block_offset, handle_id) {
             Ok(None) => {
                 // Cache miss.
                 Ok(None)

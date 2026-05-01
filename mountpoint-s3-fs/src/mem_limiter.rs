@@ -76,14 +76,14 @@ impl MemoryLimiter {
         let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
         let mem_reserved_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
         let mem_reserved_per_handle_cb = mem_reserved_per_handle.clone();
-        pool.set_on_reserve(Arc::new(move |bytes, custom_id| {
+        pool.set_on_reserve(Arc::new(move |bytes, handle_id| {
             // Called by the pool on every buffer allocation. For download buffers with a
             // known handle, this converts reservation from "intent" (mem_reserved) to
             // "actual allocation" (pool_total) by decrementing both the global and
             // per-handle counters.
             //
             // This is a no-op when:
-            // - custom_id is None (e.g. uploads): these allocations have no
+            // - handle_id is None (e.g. uploads): these allocations have no
             //   corresponding mem_reserved entry and are tracked only via pool_total.
             // - The handle has been removed (cancelled request): release_handle already
             //   subtracted the full balance, so we skip to avoid double-decrementing.
@@ -93,10 +93,8 @@ impl MemoryLimiter {
             //
             // Saturating subtraction on the per-handle counter prevents wrapping if a late
             // callback from a cancelled request hits a re-created entry for the same handle.
-            if let Some(handle_id) = custom_id {
-                let handle_reservation = mem_reserved_per_handle_cb
-                    .get(&HandleId::new(handle_id))
-                    .map(|r| r.value().clone());
+            if let Some(handle_id) = handle_id {
+                let handle_reservation = mem_reserved_per_handle_cb.get(&handle_id).map(|r| r.value().clone());
                 if let Some(handle_reservation) = handle_reservation {
                     let mut current = handle_reservation.load(Ordering::SeqCst);
                     let decremented = loop {
@@ -237,7 +235,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // Pool allocation triggers on_reserve callback, decrementing mem_reserved
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
@@ -251,7 +249,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 2048);
 
         // Pool allocates 1024 — callback decrements both global and per-handle
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // release_handle releases the remaining per-handle balance (2048 - 1024 = 1024)
@@ -321,7 +319,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // Late allocation for the cancelled request — handle is gone
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
 
         // mem_reserved should stay at 0, not go negative or wrap
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
@@ -344,7 +342,7 @@ mod tests {
 
         // Late callback from old request tries to decrement 1024 from the new entry (which only has 512).
         // Saturating subtraction should clamp to 0, only decrementing 512 from global.
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // release_handle should subtract 0 (the per-handle counter is already 0)
@@ -364,7 +362,7 @@ mod tests {
         assert_eq!(limiter.available_mem(), initial_available - 1024);
 
         // Pool allocates — intent converts to pool_total, available stays the same
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle.as_raw()));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
         assert_eq!(limiter.available_mem(), initial_available - 1024);
 
         // Drop the buffer — pool_total decreases, available goes back up

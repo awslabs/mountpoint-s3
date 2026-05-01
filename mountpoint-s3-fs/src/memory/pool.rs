@@ -7,6 +7,7 @@ use crate::sync::{Arc, RwLock};
 use super::buffers::{PoolBuffer, PoolBufferMut};
 use super::pages::{Page, PagedBufferPtr};
 use super::stats::{BufferKind, PoolStats, SizePoolStats};
+use crate::prefetch::HandleId;
 
 /// A pool of reusable fixed-size buffers allocated in large pages.
 ///
@@ -117,22 +118,22 @@ impl PagedPool {
 
     /// Register a callback to be invoked whenever bytes are reserved in the pool.
     /// Must be called before any pool allocations occur to ensure accurate accounting.
-    pub fn set_on_reserve(&self, callback: Arc<dyn Fn(usize, Option<u64>) + Send + Sync>) {
+    pub fn set_on_reserve(&self, callback: Arc<dyn Fn(usize, Option<HandleId>) + Send + Sync>) {
         self.inner.stats.set_on_reserve(callback);
     }
 
     /// Get a new empty mutable buffer from the pool with the requested capacity.
-    /// If `custom_id` is provided, it will be passed to the `on_reserve` callback
+    /// If `handle_id` is provided, it will be passed to the `on_reserve` callback
     /// for per-request memory tracking.
-    pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind, custom_id: Option<u64>) -> PoolBufferMut {
-        let buffer = self.get_buffer(capacity, kind, custom_id);
+    pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind, handle_id: Option<HandleId>) -> PoolBufferMut {
+        let buffer = self.get_buffer(capacity, kind, handle_id);
         PoolBufferMut::new(buffer)
     }
 
-    fn get_buffer(&self, size: usize, kind: BufferKind, custom_id: Option<u64>) -> PoolBuffer {
+    fn get_buffer(&self, size: usize, kind: BufferKind, handle_id: Option<HandleId>) -> PoolBuffer {
         match self.inner.get_pool_for_size(size) {
             Some(pool) => {
-                let buffer_ptr = pool.reserve(kind, custom_id);
+                let buffer_ptr = pool.reserve(kind, handle_id);
                 metrics::histogram!("pool.reserved_bytes", "type" => "primary", "kind" => kind.as_str())
                     .record(size as f64);
                 metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
@@ -142,7 +143,7 @@ impl PagedPool {
             None => {
                 metrics::histogram!("pool.reserved_bytes", "type" => "secondary", "kind" => kind.as_str())
                     .record(size as f64);
-                PoolBuffer::new_secondary(size, kind, custom_id, self.inner.stats.clone())
+                PoolBuffer::new_secondary(size, kind, handle_id, self.inner.stats.clone())
             }
         }
     }
@@ -170,7 +171,11 @@ impl MemoryPool for PagedPool {
     type Buffer = PoolBuffer;
 
     fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
-        self.get_buffer(size, meta_request.meta_request_type().into(), meta_request.custom_id())
+        self.get_buffer(
+            size,
+            meta_request.meta_request_type().into(),
+            meta_request.custom_id().map(HandleId::new),
+        )
     }
 
     fn trim(&self) -> bool {
@@ -234,11 +239,11 @@ struct SizePool {
 }
 
 impl SizePool {
-    fn reserve(&self, kind: BufferKind, custom_id: Option<u64>) -> PagedBufferPtr {
+    fn reserve(&self, kind: BufferKind, handle_id: Option<HandleId>) -> PagedBufferPtr {
         {
             // Fast path: reserve a buffer from the existing pages (under a read lock).
             let read_pages = self.pages.read().unwrap();
-            if let Some(buffer_ptr) = self.try_get_buffer_ptr(read_pages.iter(), kind, custom_id) {
+            if let Some(buffer_ptr) = self.try_get_buffer_ptr(read_pages.iter(), kind, handle_id) {
                 return buffer_ptr;
             }
         }
@@ -248,13 +253,13 @@ impl SizePool {
         // in case a buffer became available while we waited for the lock or another concurrent
         // reserve already added a new page.
         let mut write_pages = self.pages.write().unwrap();
-        if let Some(buffer_ptr) = self.try_get_buffer_ptr(write_pages.iter(), kind, custom_id) {
+        if let Some(buffer_ptr) = self.try_get_buffer_ptr(write_pages.iter(), kind, handle_id) {
             return buffer_ptr;
         }
 
         tracing::trace!(size = self.stats.buffer_size, "allocate new memory pool page");
         let page = Page::new(self.stats.clone());
-        let buffer_ptr = page.try_reserve(kind, custom_id).unwrap();
+        let buffer_ptr = page.try_reserve(kind, handle_id).unwrap();
         write_pages.push(page);
         buffer_ptr
     }
@@ -263,9 +268,9 @@ impl SizePool {
         &self,
         mut pages: impl Iterator<Item = &'a Page>,
         kind: BufferKind,
-        custom_id: Option<u64>,
+        handle_id: Option<HandleId>,
     ) -> Option<PagedBufferPtr> {
-        pages.find_map(|page| page.try_reserve(kind, custom_id))
+        pages.find_map(|page| page.try_reserve(kind, handle_id))
     }
 
     fn buffer_size(&self) -> usize {

@@ -152,7 +152,7 @@ where
                     block_index,
                     block_offset,
                     range.object_size(),
-                    Some(self.config.handle_id.as_raw()),
+                    Some(self.config.handle_id),
                 )
                 .await
             {

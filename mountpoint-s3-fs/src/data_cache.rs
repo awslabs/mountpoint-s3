@@ -23,6 +23,7 @@ pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 pub use crate::data_cache::multilevel_cache::MultilevelDataCache;
 
 use crate::object::ObjectId;
+use crate::prefetch::HandleId;
 
 /// Indexes blocks within a given object.
 pub type BlockIndex = u64;
@@ -61,7 +62,7 @@ pub trait DataCache {
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-        custom_id: Option<u64>,
+        handle_id: Option<HandleId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>>;
 
     /// Put block of data to the cache for the given [ObjectId] and [BlockIndex].
