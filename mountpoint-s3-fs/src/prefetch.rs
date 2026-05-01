@@ -379,7 +379,7 @@ where
         // Set the active read range before any blocking. For forward seeks, widen to include
         // the skipped bytes the prefetcher must consume to reach the requested offset.
         let active_start = self.next_sequential_read_offset.min(offset);
-        let active_size = (offset + length as u64 - active_start) as usize;
+        let active_size = length + offset.saturating_sub(self.next_sequential_read_offset) as usize;
         let _active_read_guard = self
             .mem_limiter
             .set_active_read(self.handle_id, active_start, active_size);
