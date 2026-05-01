@@ -41,8 +41,8 @@ if [[ -n "${S3_MAX_MEMORY_TARGET_MIB}" ]]; then
   optional_args+=" --max-memory-target=${S3_MAX_MEMORY_TARGET_MIB}"
 fi
 
-if [[ -n "${S3_INCREMENTAL_UPLOAD}" ]]; then
-  optional_args+=" --incremental-upload"
+if [[ -n "${S3_MOUNTPOINT_EXTRA_ARGS}" ]]; then
+  optional_args+=" ${S3_MOUNTPOINT_EXTRA_ARGS}"
 fi
 
 base_dir=$(dirname "$0")
