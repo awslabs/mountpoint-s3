@@ -42,7 +42,7 @@ use tracing::trace;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
+use crate::mem_limiter::{ActiveReadGuard, BufferArea, MemoryLimiter};
 use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
 use crate::object::ObjectId;
 use crate::sync::Arc;
@@ -387,23 +387,17 @@ where
         }
         let mut to_read = (length as u64).min(remaining);
 
-        // Determine the seek kind and active read range (cheap, no awaits).
-        let (seek_kind, active_start) = if self.next_sequential_read_offset == offset {
-            (SeekKind::None, offset)
+        // Determine the seek kind (cheap, no awaits).
+        let seek_kind = if self.next_sequential_read_offset == offset {
+            SeekKind::None
         } else if offset > self.next_sequential_read_offset {
-            (SeekKind::Forward, self.next_sequential_read_offset)
+            SeekKind::Forward
         } else {
-            (SeekKind::Backward, offset)
+            SeekKind::Backward
         };
-        let active_size = (offset + length as u64 - active_start) as usize;
-
-        // Set the active read range BEFORE any blocking so the allocator knows this range is high priority.
-        let _active_read_guard = self
-            .mem_limiter
-            .set_active_read(self.handle_id, active_start, active_size);
-
-        // Act on the seek (may block/await).
-        self.perform_seek(seek_kind, offset).await?;
+        // Act on the seek and set the active read range before any blocking wait.
+        // For forward seek failures, this returns a corrected guard for the reset range.
+        let _active_read_guard = self.perform_seek(seek_kind, offset, length).await?;
         assert_eq!(self.next_sequential_read_offset, offset);
 
         if self.backpressure_task.is_none() {
@@ -484,31 +478,55 @@ where
         self.next_request_offset = offset;
     }
 
-    /// Act on the seek decision. This may block waiting for S3 data (forward seek)
-    /// or reset the prefetcher (random seek). The active read must already be set
-    /// before calling this method.
+    /// Act on the seek decision and return the active read guard for the effective read range.
+    ///
+    /// This may block waiting for S3 data (forward seek) or reset the prefetcher (random seek).
+    /// The returned guard keeps the active read set for the remainder of `try_read`.
     async fn perform_seek(
         &mut self,
         seek_kind: SeekKind,
         offset: u64,
-    ) -> Result<(), PrefetchReadError<Client::ClientError>> {
-        if seek_kind != SeekKind::None {
-            if self.try_seek(offset).await? {
-                trace!("seek succeeded");
-            } else {
-                trace!(
-                    expected = self.next_sequential_read_offset,
-                    actual = offset,
-                    "out-of-order read, resetting prefetch"
-                );
-                counter!(PREFETCH_RESET_STATE).increment(1);
-
-                // This is an approximation, tolerating some seeking caused by concurrent readahead.
-                self.record_contiguous_read_metric();
-                self.reset_prefetch_to_offset(offset);
-            }
+        length: usize,
+    ) -> Result<ActiveReadGuard, PrefetchReadError<Client::ClientError>> {
+        let mut active_start = offset;
+        if seek_kind == SeekKind::Forward {
+            active_start = self.next_sequential_read_offset;
         }
-        Ok(())
+        let active_size = (offset + length as u64 - active_start) as usize;
+
+        // Set active read before any await so allocator can prioritize correctly while blocked.
+        let guard = self
+            .mem_limiter
+            .set_active_read(self.handle_id, active_start, active_size);
+
+        if seek_kind == SeekKind::None {
+            return Ok(guard);
+        }
+
+        if self.try_seek(offset).await? {
+            trace!("seek succeeded");
+            return Ok(guard);
+        }
+
+        trace!(
+            expected = self.next_sequential_read_offset,
+            actual = offset,
+            "out-of-order read, resetting prefetch"
+        );
+        counter!(PREFETCH_RESET_STATE).increment(1);
+
+        // This is an approximation, tolerating some seeking caused by concurrent readahead.
+        self.record_contiguous_read_metric();
+        self.reset_prefetch_to_offset(offset);
+
+        // Forward-seek failure changes the effective read to start at `offset` after reset.
+        // Replace the widened guard with the corrected post-reset range.
+        if seek_kind == SeekKind::Forward {
+            drop(guard);
+            return Ok(self.mem_limiter.set_active_read(self.handle_id, offset, length));
+        }
+
+        Ok(guard)
     }
 
     /// Try to seek within the current inflight requests without restarting them. Returns true if
