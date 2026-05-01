@@ -54,7 +54,7 @@ pub struct MemoryLimiter {
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
     /// Per-handle reservation tracking. Used for accurate release on handle drop.
-    mem_reserved_per_handle: Arc<DashMap<HandleId, AtomicU64>>,
+    mem_reserved_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>>,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -65,17 +65,17 @@ pub struct MemoryLimiter {
 impl MemoryLimiter {
     pub fn new(pool: PagedPool, mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
-        let reserved_mem = (mem_limit / 8).max(min_reserved);
+        let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
         debug!(
             "target memory usage is {} with {} reserved memory",
             formatter(mem_limit),
-            formatter(reserved_mem)
+            formatter(additional_mem_reserved)
         );
         let mem_reserved = Arc::new(AtomicU64::new(0));
-        let mem_reserved_cb = mem_reserved.clone();
-        let mem_reserved_per_handle: Arc<DashMap<HandleId, AtomicU64>> = Arc::new(DashMap::new());
-        let per_handle_cb = mem_reserved_per_handle.clone();
+        let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
+        let mem_reserved_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
+        let mem_reserved_per_handle_cb = mem_reserved_per_handle.clone();
         pool.set_on_reserve(Arc::new(move |bytes, custom_id| {
             // Called by the pool on every buffer allocation. For download buffers with a
             // known handle, this converts reservation from "intent" (mem_reserved) to
@@ -88,20 +88,31 @@ impl MemoryLimiter {
             // - The handle has been removed (cancelled request): release_handle already
             //   subtracted the full balance, so we skip to avoid double-decrementing.
             //
+            // We clone the Arc to release the DashMap shard lock before doing atomic
+            // operations, minimizing lock hold time.
+            //
             // Saturating subtraction on the per-handle counter prevents wrapping if a late
             // callback from a cancelled request hits a re-created entry for the same handle.
-            if let Some(handle_id) = custom_id
-                && let Some(reservation) = per_handle_cb.get(&HandleId::new(handle_id))
-            {
-                let mut current = reservation.load(Ordering::SeqCst);
-                let decremented = loop {
-                    let new_val = current.saturating_sub(bytes as u64);
-                    match reservation.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
-                        Ok(_) => break current - new_val,
-                        Err(actual) => current = actual,
-                    }
-                };
-                mem_reserved_cb.fetch_sub(decremented, Ordering::SeqCst);
+            if let Some(handle_id) = custom_id {
+                let handle_reservation = mem_reserved_per_handle_cb
+                    .get(&HandleId::new(handle_id))
+                    .map(|r| r.value().clone());
+                if let Some(handle_reservation) = handle_reservation {
+                    let mut current = handle_reservation.load(Ordering::SeqCst);
+                    let decremented = loop {
+                        let new_val = current.saturating_sub(bytes as u64);
+                        match handle_reservation.compare_exchange_weak(
+                            current,
+                            new_val,
+                            Ordering::SeqCst,
+                            Ordering::SeqCst,
+                        ) {
+                            Ok(_) => break current - new_val,
+                            Err(actual) => current = actual,
+                        }
+                    };
+                    mem_reserved_cb.fetch_sub(decremented, Ordering::SeqCst);
+                }
             }
         }));
         Self {
@@ -109,7 +120,7 @@ impl MemoryLimiter {
             mem_limit,
             mem_reserved,
             mem_reserved_per_handle,
-            additional_mem_reserved: reserved_mem,
+            additional_mem_reserved,
         }
     }
 
