@@ -336,7 +336,7 @@ where
 
     // Try reading a block that hasn't had anything written to it
     let block = cache
-        .get_block(&get_object_id(&prefix, "does-not-exist", "etag"), 0, 0, 1000)
+        .get_block(&get_object_id(&prefix, "does-not-exist", "etag"), 0, 0, 1000, None)
         .await
         .expect("should not return an error");
     assert!(block.is_none());

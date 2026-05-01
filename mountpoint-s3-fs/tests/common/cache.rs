@@ -92,11 +92,12 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
+        custom_id: Option<u64>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let result = self
             .inner
             .cache
-            .get_block(cache_key, block_idx, block_offset, object_size)
+            .get_block(cache_key, block_idx, block_offset, object_size, custom_id)
             .await;
 
         match result.as_ref() {

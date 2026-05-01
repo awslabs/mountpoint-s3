@@ -147,7 +147,13 @@ where
         for block_index in block_range.clone() {
             match self
                 .cache
-                .get_block(cache_key, block_index, block_offset, range.object_size())
+                .get_block(
+                    cache_key,
+                    block_index,
+                    block_offset,
+                    range.object_size(),
+                    Some(self.config.handle_id.as_raw()),
+                )
                 .await
             {
                 Ok(Some(block)) => {

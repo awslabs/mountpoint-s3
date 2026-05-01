@@ -83,7 +83,7 @@ impl MemoryLimiter {
             // per-handle counters.
             //
             // This is a no-op when:
-            // - custom_id is None (e.g. disk cache, uploads): these allocations have no
+            // - custom_id is None (e.g. uploads): these allocations have no
             //   corresponding mem_reserved entry and are tracked only via pool_total.
             // - The handle has been removed (cancelled request): release_handle already
             //   subtracted the full balance, so we skip to avoid double-decrementing.

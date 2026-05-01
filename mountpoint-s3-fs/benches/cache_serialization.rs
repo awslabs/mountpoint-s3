@@ -19,7 +19,7 @@ const OBJECT_SIZE: usize = 10 * BLOCK_SIZE as usize;
 async fn read_cache_block(cache: &DiskDataCache, cache_key: &ObjectId) {
     _ = black_box(
         cache
-            .get_block(cache_key, 0, 0, OBJECT_SIZE)
+            .get_block(cache_key, 0, 0, OBJECT_SIZE, None)
             .await
             .expect("is able to read")
             .expect("data is there"),

@@ -45,10 +45,11 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
+        custom_id: Option<u64>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         match self
             .disk_cache
-            .get_block(cache_key, block_idx, block_offset, object_size)
+            .get_block(cache_key, block_idx, block_offset, object_size, custom_id)
             .await
         {
             Ok(Some(data)) => {
@@ -61,7 +62,7 @@ where
 
         if let Some(data) = self
             .express_cache
-            .get_block(cache_key, block_idx, block_offset, object_size)
+            .get_block(cache_key, block_idx, block_offset, object_size, custom_id)
             .await?
         {
             trace!(cache_key=?cache_key, block_idx=block_idx, "block served from the express cache");
@@ -186,7 +187,7 @@ mod tests {
 
         // check we can retrieve an entry from one of the caches unless both were cleaned up
         let entry = cache
-            .get_block(&cache_key, 0, 0, object_size)
+            .get_block(&cache_key, 0, 0, object_size, None)
             .await
             .expect("cache should be accessible");
 
@@ -219,7 +220,7 @@ mod tests {
 
         // get from express, put entry in the local cache
         let entry = cache
-            .get_block(&cache_key, 0, 0, object_size)
+            .get_block(&cache_key, 0, 0, object_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -235,7 +236,7 @@ mod tests {
         let mut retries = 10;
         let entry = loop {
             let entry = cache
-                .get_block(&cache_key, 0, 0, object_size)
+                .get_block(&cache_key, 0, 0, object_size, None)
                 .await
                 .expect("cache should be accessible");
             if let Some(entry_data) = entry {
@@ -302,7 +303,7 @@ mod tests {
 
         // get data, which is stored in local only
         let entry = cache
-            .get_block(&cache_key_in_local, 0, 0, local_data_1.len())
+            .get_block(&cache_key_in_local, 0, 0, local_data_1.len(), None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -313,7 +314,7 @@ mod tests {
 
         // get data, which is stored in both caches and check that local has a priority
         let entry = cache
-            .get_block(&cache_key_in_both, 0, 0, local_data_2.len())
+            .get_block(&cache_key_in_both, 0, 0, local_data_2.len(), None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -340,7 +341,7 @@ mod tests {
         let cache = MultilevelDataCache::new(disk_cache, express_cache, runtime);
 
         let entry = cache
-            .get_block(&cache_key, 0, 0, object_size)
+            .get_block(&cache_key, 0, 0, object_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -373,7 +374,7 @@ mod tests {
         // try to get from the cache, assuming it is missing in local
         cache_dir.close().expect("should clean up local cache");
         let entry = cache
-            .get_block(&cache_key, 0, 0, object_size)
+            .get_block(&cache_key, 0, 0, object_size, None)
             .await
             .expect("cache should be accessible");
         assert!(entry.is_none(), "cache miss is expected for a large object");
