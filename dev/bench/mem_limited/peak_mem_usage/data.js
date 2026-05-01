@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777635331713,
+  "lastUpdate": 1777636447408,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
@@ -803,6 +803,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 429,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5374a7383d73d41724be545665e393c8c6b81f8c",
+          "message": "Upgrade to Rust 1.95 (#1823)\n\nUpgrade Rust toolchain to 1.95 and address new clippy issues in tests\nand mock client.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-05-01T09:30:25Z",
+          "tree_id": "279e1f361fe96d2acd26550318f537d6802677ed",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/5374a7383d73d41724be545665e393c8c6b81f8c"
+        },
+        "date": 1777636447345,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 1363.81640625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 808.359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 573.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 21.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 55.6953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 24,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 53.984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 17.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 26.73046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 18.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 28.265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 398.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 48.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 399,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 48,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 302.19921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 21,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 301.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 302.74609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 21.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 770.89453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 481.5,
             "unit": "MiB"
           }
         ]
