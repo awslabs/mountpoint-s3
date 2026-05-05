@@ -257,6 +257,10 @@ If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use
 
 For more details on the behavior of file operations with Mountpoint, see the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information.
 
+### Content type detection
+
+By default, the `Content-Type` of new objects is set to `binary/octet-stream`. If you want Mountpoint to automatically infer the Content-Type from the file extension, use the `--infer-content-type` flag at mount time. Content-Type is not updated on rename.
+
 ### S3 storage classes
 
 Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. Mountpoint respects the default storage class from S3 unless otherwise configured, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:

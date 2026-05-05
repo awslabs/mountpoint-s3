@@ -12,12 +12,11 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
+use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{HandleId, PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
-use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -127,9 +126,8 @@ impl CliArgs {
         if let Some(target) = self.max_memory_target {
             target * 1024 * 1024
         } else {
-            // Default to 95% of total system memory
-            let sys = System::new_with_specifics(RefreshKind::everything());
-            (sys.total_memory() as f64 * 0.95) as u64
+            // Default to 95% of total system memory (cgroup-aware)
+            (effective_total_memory() as f64 * 0.95) as u64
         }
     }
 

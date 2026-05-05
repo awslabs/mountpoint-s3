@@ -394,7 +394,7 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
         let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
 
         assert_eq!(checksums.len(), expected_checksums.len());
-        for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
+        for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums) {
             let encoded = crc32c_to_base64(&expected_checksum);
             assert_eq!(checksum, encoded);
         }

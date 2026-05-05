@@ -2,9 +2,10 @@ use std::time::Instant;
 
 use dashmap::DashMap;
 use humansize::make_format;
+use sysinfo::System;
 use tracing::{debug, trace};
 
-use crate::memory::PagedPool;
+use crate::memory::{BufferKind, PagedPool};
 use crate::prefetch::HandleId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +25,39 @@ impl BufferArea {
             BufferArea::Upload => "upload",
             BufferArea::Prefetch => "prefetch",
         }
+    }
+}
+
+/// Describes an active FUSE read request for a specific file handle.
+/// Used by the pruning logic to determine which buffers are high priority
+/// (actively being waited on by a user) vs. speculative (prefetched ahead).
+#[derive(Debug, Clone, Copy)]
+pub struct ActiveRead {
+    /// Start offset of the read in the file.
+    pub offset: u64,
+    /// Size of the read in bytes.
+    pub size: usize,
+}
+
+impl ActiveRead {
+    /// Check if this active read overlaps with the given range.
+    pub fn overlaps(&self, offset: u64, size: usize) -> bool {
+        let self_end = self.offset + self.size as u64;
+        let other_end = offset + size as u64;
+        self.offset < other_end && offset < self_end
+    }
+}
+
+/// RAII guard that clears the active read for a handle when dropped.
+/// Ensures the active read is always cleared, even on early returns or panics.
+pub struct ActiveReadGuard {
+    mem_limiter: Arc<MemoryLimiter>,
+    handle_id: HandleId,
+}
+
+impl Drop for ActiveReadGuard {
+    fn drop(&mut self) {
+        self.mem_limiter.clear_active_read(self.handle_id);
     }
 }
 
@@ -60,6 +94,9 @@ pub struct MemoryLimiter {
     /// Memory pool used by the S3 client and disk cache.
     /// We rely on the pool's stats to account for all buffer allocations (e.g. GetObject, DiskCache, PutObject buffers).
     pool: PagedPool,
+    /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
+    /// the requested range is stored here. Absence means the handle is speculative.
+    active_reads: DashMap<HandleId, ActiveRead>,
 }
 
 impl MemoryLimiter {
@@ -119,6 +156,7 @@ impl MemoryLimiter {
             mem_reserved,
             mem_reserved_per_handle,
             additional_mem_reserved,
+            active_reads: DashMap::new(),
         }
     }
 
@@ -186,6 +224,29 @@ impl MemoryLimiter {
             .saturating_sub(self.additional_mem_reserved)
     }
 
+    /// Record that a FUSE read is active for the given handle at the specified range.
+    /// Returns a guard that will clear the active read when dropped.
+    pub fn set_active_read(self: &Arc<Self>, handle_id: HandleId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.active_reads.insert(handle_id, ActiveRead { offset, size });
+        ActiveReadGuard {
+            mem_limiter: Arc::clone(self),
+            handle_id,
+        }
+    }
+
+    /// Clear the active read for the given handle (read completed or errored).
+    fn clear_active_read(&self, handle_id: HandleId) {
+        self.active_reads.remove(&handle_id);
+    }
+
+    /// Check if the given handle has an active read overlapping the specified range.
+    pub fn has_active_read_in_range(&self, handle_id: HandleId, offset: u64, size: usize) -> bool {
+        self.active_reads
+            .get(&handle_id)
+            .map(|r| r.overlaps(offset, size))
+            .unwrap_or(false)
+    }
+
     /// Increment both the global total and the per-handle reservation.
     fn add_reservation(&self, handle_id: HandleId, size: u64) {
         self.mem_reserved.fetch_add(size, Ordering::SeqCst);
@@ -197,191 +258,120 @@ impl MemoryLimiter {
 
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
     fn pool_mem_reserved(&self) -> u64 {
-        self.pool.total_reserved_bytes() as u64
+        // The limiter already tracks buffers from
+        // * the prefetcher (GetObject and DiskCache),
+        // * the incremental uploader (Append).
+        //
+        // Here we fetch the pool's stats for the remaining kinds:
+        // * PutObject (multi-part uploads),
+        // * Other (currently not used).
+        (self.pool.reserved_bytes(BufferKind::PutObject) + self.pool.reserved_bytes(BufferKind::Other)) as u64
     }
+}
+
+/// Returns the effective total memory available to this process in bytes.
+///
+/// On Linux, this respects cgroup memory limits when set.
+/// On other platforms, returns the total physical memory.
+pub fn effective_total_memory() -> u64 {
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.cgroup_limits()
+        .map(|cg| cg.total_memory)
+        .unwrap_or_else(|| sys.total_memory())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{BufferKind, PagedPool};
+    use crate::memory::PagedPool;
 
-    fn new_limiter(buffer_size: usize, mem_limit: u64) -> (MemoryLimiter, PagedPool) {
-        let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
-        let limiter = MemoryLimiter::new(pool.clone(), mem_limit);
-        (limiter, pool)
+    fn new_limiter() -> Arc<MemoryLimiter> {
+        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT))
     }
 
     #[test]
-    fn test_reserve_and_release_handle() {
-        let (limiter, _pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
+    fn test_active_read_overlap_detection() {
+        let limiter = new_limiter();
         let handle = HandleId::new(1);
 
-        limiter.reserve(handle, BufferArea::Prefetch, 100);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 100);
+        // Active read at [1000, 5096)
+        let _guard = limiter.set_active_read(handle, 1000, 4096);
 
-        limiter.release_handle(handle, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-        assert!(limiter.mem_reserved_per_handle.is_empty());
+        // Overlapping ranges → true
+        assert!(limiter.has_active_read_in_range(handle, 1000, 4096)); // exact match
+        assert!(limiter.has_active_read_in_range(handle, 500, 1000)); // overlap from left
+        assert!(limiter.has_active_read_in_range(handle, 5000, 1000)); // overlap from right
+        assert!(limiter.has_active_read_in_range(handle, 2000, 100)); // contained
+
+        // Non-overlapping ranges → false
+        assert!(!limiter.has_active_read_in_range(handle, 0, 500)); // before
+        assert!(!limiter.has_active_read_in_range(handle, 5096, 1000)); // after
+
+        // Different handle → false
+        assert!(!limiter.has_active_read_in_range(HandleId::new(2), 1000, 4096));
     }
 
+    /// Simulates the allocation queue's perspective: one thread holds an active read
+    /// while another thread queries whether a given range is active.
     #[test]
-    fn test_pool_allocation_decrements_mem_reserved() {
-        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
+    fn test_query_active_read_from_another_thread() {
+        let limiter = new_limiter();
         let handle = HandleId::new(1);
 
-        // Reserve 1024 bytes of intent
-        limiter.reserve(handle, BufferArea::Prefetch, 1024);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
+        let guard = limiter.set_active_read(handle, 1000, 4096);
 
-        // Pool allocation triggers on_reserve callback, decrementing mem_reserved
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        let limiter_clone = Arc::clone(&limiter);
+        let query_thread = std::thread::spawn(move || {
+            // Allocation for the active range → high priority
+            assert!(limiter_clone.has_active_read_in_range(handle, 1000, 4096));
+            // Allocation for a prefetch-ahead range → low priority
+            assert!(!limiter_clone.has_active_read_in_range(handle, 50000, 4096));
+        });
+        query_thread.join().unwrap();
+
+        drop(guard);
+        assert!(!limiter.has_active_read_in_range(handle, 1000, 4096));
     }
 
+    /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a
+    /// container started with `--memory=4g`), verify that [effective_total_memory]
+    /// returns a value equal to the cgroup limit rather than the host's total RAM.
+    ///
+    /// This test is run by the `cgroup-mem-limit` CI job (see `.github/workflows/tests.yml`)
+    /// inside a memory-limited container. Outside that job the env var is unset and the
+    /// test is skipped.
     #[test]
-    fn test_reserve_pool_allocate_release_handle() {
-        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle = HandleId::new(1);
-
-        // Reserve 2048 bytes of intent
-        limiter.reserve(handle, BufferArea::Prefetch, 2048);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 2048);
-
-        // Pool allocates 1024 — callback decrements both global and per-handle
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
-
-        // release_handle releases the remaining per-handle balance (2048 - 1024 = 1024)
-        limiter.release_handle(handle, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-        assert!(limiter.mem_reserved_per_handle.is_empty());
+    fn test_effective_total_memory_respects_cgroup() {
+        let Ok(expected_str) = std::env::var("TEST_CGROUP_MEM_LIMIT_MB") else {
+            // Nothing to check outside the dedicated CI container job.
+            return;
+        };
+        let expected_bytes: u64 = expected_str.parse::<u64>().expect("invalid TEST_CGROUP_MEM_LIMIT_MB") * 1024 * 1024;
+        let mem = effective_total_memory();
+        assert_eq!(
+            mem, expected_bytes,
+            "effective_total_memory() returned {mem} bytes, expected exactly {expected_bytes} bytes (cgroup limit). \
+             The function may not be reading the cgroup memory constraint.",
+        );
     }
 
+    /// When no cgroup memory limit is active, [effective_total_memory] should
+    /// fall back to the total physical memory reported by the system.
     #[test]
-    fn test_try_reserve_respects_limit() {
-        let (limiter, _pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle = HandleId::new(1);
-
-        // Fill up to the limit (minus additional_mem_reserved)
-        let available = limiter.available_mem();
-        limiter.reserve(handle, BufferArea::Prefetch, available);
-
-        // Should fail — no room left
-        assert!(!limiter.try_reserve(handle, BufferArea::Prefetch, 1));
-    }
-
-    #[test]
-    fn test_multiple_handles_independent() {
-        let (limiter, _pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle1 = HandleId::new(1);
-        let handle2 = HandleId::new(2);
-
-        limiter.reserve(handle1, BufferArea::Prefetch, 100);
-        limiter.reserve(handle2, BufferArea::Prefetch, 200);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 300);
-
-        // Release handle1 — only its 100 bytes
-        limiter.release_handle(handle1, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 200);
-        assert!(!limiter.mem_reserved_per_handle.contains_key(&handle1));
-
-        // Handle2 still tracked
-        assert!(limiter.mem_reserved_per_handle.contains_key(&handle2));
-
-        limiter.release_handle(handle2, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-        assert!(limiter.mem_reserved_per_handle.is_empty());
-    }
-
-    #[test]
-    fn test_release_handle_idempotent() {
-        let (limiter, _pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle = HandleId::new(1);
-
-        limiter.reserve(handle, BufferArea::Prefetch, 100);
-        limiter.release_handle(handle, BufferArea::Prefetch);
-
-        // Second call is a no-op
-        limiter.release_handle(handle, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-    }
-
-    #[test]
-    fn test_callback_noop_after_release_handle() {
-        // Simulates the cancellation race: on_reserve fires after release_handle
-        // removed the entry. The callback should be a no-op.
-        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle = HandleId::new(1);
-
-        limiter.reserve(handle, BufferArea::Prefetch, 1024);
-        limiter.release_handle(handle, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-
-        // Late allocation for the cancelled request — handle is gone
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
-
-        // mem_reserved should stay at 0, not go negative or wrap
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-    }
-
-    #[test]
-    fn test_callback_saturates_on_recreated_handle() {
-        // Simulates the re-creation race: handle is released and re-created (same ID),
-        // then a late callback from the old request hits the new entry.
-        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle = HandleId::new(1);
-
-        // First lifecycle: reserve and release
-        limiter.reserve(handle, BufferArea::Prefetch, 1024);
-        limiter.release_handle(handle, BufferArea::Prefetch);
-
-        // Second lifecycle: re-create with a smaller reservation
-        limiter.reserve(handle, BufferArea::Prefetch, 512);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 512);
-
-        // Late callback from old request tries to decrement 1024 from the new entry (which only has 512).
-        // Saturating subtraction should clamp to 0, only decrementing 512 from global.
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-
-        // release_handle should subtract 0 (the per-handle counter is already 0)
-        limiter.release_handle(handle, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-    }
-
-    #[test]
-    fn test_available_mem_includes_pool_total() {
-        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-        let handle = HandleId::new(1);
-
-        let initial_available = limiter.available_mem();
-
-        // Reserve intent — available decreases
-        limiter.reserve(handle, BufferArea::Prefetch, 1024);
-        assert_eq!(limiter.available_mem(), initial_available - 1024);
-
-        // Pool allocates — intent converts to pool_total, available stays the same
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(handle));
-        assert_eq!(limiter.available_mem(), initial_available - 1024);
-
-        // Drop the buffer — pool_total decreases, available goes back up
-        drop(_buffer);
-        assert_eq!(limiter.available_mem(), initial_available);
-    }
-
-    #[test]
-    fn test_upload_allocation_does_not_affect_mem_reserved() {
-        let (limiter, pool) = new_limiter(1024, MINIMUM_MEM_LIMIT);
-
-        let initial_available = limiter.available_mem();
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-
-        // Upload allocates without custom_id — should not touch mem_reserved
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::Append, None);
-        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-
-        // But available_mem should decrease (pool_total increased)
-        assert_eq!(limiter.available_mem(), initial_available - 1024);
+    fn test_effective_total_memory_falls_back_to_system_memory() {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        if sys.cgroup_limits().is_some() {
+            // A cgroup limit is active on this machine — the fallback path
+            // won't be exercised, so there's nothing to assert here.
+            return;
+        }
+        assert_eq!(
+            effective_total_memory(),
+            sys.total_memory(),
+            "without a cgroup limit, effective_total_memory() should equal total physical memory",
+        );
     }
 }

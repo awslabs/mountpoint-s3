@@ -360,6 +360,14 @@ where
         }
         let mut to_read = (length as u64).min(remaining);
 
+        // Set the active read range before any blocking. For forward seeks, widen to include
+        // the skipped bytes the prefetcher must consume to reach the requested offset.
+        let active_start = self.next_sequential_read_offset.min(offset);
+        let active_size = length + offset.saturating_sub(self.next_sequential_read_offset) as usize;
+        let _active_read_guard = self
+            .mem_limiter
+            .set_active_read(self.handle_id, active_start, active_size);
+
         // Try to seek if this read is not sequential, and if seeking fails, cancel and reset the
         // prefetcher.
         if self.next_sequential_read_offset != offset {
@@ -375,7 +383,6 @@ where
 
                 // This is an approximation, tolerating some seeking caused by concurrent readahead.
                 self.record_contiguous_read_metric();
-
                 self.reset_prefetch_to_offset(offset);
             }
         }
