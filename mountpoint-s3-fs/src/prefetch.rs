@@ -76,6 +76,36 @@ impl HandleId {
     }
 }
 
+/// Opaque identifier for a single prefetch request (i.e., one `BackpressureController` lifetime).
+/// Generated fresh on each `RequestTask` creation so that late `on_reserve` callbacks from a
+/// cancelled CRT meta-request cannot incorrectly decrement a re-created entry for the same handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RequestId(u64);
+
+impl Default for RequestId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RequestId {
+    /// Generate a new unique request ID.
+    pub fn new() -> Self {
+        use crate::sync::atomic::{AtomicU64, Ordering};
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Reconstruct a `RequestId` from a raw `u64` (e.g., from CRT `custom_id`).
+    pub fn new_from_raw(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn as_raw(&self) -> u64 {
+        self.0
+    }
+}
+
 // This is a weird looking number! We really want our first request size to be 1MiB,
 // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
 // top of a 1MiB read, which we'd have to wait for a second request to service. Because
@@ -224,7 +254,11 @@ where
 
     /// Create a new [Prefetcher] from the given [ObjectPartStream] instance.
     pub fn new(part_stream: PartStream<Client>, mem_limiter: Arc<MemoryLimiter>, config: PrefetcherConfig) -> Self {
-        Self { part_stream, mem_limiter, config }
+        Self {
+            part_stream,
+            mem_limiter,
+            config,
+        }
     }
 
     /// Start a new prefetch request to the specified object.
@@ -453,7 +487,6 @@ where
         let config = RequestTaskConfig {
             bucket: self.bucket.clone(),
             object_id: self.object_id.clone(),
-            handle_id: self.handle_id,
             range,
             read_part_size,
             preferred_part_size: self.preferred_part_size,

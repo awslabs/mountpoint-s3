@@ -5,7 +5,7 @@ use crate::metrics::defs::{
     CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
 };
 use crate::object::ObjectId;
-use crate::prefetch::HandleId;
+use crate::prefetch::RequestId;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -299,7 +299,7 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-        _handle_id: Option<HandleId>,
+        _request_id: Option<RequestId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let start = Instant::now();
         let result = match self.read_block(cache_key, block_idx, block_offset, object_size).await {

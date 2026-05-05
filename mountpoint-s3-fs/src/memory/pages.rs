@@ -3,7 +3,7 @@ use std::alloc::{self, Layout};
 use crate::sync::{Arc, Mutex};
 
 use super::stats::{BufferKind, SizePoolStats};
-use crate::prefetch::HandleId;
+use crate::prefetch::RequestId;
 
 /// Page in a size pool.
 ///
@@ -79,14 +79,14 @@ impl Page {
     /// Try to reserve a buffer from this page.
     ///
     /// Returns [None] if the page is already full.
-    pub fn try_reserve(&self, kind: BufferKind, handle_id: Option<HandleId>) -> Option<PagedBufferPtr> {
+    pub fn try_reserve(&self, kind: BufferKind, request_id: Option<RequestId>) -> Option<PagedBufferPtr> {
         let (index, page_status) = consume(&mut self.inner.reserved_bitmask.lock().unwrap())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
             self.inner.stats.remove_empty_page();
         };
 
-        self.inner.stats.add_reserved_buffer(kind, handle_id);
+        self.inner.stats.add_reserved_buffer(kind, request_id);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
         let ptr = unsafe { self.inner.bytes.add(offset) };

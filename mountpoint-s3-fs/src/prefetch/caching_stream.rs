@@ -15,6 +15,7 @@ use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
 use super::PrefetchReadError;
+use super::RequestId;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
 use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
@@ -60,8 +61,8 @@ where
             request_range: range.into(),
             read_window_alignment_config: ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
         };
-        let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, config.handle_id, self.mem_limiter.clone());
+        let (backpressure_controller, backpressure_limiter, request_id) =
+            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -72,6 +73,7 @@ where
                 self.runtime.clone(),
                 backpressure_limiter,
                 config,
+                request_id,
             );
             let span = debug_span!("prefetch", ?range);
             request.get_from_cache(range, part_queue_producer).instrument(span)
@@ -94,6 +96,7 @@ struct CachingRequest<Client: ObjectClient, Cache> {
     runtime: Runtime,
     backpressure_limiter: BackpressureLimiter,
     config: RequestTaskConfig,
+    request_id: RequestId,
 }
 
 impl<Client, Cache> CachingRequest<Client, Cache>
@@ -107,6 +110,7 @@ where
         runtime: Runtime,
         backpressure_limiter: BackpressureLimiter,
         config: RequestTaskConfig,
+        request_id: RequestId,
     ) -> Self {
         Self {
             client,
@@ -114,6 +118,7 @@ where
             runtime,
             backpressure_limiter,
             config,
+            request_id,
         }
     }
 
@@ -152,7 +157,7 @@ where
                     block_index,
                     block_offset,
                     range.object_size(),
-                    Some(self.config.handle_id),
+                    Some(self.request_id),
                 )
                 .await
             {
@@ -226,7 +231,7 @@ where
             cache_key.clone(),
             initial_request_end_offset,
             block_aligned_byte_range,
-            self.config.handle_id,
+            self.request_id,
         );
 
         let mut part_composer = CachingPartComposer {
@@ -426,7 +431,6 @@ mod tests {
         mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
         memory::PagedPool,
         object::ObjectId,
-        prefetch::HandleId,
     };
 
     use super::*;
@@ -452,7 +456,6 @@ mod tests {
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let id = ObjectId::new(key.to_owned(), object.etag());
-        let handle_id = HandleId::new(1);
 
         // backpressure config
         let initial_request_size = 1 * MB;
@@ -486,7 +489,6 @@ mod tests {
             let config = RequestTaskConfig {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
-                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
@@ -513,7 +515,6 @@ mod tests {
             let config = RequestTaskConfig {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
-                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
@@ -567,7 +568,6 @@ mod tests {
                 let config = RequestTaskConfig {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
-                    handle_id: HandleId::new(1),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,

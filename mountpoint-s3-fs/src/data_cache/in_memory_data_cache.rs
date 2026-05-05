@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult};
 use crate::object::ObjectId;
-use crate::prefetch::HandleId;
+use crate::prefetch::RequestId;
 use crate::sync::RwLock;
 
 /// Simple in-memory (RAM) implementation of [DataCache]. Recommended for use in testing only.
@@ -40,7 +40,7 @@ impl DataCache for InMemoryDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
         _object_size: usize,
-        _handle_id: Option<HandleId>,
+        _request_id: Option<RequestId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if block_offset != block_idx * self.block_size {
             return Err(DataCacheError::InvalidBlockOffset);

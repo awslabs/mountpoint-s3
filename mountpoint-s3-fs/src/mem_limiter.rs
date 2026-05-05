@@ -6,7 +6,7 @@ use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::memory::{BufferKind, PagedPool};
-use crate::prefetch::HandleId;
+use crate::prefetch::{HandleId, RequestId};
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
 
@@ -77,8 +77,8 @@ impl Drop for ActiveReadGuard {
 /// Release of the reserved memory happens on one of the following events:
 /// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
-/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_handle` will
-///    release any remaining unallocated reservation for that handle).
+/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_request` will
+///    release any remaining unallocated reservation for that request).
 ///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
 /// requests. Under memory pressure, each instance will limit to a single buffer.
@@ -87,8 +87,10 @@ pub struct MemoryLimiter {
     mem_limit: u64,
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
-    /// Per-handle reservation tracking. Used for accurate release on handle drop.
-    mem_reserved_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>>,
+    /// Per-request reservation tracking. Keyed by RequestId (unique per BackpressureController
+    /// lifetime) so that late on_reserve callbacks from cancelled CRT meta-requests cannot
+    /// incorrectly decrement a re-created entry for the same handle.
+    mem_reserved_per_request: Arc<DashMap<RequestId, Arc<AtomicU64>>>,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -111,32 +113,29 @@ impl MemoryLimiter {
         );
         let mem_reserved = Arc::new(AtomicU64::new(0));
         let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
-        let mem_reserved_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
-        let mem_reserved_per_handle_cb = mem_reserved_per_handle.clone();
-        pool.set_on_reserve(Arc::new(move |bytes, handle_id| {
+        let mem_reserved_per_request: Arc<DashMap<RequestId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
+        let mem_reserved_per_request_cb = mem_reserved_per_request.clone();
+        pool.set_on_reserve(Arc::new(move |bytes, request_id| {
             // Called by the pool on every buffer allocation. For download buffers with a
-            // known handle, this converts reservation from "intent" (mem_reserved) to
+            // known request, this converts reservation from "intent" (mem_reserved) to
             // "actual allocation" (pool_total) by decrementing both the global and
-            // per-handle counters.
+            // per-request counters.
             //
             // This is a no-op when:
-            // - handle_id is None (e.g. uploads): these allocations have no
+            // - request_id is None (e.g. uploads): these allocations have no
             //   corresponding mem_reserved entry and are tracked only via pool_total.
-            // - The handle has been removed (cancelled request): release_handle already
+            // - The request has been removed (cancelled request): release_request already
             //   subtracted the full balance, so we skip to avoid double-decrementing.
             //
             // We clone the Arc to release the DashMap shard lock before doing atomic
             // operations, minimizing lock hold time.
-            //
-            // Saturating subtraction on the per-handle counter prevents wrapping if a late
-            // callback from a cancelled request hits a re-created entry for the same handle.
-            if let Some(handle_id) = handle_id {
-                let handle_reservation = mem_reserved_per_handle_cb.get(&handle_id).map(|r| r.value().clone());
-                if let Some(handle_reservation) = handle_reservation {
-                    let mut current = handle_reservation.load(Ordering::SeqCst);
+            if let Some(request_id) = request_id {
+                let request_reservation = mem_reserved_per_request_cb.get(&request_id).map(|r| r.value().clone());
+                if let Some(request_reservation) = request_reservation {
+                    let mut current = request_reservation.load(Ordering::SeqCst);
                     let decremented = loop {
                         let new_val = current.saturating_sub(bytes as u64);
-                        match handle_reservation.compare_exchange_weak(
+                        match request_reservation.compare_exchange_weak(
                             current,
                             new_val,
                             Ordering::SeqCst,
@@ -154,7 +153,7 @@ impl MemoryLimiter {
             pool,
             mem_limit,
             mem_reserved,
-            mem_reserved_per_handle,
+            mem_reserved_per_request,
             additional_mem_reserved,
             active_reads: DashMap::new(),
         }
@@ -162,13 +161,13 @@ impl MemoryLimiter {
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
-    pub fn reserve(&self, handle_id: HandleId, area: BufferArea, size: u64) {
-        self.add_reservation(handle_id, size);
+    pub fn reserve(&self, request_id: RequestId, area: BufferArea, size: u64) {
+        self.add_reservation(request_id, size);
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub fn try_reserve(&self, handle_id: HandleId, area: BufferArea, size: u64) -> bool {
+    pub fn try_reserve(&self, request_id: RequestId, area: BufferArea, size: u64) -> bool {
         let start = Instant::now();
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
@@ -191,8 +190,8 @@ impl MemoryLimiter {
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
-                    self.mem_reserved_per_handle
-                        .entry(handle_id)
+                    self.mem_reserved_per_request
+                        .entry(request_id)
                         .or_default()
                         .fetch_add(size, Ordering::SeqCst);
                     metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
@@ -205,9 +204,9 @@ impl MemoryLimiter {
         }
     }
 
-    /// Release all remaining reservation for a handle and remove it from tracking.
-    pub fn release_handle(&self, handle_id: HandleId, area: BufferArea) {
-        if let Some((_, reservation)) = self.mem_reserved_per_handle.remove(&handle_id) {
+    /// Release all remaining reservation for a request and remove it from tracking.
+    pub fn release_request(&self, request_id: RequestId, area: BufferArea) {
+        if let Some((_, reservation)) = self.mem_reserved_per_request.remove(&request_id) {
             let remaining = reservation.load(Ordering::SeqCst);
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
             metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(remaining as f64);
@@ -247,11 +246,11 @@ impl MemoryLimiter {
             .unwrap_or(false)
     }
 
-    /// Increment both the global total and the per-handle reservation.
-    fn add_reservation(&self, handle_id: HandleId, size: u64) {
+    /// Increment both the global total and the per-request reservation.
+    fn add_reservation(&self, request_id: RequestId, size: u64) {
         self.mem_reserved.fetch_add(size, Ordering::SeqCst);
-        self.mem_reserved_per_handle
-            .entry(handle_id)
+        self.mem_reserved_per_request
+            .entry(request_id)
             .or_default()
             .fetch_add(size, Ordering::SeqCst);
     }
