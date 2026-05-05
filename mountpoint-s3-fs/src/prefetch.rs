@@ -42,8 +42,10 @@ use tracing::trace;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
+use crate::mem_limiter::MemoryLimiter;
 use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
 use crate::object::ObjectId;
+use crate::sync::Arc;
 
 mod backpressure_controller;
 mod builder;
@@ -199,6 +201,7 @@ fn determine_max_read_size() -> usize {
 #[derive(Debug)]
 pub struct Prefetcher<Client> {
     part_stream: PartStream<Client>,
+    mem_limiter: Arc<MemoryLimiter>,
     config: PrefetcherConfig,
 }
 
@@ -220,8 +223,8 @@ where
     }
 
     /// Create a new [Prefetcher] from the given [ObjectPartStream] instance.
-    pub fn new(part_stream: PartStream<Client>, config: PrefetcherConfig) -> Self {
-        Self { part_stream, config }
+    pub fn new(part_stream: PartStream<Client>, mem_limiter: Arc<MemoryLimiter>, config: PrefetcherConfig) -> Self {
+        Self { part_stream, mem_limiter, config }
     }
 
     /// Start a new prefetch request to the specified object.
@@ -238,6 +241,7 @@ where
         PrefetchGetObject::new(
             self.part_stream.clone(),
             self.config,
+            self.mem_limiter.clone(),
             bucket,
             object_id,
             handle_id,
@@ -254,6 +258,7 @@ where
 {
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
+    mem_limiter: Arc<MemoryLimiter>,
     backpressure_task: Option<RequestTask<Client>>,
     // Invariant: the offset of the last byte in this window is always
     // self.next_sequential_read_offset - 1.
@@ -279,6 +284,7 @@ where
     fn new(
         part_stream: PartStream<Client>,
         config: PrefetcherConfig,
+        mem_limiter: Arc<MemoryLimiter>,
         bucket: String,
         object_id: ObjectId,
         handle_id: HandleId,
@@ -288,6 +294,7 @@ where
         PrefetchGetObject {
             part_stream,
             config,
+            mem_limiter,
             backpressure_task: None,
             backward_seek_window: SeekWindow::new(max_backward_seek_distance),
             preferred_part_size: 128 * 1024,
