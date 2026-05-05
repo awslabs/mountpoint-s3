@@ -292,7 +292,6 @@ where
     /// Start offset for sequential read, used for calculating contiguous read metric
     sequential_read_start_offset: u64,
     next_sequential_read_offset: u64,
-    next_request_offset: u64,
     size: u64,
     /// File handle ID that owns this prefetch request, for per-handle memory accounting.
     handle_id: HandleId,
@@ -322,7 +321,6 @@ where
             preferred_part_size: 128 * 1024,
             sequential_read_start_offset: 0,
             next_sequential_read_offset: 0,
-            next_request_offset: 0,
             bucket,
             object_id,
             size,
@@ -491,7 +489,6 @@ where
         self.backward_seek_window.clear();
         self.sequential_read_start_offset = offset;
         self.next_sequential_read_offset = offset;
-        self.next_request_offset = offset;
     }
 
     /// Try to seek within the current inflight requests without restarting them. Returns true if
