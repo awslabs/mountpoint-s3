@@ -1,5 +1,24 @@
 ## Unreleased
 
+## v0.14.0 (April 28, 2026)
+
+* Expose the originating `MetaRequest` in `MemoryPool` trait methods. ([#1812](https://github.com/awslabs/mountpoint-s3/pull/1812))
+* Update to latest CRT dependencies.
+
+## v0.13.8 (March 20, 2026)
+
+* Update to latest CRT dependencies.
+
+## v0.13.7 (March 9, 2026)
+
+* Add `'static + Send` bounds to `MemoryPool` trait, and add `get_buffer_async` method to `MemoryPool`. ([#1768](https://github.com/awslabs/mountpoint-s3/pull/1768))
+* Upgrade cargo dependencies.
+
+## v0.13.6 (January 22, 2026)
+
+* Upgrade cargo dependencies.
+* Update to latest CRT dependencies.
+
 ## v0.13.5 (December 22, 2025)
 
 * Add new CRT request metrics to telemetry data. ([#1701](https://github.com/awslabs/mountpoint-s3/pull/1701))

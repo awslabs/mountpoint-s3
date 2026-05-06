@@ -34,7 +34,7 @@ jobs:
         with:
           fuseVersion: 2
       - name: Build Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           tags: mountpoint-builder
           context: ./package
@@ -45,7 +45,7 @@ jobs:
       - name: Check release binary
         run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
       - name: Upload unofficial packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: packages-${{ matrix.runner.name }}
           path:  ./out/*

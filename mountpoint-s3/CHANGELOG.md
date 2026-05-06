@@ -1,8 +1,34 @@
-## Unreleased (v1.22.0)
+## Unreleased
+
+* Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
+* Add support for automatic content type detection on file uploads. When the `--infer-content-type` flag is specified, Mountpoint will infer the `Content-Type` of new objects based on their file extension instead of using the default `binary/octet-stream`. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
+
+## v1.22.3 (April 28, 2026)
+
+* Improve error message when S3 Express session creation fails. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1819](https://github.com/awslabs/mountpoint-s3/pull/1819))
+
+## v1.22.2 (Mar 20, 2026)
+
+* Signing key rotation: We have updated the GnuPG key used to sign new Mountpoint for Amazon S3 releases. If you are following the [Verifying the signature of the Mountpoint for Amazon S3 package](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) instructions, make sure to use the latest version of the KEYS file.
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1778](https://github.com/awslabs/mountpoint-s3/pull/1778))
+
+## v1.22.1 (March 9, 2026)
+
+* Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in v1.22.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
+* Fix incorrect validation of default data cache limit which would cause Mountpoint to preserve less than 5% of available space ([#1779](https://github.com/awslabs/mountpoint-s3/pull/1779))
+
+## v1.22.0 (January 22, 2026)
+
+### Breaking changes
+
+* Address an issue where opening a file for reading/writing immediately after the file had been closed would occasionally fail. Since this release, opening a new file handle after close will succeed and trigger the completion of a deferred upload if required. As a consequence, duplicate references to the closed file handle will become invalid and read or write operations on them will fail. See [this section in the semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#close-and-re-open) for details. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
+
+### Other changes
 
 * Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
-* Remove redundant cache merics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
-* Rename cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Remove redundant cache metrics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
 * Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
 
 ## v1.21.0 (Oct 30, 2025)

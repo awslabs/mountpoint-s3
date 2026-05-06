@@ -5,15 +5,17 @@ use async_trait::async_trait;
 use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
-use super::core::{Manifest, ManifestDirIter, ManifestError};
-
+use crate::fs::OpenFlags;
 use crate::metablock::{
     AddDirEntry, AddDirEntryResult, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat,
-    Lookup, Metablock, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidName, WriteMode,
+    Lookup, Metablock, NEVER_EXPIRE_TTL, NewHandle, PendingUploadHook, ROOT_INODE_NO, ReadWriteMode, S3Location,
+    ValidName, WriteMode,
 };
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
+
+use super::core::{Manifest, ManifestDirIter, ManifestError};
 
 /// Implementation of the `Metablock` trait that provides a read-only view of the metadata store.
 ///
@@ -83,15 +85,9 @@ impl Metablock for ManifestMetablock {
         Ok(lookup)
     }
 
-    async fn getattr(&self, ino: InodeNo, _force_revalidate: bool) -> Result<Lookup, InodeError> {
+    async fn getattr(&self, ino: InodeNo, _force_revalidate_if_remote: bool) -> Result<Lookup, InodeError> {
         if ino == ROOT_INODE_NO {
-            return Ok(Lookup::new(
-                ino,
-                self.stat_for_directory(),
-                InodeKind::Directory,
-                true,
-                None,
-            ));
+            return Ok(Lookup::new(ino, self.stat_for_directory(), InodeKind::Directory, None));
         }
 
         let Some(manifest_entry) = self.manifest.manifest_lookup_by_id(ino)? else {
@@ -137,7 +133,7 @@ impl Metablock for ManifestMetablock {
         // serve '.' and '..' entries
         if offset < 1 {
             if add(
-                InodeInformation::new(parent, self.stat_for_directory(), InodeKind::Directory, true),
+                InodeInformation::new(parent, self.stat_for_directory(), InodeKind::Directory),
                 ".".into(),
                 offset + 1,
                 0,
@@ -151,7 +147,7 @@ impl Metablock for ManifestMetablock {
         if offset < 2 {
             let grandparent_ino = self.get_parent_id(parent)?;
             if add(
-                InodeInformation::new(grandparent_ino, self.stat_for_directory(), InodeKind::Directory, true),
+                InodeInformation::new(grandparent_ino, self.stat_for_directory(), InodeKind::Directory),
                 "..".into(),
                 offset + 1,
                 0,
@@ -185,12 +181,23 @@ impl Metablock for ManifestMetablock {
         Ok(())
     }
 
-    async fn start_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
-        // Assume getattr was just called to check for inode existence, so this is a no-op
-        Ok(())
+    async fn open_handle(
+        &self,
+        ino: InodeNo,
+        _fh: u64,
+        _write_mode: &WriteMode,
+        flags: OpenFlags,
+    ) -> Result<NewHandle, InodeError> {
+        let lookup = self.getattr(ino, false).await?;
+        if flags.contains(OpenFlags::O_WRONLY) {
+            // For a read-only view, don't allow writing
+            return Err(InodeError::InodeNotWritable(lookup.inode_err()));
+        }
+
+        Ok(NewHandle::read(lookup))
     }
 
-    async fn finish_reading(&self, _ino: InodeNo) -> Result<(), InodeError> {
+    async fn finish_reading(&self, _ino: InodeNo, _file_handle: u64) -> Result<(), InodeError> {
         // This is a no-op
         Ok(())
     }
@@ -208,15 +215,6 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn start_writing(&self, ino: InodeNo, _mode: &WriteMode, _is_truncate: bool) -> Result<(), InodeError> {
-        // For a read-only view, don't allow writing
-        Err(InodeError::InodeNotWritable(InodeErrorInfo {
-            ino,
-            key: "".into(),
-            bucket: None,
-        }))
-    }
-
     async fn inc_file_size(&self, ino: InodeNo, _len: usize) -> Result<usize, InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
@@ -225,7 +223,7 @@ impl Metablock for ManifestMetablock {
         }))
     }
 
-    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>) -> Result<(), InodeError> {
+    async fn finish_writing(&self, ino: InodeNo, _etag: Option<ETag>, _fh: u64) -> Result<Lookup, InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
             key: "".into(),
@@ -272,6 +270,48 @@ impl Metablock for ManifestMetablock {
         _atime: Option<OffsetDateTime>,
         _mtime: Option<OffsetDateTime>,
     ) -> Result<Lookup, InodeError> {
+        Err(InodeError::InodeNotWritable(InodeErrorInfo {
+            ino,
+            key: "".into(),
+            bucket: None,
+        }))
+    }
+
+    async fn try_reactivate_handle(&self, ino: InodeNo, _fh: u64, mode: ReadWriteMode) -> Result<bool, InodeError> {
+        match mode {
+            ReadWriteMode::Read => Ok(true),
+            ReadWriteMode::Write => Err(InodeError::InodeNotWritable(InodeErrorInfo {
+                ino,
+                key: "".into(),
+                bucket: None,
+            })),
+        }
+    }
+
+    async fn flush_reader(&self, _ino: InodeNo, _fh: u64) -> Result<(), InodeError> {
+        Ok(())
+    }
+
+    async fn flush_writer(
+        &self,
+        ino: InodeNo,
+        _fh: u64,
+        _pending_upload_hook: PendingUploadHook,
+    ) -> Result<Option<PendingUploadHook>, InodeError> {
+        Err(InodeError::InodeNotWritable(InodeErrorInfo {
+            ino,
+            key: "".into(),
+            bucket: None,
+        }))
+    }
+
+    async fn release_writer(
+        &self,
+        ino: InodeNo,
+        _fh: u64,
+        _pending_upload_hook: PendingUploadHook,
+        _location: &S3Location,
+    ) -> Result<(), InodeError> {
         Err(InodeError::InodeNotWritable(InodeErrorInfo {
             ino,
             key: "".into(),

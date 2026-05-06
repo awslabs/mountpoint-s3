@@ -2,6 +2,7 @@
 #![cfg(feature = "s3_tests")]
 #![cfg(feature = "fuse_tests")]
 
+use assert_cmd::cargo;
 use assert_cmd::prelude::*;
 #[cfg(not(feature = "s3express_tests"))]
 use aws_sdk_s3::primitives::ByteStream;
@@ -20,15 +21,18 @@ use test_case::test_case;
 
 mod common;
 
-use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
+#[cfg(not(feature = "s3express_tests"))]
+use common::creds::get_scoped_down_credentials;
+use common::creds::{
+    apply_creds_to_command, get_credentials_no_permissions, get_sdk_default_chain_creds, get_subsession_iam_role,
+};
 use common::fuse::{mount_for_passing_fuse_fd, read_dir_to_entry_names};
 use common::s3::{
-    create_objects, get_test_bucket_and_prefix, get_test_bucket_forbidden, get_test_endpoint_url, get_test_region,
-    get_test_sdk_client,
+    create_objects, get_test_bucket_and_prefix, get_test_endpoint_url, get_test_region, get_test_sdk_client,
 };
-use common::tokio_block_on;
 #[cfg(not(feature = "s3express_tests"))]
-use common::{creds::get_scoped_down_credentials, s3::get_non_test_region, s3::get_test_kms_key_id};
+use common::s3::{get_non_test_region, get_test_kms_key_id};
+use common::tokio_block_on;
 
 const MOUNT_OPTION_READ_ONLY: &str = "--read-only";
 const MOUNT_OPTION_AUTO_UNMOUNT: &str = "--auto-unmount";
@@ -41,7 +45,7 @@ fn run_in_background() -> Result<(), Box<dyn std::error::Error>> {
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -76,7 +80,7 @@ fn run_in_background_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
     );
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
         .arg(format!("--prefix={prefix}"))
@@ -105,7 +109,7 @@ fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>>
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -137,7 +141,7 @@ fn run_in_background_automatic_region_resolution() -> Result<(), Box<dyn std::er
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -166,7 +170,7 @@ fn run_in_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -199,7 +203,7 @@ fn test_info_level_logging() -> Result<(), Box<dyn std::error::Error>> {
     let region = get_test_region();
     let mount_point = assert_fs::TempDir::new()?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -232,7 +236,7 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
     );
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
         .arg(format!("--prefix={prefix}"))
@@ -262,21 +266,24 @@ fn run_in_foreground_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
-    // the mount would fail from error 403 on HeadBucket
-    let bucket = get_test_bucket_forbidden();
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_with_passed_fuse_fd_fail_on_mount");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
+
+    // Get credentials with no S3 permissions to trigger 403 on initial ListObjectsV2
+    let credentials = tokio_block_on(get_credentials_no_permissions());
 
     let (fd, mount) = mount_for_passing_fuse_fd(
         mount_point.path(),
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
     );
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
-    let cmd = cmd
-        .arg(&bucket)
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
+    cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .arg(format!("--prefix={prefix}"))
         .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -297,16 +304,22 @@ fn run_in_background_with_passed_fuse_fd_fail_on_mount() -> Result<(), Box<dyn s
 
 #[test]
 fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
-    // the mount would fail from error 403 on HeadBucket
-    let bucket = get_test_bucket_forbidden();
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_fail_on_mount");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
-    cmd.arg(&bucket).arg(mount_point.path()).arg("--auto-unmount");
+    // Get credentials with no S3 permissions to trigger 403 on initial ListObjectsV2
+    let credentials = tokio_block_on(get_credentials_no_permissions());
+
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
+    cmd.arg(&bucket)
+        .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
+        .arg("--auto-unmount")
+        .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
-        cmd.arg(format!("--region={region}"));
     }
 
     let child = cmd.spawn().expect("unable to spawn child");
@@ -321,17 +334,21 @@ fn run_in_background_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn run_in_foreground_fail_on_mount() -> Result<(), Box<dyn std::error::Error>> {
-    // the mount would fail from error 403 on HeadBucket
-    let bucket = get_test_bucket_forbidden();
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_foreground_fail_on_mount");
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    // Get credentials with no S3 permissions to trigger 403 on ListObjectsV2
+    let credentials = tokio_block_on(get_credentials_no_permissions());
+
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
+        .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
         .arg("--foreground")
         .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -352,7 +369,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -369,7 +386,7 @@ fn run_fail_on_duplicate_mount() -> Result<(), Box<dyn std::error::Error>> {
     assert!(exit_status.success());
     assert!(mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -396,7 +413,7 @@ fn run_fail_on_non_existent_fd() -> Result<(), Box<dyn std::error::Error>> {
 
     let mount_point = "/dev/fd/1025";
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point)
         .arg(format!("--prefix={prefix}"))
@@ -427,7 +444,7 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     // 1 is fd for stdout
     let mount_point = "/dev/fd/1";
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point)
         .arg(format!("--prefix={prefix}"))
@@ -463,7 +480,7 @@ fn run_fail_on_non_fuse_fd_if_mount_options_passed(mount_options: &[&str]) -> Re
         &[MountOption::FSName("mountpoint-s3-fd".to_string())],
     );
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
         .arg(format!("--prefix={prefix}"))
@@ -499,7 +516,7 @@ fn mount_readonly() -> Result<(), Box<dyn std::error::Error>> {
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -539,7 +556,7 @@ fn mount_allow_delete(allow_delete: bool) -> Result<(), Box<dyn std::error::Erro
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -581,7 +598,7 @@ fn mount_disable_checksums(disable_checksums: bool) -> Result<(), Box<dyn std::e
     let mount_point = assert_fs::TempDir::new()?;
     let region = get_test_region();
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -656,17 +673,13 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     let credentials = tokio_block_on(get_scoped_down_credentials(policy));
 
     // First try without the subprefix -- mount should fail as we don't have permissions on it
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
-        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-    if let Some(token) = credentials.session_token() {
-        cmd.env("AWS_SESSION_TOKEN", token);
-    }
+        .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
     }
@@ -679,17 +692,13 @@ fn mount_scoped_credentials() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!mount_exists("mountpoint-s3", mount_point.path().to_str().unwrap()));
 
     // Now try with the subprefix -- mount should work since we have the right permissions
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={subprefix}"))
         .arg("--auto-unmount")
-        .arg(format!("--region={region}"))
-        .env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-        .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-    if let Some(token) = credentials.session_token() {
-        cmd.env("AWS_SESSION_TOKEN", token);
-    }
+        .arg(format!("--region={region}"));
+    apply_creds_to_command(&mut cmd, &credentials);
     let child = cmd.spawn().expect("unable to spawn child");
 
     let exit_status = wait_for_exit(child);
@@ -714,7 +723,7 @@ fn mount_with_sse(
     credentials: Option<aws_sdk_s3::config::Credentials>,
 ) -> Child {
     let region = get_test_region();
-    let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.stdout(Stdio::piped())
         .arg(bucket)
         .arg(mount_point)
@@ -725,11 +734,7 @@ fn mount_with_sse(
         .arg("--auto-unmount")
         .arg("--foreground");
     if let Some(credentials) = credentials {
-        cmd.env("AWS_ACCESS_KEY_ID", credentials.access_key_id())
-            .env("AWS_SECRET_ACCESS_KEY", credentials.secret_access_key());
-        if let Some(token) = credentials.session_token() {
-            cmd.env("AWS_SESSION_TOKEN", token);
-        }
+        apply_creds_to_command(&mut cmd, &credentials);
     }
     if let Some(endpoint_url) = get_test_endpoint_url() {
         cmd.arg(format!("--endpoint-url={endpoint_url}"));
@@ -751,7 +756,7 @@ fn mount_with_assumed_role() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&region))?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -798,7 +803,7 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     // First, verify that the mount fails if the region in the config file is invalid
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(invalid_region))?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -825,7 +830,7 @@ fn mount_with_assumed_role_in_other_region() -> Result<(), Box<dyn std::error::E
     // Next, verify the mount succeeds when assuming a role in other valid region
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, Some(&other_region))?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -876,7 +881,7 @@ fn mount_with_assumed_role_no_region() -> Result<(), Box<dyn std::error::Error>>
 
     let config_file = create_cli_config_file(profile_name, source_profile, &subsession_role, None)?;
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -918,7 +923,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
     let config_file = create_cli_config_file(profile_with_bad_arn, source_profile, invalid_role, Some(&region))?;
 
     // First, make sure we can mount with the default profile
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -945,7 +950,7 @@ fn run_fail_when_assume_role_with_invalid_arn() -> Result<(), Box<dyn std::error
     unmount(mount_point.path());
 
     // Then we will test with the profile with invalid arn
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg(&bucket)
         .arg(mount_point.path())
         .arg(format!("--prefix={prefix}"))
@@ -1102,7 +1107,7 @@ fn write_with_sse_kms_key_id_unsupported(key_id: &str) {
     let (bucket, prefix) = get_test_bucket_and_prefix("write_with_sse_kms_key_id_unsupported");
     let mount_point = assert_fs::TempDir::new().expect("can not create a mount dir");
     let region = get_test_region();
-    let mut cmd = Command::cargo_bin("mount-s3").expect("can not locate mount-s3 binary");
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.stdout(Stdio::piped())
         .arg(bucket)
         .arg(mount_point.path())

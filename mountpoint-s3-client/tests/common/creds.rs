@@ -31,8 +31,20 @@ mod integ_only {
     use aws_config::Region;
     use aws_config::sts::AssumeRoleProvider;
     use aws_credential_types::provider::ProvideCredentials;
+    use mountpoint_s3_client::config::{Allocator, CredentialsProviderStaticOptions};
+    use mountpoint_s3_crt::auth::credentials::CredentialsProvider;
 
     use crate::common::get_test_region;
+
+    /// Transform a Rust SDK [Credentials] struct into a CRT static [CredentialsProvider].
+    pub fn as_crt_cred_provider(creds: Credentials, allocator: &Allocator) -> CredentialsProvider {
+        let provider_options = CredentialsProviderStaticOptions {
+            access_key_id: creds.access_key_id(),
+            secret_access_key: creds.secret_access_key(),
+            session_token: creds.session_token(),
+        };
+        CredentialsProvider::new_static(allocator, provider_options).expect("crt cred provider should allocate ok")
+    }
 
     /// Grab a set of SDK [Credentials] from the default credential provider chain.
     pub async fn get_sdk_default_chain_creds() -> Credentials {
@@ -73,6 +85,54 @@ mod integ_only {
         mask_aws_creds_if_on_gha(&credentials);
         credentials
     }
+
+    /// Get a CRT [CredentialsProvider] that has no S3 permissions.
+    ///
+    /// Uses a deny-all IAM policy to ensure all S3 actions (including `s3express:CreateSession`) are denied.
+    pub async fn get_no_permissions_provider() -> CredentialsProvider {
+        let policy = r#"{"Statement": [
+            { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+        ]}"#;
+        let credentials = get_scoped_down_credentials(policy).await;
+        as_crt_cred_provider(credentials, &Allocator::default())
+    }
+
+    /// Assert that the given error is the expected "no permissions" error variant.
+    ///
+    /// For S3 Express, this is [S3RequestError::CreateSessionError].
+    /// For general purpose buckets, this is [S3RequestError::Forbidden].
+    // The macro is not used in all test binaries, so allow unused
+    #[allow(unused_macros)]
+    macro_rules! assert_no_permissions_error {
+        ($err:expr) => {
+            if cfg!(feature = "s3express_tests") {
+                assert!(
+                    matches!(
+                        $err,
+                        mountpoint_s3_client::error::ObjectClientError::ClientError(
+                            mountpoint_s3_client::S3RequestError::CreateSessionError,
+                        )
+                    ),
+                    "expected CreateSessionError, got {:?}",
+                    $err,
+                );
+            } else {
+                assert!(
+                    matches!(
+                        $err,
+                        mountpoint_s3_client::error::ObjectClientError::ClientError(
+                            mountpoint_s3_client::S3RequestError::Forbidden(_, _),
+                        )
+                    ),
+                    "expected Forbidden, got {:?}",
+                    $err,
+                );
+            }
+        };
+    }
+    // The macro is not used in all test binaries, so allow unused
+    #[allow(unused_imports)]
+    pub(crate) use assert_no_permissions_error;
 
     /// ARN of an AWS IAM Role that can be assumed by individual tests to scope down permissions.
     ///

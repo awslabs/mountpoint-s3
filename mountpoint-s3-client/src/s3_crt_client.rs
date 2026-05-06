@@ -34,7 +34,7 @@ use mountpoint_s3_crt::s3::client::{
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
-use mountpoint_s3_crt::s3::pool::{CrtBufferPoolFactory, MemoryPool, MemoryPoolFactory};
+use mountpoint_s3_crt::s3::pool::{CrtBufferPoolFactory, MemoryPool, MemoryPoolFactory, MemoryPoolFactoryWrapper};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
 use pin_project::pin_project;
 use thiserror::Error;
@@ -113,7 +113,7 @@ pub struct S3ClientConfig {
     network_interface_names: Vec<String>,
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
     event_loop_threads: Option<u16>,
-    buffer_pool_factory: Option<CrtBufferPoolFactory>,
+    buffer_pool_factory: Option<MemoryPoolFactoryWrapper>,
 }
 
 impl Default for S3ClientConfig {
@@ -262,14 +262,14 @@ impl S3ClientConfig {
     /// Set a custom memory pool
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn memory_pool(mut self, pool: impl MemoryPool) -> Self {
-        self.buffer_pool_factory = Some(CrtBufferPoolFactory::new(move |_| pool.clone()));
+        self.buffer_pool_factory = Some(MemoryPoolFactoryWrapper::new(move |_| pool.clone()));
         self
     }
 
     /// Set a custom memory pool factory
     #[must_use = "S3ClientConfig follows a builder pattern"]
     pub fn memory_pool_factory(mut self, pool_factory: impl MemoryPoolFactory) -> Self {
-        self.buffer_pool_factory = Some(CrtBufferPoolFactory::new(pool_factory));
+        self.buffer_pool_factory = Some(MemoryPoolFactoryWrapper::new(pool_factory));
         self
     }
 }
@@ -439,8 +439,9 @@ impl S3CrtClientInner {
         client_config.throughput_target_gbps(config.throughput_target_gbps);
         client_config.memory_limit_in_bytes(config.memory_limit_in_bytes);
 
-        if let Some(pool_factory) = &config.buffer_pool_factory {
-            client_config.buffer_pool_factory(pool_factory.clone());
+        if let Some(wrapper) = config.buffer_pool_factory {
+            let pool_factory = CrtBufferPoolFactory::new(wrapper, event_loop_group.clone());
+            client_config.buffer_pool_factory(pool_factory);
         }
 
         // max_part_size is 5GB or less depending on the platform (4GB on 32-bit)
@@ -1194,6 +1195,10 @@ pub enum S3RequestError {
     #[error("No signing credentials available, see CRT debug logs")]
     NoSigningCredentials,
 
+    /// The client was unable to get S3 Express session credentials.
+    #[error("Failed to create S3 Express session, see CRT debug logs")]
+    CreateSessionError,
+
     /// The request was canceled
     #[error("Request canceled")]
     RequestCanceled,
@@ -1384,11 +1389,13 @@ fn try_parse_generic_error(request_result: &MetaRequestResult) -> Option<S3Reque
         }
     }
 
-    /// Try to look for error related to no signing credentials, returns generic error otherwise
+    /// Try to look for error related to failing to have credentials to make S3 requests, return generic error otherwise
     fn try_parse_no_credentials_or_generic(request_result: &MetaRequestResult) -> S3RequestError {
         let crt_error_code = request_result.crt_error.raw_error();
         if crt_error_code == mountpoint_s3_crt::auth::ErrorCode::AWS_AUTH_SIGNING_NO_CREDENTIALS as i32 {
             S3RequestError::NoSigningCredentials
+        } else if crt_error_code == mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED as i32 {
+            S3RequestError::CreateSessionError
         } else {
             S3RequestError::CrtError(crt_error_code.into())
         }

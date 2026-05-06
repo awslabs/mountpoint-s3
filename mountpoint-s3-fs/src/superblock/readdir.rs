@@ -78,13 +78,16 @@ impl ReaddirHandle {
                 InodeKindData::File { .. } => return Err(InodeError::NotADirectory(inode.err())),
                 InodeKindData::Directory { writing_children, .. } => writing_children.iter().map(|ino| {
                     let inode = inner.get(*ino)?;
-                    let stat = inode.get_inode_state()?.stat.clone();
+                    let locked_inode = inode.get_inode_state()?;
+                    let stat = locked_inode.stat.clone();
+                    let write_status = locked_inode.write_status;
+                    drop(locked_inode);
                     Ok(ReaddirEntry::LocalInode {
                         lookup: LookedUpInode {
                             inode,
                             stat,
                             path: inner.s3_path.clone(),
-                            is_remote: false,
+                            write_status,
                         },
                     })
                 }),
@@ -645,7 +648,7 @@ impl DirHandle {
 }
 #[cfg(test)]
 mod tests {
-    use crate::fs::FUSE_ROOT_INODE;
+    use crate::fs::{FUSE_ROOT_INODE, OpenFlags};
     use crate::metablock::{AddDirEntryResult, InodeKind, Metablock};
     use crate::s3::{Bucket, S3Path};
     use crate::superblock::Superblock;
@@ -669,6 +672,7 @@ mod tests {
         );
 
         let filename = "test_file.txt";
+        let write_file_handle = 1;
 
         let lookup = superblock
             .create(FUSE_ROOT_INODE, filename.as_ref(), InodeKind::File)
@@ -676,24 +680,29 @@ mod tests {
             .expect("Create failed");
 
         superblock
-            .start_writing(lookup.ino(), &Default::default(), false)
+            .open_handle(
+                lookup.ino(),
+                write_file_handle,
+                &Default::default(),
+                OpenFlags::O_WRONLY,
+            )
             .await
             .expect("Start writing failed");
 
-        let handle_id = superblock
+        let readdir_handle = superblock
             .new_readdir_handle(FUSE_ROOT_INODE)
             .await
             .expect("Failed to create readdir handle");
 
         superblock
-            .finish_writing(lookup.ino(), None)
+            .finish_writing(lookup.ino(), None, write_file_handle)
             .await
             .expect("Finish writing failed");
 
         superblock
             .readdir(
                 FUSE_ROOT_INODE,
-                handle_id,
+                readdir_handle,
                 0,
                 false,
                 Box::new(|_, _, _, _| AddDirEntryResult::EntryAdded),

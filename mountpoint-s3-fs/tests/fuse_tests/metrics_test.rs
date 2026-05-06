@@ -9,7 +9,7 @@ use mountpoint_s3_fs::data_cache::{
 };
 use mountpoint_s3_fs::metrics::defs::{
     ATTR_CACHE, CACHE_DISK, CACHE_EVICT_LATENCY, CACHE_EXPRESS, CACHE_GET_IO_SIZE, CACHE_GET_LATENCY,
-    CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
+    CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY, FUSE_CACHE_HIT,
 };
 
 use mountpoint_s3_fs::metrics::defs::{
@@ -53,6 +53,11 @@ macro_rules! get_histogram {
 
 fn assert_metric_exists(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) {
     let _: std::sync::Arc<Metric> = get_metric!(recorder, name, labels);
+}
+
+fn assert_histogram_exists(recorder: &TestRecorder, name: &str, labels: &[(&str, &str)]) {
+    let histogram = get_histogram!(recorder, name, labels);
+    assert!(!histogram.is_empty(), "histogram {} should have values", name);
 }
 
 fn verify_common_metrics(recorder: &TestRecorder) {
@@ -249,7 +254,7 @@ rusty_fork_test! {
         sleep(Duration::from_millis(100));
 
         // No cache hits but cache should be updated
-        assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        assert!(recorder.get(FUSE_CACHE_HIT, &[]).is_none(), "Cache hit metric should not exist after cache miss");
         assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
         assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
 
@@ -257,9 +262,9 @@ rusty_fork_test! {
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
 
         // Verify cache hit metrics
-        assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
+        assert_metric_exists(&recorder, FUSE_CACHE_HIT, &[]);
         assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_metric_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_histogram_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
 
         // Read a large file to trigger eviction metrics
         let large_content = vec![b'z'; 2 * 1024 * 1024];
@@ -307,22 +312,24 @@ rusty_fork_test! {
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
         sleep(Duration::from_millis(100));
 
-        // Verify cache population metrics
-        // But they are recorded for express.
-        assert!(recorder.get("fuse.cache_hit", &[]).is_none(), "Cache hit metric should not exist after cache miss");
+        // Verify cache population metrics.
+        assert!(recorder.get(FUSE_CACHE_HIT, &[]).is_none(), "cache hit not expected on first read");
+        assert_histogram_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert_histogram_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]);
         assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
         assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
         assert_metric_exists(&recorder, CACHE_PUT_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
-        assert_metric_exists(&recorder, CACHE_PUT_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]);
         assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_EXPRESS)]);
 
         // Second read should hit disk cache after async write completes
         File::open(&path).unwrap().read_to_end(&mut Vec::new()).unwrap();
         sleep(Duration::from_millis(100));
 
-        assert_metric_exists(&recorder, "fuse.cache_hit", &[]);
-        assert_metric_exists(&recorder, CACHE_GET_LATENCY, &[(ATTR_CACHE, CACHE_DISK)]);
-        assert_metric_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+        // Verify cache hit and IO size metrics, which are emitted only on cache hits. Latency
+        // metrics are emitted for both hits and misses, so we can't verify them on second read.
+        assert_metric_exists(&recorder, FUSE_CACHE_HIT, &[]);
+        assert_histogram_exists(&recorder, CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_DISK)]);
+        assert!(recorder.get(CACHE_GET_IO_SIZE, &[(ATTR_CACHE, CACHE_EXPRESS)]).is_none(),
+         "express cache get io_size not expected on disk cache hit");
     }
 }

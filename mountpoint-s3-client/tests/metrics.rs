@@ -14,23 +14,25 @@ use std::option::Option::None;
 use std::sync::{Arc, Mutex};
 
 use aws_sdk_s3::primitives::ByteStream;
+use common::creds::get_no_permissions_provider;
 use common::*;
 use futures::TryStreamExt;
 use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder, SharedString, Unit,
 };
-use mountpoint_s3_client::error::ObjectClientError;
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::metrics::{
     ATTR_HTTP_STATUS, ATTR_S3_REQUEST, S3_REQUEST_COUNT, S3_REQUEST_ERRORS, S3_REQUEST_FIRST_BYTE_LATENCY,
     S3_REQUEST_TOTAL_LATENCY,
 };
 use mountpoint_s3_client::types::{GetObjectParams, HeadObjectParams};
-use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, OnTelemetry, S3CrtClient};
 use mountpoint_s3_crt::s3::client::RequestMetrics;
 use regex::Regex;
 use rusty_fork::rusty_fork_test;
 use tracing::Level;
 
+use crate::common::creds::assert_no_permissions_error;
 use crate::tracing_test::TracingTestLayer;
 
 /// A test metrics recorder that just remembers the current values of gauges and counters, and all
@@ -239,8 +241,14 @@ rusty_fork_test! {
 
 /// Test metrics and log messages for a get object error
 async fn test_get_object_metrics_403() {
-    let (_bucket, prefix) = get_test_bucket_and_prefix("XXXXXXXXXXXXXXXXXXX");
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_get_object_metrics_403");
+
+    let provider = get_no_permissions_provider().await;
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
+
     let key = format!("{prefix}/nonexistent_key");
 
     // Set up metrics recording
@@ -248,13 +256,11 @@ async fn test_get_object_metrics_403() {
     metrics::set_global_recorder(recorder.clone()).unwrap();
     let guard = TracingTestLayer::enable();
 
-    let client: S3CrtClient = get_test_client();
-
     // Trigger a 403 error
     let _err = client
         .get_object(&bucket, &key, &GetObjectParams::new())
         .await
-        .expect_err("get_object should fail");
+        .expect_err("get_object with no perms should fail");
 
     // Get metrics after the request
     drop(guard);
@@ -262,13 +268,18 @@ async fn test_get_object_metrics_403() {
 
     // Verify WARN-level message with failure and request ID
     let events = TracingTestLayer::take_events();
-    let request_id = Regex::new(r"request_id=[^\s<]{10}").unwrap();
-    events
-        .iter()
-        .find(|(level, message)| {
-            *level <= Level::WARN && message.contains("meta request failed") && request_id.is_match(message)
-        })
-        .expect("request ID message not found");
+    let request_id_pattern = Regex::new(r"request_id=[^\s<]{10}").unwrap();
+    let request_id = events.iter().find(|(level, message)| {
+        *level <= Level::WARN && message.contains("meta request failed") && request_id_pattern.is_match(message)
+    });
+    if cfg!(feature = "s3express_tests") {
+        assert!(
+            request_id.is_none(),
+            "request ID is not expected for S3 Express CreateSession failure",
+        );
+    } else {
+        assert!(request_id.is_some(), "request ID message not found");
+    }
 
     // Verify S3 request failure metrics
     let (key, request_failures) = metrics
@@ -280,7 +291,17 @@ async fn test_get_object_metrics_403() {
         .labels()
         .find(|l| l.key() == ATTR_HTTP_STATUS)
         .expect("HTTP status code label should exist");
-    assert_eq!(status_code_label.value(), "403");
+    if cfg!(feature = "s3express_tests") {
+        // S3 Express will fail to make the S3 GetObject request, and instead emit -1 to indicate CRT failed before GET
+        let status_code = -1;
+        assert_eq!(
+            status_code_label.value(),
+            status_code.to_string(),
+            "status code should be the negative one to indicate CRT client failure before GET",
+        );
+    } else {
+        assert_eq!(status_code_label.value(), "403");
+    }
 
     let Metric::Counter(failures) = request_failures else {
         panic!("expected counter for request failures");
@@ -295,7 +316,17 @@ async fn test_get_object_metrics_403() {
         .labels()
         .find(|l| l.key() == "status")
         .expect("status code should exist");
-    assert_eq!(status_code_label.value(), "403");
+    if cfg!(feature = "s3express_tests") {
+        // S3 Express will fail to make the S3 GetObject request, and instead emit the CRT error
+        let status_code = -(mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED as i32);
+        assert_eq!(
+            status_code_label.value(),
+            status_code.to_string(),
+            "status code should be the negative value of S3 Express create session CRT error code",
+        );
+    } else {
+        assert_eq!(status_code_label.value(), "403");
+    }
     let Metric::Counter(failures) = meta_failures else {
         panic!("expected counter for meta request failures");
     };
@@ -321,21 +352,22 @@ rusty_fork_test! {
 
 /// Test metrics and log messages for a head object that gets a 403 error
 async fn test_head_object_403() {
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, _prefix) = get_test_bucket_and_prefix("test_head_object_403");
+
+    let provider = get_no_permissions_provider().await;
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
 
     let recorder = TestRecorder::default();
     metrics::set_global_recorder(recorder.clone()).unwrap();
     let _guard = TracingTestLayer::enable();
-
-    let client: S3CrtClient = get_test_client();
     let err = client
         .head_object(&bucket, "some-key", &HeadObjectParams::new())
         .await
-        .expect_err("head to no-permissions bucket should fail");
-    assert!(matches!(
-        err,
-        ObjectClientError::ClientError(S3RequestError::Forbidden(_, _))
-    ));
+        .expect_err("should fail if no permission to access S3");
+    assert_no_permissions_error!(err);
 
     drop(_guard);
     let metrics = recorder.metrics.lock().unwrap().clone();
@@ -344,14 +376,19 @@ async fn test_head_object_403() {
     let events = TracingTestLayer::take_events();
     // Rather than hard-coding a request ID format, just look for anything that seems long enough
     // and doesn't contain `<` (which we use for "unknown")
-    let request_id = Regex::new(r"request_id=[^\s<]{10}").unwrap();
-    events
-        .iter()
-        .find(|(level, message)| {
-            // Higher levels are higher verbosity, so ERROR is the lowest level
-            *level <= Level::WARN && message.contains("meta request failed") && request_id.is_match(message)
-        })
-        .expect("request ID message not found");
+    let request_id_pattern = Regex::new(r"request_id=[^\s<]{10}").unwrap();
+    let request_id = events.iter().find(|(level, message)| {
+        // Higher levels are higher verbosity, so ERROR is the lowest level
+        *level <= Level::WARN && message.contains("meta request failed") && request_id_pattern.is_match(message)
+    });
+    if cfg!(feature = "s3express_tests") {
+        assert!(
+            request_id.is_none(),
+            "request ID is not expected for S3 Express CreateSession failure",
+        );
+    } else {
+        assert!(request_id.is_some(), "request ID message not found");
+    }
 
     // Failures metric is incremented
     let (status_code_key, failures) = metrics
@@ -361,7 +398,18 @@ async fn test_head_object_403() {
         .labels()
         .find(|l| l.key() == "status")
         .expect("status code should exist");
-    assert_eq!(status_code_label.value(), "403");
+    if cfg!(feature = "s3express_tests") {
+        // S3 Express will fail to make the S3 HeadObject request, and instead emit the CRT error
+        let status_code = -(mountpoint_s3_crt::s3::ErrorCode::AWS_ERROR_S3EXPRESS_CREATE_SESSION_FAILED as i32);
+        assert_eq!(
+            status_code_label.value(),
+            status_code.to_string(),
+            "status code should be the negative value of S3 Express create session CRT error code",
+        );
+    } else {
+        assert_eq!(status_code_label.value(), "403");
+    }
+
     let Metric::Counter(failures) = failures else {
         panic!("expected counter for failures metric");
     };

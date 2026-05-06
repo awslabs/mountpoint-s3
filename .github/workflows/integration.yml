@@ -23,8 +23,6 @@ env:
   S3_EXPRESS_ONE_ZONE_ENDPOINT_URL: ${{ vars.S3_EXPRESS_ONE_ZONE_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_REGION }}
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_TEST_PREFIX || 'github-actions-tmp/' }}run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
-  # A bucket our IAM role has no access to, but is in the right region, for permissions tests
-  S3_FORBIDDEN_BUCKET_NAME: ${{ vars.S3_FORBIDDEN_BUCKET_NAME }}
   # An IAM role that tests can assume when they want to create session policies
   S3_SUBSESSION_IAM_ROLE: ${{ vars.S3_SUBSESSION_IAM_ROLE }}
   # Different Access Points Aliases and ARNs
@@ -83,7 +81,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
@@ -147,7 +145,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
@@ -198,7 +196,7 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
@@ -241,7 +239,7 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
@@ -291,7 +289,7 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
@@ -359,7 +357,7 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
     - name: Upload SRPM artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: srpm-package
         path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
@@ -395,13 +393,13 @@ jobs:
         chmod 0400 /etc/shadow
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
 
     - name: Download SRPM artifact
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@v8
       with:
         name: srpm-package
         path: /tmp/srpms

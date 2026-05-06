@@ -1,5 +1,12 @@
 //! Manually implemented tests executing the FUSE protocol against [S3Filesystem]
 
+use std::collections::HashMap;
+use std::ffi::OsString;
+use std::ops::Add;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
 use fuser::FileType;
 use mountpoint_s3_client::ObjectClient;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -23,13 +30,7 @@ use mountpoint_s3_fs::s3::{Prefix, S3Personality};
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use nix::unistd::{getgid, getuid};
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::ops::Add;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use rand::{RngExt, SeedableRng};
 use test_case::test_case;
 
 mod common;

@@ -62,9 +62,15 @@ pub enum CacheLimit {
     AvailableSpace { min_ratio: f64 },
 }
 
+/// Default minimum ratio of available space to preserve when using AvailableSpace cache limit.
+/// This preserves 5% of the filesystem's total space as available space.
+pub const DEFAULT_CACHE_MIN_AVAILABLE_RATIO: f64 = 0.05;
+
 impl Default for CacheLimit {
     fn default() -> Self {
-        CacheLimit::AvailableSpace { min_ratio: 0.05 } // Preserve 5% available space
+        CacheLimit::AvailableSpace {
+            min_ratio: DEFAULT_CACHE_MIN_AVAILABLE_RATIO,
+        }
     }
 }
 
@@ -407,7 +413,7 @@ impl DiskDataCache {
                         return false;
                     }
                 };
-                (stats.blocks_free() as f64) < min_ratio * (stats.blocks() as f64)
+                (stats.blocks_available() as f64) < min_ratio * (stats.blocks() as f64)
             }
         }
     }
@@ -472,7 +478,7 @@ impl DataCache for DiskDataCache {
             }
             Ok(Some(bytes)) => {
                 // Cache hit.
-                metrics::counter!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes.len() as u64);
+                metrics::histogram!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_DISK).record(bytes.len() as f64);
                 if let Some(usage) = &self.usage {
                     usage.lock().unwrap().refresh(&block_key);
                 }
@@ -535,7 +541,7 @@ impl DataCache for DiskDataCache {
         })();
 
         if put_result.is_ok() {
-            metrics::counter!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).increment(bytes_len as u64);
+            metrics::histogram!(CACHE_PUT_IO_SIZE, ATTR_CACHE => CACHE_DISK).record(bytes_len as f64);
         } else {
             metrics::counter!(CACHE_PUT_ERRORS, ATTR_CACHE => CACHE_DISK).increment(1);
         }
@@ -637,7 +643,7 @@ mod tests {
     use futures::task::SpawnExt;
     use mountpoint_s3_client::types::ETag;
     use rand::rngs::SmallRng;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use test_case::test_case;
 
     use crate::sync::Arc;

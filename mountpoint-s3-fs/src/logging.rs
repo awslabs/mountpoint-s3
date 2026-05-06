@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use anyhow::Context;
-use rand::Rng;
+use rand::RngExt;
 use signal_hook::consts::SIGUSR2;
 use signal_hook::iterator::{Handle as SignalsHandle, Signals};
 use time::OffsetDateTime;

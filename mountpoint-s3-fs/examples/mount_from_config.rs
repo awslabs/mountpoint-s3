@@ -85,6 +85,9 @@ struct ConfigOptions {
 
     /// Disk cache configuration
     disk_cache: Option<DiskCacheConfig>,
+
+    /// Limits the number of concurrent FUSE requests that the kernel may send, default: 64
+    max_background_fuse_requests: Option<u16>,
 }
 
 impl ConfigOptions {
@@ -103,6 +106,7 @@ impl ConfigOptions {
     fn build_filesystem_config(&self) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
+            max_background_fuse_requests: self.max_background_fuse_requests,
             ..Default::default()
         };
 
