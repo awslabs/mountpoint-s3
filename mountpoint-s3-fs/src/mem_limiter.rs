@@ -118,38 +118,7 @@ impl MemoryLimiter {
         let mem_reserved_per_request: Arc<DashMap<RequestId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
         let mem_reserved_per_request_cb = mem_reserved_per_request.clone();
         pool.set_on_reserve(Arc::new(move |bytes, request_id| {
-            // Called by the pool on every buffer allocation. For download buffers with a
-            // known request, this converts reservation from "intent" (mem_reserved) to
-            // "actual allocation" (pool_total) by decrementing both the global and
-            // per-request counters.
-            //
-            // This is a no-op when:
-            // - request_id is None (e.g. uploads): these allocations have no
-            //   corresponding mem_reserved entry and are tracked only via pool_total.
-            // - The request has been removed (cancelled request): release_request already
-            //   subtracted the full balance, so we skip to avoid double-decrementing.
-            //
-            // We clone the Arc to release the DashMap shard lock before doing atomic
-            // operations, minimizing lock hold time.
-            if let Some(request_id) = request_id {
-                let request_reservation = mem_reserved_per_request_cb.get(&request_id).map(|r| r.value().clone());
-                if let Some(request_reservation) = request_reservation {
-                    let mut current = request_reservation.load(Ordering::SeqCst);
-                    let decremented = loop {
-                        let new_val = current.saturating_sub(bytes as u64);
-                        match request_reservation.compare_exchange_weak(
-                            current,
-                            new_val,
-                            Ordering::SeqCst,
-                            Ordering::SeqCst,
-                        ) {
-                            Ok(_) => break current - new_val,
-                            Err(actual) => current = actual,
-                        }
-                    };
-                    mem_reserved_cb.fetch_sub(decremented, Ordering::SeqCst);
-                }
-            }
+            Self::on_pool_reserve(bytes, request_id, &mem_reserved_cb, &mem_reserved_per_request_cb);
         }));
         Self {
             pool,
@@ -210,7 +179,7 @@ impl MemoryLimiter {
     /// Release all remaining reservation for a request and remove it from tracking.
     pub fn release_request(&self, request_id: RequestId, area: BufferArea) {
         if let Some((_, reservation)) = self.mem_reserved_per_request.remove(&request_id) {
-            let remaining = reservation.load(Ordering::SeqCst);
+            let remaining = reservation.swap(0, Ordering::SeqCst);
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
             metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(remaining as f64);
         }
@@ -261,6 +230,36 @@ impl MemoryLimiter {
             .entry(request_id)
             .or_default()
             .fetch_add(size, Ordering::SeqCst);
+    }
+
+    /// Called by the pool on every buffer allocation. For download buffers with a known request,
+    /// this converts reservation from "intent" (`mem_reserved`) to "actual allocation" (pool stats)
+    /// by decrementing both the global and per-request counters.
+    ///
+    /// No-op when `request_id` is `None` (e.g. uploads) or the request has already been removed
+    /// by `release_request`.
+    fn on_pool_reserve(
+        bytes: usize,
+        request_id: Option<RequestId>,
+        mem_reserved: &AtomicU64,
+        per_request: &DashMap<RequestId, Arc<AtomicU64>>,
+    ) {
+        let Some(request_id) = request_id else {
+            return;
+        };
+        // Clone the Arc to release the DashMap shard lock before doing atomic operations.
+        let Some(request_reservation) = per_request.get(&request_id).map(|r| r.value().clone()) else {
+            return;
+        };
+        let mut current = request_reservation.load(Ordering::SeqCst);
+        let decremented = loop {
+            let new_val = current.saturating_sub(bytes as u64);
+            match request_reservation.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => break current - new_val,
+                Err(actual) => current = actual,
+            }
+        };
+        mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].

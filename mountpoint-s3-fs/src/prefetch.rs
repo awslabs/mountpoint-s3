@@ -280,10 +280,10 @@ where
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
     mem_limiter: Arc<MemoryLimiter>,
-    backpressure_task: Option<RequestTask<Client>>,
+    backpressure_task: Option<RequestTask<Client>>, //
     // Invariant: the offset of the last byte in this window is always
     // self.next_sequential_read_offset - 1.
-    backward_seek_window: SeekWindow,
+    backward_seek_window: SeekWindow, //
     bucket: String,
     object_id: ObjectId,
     // preferred part size in the prefetcher's part queue, not the object part
