@@ -7,7 +7,7 @@ use crate::sync::Arc;
 
 use super::pages::PagedBufferPtr;
 use super::stats::{BufferKind, PoolStats};
-use crate::prefetch::RequestId;
+use crate::prefetch::CursorId;
 
 /// A buffer backed by the pool.
 ///
@@ -34,11 +34,11 @@ impl PoolBuffer {
     pub(super) fn new_secondary(
         size: usize,
         kind: BufferKind,
-        request_id: Option<RequestId>,
+        cursor_id: Option<CursorId>,
         stats: Arc<PoolStats>,
     ) -> Self {
         Self(PoolBufferInner::Secondary(FreeBuffer::new(
-            size, kind, request_id, stats,
+            size, kind, cursor_id, stats,
         )))
     }
 
@@ -182,9 +182,9 @@ struct FreeBuffer {
 }
 
 impl FreeBuffer {
-    fn new(size: usize, kind: BufferKind, request_id: Option<RequestId>, stats: Arc<PoolStats>) -> Self {
+    fn new(size: usize, kind: BufferKind, cursor_id: Option<CursorId>, stats: Arc<PoolStats>) -> Self {
         let data = vec![0u8; size].into_boxed_slice();
-        stats.reserve_bytes(data.len(), kind, request_id);
+        stats.reserve_bytes(data.len(), kind, cursor_id);
         Self { data, kind, stats }
     }
 }

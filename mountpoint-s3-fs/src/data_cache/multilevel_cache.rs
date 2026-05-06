@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::task::SpawnExt;
 use tracing::{trace, warn};
 
-use crate::prefetch::RequestId;
+use crate::prefetch::CursorId;
 use crate::{Runtime, object::ObjectId};
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
@@ -46,11 +46,11 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-        request_id: Option<RequestId>,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         match self
             .disk_cache
-            .get_block(cache_key, block_idx, block_offset, object_size, request_id)
+            .get_block(cache_key, block_idx, block_offset, object_size, cursor_id)
             .await
         {
             Ok(Some(data)) => {
@@ -63,7 +63,7 @@ where
 
         if let Some(data) = self
             .express_cache
-            .get_block(cache_key, block_idx, block_offset, object_size, request_id)
+            .get_block(cache_key, block_idx, block_offset, object_size, cursor_id)
             .await?
         {
             trace!(cache_key=?cache_key, block_idx=block_idx, "block served from the express cache");

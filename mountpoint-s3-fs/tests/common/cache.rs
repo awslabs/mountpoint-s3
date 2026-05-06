@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use mountpoint_s3_fs::{
     data_cache::{BlockIndex, ChecksummedBytes, DataCache, DataCacheError, DataCacheResult},
     object::ObjectId,
-    prefetch::RequestId,
+    prefetch::CursorId,
 };
 
 /// A wrapper around any type implementing [DataCache], which counts operations
@@ -93,12 +93,12 @@ impl<Cache: DataCache + Send + Sync + 'static> DataCache for CacheTestWrapper<Ca
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-        request_id: Option<RequestId>,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let result = self
             .inner
             .cache
-            .get_block(cache_key, block_idx, block_offset, object_size, request_id)
+            .get_block(cache_key, block_idx, block_offset, object_size, cursor_id)
             .await;
 
         match result.as_ref() {

@@ -3,11 +3,11 @@ use std::sync::OnceLock;
 
 use mountpoint_s3_client::config::MetaRequestType;
 
-use crate::prefetch::RequestId;
+use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
-type OnReserveCallback = Arc<dyn Fn(usize, Option<RequestId>) + Send + Sync>;
+type OnReserveCallback = Arc<dyn Fn(usize, Option<CursorId>) + Send + Sync>;
 
 /// Usage stats for a pool.
 #[derive(Default)]
@@ -39,10 +39,10 @@ impl PoolStats {
         let _ = self.on_reserve.set(callback);
     }
 
-    pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind, request_id: Option<RequestId>) {
+    pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind, cursor_id: Option<CursorId>) {
         self.reserved_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
         if let Some(cb) = self.on_reserve.get() {
-            cb(bytes, request_id);
+            cb(bytes, cursor_id);
         }
         metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).increment(bytes as f64);
     }
@@ -91,9 +91,9 @@ impl SizePoolStats {
         self.reserved_buffers[kind].load(Ordering::SeqCst)
     }
 
-    pub(super) fn add_reserved_buffer(&self, kind: BufferKind, request_id: Option<RequestId>) {
+    pub(super) fn add_reserved_buffer(&self, kind: BufferKind, cursor_id: Option<CursorId>) {
         self.reserved_buffers[kind].fetch_add(1, Ordering::SeqCst);
-        self.pool_stats.reserve_bytes(self.buffer_size, kind, request_id);
+        self.pool_stats.reserve_bytes(self.buffer_size, kind, cursor_id);
     }
 
     pub(super) fn remove_reserved_buffer(&self, kind: BufferKind) {

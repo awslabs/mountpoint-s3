@@ -152,7 +152,7 @@ where
                     block_index,
                     block_offset,
                     range.object_size(),
-                    Some(self.backpressure_limiter.request_id()),
+                    Some(self.backpressure_limiter.cursor_id()),
                 )
                 .await
             {
@@ -219,7 +219,7 @@ where
             "fetching data from client"
         );
 
-        let request_id = self.backpressure_limiter.request_id();
+        let cursor_id = self.backpressure_limiter.cursor_id();
         let request_stream = read_from_client_stream(
             &mut self.backpressure_limiter,
             &self.client,
@@ -227,7 +227,7 @@ where
             cache_key.clone(),
             initial_request_end_offset,
             block_aligned_byte_range,
-            request_id,
+            cursor_id,
         );
 
         let mut part_composer = CachingPartComposer {

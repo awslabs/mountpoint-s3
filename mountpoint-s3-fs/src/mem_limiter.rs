@@ -6,7 +6,7 @@ use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::memory::{BufferKind, PagedPool};
-use crate::prefetch::{HandleId, RequestId};
+use crate::prefetch::{CursorId, HandleId};
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
 
@@ -77,8 +77,8 @@ impl Drop for ActiveReadGuard {
 /// Release of the reserved memory happens on one of the following events:
 /// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
-/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_request` will
-///    release any remaining unallocated reservation for that request).
+/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_cursor` will
+///    release any remaining unallocated reservation for that cursor).
 ///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
 /// requests. Under memory pressure, each instance will limit to a single buffer.
@@ -87,12 +87,12 @@ pub struct MemoryLimiter {
     mem_limit: u64,
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
-    /// Per-request reservation tracking. Keyed by RequestId (unique per BackpressureController
+    /// Per-cursor reservation tracking. Keyed by CursorId (unique per BackpressureController
     /// lifetime) so that late on_reserve callbacks from cancelled CRT meta-requests cannot
     /// incorrectly decrement a re-created entry for the same handle.
-    mem_reserved_per_request: Arc<DashMap<RequestId, Arc<AtomicU64>>>,
-    /// Counter for generating unique [RequestId]s.
-    next_request_id: AtomicU64,
+    mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>>,
+    /// Counter for generating unique [CursorId]s.
+    next_cursor_id: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -115,17 +115,17 @@ impl MemoryLimiter {
         );
         let mem_reserved = Arc::new(AtomicU64::new(0));
         let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
-        let mem_reserved_per_request: Arc<DashMap<RequestId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
-        let mem_reserved_per_request_cb = mem_reserved_per_request.clone();
-        pool.set_on_reserve(Arc::new(move |bytes, request_id| {
-            Self::on_pool_reserve(bytes, request_id, &mem_reserved_cb, &mem_reserved_per_request_cb);
+        let mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
+        let mem_reserved_per_cursor_cb = mem_reserved_per_cursor.clone();
+        pool.set_on_reserve(Arc::new(move |bytes, cursor_id| {
+            Self::on_pool_reserve(bytes, cursor_id, &mem_reserved_cb, &mem_reserved_per_cursor_cb);
         }));
         Self {
             pool,
             mem_limit,
             mem_reserved,
-            mem_reserved_per_request,
-            next_request_id: AtomicU64::new(1),
+            mem_reserved_per_cursor,
+            next_cursor_id: AtomicU64::new(1),
             additional_mem_reserved,
             active_reads: DashMap::new(),
         }
@@ -133,13 +133,13 @@ impl MemoryLimiter {
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
-    pub fn reserve(&self, request_id: RequestId, area: BufferArea, size: u64) {
-        self.add_reservation(request_id, size);
+    pub fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
+        self.add_reservation(cursor_id, size);
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub fn try_reserve(&self, request_id: RequestId, area: BufferArea, size: u64) -> bool {
+    pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) -> bool {
         let start = Instant::now();
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
@@ -162,8 +162,8 @@ impl MemoryLimiter {
                 Ordering::SeqCst,
             ) {
                 Ok(_) => {
-                    self.mem_reserved_per_request
-                        .entry(request_id)
+                    self.mem_reserved_per_cursor
+                        .entry(cursor_id)
                         .or_default()
                         .fetch_add(size, Ordering::SeqCst);
                     metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
@@ -176,18 +176,18 @@ impl MemoryLimiter {
         }
     }
 
-    /// Release all remaining reservation for a request and remove it from tracking.
-    pub fn release_request(&self, request_id: RequestId, area: BufferArea) {
-        if let Some((_, reservation)) = self.mem_reserved_per_request.remove(&request_id) {
+    /// Release all remaining reservation for a cursor and remove it from tracking.
+    pub fn release_cursor(&self, cursor_id: CursorId, area: BufferArea) {
+        if let Some((_, reservation)) = self.mem_reserved_per_cursor.remove(&cursor_id) {
             let remaining = reservation.swap(0, Ordering::SeqCst);
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
             metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(remaining as f64);
         }
     }
 
-    /// Generate a new unique [RequestId] for per-request memory tracking.
-    pub fn next_request_id(&self) -> RequestId {
-        RequestId::new_from_raw(self.next_request_id.fetch_add(1, Ordering::Relaxed))
+    /// Generate a new unique [CursorId] for per-cursor memory tracking.
+    pub fn next_cursor_id(&self) -> CursorId {
+        CursorId::new_from_raw(self.next_cursor_id.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Query available memory tracked by the memory limiter.
@@ -223,38 +223,38 @@ impl MemoryLimiter {
             .unwrap_or(false)
     }
 
-    /// Increment both the global total and the per-request reservation.
-    fn add_reservation(&self, request_id: RequestId, size: u64) {
+    /// Increment both the global total and the per-cursor reservation.
+    fn add_reservation(&self, cursor_id: CursorId, size: u64) {
         self.mem_reserved.fetch_add(size, Ordering::SeqCst);
-        self.mem_reserved_per_request
-            .entry(request_id)
+        self.mem_reserved_per_cursor
+            .entry(cursor_id)
             .or_default()
             .fetch_add(size, Ordering::SeqCst);
     }
 
-    /// Called by the pool on every buffer allocation. For download buffers with a known request,
+    /// Called by the pool on every buffer allocation. For download buffers with a known cursor,
     /// this converts reservation from "intent" (`mem_reserved`) to "actual allocation" (pool stats)
-    /// by decrementing both the global and per-request counters.
+    /// by decrementing both the global and per-cursor counters.
     ///
-    /// No-op when `request_id` is `None` (e.g. uploads) or the request has already been removed
-    /// by `release_request`.
+    /// No-op when `cursor_id` is `None` (e.g. uploads) or the cursor has already been removed
+    /// by `release_cursor`.
     fn on_pool_reserve(
         bytes: usize,
-        request_id: Option<RequestId>,
+        cursor_id: Option<CursorId>,
         mem_reserved: &AtomicU64,
-        per_request: &DashMap<RequestId, Arc<AtomicU64>>,
+        per_cursor: &DashMap<CursorId, Arc<AtomicU64>>,
     ) {
-        let Some(request_id) = request_id else {
+        let Some(cursor_id) = cursor_id else {
             return;
         };
         // Clone the Arc to release the DashMap shard lock before doing atomic operations.
-        let Some(request_reservation) = per_request.get(&request_id).map(|r| r.value().clone()) else {
+        let Some(cursor_reservation) = per_cursor.get(&cursor_id).map(|r| r.value().clone()) else {
             return;
         };
-        let mut current = request_reservation.load(Ordering::SeqCst);
+        let mut current = cursor_reservation.load(Ordering::SeqCst);
         let decremented = loop {
             let new_val = current.saturating_sub(bytes as u64);
-            match request_reservation.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
+            match cursor_reservation.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
                 Ok(_) => break current - new_val,
                 Err(actual) => current = actual,
             }

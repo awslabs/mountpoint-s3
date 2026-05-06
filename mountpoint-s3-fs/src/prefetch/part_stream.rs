@@ -14,8 +14,8 @@ use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
+use super::CursorId;
 use super::PrefetchReadError;
-use super::RequestId;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
 use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
@@ -258,7 +258,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             .runtime
             .spawn_with_handle(
                 async move {
-                    let request_id = backpressure_limiter.request_id();
+                    let cursor_id = backpressure_limiter.cursor_id();
                     let initial_request_end_offset = config.range.start() + config.initial_request_size as u64;
                     let request_stream = read_from_client_stream(
                         &mut backpressure_limiter,
@@ -267,7 +267,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
                         config.object_id.clone(),
                         initial_request_end_offset,
                         config.range,
-                        request_id,
+                        cursor_id,
                     );
 
                     let part_composer = ClientPartComposer {
@@ -348,7 +348,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     object_id: ObjectId,
     initial_request_end_offset: u64,
     range: RequestRange,
-    request_id: RequestId,
+    cursor_id: CursorId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
@@ -361,7 +361,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 first_req_range.into(),
-                request_id,
+                cursor_id,
             );
             pin_mut!(first_request_stream);
             while let Some(next) = first_request_stream.next().await {
@@ -414,7 +414,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 range.into(),
-                request_id,
+                cursor_id,
             );
             pin_mut!(request_stream);
             while let Some(next) = request_stream.next().await {
@@ -433,11 +433,11 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
-    request_id: RequestId,
+    cursor_id: CursorId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(request_id.as_raw())))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(cursor_id.as_raw())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;

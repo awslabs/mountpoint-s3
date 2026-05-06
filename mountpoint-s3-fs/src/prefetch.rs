@@ -79,11 +79,12 @@ impl HandleId {
 /// Opaque identifier for a single prefetch request (i.e., one `BackpressureController` lifetime).
 /// Generated fresh on each `RequestTask` creation so that late `on_reserve` callbacks from a
 /// cancelled CRT meta-request cannot incorrectly decrement a re-created entry for the same handle.
+/// A cursor consists of a RequestTask and a SeekWindow
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RequestId(u64);
+pub struct CursorId(u64);
 
-impl RequestId {
-    /// Reconstruct a `RequestId` from a raw `u64` (e.g., from CRT `custom_id`).
+impl CursorId {
+    /// Reconstruct a `CursorId` from a raw `u64` (e.g., from CRT `custom_id`).
     pub fn new_from_raw(id: u64) -> Self {
         Self(id)
     }
@@ -280,10 +281,10 @@ where
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
     mem_limiter: Arc<MemoryLimiter>,
-    backpressure_task: Option<RequestTask<Client>>, //
+    backpressure_task: Option<RequestTask<Client>>,
     // Invariant: the offset of the last byte in this window is always
     // self.next_sequential_read_offset - 1.
-    backward_seek_window: SeekWindow, //
+    backward_seek_window: SeekWindow,
     bucket: String,
     object_id: ObjectId,
     // preferred part size in the prefetcher's part queue, not the object part
