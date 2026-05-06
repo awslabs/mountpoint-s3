@@ -91,6 +91,8 @@ pub struct MemoryLimiter {
     /// lifetime) so that late on_reserve callbacks from cancelled CRT meta-requests cannot
     /// incorrectly decrement a re-created entry for the same handle.
     mem_reserved_per_request: Arc<DashMap<RequestId, Arc<AtomicU64>>>,
+    /// Counter for generating unique [RequestId]s.
+    next_request_id: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Memory pool used by the S3 client and disk cache.
@@ -154,6 +156,7 @@ impl MemoryLimiter {
             mem_limit,
             mem_reserved,
             mem_reserved_per_request,
+            next_request_id: AtomicU64::new(1),
             additional_mem_reserved,
             active_reads: DashMap::new(),
         }
@@ -211,6 +214,11 @@ impl MemoryLimiter {
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
             metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).decrement(remaining as f64);
         }
+    }
+
+    /// Generate a new unique [RequestId] for per-request memory tracking.
+    pub fn next_request_id(&self) -> RequestId {
+        RequestId::new_from_raw(self.next_request_id.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Query available memory tracked by the memory limiter.

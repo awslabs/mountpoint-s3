@@ -82,20 +82,7 @@ impl HandleId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestId(u64);
 
-impl Default for RequestId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RequestId {
-    /// Generate a new unique request ID.
-    pub fn new() -> Self {
-        use crate::sync::atomic::{AtomicU64, Ordering};
-        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-        Self(NEXT_ID.fetch_add(1, Ordering::Relaxed))
-    }
-
     /// Reconstruct a `RequestId` from a raw `u64` (e.g., from CRT `custom_id`).
     pub fn new_from_raw(id: u64) -> Self {
         Self(id)

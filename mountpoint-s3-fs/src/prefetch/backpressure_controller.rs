@@ -128,7 +128,7 @@ pub fn new_backpressure_controller(
 ) -> (BackpressureController, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
-    let request_id = RequestId::new();
+    let request_id = mem_limiter.next_request_id();
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
     mem_limiter.reserve(request_id, BufferArea::Prefetch, config.initial_read_window_size as u64);
 
