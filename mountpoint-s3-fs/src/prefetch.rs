@@ -33,7 +33,6 @@
 
 use std::fmt::Debug;
 
-use metrics::{counter, histogram};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::{ObjectClient, error_metadata::ProvideErrorMetadata};
 use thiserror::Error;
@@ -43,13 +42,14 @@ use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use crate::mem_limiter::MemoryLimiter;
-use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
+use crate::metrics::defs::FUSE_CACHE_HIT;
 use crate::object::ObjectId;
 use crate::sync::Arc;
 
 mod backpressure_controller;
 mod builder;
 mod caching_stream;
+mod cursor;
 mod part;
 mod part_queue;
 mod part_stream;
@@ -57,10 +57,9 @@ mod seek_window;
 mod task;
 
 pub use builder::PrefetcherBuilder;
+use cursor::Cursor;
 use part::PartOperationError;
 use part_stream::{PartStream, RequestRange, RequestTaskConfig};
-use seek_window::SeekWindow;
-use task::RequestTask;
 
 /// Opaque identifier for a file handle, used to attribute prefetch requests to their origin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -281,17 +280,11 @@ where
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
     mem_limiter: Arc<MemoryLimiter>,
-    backpressure_task: Option<RequestTask<Client>>,
-    // Invariant: the offset of the last byte in this window is always
-    // self.next_sequential_read_offset - 1.
-    backward_seek_window: SeekWindow,
+    cursor: Option<Cursor<Client>>,
     bucket: String,
     object_id: ObjectId,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
-    /// Start offset for sequential read, used for calculating contiguous read metric
-    sequential_read_start_offset: u64,
-    next_sequential_read_offset: u64,
     size: u64,
     /// File handle ID that owns this prefetch request, for per-handle memory accounting.
     handle_id: HandleId,
@@ -311,16 +304,12 @@ where
         handle_id: HandleId,
         size: u64,
     ) -> Self {
-        let max_backward_seek_distance = config.max_backward_seek_distance as usize;
         PrefetchGetObject {
             part_stream,
             config,
             mem_limiter,
-            backpressure_task: None,
-            backward_seek_window: SeekWindow::new(max_backward_seek_distance),
+            cursor: None,
             preferred_part_size: 128 * 1024,
-            sequential_read_start_offset: 0,
-            next_sequential_read_offset: 0,
             bucket,
             object_id,
             size,
@@ -339,9 +328,14 @@ where
         trace!(
             offset,
             length,
-            next_seq_offset = self.next_sequential_read_offset,
+            next_seq_offset = self.cursor.as_ref().map(|c| c.current_offset()),
             "read"
         );
+
+        let remaining = self.size.saturating_sub(offset);
+        if remaining == 0 {
+            return Ok(ChecksummedBytes::default());
+        }
 
         match self.try_read(offset, length).await {
             Ok((data, cache_hit)) => {
@@ -360,7 +354,7 @@ where
                 Ok(data)
             }
             Err(err) => {
-                self.reset_prefetch_to_offset(offset);
+                self.reset_prefetch();
                 Err(err)
             }
         }
@@ -381,80 +375,43 @@ where
         let max_preferred_part_size = 1024 * 1024;
         self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
-        let remaining = self.size.saturating_sub(offset);
-        if remaining == 0 {
-            return Ok((ChecksummedBytes::default(), false));
-        }
-        let mut to_read = (length as u64).min(remaining);
-
         // Set the active read range before any blocking. For forward seeks, widen to include
         // the skipped bytes the prefetcher must consume to reach the requested offset.
-        let active_start = self.next_sequential_read_offset.min(offset);
-        let active_size = length + offset.saturating_sub(self.next_sequential_read_offset) as usize;
+        let active_start = self
+            .cursor
+            .as_ref()
+            .map(|c| c.current_offset())
+            .unwrap_or(offset)
+            .min(offset);
+        let active_size = length + offset.saturating_sub(active_start) as usize;
         let _active_read_guard = self
             .mem_limiter
             .set_active_read(self.handle_id, active_start, active_size);
 
-        // Try to seek if this read is not sequential, and if seeking fails, cancel and reset the
-        // prefetcher.
-        if self.next_sequential_read_offset != offset {
-            if self.try_seek(offset).await? {
-                trace!("seek succeeded");
-            } else {
-                trace!(
-                    expected = self.next_sequential_read_offset,
-                    actual = offset,
-                    "out-of-order read, resetting prefetch"
-                );
-                counter!(PREFETCH_RESET_STATE).increment(1);
+        self.cursor_at_offset(offset).await?.read(length).await
+    }
 
-                // This is an approximation, tolerating some seeking caused by concurrent readahead.
-                self.record_contiguous_read_metric();
-                self.reset_prefetch_to_offset(offset);
-            }
-        }
-        assert_eq!(self.next_sequential_read_offset, offset);
+    async fn cursor_at_offset(
+        &mut self,
+        offset: u64,
+    ) -> Result<&mut Cursor<Client>, PrefetchReadError<Client::ClientError>> {
+        let can_reuse = if let Some(ref mut cursor) = self.cursor {
+            cursor.try_seek(offset).await?
+        } else {
+            false
+        };
 
-        if self.backpressure_task.is_none() {
-            self.backpressure_task = Some(self.spawn_read_backpressure_request()?);
+        if !can_reuse {
+            self.cursor = Some(self.create_cursor(offset)?);
         }
 
-        let mut all_parts_from_cache = true;
-        let mut response = ChecksummedBytes::default();
-        while to_read > 0 {
-            let Some(current_task) = self.backpressure_task.as_mut() else {
-                trace!(offset, length, "read beyond object size");
-                break;
-            };
-            debug_assert!(current_task.remaining() > 0);
-
-            let part = current_task.read(to_read as usize).await?;
-            all_parts_from_cache &= part.is_from_cache();
-            self.backward_seek_window.push(part.clone());
-            let part_bytes = part.into_bytes(&self.object_id, self.next_sequential_read_offset)?;
-
-            self.next_sequential_read_offset += part_bytes.len() as u64;
-            // If we can complete the read with just a single buffer, early return to avoid copying
-            // into a new buffer. This should be the common case as long as part size is larger than
-            // read size, which it almost always is for real S3 clients and FUSE.
-            if response.is_empty() && part_bytes.len() == to_read as usize {
-                return Ok((part_bytes, all_parts_from_cache));
-            }
-
-            let part_len = part_bytes.len() as u64;
-            response.extend(part_bytes)?;
-            to_read -= part_len;
-        }
-
-        Ok((response, all_parts_from_cache))
+        Ok(self.cursor.as_mut().unwrap())
     }
 
     /// Spawn a backpressure GetObject request which has a range from current offset to the end of the file.
     /// We will be using flow-control window to control how much data we want to download into the prefetcher.
-    fn spawn_read_backpressure_request(
-        &mut self,
-    ) -> Result<RequestTask<Client>, PrefetchReadError<Client::ClientError>> {
-        let start = self.next_sequential_read_offset;
+    fn create_cursor(&self, offset: u64) -> Result<Cursor<Client>, PrefetchReadError<Client::ClientError>> {
+        let start = offset;
         let object_size = self.size as usize;
         let read_part_size = self.part_stream.client().read_part_size();
         let range = RequestRange::new(object_size, start, object_size);
@@ -480,106 +437,18 @@ where
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
-        Ok(self.part_stream.spawn_get_object_request(config))
+        let backpressure_task = self.part_stream.spawn_get_object_request(config);
+        Ok(Cursor::new(
+            backpressure_task,
+            &self.config,
+            self.object_id.clone(),
+            offset,
+        ))
     }
 
-    /// Reset this prefetch request to a new offset, clearing any existing tasks queued.
-    fn reset_prefetch_to_offset(&mut self, offset: u64) {
-        self.backpressure_task = None;
-        self.backward_seek_window.clear();
-        self.sequential_read_start_offset = offset;
-        self.next_sequential_read_offset = offset;
-    }
-
-    /// Try to seek within the current inflight requests without restarting them. Returns true if
-    /// the seek succeeded, in which case self.next_sequential_read_offset will be updated to the
-    /// new offset. If this returns false, the prefetcher is in an unknown state and must be reset.
-    async fn try_seek(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
-        assert_ne!(offset, self.next_sequential_read_offset);
-        trace!(from = self.next_sequential_read_offset, to = offset, "trying to seek");
-        if offset > self.next_sequential_read_offset {
-            self.try_seek_forward(offset).await
-        } else {
-            self.try_seek_backward(offset).await
-        }
-    }
-
-    async fn try_seek_forward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
-        assert!(offset > self.next_sequential_read_offset);
-        let total_seek_distance = offset - self.next_sequential_read_offset;
-        histogram!("prefetch.seek_distance", "dir" => "forward").record(total_seek_distance as f64);
-
-        let Some(task) = self.backpressure_task.as_mut() else {
-            // Can't seek if there's no requests in flight at all
-            return Ok(false);
-        };
-
-        // Not enough data in the read window to serve the forward seek
-        if offset >= task.read_window_end_offset() {
-            return Ok(false);
-        }
-
-        // If we have enough bytes already downloaded (`available`) to skip straight to this read, then do
-        // it. Otherwise, we're willing to wait for the bytes to download only if they're coming "soon", where
-        // soon is defined as up to `max_forward_seek_wait_distance` bytes ahead of the available offset.
-        let available_offset = task.available_offset();
-        let available_soon_offset = available_offset.saturating_add(self.config.max_forward_seek_wait_distance);
-        if offset >= available_soon_offset {
-            trace!(
-                requested_offset = offset,
-                available_offset = available_offset,
-                "seek failed: not enough data available"
-            );
-            return Ok(false);
-        }
-        let mut seek_distance = offset - self.next_sequential_read_offset;
-        while seek_distance > 0 {
-            let part = task.read(seek_distance as usize).await?;
-            seek_distance -= part.len() as u64;
-            self.next_sequential_read_offset += part.len() as u64;
-            self.backward_seek_window.push(part);
-        }
-        Ok(true)
-    }
-
-    async fn try_seek_backward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
-        assert!(offset < self.next_sequential_read_offset);
-
-        // When the task is None it means either we have just started prefetching or recently reset it,
-        // in both cases the backward seek window would be empty so we can bail out early.
-        let Some(task) = self.backpressure_task.as_mut() else {
-            return Ok(false);
-        };
-        let backwards_length_needed = self.next_sequential_read_offset - offset;
-        histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
-
-        let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize) else {
-            trace!("seek failed: not enough data in backwards seek window");
-            return Ok(false);
-        };
-        // Re-inject the parts from the seek window back into the part queue.
-        // The pool already tracks the memory for these buffers, so no additional
-        // reservation on the memory limiter is needed.
-        task.push_front(parts).await?;
-        self.next_sequential_read_offset = offset;
-        Ok(true)
-    }
-
-    /// Record the end of a contiguous read.
-    ///
-    /// This should be invoked at the end of each set of contiguous reads, including if no further read occurs.
-    fn record_contiguous_read_metric(&self) {
-        histogram!("prefetch.contiguous_read_len")
-            .record((self.next_sequential_read_offset - self.sequential_read_start_offset) as f64);
-    }
-}
-
-impl<Client> Drop for PrefetchGetObject<Client>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    fn drop(&mut self) {
-        self.record_contiguous_read_metric();
+    /// Reset this prefetch request, clearing any existing tasks queued.
+    fn reset_prefetch(&mut self) {
+        self.cursor = None;
     }
 }
 
