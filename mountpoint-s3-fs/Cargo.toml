@@ -102,6 +102,7 @@ s3_tests = []
 s3express_tests = []
 shuttle = []
 second_account_tests = []
+stress_tests = ["s3_tests", "fuse_tests"]
 
 [[example]]
 name = "mount_from_config"
