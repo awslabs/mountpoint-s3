@@ -113,6 +113,9 @@ pub struct BackpressureLimiter {
     /// End offset for the request we want to apply backpressure. The request can return
     /// data up to this offset *exclusively*.
     request_end_offset: u64,
+    /// The unique request ID for this backpressure pair. Used as `custom_id` on CRT
+    /// meta-requests and for per-request memory tracking in the pool's `on_reserve` callback.
+    request_id: RequestId,
 }
 
 /// Creates a [BackpressureController] and its related [BackpressureLimiter].
@@ -122,7 +125,7 @@ pub struct BackpressureLimiter {
 pub fn new_backpressure_controller(
     config: BackpressureConfig,
     mem_limiter: Arc<MemoryLimiter>,
-) -> (BackpressureController, BackpressureLimiter, RequestId) {
+) -> (BackpressureController, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let request_id = RequestId::new();
@@ -152,9 +155,10 @@ pub fn new_backpressure_controller(
         read_window_increment_queue,
         read_window_end_offset,
         request_end_offset: config.request_range.end,
+        request_id,
     };
 
-    (controller, limiter, request_id)
+    (controller, limiter)
 }
 
 impl BackpressureController {
@@ -300,6 +304,11 @@ impl Drop for BackpressureController {
 impl BackpressureLimiter {
     pub fn read_window_end_offset(&self) -> u64 {
         self.read_window_end_offset
+    }
+
+    /// The unique request ID for this backpressure pair, used as `custom_id` on CRT requests.
+    pub fn request_id(&self) -> RequestId {
+        self.request_id
     }
 
     /// Wait until the backpressure window moves ahead of the given offset.
@@ -509,7 +518,6 @@ mod tests {
             pool,
             backpressure_config.max_read_window_size as u64,
         ));
-        let (controller, limiter, _request_id) = new_backpressure_controller(backpressure_config, mem_limiter.clone());
-        (controller, limiter)
+        new_backpressure_controller(backpressure_config, mem_limiter.clone())
     }
 }

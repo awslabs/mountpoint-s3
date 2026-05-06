@@ -247,7 +247,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
                 part_size: config.read_part_size as u64,
             },
         };
-        let (backpressure_controller, mut backpressure_limiter, request_id) =
+        let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
@@ -258,6 +258,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             .runtime
             .spawn_with_handle(
                 async move {
+                    let request_id = backpressure_limiter.request_id();
                     let initial_request_end_offset = config.range.start() + config.initial_request_size as u64;
                     let request_stream = read_from_client_stream(
                         &mut backpressure_limiter,
