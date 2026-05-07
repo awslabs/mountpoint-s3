@@ -2,7 +2,7 @@
 
 * Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
 * Add `S3FilesystemConfig::content_type_detection` option to configure automatic content type inference for new uploads. When set to `ContentTypeDetection::Auto`, Mountpoint will infer the `Content-Type` of new objects based on their file extension. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
-* Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. Some FUSE operations have a new log printed where it didn't already have one. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718))
+* Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. Some FUSE operations have a new log printed where they didn't already have one. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718))
 
 ## v0.9.3 (April 28, 2026)
 
