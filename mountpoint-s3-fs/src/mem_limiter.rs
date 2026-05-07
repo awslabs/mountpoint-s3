@@ -6,7 +6,7 @@ use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::memory::PagedPool;
-use crate::prefetch::{CursorId, HandleId};
+use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
 
@@ -52,12 +52,12 @@ impl ActiveRead {
 /// Ensures the active read is always cleared, even on early returns or panics.
 pub struct ActiveReadGuard {
     mem_limiter: Arc<MemoryLimiter>,
-    handle_id: HandleId,
+    cursor_id: CursorId,
 }
 
 impl Drop for ActiveReadGuard {
     fn drop(&mut self) {
-        self.mem_limiter.clear_active_read(self.handle_id);
+        self.mem_limiter.clear_active_read(self.cursor_id);
     }
 }
 
@@ -100,7 +100,7 @@ pub struct MemoryLimiter {
     pool: PagedPool,
     /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
     /// the requested range is stored here. Absence means the handle is speculative.
-    active_reads: DashMap<HandleId, ActiveRead>,
+    active_reads: DashMap<CursorId, ActiveRead>,
 }
 
 impl MemoryLimiter {
@@ -202,23 +202,23 @@ impl MemoryLimiter {
 
     /// Record that a FUSE read is active for the given handle at the specified range.
     /// Returns a guard that will clear the active read when dropped.
-    pub fn set_active_read(self: &Arc<Self>, handle_id: HandleId, offset: u64, size: usize) -> ActiveReadGuard {
-        self.active_reads.insert(handle_id, ActiveRead { offset, size });
+    pub fn set_active_read(self: &Arc<Self>, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.active_reads.insert(cursor_id, ActiveRead { offset, size });
         ActiveReadGuard {
             mem_limiter: Arc::clone(self),
-            handle_id,
+            cursor_id,
         }
     }
 
     /// Clear the active read for the given handle (read completed or errored).
-    fn clear_active_read(&self, handle_id: HandleId) {
-        self.active_reads.remove(&handle_id);
+    fn clear_active_read(&self, cursor_id: CursorId) {
+        self.active_reads.remove(&cursor_id);
     }
 
     /// Check if the given handle has an active read overlapping the specified range.
-    pub fn has_active_read_in_range(&self, handle_id: HandleId, offset: u64, size: usize) -> bool {
+    pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         self.active_reads
-            .get(&handle_id)
+            .get(&cursor_id)
             .map(|r| r.overlaps(offset, size))
             .unwrap_or(false)
     }
@@ -475,23 +475,23 @@ mod tests {
     #[test]
     fn test_active_read_overlap_detection() {
         let limiter = new_limiter();
-        let handle = HandleId::new(1);
+        let cursor_id = CursorId::new_from_raw(1);
 
         // Active read at [1000, 5096)
-        let _guard = limiter.set_active_read(handle, 1000, 4096);
+        let _guard = limiter.set_active_read(cursor_id, 1000, 4096);
 
         // Overlapping ranges → true
-        assert!(limiter.has_active_read_in_range(handle, 1000, 4096)); // exact match
-        assert!(limiter.has_active_read_in_range(handle, 500, 1000)); // overlap from left
-        assert!(limiter.has_active_read_in_range(handle, 5000, 1000)); // overlap from right
-        assert!(limiter.has_active_read_in_range(handle, 2000, 100)); // contained
+        assert!(limiter.has_active_read_in_range(cursor_id, 1000, 4096)); // exact match
+        assert!(limiter.has_active_read_in_range(cursor_id, 500, 1000)); // overlap from left
+        assert!(limiter.has_active_read_in_range(cursor_id, 5000, 1000)); // overlap from right
+        assert!(limiter.has_active_read_in_range(cursor_id, 2000, 100)); // contained
 
         // Non-overlapping ranges → false
-        assert!(!limiter.has_active_read_in_range(handle, 0, 500)); // before
-        assert!(!limiter.has_active_read_in_range(handle, 5096, 1000)); // after
+        assert!(!limiter.has_active_read_in_range(cursor_id, 0, 500)); // before
+        assert!(!limiter.has_active_read_in_range(cursor_id, 5096, 1000)); // after
 
-        // Different handle → false
-        assert!(!limiter.has_active_read_in_range(HandleId::new(2), 1000, 4096));
+        // Different cursor_id → false
+        assert!(!limiter.has_active_read_in_range(CursorId::new_from_raw(2), 1000, 4096));
     }
 
     /// Simulates the allocation queue's perspective: one thread holds an active read
@@ -499,21 +499,21 @@ mod tests {
     #[test]
     fn test_query_active_read_from_another_thread() {
         let limiter = new_limiter();
-        let handle = HandleId::new(1);
+        let cursor_id = CursorId::new_from_raw(1);
 
-        let guard = limiter.set_active_read(handle, 1000, 4096);
+        let guard = limiter.set_active_read(cursor_id, 1000, 4096);
 
         let limiter_clone = Arc::clone(&limiter);
         let query_thread = std::thread::spawn(move || {
             // Allocation for the active range → high priority
-            assert!(limiter_clone.has_active_read_in_range(handle, 1000, 4096));
+            assert!(limiter_clone.has_active_read_in_range(cursor_id, 1000, 4096));
             // Allocation for a prefetch-ahead range → low priority
-            assert!(!limiter_clone.has_active_read_in_range(handle, 50000, 4096));
+            assert!(!limiter_clone.has_active_read_in_range(cursor_id, 50000, 4096));
         });
         query_thread.join().unwrap();
 
         drop(guard);
-        assert!(!limiter.has_active_read_in_range(handle, 1000, 4096));
+        assert!(!limiter.has_active_read_in_range(cursor_id, 1000, 4096));
     }
 
     /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a

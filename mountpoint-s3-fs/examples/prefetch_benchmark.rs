@@ -15,7 +15,7 @@ use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{HandleId, PrefetchGetObject, Prefetcher, PrefetcherConfig};
+use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
@@ -202,11 +202,10 @@ fn main() -> anyhow::Result<()> {
         thread::scope(|scope| {
             let mut download_tasks = Vec::new();
 
-            for (idx, (object_id, size)) in object_metadata.iter().enumerate() {
+            for (object_id, size) in &object_metadata {
                 let received_bytes = received_bytes.clone();
                 let object_id = object_id.clone();
-                let handle_id = HandleId::new(idx as u64);
-                let request = manager.prefetch(bucket.to_string(), object_id.clone(), handle_id, *size);
+                let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
                 let read_size = args.read_size;
 
                 let task = scope.spawn(move || {

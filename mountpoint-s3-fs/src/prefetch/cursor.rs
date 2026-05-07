@@ -3,8 +3,10 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
 use crate::checksums::ChecksummedBytes;
+use crate::mem_limiter::MemoryLimiter;
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
+use crate::sync::Arc;
 
 use super::seek_window::SeekWindow;
 use super::task::RequestTask;
@@ -30,6 +32,7 @@ where
     next_sequential_read_offset: u64,
     object_id: ObjectId,
     cursor_id: CursorId,
+    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Client> Cursor<Client>
@@ -42,6 +45,7 @@ where
         config: &PrefetcherConfig,
         object_id: ObjectId,
         offset: u64,
+        mem_limiter: Arc<MemoryLimiter>,
     ) -> Self {
         Self {
             cursor_id,
@@ -51,6 +55,7 @@ where
             sequential_read_start_offset: offset,
             next_sequential_read_offset: offset,
             object_id,
+            mem_limiter,
         }
     }
 
@@ -59,6 +64,38 @@ where
     }
 
     pub async fn read(
+        &mut self,
+        length: usize,
+    ) -> Result<(ChecksummedBytes, bool), PrefetchReadError<Client::ClientError>> {
+        let _active_read_guard =
+            self.mem_limiter
+                .set_active_read(self.cursor_id, self.next_sequential_read_offset, length);
+
+        self.do_read(length).await
+    }
+
+    pub async fn try_read(
+        &mut self,
+        offset: u64,
+        length: usize,
+    ) -> Result<Option<(ChecksummedBytes, bool)>, PrefetchReadError<Client::ClientError>> {
+        // Set the active read range before any blocking. For forward seeks, widen to include
+        // the skipped bytes the prefetcher must consume to reach the requested offset.
+        let active_start = self.next_sequential_read_offset.min(offset);
+        let active_size = length + offset.saturating_sub(active_start) as usize;
+        let _active_read_guard = self
+            .mem_limiter
+            .set_active_read(self.cursor_id, active_start, active_size);
+
+        if !self.try_seek(offset).await? {
+            // Seek failed
+            return Ok(None);
+        }
+
+        Ok(Some(self.read(length).await?))
+    }
+
+    async fn do_read(
         &mut self,
         length: usize,
     ) -> Result<(ChecksummedBytes, bool), PrefetchReadError<Client::ClientError>> {
@@ -96,7 +133,7 @@ where
     }
 
     /// Try to seek within the current inflight requests without restarting them.
-    pub async fn try_seek(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
+    async fn try_seek(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
         if offset == self.next_sequential_read_offset {
             return Ok(true);
         }
