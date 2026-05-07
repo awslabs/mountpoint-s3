@@ -28,7 +28,7 @@ impl BufferArea {
     }
 }
 
-/// Describes an active FUSE read request for a specific file handle.
+/// Describes an active FUSE read request for a specific cursor.
 /// Used by the pruning logic to determine which buffers are high priority
 /// (actively being waited on by a user) vs. speculative (prefetched ahead).
 #[derive(Debug, Clone, Copy)]
@@ -48,7 +48,7 @@ impl ActiveRead {
     }
 }
 
-/// RAII guard that clears the active read for a handle when dropped.
+/// RAII guard that clears the active read for a cursor when dropped.
 /// Ensures the active read is always cleared, even on early returns or panics.
 pub struct ActiveReadGuard {
     mem_limiter: Arc<MemoryLimiter>,
@@ -68,16 +68,16 @@ impl Drop for ActiveReadGuard {
 ///
 /// Single instance of this struct is shared among all of the prefetchers (file handles) and uploaders.
 ///
-/// Each file handle makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` on the first
-/// `read()` call. This is accepted unconditionally since we want to allow any file handle to make
-/// progress even if that means going over the memory limit. Additional reservations for a file handle arise when the
+/// Each cursor makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` when
+/// it is created. This is accepted unconditionally since we want to allow any cursor to make
+/// progress even if that means going over the memory limit. Additional reservations for a cursor arise when the
 /// backpressure read window is incremented to fetch more data from underlying part streams. Those reservations may be
 /// rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
 /// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
-/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_cursor` will
+/// 2) the cursor is destroyed (`BackpressureController` will be dropped and `release_cursor` will
 ///    release any remaining unallocated reservation for that cursor).
 ///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
@@ -98,8 +98,8 @@ pub struct MemoryLimiter {
     /// Memory pool used by the S3 client and disk cache.
     /// We rely on the pool's stats to account for all buffer allocations (e.g. GetObject, DiskCache, PutObject buffers).
     pool: PagedPool,
-    /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
-    /// the requested range is stored here. Absence means the handle is speculative.
+    /// Per-cursor active read tracking. When a FUSE read is in progress for a cursor,
+    /// the requested range is stored here. Absence means the cursor is speculative.
     active_reads: DashMap<CursorId, ActiveRead>,
 }
 

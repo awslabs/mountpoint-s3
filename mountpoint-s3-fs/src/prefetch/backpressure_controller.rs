@@ -106,7 +106,8 @@ pub struct BackpressureController {
     ///
     /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
-    /// Memory limiter is used to guide decisions on how much data to prefetch.
+    /// Memory limiter is used to guide decisions on how much data to prefetch and to track
+    /// per-cursor memory reservations.
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
     mem_limiter: Arc<MemoryLimiter>,

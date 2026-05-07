@@ -9,8 +9,9 @@
 //! up to some maximum. If the reader ever makes a non-sequential read, we abandon the prefetching
 //! and start again with a new GetObject request with minimum read window size.
 //!
-//! In more technical details, the prefetcher creates a RequestTask when receiving the first read
-//! request from the file system or after it has just been reset. The RequestTask consists of two main
+//! In more technical details, the prefetcher creates a Cursor when receiving the first read
+//! request from the file system or after it has just been reset. The Cursor manages the read
+//! position, backward seek window, and owns a RequestTask. The RequestTask consists of two main
 //! components.
 //! 1.  An ObjectPartStream that has a role to continuously fetch data from the sources which can be
 //!     either S3 or the cache on disk. The ObjectPartStream is spawned and run in a separate thread
@@ -60,20 +61,6 @@ pub use builder::PrefetcherBuilder;
 pub use cursor::{Cursor, CursorId};
 use part::PartOperationError;
 use part_stream::{PartStream, RequestRange, RequestTaskConfig};
-
-/// Opaque identifier for a file handle, used to attribute prefetch requests to their origin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HandleId(u64);
-
-impl HandleId {
-    pub fn new(id: u64) -> Self {
-        Self(id)
-    }
-
-    pub fn as_raw(&self) -> u64 {
-        self.0
-    }
-}
 
 // This is a weird looking number! We really want our first request size to be 1MiB,
 // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
@@ -237,8 +224,8 @@ where
     {
         PrefetchGetObject::new(
             self.part_stream.clone(),
-            self.config,
             self.mem_limiter.clone(),
+            self.config,
             bucket,
             object_id,
             size,
@@ -253,14 +240,14 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     part_stream: PartStream<Client>,
-    config: PrefetcherConfig,
     mem_limiter: Arc<MemoryLimiter>,
-    cursor: Option<Cursor<Client>>,
+    config: PrefetcherConfig,
     bucket: String,
     object_id: ObjectId,
+    size: u64,
+    cursor: Option<Cursor<Client>>,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
-    size: u64,
 }
 
 impl<Client> PrefetchGetObject<Client>
@@ -270,21 +257,21 @@ where
     /// Create and spawn a new prefetching request for an object
     fn new(
         part_stream: PartStream<Client>,
-        config: PrefetcherConfig,
         mem_limiter: Arc<MemoryLimiter>,
+        config: PrefetcherConfig,
         bucket: String,
         object_id: ObjectId,
         size: u64,
     ) -> Self {
         PrefetchGetObject {
             part_stream,
-            config,
             mem_limiter,
-            cursor: None,
-            preferred_part_size: 128 * 1024,
+            config,
             bucket,
             object_id,
             size,
+            cursor: None,
+            preferred_part_size: 128 * 1024,
         }
     }
 
@@ -346,18 +333,20 @@ where
         let max_preferred_part_size = 1024 * 1024;
         self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
+        // Try to use the current cursor, if present. Allows for limited non sequential reads.
         if let Some(ref mut cursor) = self.cursor
             && let Some(result) = cursor.try_read(offset, length).await?
         {
             Ok(result)
         } else {
+            // Otherwise, create a new cursor at `offset` and read from it.
             let cursor = self.cursor.insert(self.create_cursor(offset)?);
             cursor.read(length).await
         }
     }
 
-    /// Spawn a backpressure GetObject request which has a range from current offset to the end of the file.
-    /// We will be using flow-control window to control how much data we want to download into the prefetcher.
+    /// Create a new Cursor and associated backpressure GetObject request which has a range from current offset
+    /// to the end of the file.
     fn create_cursor(&self, offset: u64) -> Result<Cursor<Client>, PrefetchReadError<Client::ClientError>> {
         let start = offset;
         let object_size = self.size as usize;
@@ -387,14 +376,14 @@ where
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
-        let backpressure_task = self.part_stream.spawn_get_object_request(config);
+        let request_task = self.part_stream.spawn_get_object_request(config);
         Ok(Cursor::new(
             cursor_id,
-            backpressure_task,
+            request_task,
+            self.mem_limiter.clone(),
             &self.config,
             self.object_id.clone(),
             offset,
-            self.mem_limiter.clone(),
         ))
     }
 
