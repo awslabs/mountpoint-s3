@@ -2740,7 +2740,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-client"
-version = "0.20.0"
+version = "0.20.1"
 dependencies = [
  "async-io",
  "async-lock",
@@ -2758,6 +2758,9 @@ dependencies = [
  "ctor",
  "futures",
  "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "md-5",
  "metrics",
  "mountpoint-s3-client",
@@ -2768,7 +2771,10 @@ dependencies = [
  "platform-info",
  "proptest",
  "rand 0.10.1",
+ "rcgen",
  "regex",
+ "rustls",
+ "rustls-pemfile",
  "rusty-fork",
  "serde_json",
  "static_assertions",
@@ -2778,6 +2784,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2786,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2797,9 +2804,11 @@ dependencies = [
  "log",
  "mountpoint-s3-crt-sys",
  "rand 0.10.1",
+ "rcgen",
  "serde_json",
  "smallstr",
  "static_assertions",
+ "tempfile",
  "test-case",
  "thiserror",
  "tracing",
@@ -2808,7 +2817,7 @@ dependencies = [
 
 [[package]]
 name = "mountpoint-s3-crt-sys"
-version = "0.16.3"
+version = "0.16.4"
 dependencies = [
  "bindgen",
  "cc",
@@ -3215,6 +3224,16 @@ dependencies = [
  "redox_syscall 0.5.18",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64",
+ "serde_core",
 ]
 
 [[package]]
@@ -3648,6 +3667,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3845,6 +3877,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69f9466fb2c14ea04357e91413efb882e2a6d4a406e625449bc0a5d360d53a21"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "rustls-pki-types",
  "rustls-webpki",
@@ -3862,6 +3895,15 @@ dependencies = [
  "rustls-pki-types",
  "schannel",
  "security-framework",
+]
+
+[[package]]
+name = "rustls-pemfile"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]
@@ -5478,6 +5520,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbc04313cab124e498ab1724e739720807b6dc405b9ed0edc5860164d2e4ff70"
 dependencies = [
  "xml",
+]
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
 ]
 
 [[package]]

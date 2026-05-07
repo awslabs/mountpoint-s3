@@ -215,6 +215,18 @@ We also support the `AWS_ENDPOINT_URL` environment variable. The endpoint determ
 - Use `AWS_ENDPOINT_URL` if provided.
 - Fallback to automically inferring the endpoint.
 
+### Custom CA trust bundle
+
+To verify HTTPS connections against a private certificate authority, pass a PEM file containing the CA certificate chain with `--ca-bundle`:
+
+```
+mount-s3 amzn-s3-demo-bucket /path/to/mount --ca-bundle /path/to/ca.pem
+```
+
+When set, this bundle is used in place of the operating-system default trust store for all HTTPS connections Mountpoint makes.
+
+Mountpoint also honours the `AWS_CA_BUNDLE` environment variable as a fallback when `--ca-bundle` is not provided.
+
 ### Data encryption
 
 Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).

@@ -1,7 +1,7 @@
 [package]
 name = "mountpoint-s3-crt"
 # See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.14.0"
+version = "0.14.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
@@ -23,7 +23,9 @@ clap = { version = "4.6.1", features = ["derive"] }
 criterion = "0.8.2"
 ctor = "0.10.1"
 rand = "0.10.1"
+rcgen = "0.13.2"
 serde_json = "1.0.149"
+tempfile = "3.13.0"
 test-case = "3.3.1"
 tracing = { version = "0.1.44", default-features = false, features = ["std", "log"] }
 tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
