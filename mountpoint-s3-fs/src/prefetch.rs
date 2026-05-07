@@ -57,7 +57,7 @@ mod seek_window;
 mod task;
 
 pub use builder::PrefetcherBuilder;
-use cursor::Cursor;
+pub use cursor::{Cursor, CursorId};
 use part::PartOperationError;
 use part_stream::{PartStream, RequestRange, RequestTaskConfig};
 
@@ -67,24 +67,6 @@ pub struct HandleId(u64);
 
 impl HandleId {
     pub fn new(id: u64) -> Self {
-        Self(id)
-    }
-
-    pub fn as_raw(&self) -> u64 {
-        self.0
-    }
-}
-
-/// Opaque identifier for a single prefetch request (i.e., one `BackpressureController` lifetime).
-/// Generated fresh on each `RequestTask` creation so that late `on_reserve` callbacks from a
-/// cancelled CRT meta-request cannot incorrectly decrement a re-created entry for the same handle.
-/// A cursor consists of a RequestTask and a SeekWindow
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CursorId(u64);
-
-impl CursorId {
-    /// Reconstruct a `CursorId` from a raw `u64` (e.g., from CRT `custom_id`).
-    pub fn new_from_raw(id: u64) -> Self {
         Self(id)
     }
 
@@ -427,7 +409,9 @@ where
             None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
         };
 
+        let cursor_id = self.mem_limiter.next_cursor_id();
         let config = RequestTaskConfig {
+            cursor_id,
             bucket: self.bucket.clone(),
             object_id: self.object_id.clone(),
             range,
@@ -439,6 +423,7 @@ where
         };
         let backpressure_task = self.part_stream.spawn_get_object_request(config);
         Ok(Cursor::new(
+            cursor_id,
             backpressure_task,
             &self.config,
             self.object_id.clone(),

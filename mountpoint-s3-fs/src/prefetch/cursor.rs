@@ -29,6 +29,7 @@ where
     sequential_read_start_offset: u64,
     next_sequential_read_offset: u64,
     object_id: ObjectId,
+    cursor_id: CursorId,
 }
 
 impl<Client> Cursor<Client>
@@ -36,12 +37,14 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     pub fn new(
+        cursor_id: CursorId,
         backpressure_task: RequestTask<Client>,
         config: &PrefetcherConfig,
         object_id: ObjectId,
         offset: u64,
     ) -> Self {
         Self {
+            cursor_id,
             backpressure_task,
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
             max_forward_seek_wait_distance: config.max_forward_seek_wait_distance,
@@ -64,6 +67,7 @@ where
         if remaining == 0 {
             return Ok((ChecksummedBytes::default(), false));
         }
+
         let mut to_read = (length as u64).min(remaining);
         let mut all_parts_from_cache = true;
         let mut response = ChecksummedBytes::default();
@@ -169,5 +173,20 @@ where
     fn drop(&mut self) {
         histogram!("prefetch.contiguous_read_len")
             .record((self.next_sequential_read_offset - self.sequential_read_start_offset) as f64);
+    }
+}
+
+/// Opaque identifier for a cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CursorId(u64);
+
+impl CursorId {
+    /// Reconstruct a `CursorId` from a raw `u64` (e.g., from CRT `custom_id`).
+    pub fn new_from_raw(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn as_raw(&self) -> u64 {
+        self.0
     }
 }
