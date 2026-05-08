@@ -1176,10 +1176,8 @@ mod tests {
         let key = "hello";
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
-        // Use a pool with a very low memory limit (MINIMUM_MEM_LIMIT is the lowest allowed)
-        // to simulate memory pressure. The pool's limiter will report 0 available memory
-        // after accounting for the reserved overhead.
-        let pool = PagedPool::new_with_candidate_sizes([32], MINIMUM_MEM_LIMIT);
+        // Use a pool with 0 memory limit to simulate memory pressure.
+        let pool = PagedPool::new_with_candidate_sizes([32], 0);
 
         let uploader = Uploader::new(
             client.clone(),

@@ -123,9 +123,6 @@ impl ConfigOptions {
         if let Some(gid) = self.gid {
             fs_config.uid = gid;
         }
-        if let Some(memory_limit_bytes) = self.memory_limit_bytes {
-            fs_config.mem_limit = memory_limit_bytes;
-        }
         // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
         // trading-off latency for throughput and more accurate memory limiting.
         fs_config.prefetcher_config.initial_request_size = 0;
@@ -310,7 +307,10 @@ fn mount_filesystem(
 
     // Create the client and runtime
     let client_config = config.build_client_config()?;
-    let pool = PagedPool::new_with_candidate_sizes_unlimited([client_config.part_config.read_size_bytes]);
+    let mem_limit = config
+        .memory_limit_bytes
+        .unwrap_or(mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT);
+    let pool = PagedPool::new_with_candidate_sizes([client_config.part_config.read_size_bytes], mem_limit);
     let client = client_config
         .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;

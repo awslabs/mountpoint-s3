@@ -3,7 +3,6 @@ use std::time::Duration;
 use nix::unistd::{getgid, getuid};
 
 use crate::content_type::ContentTypeDetection;
-use crate::memory::MINIMUM_MEM_LIMIT;
 use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
@@ -40,8 +39,6 @@ pub struct S3FilesystemConfig {
     pub server_side_encryption: ServerSideEncryption,
     /// Use additional checksums for uploads
     pub use_upload_checksums: bool,
-    /// Memory limit
-    pub mem_limit: u64,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
     /// Content type inference mode for uploaded objects
@@ -73,7 +70,6 @@ impl Default for S3FilesystemConfig {
             server_side_encryption: Default::default(),
             use_upload_checksums: true,
             content_type_detection: ContentTypeDetection::Disabled,
-            mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,
         }

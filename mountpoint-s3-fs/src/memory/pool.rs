@@ -110,6 +110,15 @@ impl PagedPool {
         Self::new_with_candidate_sizes(buffer_sizes, u64::MAX)
     }
 
+    /// Create a pool with the minimum memory limit ([MINIMUM_MEM_LIMIT]).
+    ///
+    /// This is a convenience for tests and examples that need a functioning memory limiter
+    /// but don't need a specific memory target.
+    pub fn new_with_candidate_sizes_minimally_limited(buffer_sizes: impl Into<Vec<usize>>) -> Self {
+        use super::limiter::MINIMUM_MEM_LIMIT;
+        Self::new_with_candidate_sizes(buffer_sizes, MINIMUM_MEM_LIMIT)
+    }
+
     /// Trim empty pages in the pool.
     pub fn trim(&self) -> bool {
         self.inner.trim()

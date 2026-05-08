@@ -542,7 +542,6 @@ impl CliArgs {
         filesystem_config.s3_personality = s3_personality;
         filesystem_config.server_side_encryption = sse;
         filesystem_config.cache_config = self.cache_config();
-        filesystem_config.mem_limit = self.mem_limit();
         filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
         filesystem_config.content_type_detection = if self.infer_content_type {
             ContentTypeDetection::Auto
