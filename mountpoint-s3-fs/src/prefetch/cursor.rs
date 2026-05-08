@@ -99,10 +99,16 @@ where
 
         if !self.try_seek(offset).await? {
             // Seek failed
+            trace!(
+                expected = self.current_offset,
+                actual = offset,
+                "out-of-order read, resetting prefetch"
+            );
+            counter!(PREFETCH_RESET_STATE).increment(1);
             return Ok(None);
         }
 
-        Ok(Some(self.read(length).await?))
+        Ok(Some(self.do_read(length).await?))
     }
 
     async fn do_read(
@@ -149,22 +155,10 @@ where
         }
 
         trace!(from = self.current_offset, to = offset, "trying to seek");
-        let result = if offset > self.current_offset {
+        if offset > self.current_offset {
             self.try_seek_forward(offset).await
         } else {
             self.try_seek_backward(offset).await
-        };
-
-        if result? {
-            Ok(true)
-        } else {
-            trace!(
-                expected = self.current_offset,
-                actual = offset,
-                "out-of-order read, resetting prefetch"
-            );
-            counter!(PREFETCH_RESET_STATE).increment(1);
-            Ok(false)
         }
     }
 

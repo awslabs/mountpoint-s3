@@ -94,7 +94,7 @@ trigger_metrics() {
   dd if=/dev/urandom of="${test_file}" bs=128k count=500 2>/dev/null
   sync
   {
-    for skip in {1..8} {490..500}; do
+    for skip in 0 10 100 500; do
       dd bs=128k skip=$skip count=1 iflag=direct 2>/dev/null || true
     done
   } < "${test_file}" > /dev/null
