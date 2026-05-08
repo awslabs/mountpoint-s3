@@ -7,7 +7,6 @@ use crate::sync::Arc;
 
 use super::pages::PagedBufferPtr;
 use super::stats::{BufferKind, PoolStats};
-use crate::prefetch::CursorId;
 
 /// A buffer backed by the pool.
 ///
@@ -34,11 +33,11 @@ impl PoolBuffer {
     pub(super) fn new_secondary(
         size: usize,
         kind: BufferKind,
-        cursor_id: Option<CursorId>,
+        custom_id: Option<u64>,
         stats: Arc<PoolStats>,
     ) -> Self {
         Self(PoolBufferInner::Secondary(FreeBuffer::new(
-            size, kind, cursor_id, stats,
+            size, kind, custom_id, stats,
         )))
     }
 
@@ -178,20 +177,29 @@ impl AsMut<[u8]> for PoolBufferMut {
 struct FreeBuffer {
     data: Box<[u8]>,
     kind: BufferKind,
+    /// Opaque caller-supplied identifier associated with this buffer at reserve time.
+    /// Forwarded to the pool's on-release callback on drop so upper layers can match
+    /// the release to the owning request. See [super::stats::OnReserveCallback].
+    custom_id: Option<u64>,
     stats: Arc<PoolStats>,
 }
 
 impl FreeBuffer {
-    fn new(size: usize, kind: BufferKind, cursor_id: Option<CursorId>, stats: Arc<PoolStats>) -> Self {
+    fn new(size: usize, kind: BufferKind, custom_id: Option<u64>, stats: Arc<PoolStats>) -> Self {
         let data = vec![0u8; size].into_boxed_slice();
-        stats.reserve_bytes(data.len(), kind, cursor_id);
-        Self { data, kind, stats }
+        stats.reserve_bytes(data.len(), kind, custom_id);
+        Self {
+            data,
+            kind,
+            custom_id,
+            stats,
+        }
     }
 }
 
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
-        self.stats.release_bytes(self.data.len(), self.kind);
+        self.stats.release_bytes(self.data.len(), self.kind, self.custom_id);
     }
 }
 

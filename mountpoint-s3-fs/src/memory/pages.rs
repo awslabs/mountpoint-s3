@@ -3,7 +3,6 @@ use std::alloc::{self, Layout};
 use crate::sync::{Arc, Mutex};
 
 use super::stats::{BufferKind, SizePoolStats};
-use crate::prefetch::CursorId;
 
 /// Page in a size pool.
 ///
@@ -79,14 +78,14 @@ impl Page {
     /// Try to reserve a buffer from this page.
     ///
     /// Returns [None] if the page is already full.
-    pub fn try_reserve(&self, kind: BufferKind, cursor_id: Option<CursorId>) -> Option<PagedBufferPtr> {
+    pub fn try_reserve(&self, kind: BufferKind, custom_id: Option<u64>) -> Option<PagedBufferPtr> {
         let (index, page_status) = consume(&mut self.inner.reserved_bitmask.lock().unwrap())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
             self.inner.stats.remove_empty_page();
         };
 
-        self.inner.stats.add_reserved_buffer(kind, cursor_id);
+        self.inner.stats.add_reserved_buffer(kind, custom_id);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
         let ptr = unsafe { self.inner.bytes.add(offset) };
@@ -94,11 +93,12 @@ impl Page {
             ptr,
             pool_page: self.clone(),
             kind,
+            custom_id,
         })
     }
 
     /// Release a buffer back to this page.
-    fn release(&self, ptr: *mut u8, kind: BufferKind) {
+    fn release(&self, ptr: *mut u8, kind: BufferKind, custom_id: Option<u64>) {
         assert!(
             ptr >= self.inner.bytes && ptr <= self.inner.last_buffer,
             "the pointer does not belong to this page"
@@ -111,7 +111,7 @@ impl Page {
         let mut bitmask = self.inner.reserved_bitmask.lock().unwrap();
         *bitmask &= mask;
 
-        self.inner.stats.remove_reserved_buffer(kind);
+        self.inner.stats.remove_reserved_buffer(kind, custom_id);
         if *bitmask == 0 {
             self.inner.stats.add_empty_page();
         }
@@ -184,6 +184,10 @@ pub(super) struct PagedBufferPtr {
     ptr: *mut u8,
     pool_page: Page,
     kind: BufferKind,
+    /// Opaque caller-supplied identifier associated with this buffer at reserve time.
+    /// Forwarded to the pool's on-release callback on drop so upper layers can match
+    /// the release to the owning request. See [super::stats::OnReserveCallback].
+    custom_id: Option<u64>,
 }
 
 // SAFETY: access to the buffer and release back to the pool page on drop can be performed from another thread.
@@ -191,7 +195,7 @@ unsafe impl Send for PagedBufferPtr {}
 
 impl Drop for PagedBufferPtr {
     fn drop(&mut self) {
-        self.pool_page.release(self.ptr, self.kind);
+        self.pool_page.release(self.ptr, self.kind, self.custom_id);
     }
 }
 

@@ -12,6 +12,7 @@ use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
+use crate::prefetch::HandleId;
 
 use super::UploadError;
 
@@ -38,6 +39,7 @@ pub struct UploadRequestParams {
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub storage_class: Option<String>,
     pub content_type_detection: ContentTypeDetection,
+    pub handle_id: HandleId,
 }
 
 impl<Client> UploadRequest<Client>
@@ -77,6 +79,7 @@ where
         let (sse_type, key_id) = params.server_side_encryption.clone().into_inner()?;
         put_object_params = put_object_params.server_side_encryption(sse_type);
         put_object_params = put_object_params.ssekms_key_id(key_id);
+        put_object_params = put_object_params.custom_id(Some(params.handle_id.as_raw()));
 
         let put_bucket = params.bucket.to_owned();
         let put_key = params.key.to_owned();
@@ -234,7 +237,7 @@ mod tests {
         let buffer_size = client.write_part_size();
         let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT, client.write_part_size() as u64);
         Uploader::new(
             client,
             runtime,
@@ -255,7 +258,7 @@ mod tests {
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+        let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1)).unwrap();
 
         _ = request.write(0, &[]).await.unwrap();
 
@@ -283,7 +286,7 @@ mod tests {
             true,
         );
 
-        let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+        let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1)).unwrap();
 
         let data = b"foo";
         let mut offset = 0;
@@ -331,7 +334,7 @@ mod tests {
 
         // First request fails on first write.
         {
-            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1)).unwrap();
 
             let data = b"foo";
             request.write(0, data).await.expect_err("first write should fail");
@@ -341,7 +344,7 @@ mod tests {
 
         // Second request fails on complete (after one write).
         {
-            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1)).unwrap();
 
             let data = b"foo";
             _ = request.write(0, data).await.unwrap();
@@ -353,7 +356,7 @@ mod tests {
 
         // Third request fails on first write (because CreateMPU returns an error).
         {
-            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1)).unwrap();
 
             let data = b"foo";
             request.write(0, data).await.expect_err("first write should fail");
@@ -384,7 +387,7 @@ mod tests {
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(PART_SIZE).build());
         let uploader = new_uploader_for_test(client.clone(), None, ServerSideEncryption::default(), true);
-        let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+        let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1)).unwrap();
 
         let successful_writes = PART_SIZE * MAX_S3_MULTIPART_UPLOAD_PARTS / write_size;
         let data = vec![0xaa; write_size];
@@ -423,7 +426,7 @@ mod tests {
             .server_side_encryption
             .corrupt_data(sse_type_corrupted.map(String::from), key_id_corrupted.map(String::from));
         let err = uploader
-            .start_atomic_upload("bucket".to_owned(), "hello".to_owned())
+            .start_atomic_upload("bucket".to_owned(), "hello".to_owned(), HandleId::new(1))
             .expect_err("sse checksum must be checked");
         assert!(matches!(
             err,
@@ -445,7 +448,7 @@ mod tests {
             true,
         );
         uploader
-            .start_atomic_upload(bucket.to_owned(), key.to_owned())
+            .start_atomic_upload(bucket.to_owned(), key.to_owned(), HandleId::new(1))
             .expect("put with sse should succeed");
     }
 }

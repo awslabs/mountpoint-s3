@@ -98,7 +98,7 @@ async fn upload_test_object(
 ) -> Result<(), ObjectGenerationError> {
     let mut request = executor
         .uploader
-        .start_atomic_upload(bucket.to_string(), key.to_string())
+        .start_atomic_upload(bucket.to_string(), key.to_string(), executor.next_handle_id())
         .map_err(|e| ObjectGenerationError::Upload {
             key: key.to_string(),
             reason: format!("Failed to start upload: {}", e),

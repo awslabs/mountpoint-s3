@@ -103,6 +103,7 @@ where
                         full_key.into(),
                         current_offset,
                         initial_etag.clone(),
+                        HandleId::new(fh),
                     );
                     UploadState::AppendInProgress {
                         request,
@@ -112,7 +113,7 @@ where
                 } else {
                     let request = fs
                         .uploader
-                        .start_atomic_upload(bucket.to_string(), full_key.into())
+                        .start_atomic_upload(bucket.to_string(), full_key.into(), HandleId::new(fh))
                         .map_err(|e| err!(libc::EIO, source:e, "put failed to start"))?;
                     UploadState::MPUInProgress { request }
                 };
@@ -228,6 +229,7 @@ where
                     handle.location.full_key().to_string(),
                     current_offset,
                     initial_etag.clone(),
+                    HandleId::new(fh),
                 );
                 *self = UploadState::AppendInProgress {
                     request,

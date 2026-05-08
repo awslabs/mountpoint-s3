@@ -11,6 +11,7 @@ use crate::content_type::ContentTypeDetection;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
+use crate::prefetch::HandleId;
 use crate::sync::Arc;
 
 mod atomic;
@@ -160,6 +161,7 @@ where
         &self,
         bucket: String,
         key: String,
+        handle_id: HandleId,
     ) -> Result<UploadRequest<Client>, UploadError<Client::ClientError>> {
         let params = UploadRequestParams {
             bucket,
@@ -168,6 +170,7 @@ where
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             storage_class: self.storage_class.clone(),
             content_type_detection: self.content_type_detection,
+            handle_id,
         };
         UploadRequest::new(&self.runtime, self.client.clone(), params)
     }
@@ -179,6 +182,7 @@ where
         key: String,
         initial_offset: u64,
         initial_etag: Option<ETag>,
+        handle_id: HandleId,
     ) -> AppendUploadRequest<Client> {
         // Limit the queue capacity to hold buffers for a total of at most
         // MAX_BYTES_IN_QUEUE, but ensure it allows at least 1 buffer.
@@ -200,6 +204,7 @@ where
             self.pool.clone(),
             self.mem_limiter.clone(),
             params,
+            handle_id,
         )
     }
 

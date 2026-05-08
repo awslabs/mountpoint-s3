@@ -170,7 +170,11 @@ fn main() -> anyhow::Result<()> {
     let pool = PagedPool::new_with_candidate_sizes([args.part_size.unwrap_or(8 * 1024 * 1024) as usize]);
     let client_config = args.s3_client_config().memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
-    let mem_limiter = Arc::new(MemoryLimiter::new(pool, args.memory_target_in_bytes()));
+    let mem_limiter = Arc::new(MemoryLimiter::new(
+        pool,
+        args.memory_target_in_bytes(),
+        client.write_part_size() as u64,
+    ));
     let runtime = Runtime::new(client.event_loop_group());
 
     // Verify if all objects exist and collect metadata

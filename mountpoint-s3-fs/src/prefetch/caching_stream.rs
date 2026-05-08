@@ -470,7 +470,7 @@ mod tests {
                 .build(),
         );
         let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT, 8 * 1024 * 1024));
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -553,7 +553,7 @@ mod tests {
                 .build(),
         );
         let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT, 8 * 1024 * 1024));
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());

@@ -3,11 +3,19 @@ use std::sync::OnceLock;
 
 use mountpoint_s3_client::config::MetaRequestType;
 
-use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
-type OnReserveCallback = Arc<dyn Fn(usize, Option<CursorId>) + Send + Sync>;
+/// Callback invoked whenever bytes are reserved in the pool.
+///
+/// The `custom_id` is an opaque caller-supplied identifier. The pool is domain-agnostic:
+/// upper layers (e.g. the `MemoryLimiter`) route this value by [BufferKind] to decide
+/// whether it represents a read-side cursor id, an upload-side handle id, or something else.
+pub type OnReserveCallback = Arc<dyn Fn(usize, BufferKind, Option<u64>) + Send + Sync>;
+
+/// Callback invoked whenever bytes are released back to the pool. Symmetric to
+/// [OnReserveCallback]; see its documentation for details on `custom_id`.
+pub type OnReleaseCallback = Arc<dyn Fn(usize, BufferKind, Option<u64>) + Send + Sync>;
 
 /// Usage stats for a pool.
 #[derive(Default)]
@@ -15,6 +23,8 @@ pub struct PoolStats {
     reserved_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
     /// Optional callback invoked whenever bytes are reserved in the pool.
     on_reserve: OnceLock<OnReserveCallback>,
+    /// Optional callback invoked whenever bytes are released back to the pool.
+    on_release: OnceLock<OnReleaseCallback>,
 }
 
 impl std::fmt::Debug for PoolStats {
@@ -22,6 +32,7 @@ impl std::fmt::Debug for PoolStats {
         f.debug_struct("PoolStats")
             .field("reserved_bytes", &self.reserved_bytes)
             .field("on_reserve", &self.on_reserve.get().map(|_| "<callback>"))
+            .field("on_release", &self.on_release.get().map(|_| "<callback>"))
             .finish()
     }
 }
@@ -39,16 +50,26 @@ impl PoolStats {
         let _ = self.on_reserve.set(callback);
     }
 
-    pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind, cursor_id: Option<CursorId>) {
+    pub fn set_on_release(&self, callback: OnReleaseCallback) {
+        let _ = self.on_release.set(callback);
+    }
+
+    pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind, custom_id: Option<u64>) {
         self.reserved_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
         if let Some(cb) = self.on_reserve.get() {
-            cb(bytes, cursor_id);
+            cb(bytes, kind, custom_id);
         }
         metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).increment(bytes as f64);
     }
 
-    pub(super) fn release_bytes(&self, bytes: usize, kind: BufferKind) {
+    /// Release bytes back to the pool. The atomic counter is decremented first so that any
+    /// observer (e.g. the `MemoryLimiter` pruning engine) polling pool state immediately after
+    /// the callback fires sees a value consistent with the post-release world.
+    pub(super) fn release_bytes(&self, bytes: usize, kind: BufferKind, custom_id: Option<u64>) {
         self.reserved_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
+        if let Some(cb) = self.on_release.get() {
+            cb(bytes, kind, custom_id);
+        }
         metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).decrement(bytes as f64);
     }
 }
@@ -91,14 +112,14 @@ impl SizePoolStats {
         self.reserved_buffers[kind].load(Ordering::SeqCst)
     }
 
-    pub(super) fn add_reserved_buffer(&self, kind: BufferKind, cursor_id: Option<CursorId>) {
+    pub(super) fn add_reserved_buffer(&self, kind: BufferKind, custom_id: Option<u64>) {
         self.reserved_buffers[kind].fetch_add(1, Ordering::SeqCst);
-        self.pool_stats.reserve_bytes(self.buffer_size, kind, cursor_id);
+        self.pool_stats.reserve_bytes(self.buffer_size, kind, custom_id);
     }
 
-    pub(super) fn remove_reserved_buffer(&self, kind: BufferKind) {
+    pub(super) fn remove_reserved_buffer(&self, kind: BufferKind, custom_id: Option<u64>) {
         self.reserved_buffers[kind].fetch_sub(1, Ordering::SeqCst);
-        self.pool_stats.release_bytes(self.buffer_size, kind);
+        self.pool_stats.release_bytes(self.buffer_size, kind, custom_id);
     }
 }
 

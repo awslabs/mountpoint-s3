@@ -5,7 +5,7 @@ use humansize::make_format;
 use sysinfo::System;
 use tracing::{debug, trace};
 
-use crate::memory::PagedPool;
+use crate::memory::{BufferKind, PagedPool};
 use crate::prefetch::{CursorId, HandleId};
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
@@ -85,6 +85,8 @@ impl Drop for ActiveReadGuard {
 #[derive(Debug)]
 pub struct MemoryLimiter {
     mem_limit: u64,
+    /// Size of a single upload part buffer in bytes.
+    write_part_size: u64,
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
     /// Per-cursor reservation tracking. Keyed by CursorId (unique per BackpressureController
@@ -101,10 +103,20 @@ pub struct MemoryLimiter {
     /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
     /// the requested range is stored here. Absence means the handle is speculative.
     active_reads: DashMap<HandleId, ActiveRead>,
+    /// Per-handle bytes currently held in the pool for upload-kind buffers
+    /// (`BufferKind::PutObject` and `BufferKind::Append`). Populated and maintained by the
+    /// pool's `on_reserve` / `on_release` callbacks, routed by `BufferKind` at the limiter.
+    ///
+    /// `.len()` is the number of open upload handles holding pool buffers —
+    /// brief, self-healing imprecision is tolerated: a reserve racing with a release-to-zero
+    /// may orphan an entry (undercount by 1 until next release), and mid-callback windows
+    /// can momentarily desync the map from pool stats.
+    #[allow(dead_code)]
+    upload_bytes_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>>,
 }
 
 impl MemoryLimiter {
-    pub fn new(pool: PagedPool, mem_limit: u64) -> Self {
+    pub fn new(pool: PagedPool, mem_limit: u64, write_part_size: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -114,21 +126,55 @@ impl MemoryLimiter {
             formatter(additional_mem_reserved)
         );
         let mem_reserved = Arc::new(AtomicU64::new(0));
-        let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
         let mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
+        let upload_bytes_per_handle: Arc<DashMap<HandleId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
+
+        let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
         let mem_reserved_per_cursor_cb = mem_reserved_per_cursor.clone();
-        pool.set_on_reserve(Arc::new(move |bytes, cursor_id| {
-            Self::on_pool_reserve(bytes, cursor_id, &mem_reserved_cb, &mem_reserved_per_cursor_cb);
+        let upload_bytes_per_handle_cb = upload_bytes_per_handle.clone();
+        pool.set_on_reserve(Arc::new(move |bytes, kind, custom_id| {
+            match kind {
+                BufferKind::GetObject => {
+                    let cursor_id = custom_id.map(CursorId::new_from_raw);
+                    Self::on_pool_reserve(bytes, cursor_id, &mem_reserved_cb, &mem_reserved_per_cursor_cb);
+                }
+                BufferKind::PutObject | BufferKind::Append => {
+                    if let Some(id) = custom_id {
+                        Self::on_upload_reserve(bytes, HandleId::new(id), &upload_bytes_per_handle_cb);
+                    }
+                }
+                BufferKind::DiskCache | BufferKind::Other => {}
+            }
         }));
+
+        let upload_bytes_per_handle_rel_cb = upload_bytes_per_handle.clone();
+        pool.set_on_release(Arc::new(move |bytes, kind, custom_id| {
+            match kind {
+                BufferKind::PutObject | BufferKind::Append => {
+                    if let Some(id) = custom_id {
+                        Self::on_upload_release(bytes, HandleId::new(id), &upload_bytes_per_handle_rel_cb);
+                    }
+                }
+                BufferKind::GetObject | BufferKind::DiskCache | BufferKind::Other => {}
+            }
+        }));
+
         Self {
             pool,
             mem_limit,
+            write_part_size,
             mem_reserved,
             mem_reserved_per_cursor,
             next_cursor_id: AtomicU64::new(1),
             additional_mem_reserved,
             active_reads: DashMap::new(),
+            upload_bytes_per_handle,
         }
+    }
+
+    /// The upload part size (in bytes).
+    pub fn write_part_size(&self) -> u64 {
+        self.write_part_size
     }
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
@@ -262,6 +308,48 @@ impl MemoryLimiter {
         mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
+    /// Called by the pool on every buffer allocation for `BufferKind::PutObject` or
+    /// `BufferKind::Append` that carries a handle id. Increments this handle's entry in
+    /// `upload_bytes_per_handle` (creating one if needed).
+    fn on_upload_reserve(
+        bytes: usize,
+        handle_id: HandleId,
+        upload_bytes_per_handle: &DashMap<HandleId, Arc<AtomicU64>>,
+    ) {
+        upload_bytes_per_handle
+            .entry(handle_id)
+            .or_default()
+            .fetch_add(bytes as u64, Ordering::SeqCst);
+    }
+
+    /// Called by the pool on every buffer release for `BufferKind::PutObject` or
+    /// `BufferKind::Append` that carries a handle id. Saturating-decrements this handle's
+    /// entry. When the entry reaches 0, atomically removes it so `map.len()` reflects
+    /// only handles that currently hold at least one upload buffer.
+    fn on_upload_release(
+        bytes: usize,
+        handle_id: HandleId,
+        upload_bytes_per_handle: &DashMap<HandleId, Arc<AtomicU64>>,
+    ) {
+        // Clone the Arc to release the DashMap shard lock before doing atomic operations.
+        let Some(entry) = upload_bytes_per_handle.get(&handle_id).map(|r| r.value().clone()) else {
+            return;
+        };
+        let mut current = entry.load(Ordering::SeqCst);
+        let new_val = loop {
+            let new_val = current.saturating_sub(bytes as u64);
+            match entry.compare_exchange_weak(current, new_val, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => break new_val,
+                Err(actual) => current = actual,
+            }
+        };
+        if new_val == 0 {
+            // Atomically remove only if still at 0: guards against a concurrent reserve that
+            // raced in between our decrement-to-zero and this remove.
+            upload_bytes_per_handle.remove_if(&handle_id, |_, v| v.load(Ordering::SeqCst) == 0);
+        }
+    }
+
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
     fn pool_mem_reserved(&self) -> u64 {
         // All pool buffer kinds are accounted for here.
@@ -286,14 +374,17 @@ mod tests {
     use super::*;
     use crate::memory::{BufferKind, PagedPool};
 
+    /// Default part size used by test helpers.
+    const TEST_WRITE_PART_SIZE: u64 = 8 * 1024 * 1024;
+
     fn new_limiter() -> Arc<MemoryLimiter> {
         let pool = PagedPool::new_with_candidate_sizes([1024]);
-        Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT))
+        Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT, TEST_WRITE_PART_SIZE))
     }
 
     fn new_limiter_with_pool(buffer_size: usize, mem_limit: u64) -> (Arc<MemoryLimiter>, PagedPool) {
         let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
-        let limiter = Arc::new(MemoryLimiter::new(pool.clone(), mem_limit));
+        let limiter = Arc::new(MemoryLimiter::new(pool.clone(), mem_limit, TEST_WRITE_PART_SIZE));
         (limiter, pool)
     }
 
@@ -320,7 +411,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // Pool allocation triggers on_reserve callback, decrementing mem_reserved
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor.as_raw()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
@@ -334,7 +425,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 2048);
 
         // Pool allocates 1024 — callback decrements both global and per-cursor
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor.as_raw()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // release_cursor releases the remaining per-cursor balance (2048 - 1024 = 1024)
@@ -404,7 +495,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // Late allocation for the cancelled request — cursor is gone
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor.as_raw()));
 
         // mem_reserved should stay at 0, not go negative or wrap
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
@@ -423,7 +514,7 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 512);
 
         // Pool allocates 1024 — callback should saturate at 512 (not underflow)
-        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
+        let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor.as_raw()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // release_cursor should subtract 0 (the per-cursor counter is already 0)
@@ -444,7 +535,7 @@ mod tests {
 
         // Pool allocates (on_reserve converts intent to pool stats) — available stays the same
         // because mem_reserved decreases by 1024 while pool stats increase by 1024.
-        let buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
+        let buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor.as_raw()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
         assert_eq!(limiter.available_mem(), initial_available - 1024);
 

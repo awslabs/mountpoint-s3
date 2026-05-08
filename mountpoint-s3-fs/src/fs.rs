@@ -150,7 +150,11 @@ where
     ) -> Self {
         trace!(?config, "new filesystem");
 
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), config.mem_limit));
+        let mem_limiter = Arc::new(MemoryLimiter::new(
+            pool.clone(),
+            config.mem_limit,
+            client.write_part_size() as u64,
+        ));
         let prefetcher = prefetch_builder.build(runtime.clone(), mem_limiter.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),

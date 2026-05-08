@@ -7,6 +7,7 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::prefetch::HandleId;
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use tracing_subscriber::EnvFilter;
@@ -113,7 +114,11 @@ fn main() {
             // Default to 95% of total system memory (cgroup-aware)
             (effective_total_memory() as f64 * 0.95) as u64
         };
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), max_memory_target));
+        let mem_limiter = Arc::new(MemoryLimiter::new(
+            pool.clone(),
+            max_memory_target,
+            args.write_part_size as u64,
+        ));
 
         let buffer_size = args.write_part_size;
         let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
@@ -165,7 +170,9 @@ where
 
     let bucket = args.bucket.clone();
     let key = args.key.clone();
-    let mut upload_request = uploader.start_atomic_upload(bucket, key).unwrap();
+    let mut upload_request = uploader
+        .start_atomic_upload(bucket, key, HandleId::new(iteration as u64))
+        .unwrap();
 
     let mut total_bytes_written = 0;
     let target_size = args.object_size;
@@ -198,7 +205,13 @@ where
 
     let bucket = args.bucket.clone();
     let key = args.key.clone();
-    let mut upload_request = uploader.start_incremental_upload(bucket.clone(), key.clone(), 0, None);
+    let mut upload_request = uploader.start_incremental_upload(
+        bucket.clone(),
+        key.clone(),
+        0,
+        None,
+        HandleId::new(iteration as u64),
+    );
 
     let mut total_bytes_written = 0;
     let target_size = args.object_size;

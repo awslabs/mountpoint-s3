@@ -39,7 +39,7 @@ pub struct Executor {
     pub client: S3CrtClient,
     pub uploader: Uploader<S3CrtClient>,
     prefetcher: Prefetcher<S3CrtClient>,
-    next_handle_id: AtomicU64,
+    next_handle_counter: AtomicU64,
 }
 
 impl Executor {
@@ -95,7 +95,11 @@ impl Executor {
             .map_err(|e| ExecutionError::ResourceInitError(format!("Failed to create S3 client: {}", e)))?;
 
         let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), memory_target_bytes));
+        let mem_limiter = Arc::new(MemoryLimiter::new(
+            pool.clone(),
+            memory_target_bytes,
+            client.write_part_size() as u64,
+        ));
 
         let runtime = Runtime::new(client.event_loop_group());
 
@@ -118,8 +122,15 @@ impl Executor {
             client,
             uploader,
             prefetcher,
-            next_handle_id: AtomicU64::new(1),
+            next_handle_counter: AtomicU64::new(1),
         })
+    }
+
+    /// Generate a new unique [HandleId] for a fresh upload or prefetch request.
+    /// Used by benchmark code to avoid sharing a single id across uploads, which would
+    /// otherwise confuse per-handle buffer tracking in the memory limiter.
+    pub fn next_handle_id(&self) -> HandleId {
+        HandleId::new(self.next_handle_counter.fetch_add(1, Ordering::Relaxed))
     }
 
     pub async fn execute_read_job(&self, config: &ResolvedJobConfig) -> Result<JobResult, ExecutionError> {
@@ -154,7 +165,7 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
-        let handle_id = HandleId::new(self.next_handle_id.fetch_add(1, Ordering::Relaxed));
+        let handle_id = self.next_handle_id();
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -228,7 +239,7 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
-        let handle_id = HandleId::new(self.next_handle_id.fetch_add(1, Ordering::Relaxed));
+        let handle_id = self.next_handle_id();
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -342,7 +353,7 @@ impl Executor {
         let object_key = &config.object_key;
 
         let mut request = uploader
-            .start_atomic_upload(bucket.to_string(), object_key.to_string())
+            .start_atomic_upload(bucket.to_string(), object_key.to_string(), self.next_handle_id())
             .map_err(|e| ErrorInfo {
                 error_type: "StartUploadError".to_string(),
                 message: format!("Failed to start upload: {}", e),
@@ -435,7 +446,13 @@ impl Executor {
         let bucket = &config.bucket;
         let object_key = &config.object_key;
 
-        let mut request = uploader.start_incremental_upload(bucket.to_string(), object_key.to_string(), 0, None);
+        let mut request = uploader.start_incremental_upload(
+            bucket.to_string(),
+            object_key.to_string(),
+            0,
+            None,
+            self.next_handle_id(),
+        );
 
         let mut offset = 0u64;
         let target_size = config.object_size;

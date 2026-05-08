@@ -18,6 +18,7 @@ use crate::async_util::Runtime;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
+use crate::prefetch::HandleId;
 use crate::sync::Arc;
 
 use super::hasher::ChecksumHasher;
@@ -65,9 +66,10 @@ where
         pool: PagedPool,
         mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
+        handle_id: HandleId,
     ) -> Self {
         let offset = params.initial_offset;
-        let upload_queue = AppendUploadQueue::new(runtime, client, pool, mem_limiter, params);
+        let upload_queue = AppendUploadQueue::new(runtime, client, pool, mem_limiter, params, handle_id);
         Self {
             buffer: None,
             upload_queue,
@@ -161,6 +163,7 @@ struct AppendUploadQueue<Client: ObjectClient> {
     event_receiver: Receiver<AppendUploadEvent<Client::ClientError>>,
     pool: PagedPool,
     mem_limiter: Arc<MemoryLimiter>,
+    handle_id: HandleId,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
     checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
@@ -180,6 +183,7 @@ where
         pool: PagedPool,
         mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
+        handle_id: HandleId,
     ) -> Self {
         assert!(params.capacity > 0, "append queue capacity must be greater than 0");
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
@@ -212,6 +216,7 @@ where
             checksum_algorithm: None,
             pool,
             mem_limiter,
+            handle_id,
             _task_handle: task_handle,
         }
     }
@@ -268,7 +273,13 @@ where
             }
         };
         while self.requests_in_queue > 0 {
-            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, &self.mem_limiter)? {
+            match UploadBuffer::try_new(
+                capacity,
+                &checksum_algorithm,
+                &self.pool,
+                &self.mem_limiter,
+                self.handle_id,
+            )? {
                 Some(buffer) => return Ok(buffer),
                 None => {
                     // wait for requests in the queue to complete before trying to reserve memory again
@@ -280,7 +291,12 @@ where
             }
         }
         // no more requests in the queue, so we force creating a new buffer
-        Ok(UploadBuffer::new(capacity, &checksum_algorithm, &self.pool)?)
+        Ok(UploadBuffer::new(
+            capacity,
+            &checksum_algorithm,
+            &self.pool,
+            self.handle_id,
+        )?)
     }
 
     /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
@@ -449,9 +465,10 @@ impl UploadBuffer {
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
         pool: &PagedPool,
+        handle_id: HandleId,
     ) -> Result<Self, ChecksumHasherError> {
         let hasher = ChecksumHasher::new(checksum_algorithm)?;
-        let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
+        let data = pool.get_buffer_mut(capacity, BufferKind::Append, Some(handle_id.as_raw()));
         Ok(Self { data, hasher })
     }
 
@@ -461,10 +478,11 @@ impl UploadBuffer {
         checksum_algorithm: &Option<ChecksumAlgorithm>,
         pool: &PagedPool,
         mem_limiter: &MemoryLimiter,
+        handle_id: HandleId,
     ) -> Result<Option<Self>, ChecksumHasherError> {
         if mem_limiter.available_mem() >= capacity as u64 {
             let hasher = ChecksumHasher::new(checksum_algorithm)?;
-            let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
+            let data = pool.get_buffer_mut(capacity, BufferKind::Append, Some(handle_id.as_raw()));
             Ok(Some(Self { data, hasher }))
         } else {
             Ok(None)
@@ -524,7 +542,7 @@ mod tests {
     {
         let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT, client.write_part_size() as u64);
         Uploader::new(
             client,
             runtime,
@@ -566,7 +584,7 @@ mod tests {
         let mut offset = existing_object.as_ref().map_or(0, |object| object.len() as u64);
         let initial_etag = existing_object.map(|object| object.etag());
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag, HandleId::new(1));
 
         // Write some data
         let append_data = [0xaa; 128];
@@ -636,7 +654,7 @@ mod tests {
         let mut offset = existing_object.as_ref().map_or(0, |object| object.len() as u64);
         let initial_etag = existing_object.map(|object| object.etag());
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag, HandleId::new(1));
 
         // Write some data and verify that buffer length should not grow larger than configured capacity
         let append_data = [0xaa; 384];
@@ -714,7 +732,7 @@ mod tests {
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, default_checksum_algorithm.clone());
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag);
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, initial_etag, HandleId::new(1));
 
         // Write some data
         let append_data = [0xaa; 384];
@@ -771,7 +789,7 @@ mod tests {
         let initial_offset = existing_object.as_ref().map_or(0, |object| object.len() as u64);
         let initial_etag = existing_object.map(|object| object.etag());
         let upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, initial_etag);
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, initial_etag, HandleId::new(1));
         // Wait for the upload to complete
         upload_request
             .complete()
@@ -804,7 +822,7 @@ mod tests {
         let initial_offset = (existing_object.len() - 1) as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag), HandleId::new(1));
 
         let append_data = [0xaa; 128];
         upload_request
@@ -846,7 +864,7 @@ mod tests {
         let initial_offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag), HandleId::new(1));
 
         // Write data more than the buffer capacity as the first append should succeed
         let append_data = [0xab; 384];
@@ -886,7 +904,7 @@ mod tests {
         let mut offset = (existing_object.len() - 1) as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag), HandleId::new(1));
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
@@ -948,7 +966,7 @@ mod tests {
         let mut offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag), HandleId::new(1));
 
         // Keep writing and it should fail eventually
         let mut write_success_count = 0;
@@ -1018,7 +1036,7 @@ mod tests {
         let mut offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, Some(initial_etag), HandleId::new(1));
 
         if !replace_before_start {
             // Replace the existing object
@@ -1077,7 +1095,7 @@ mod tests {
 
         let buffer_size = 256;
         let uploader = new_uploader_for_test(client.clone(), buffer_size, None, None);
-        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), 0, None);
+        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), 0, None, HandleId::new(1));
 
         // Write some data
         let append_data = [0xaa; 128];
@@ -1123,7 +1141,7 @@ mod tests {
         let initial_offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag), HandleId::new(1));
 
         let append_data = [0xaa; 128];
         upload_request
@@ -1158,7 +1176,7 @@ mod tests {
         let initial_offset = existing_object.len() as u64;
         let initial_etag = existing_object.etag();
         let mut upload_request =
-            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag));
+            uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), initial_offset, Some(initial_etag), HandleId::new(1));
 
         let append_data = [0xaa; 128];
         expected_content.extend_from_slice(&append_data);
@@ -1191,7 +1209,7 @@ mod tests {
         let pool = PagedPool::new_with_candidate_sizes([32]);
 
         // Use a memory limiter with 0 limit
-        let mem_limiter = MemoryLimiter::new(pool.clone(), 0);
+        let mem_limiter = MemoryLimiter::new(pool.clone(), 0, client.write_part_size() as u64);
         let uploader = Uploader::new(
             client.clone(),
             Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
@@ -1201,7 +1219,7 @@ mod tests {
         );
 
         let mut offset = 0;
-        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, None);
+        let mut upload_request = uploader.start_incremental_upload(bucket.to_owned(), key.to_owned(), offset, None, HandleId::new(1));
         let mut expected_content = Vec::new();
 
         // Write enough data to fill multiple parts

@@ -517,6 +517,7 @@ mod tests {
         let mem_limiter = Arc::new(MemoryLimiter::new(
             pool,
             backpressure_config.max_read_window_size as u64,
+            8 * 1024 * 1024,
         ));
         new_backpressure_controller(backpressure_config, mem_limiter.clone())
     }
