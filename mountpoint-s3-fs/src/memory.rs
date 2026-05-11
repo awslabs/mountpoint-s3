@@ -2,6 +2,7 @@ mod buffers;
 mod limiter;
 mod pages;
 mod pool;
+mod pruner;
 mod stats;
 
 pub use buffers::{PoolBuffer, PoolBufferMut};

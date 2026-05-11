@@ -197,6 +197,20 @@ impl PagedPool {
         &self.inner.limiter
     }
 
+    /// Internal access for the pruner module (sibling), used by pruner tests.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(super) fn inner(&self) -> &Arc<PagedPoolInner> {
+        &self.inner
+    }
+
+    /// Spawn the background pruning loop. Must be called once after construction,
+    /// at filesystem init.
+    #[allow(dead_code)]
+    pub fn spawn_pruning_loop(&self) {
+        super::pruner::spawn_pruning_loop(&self.inner);
+    }
+
     // ─── Delegation methods for MemoryLimiter ───────────────────────────────────
 
     /// Reserve memory for future uses. Always succeeds (unconditional).
@@ -253,13 +267,24 @@ impl MemoryPool for PagedPool {
 }
 
 #[derive(Debug)]
-struct PagedPoolInner {
+pub(super) struct PagedPoolInner {
     ordered_size_pools: Vec<SizePool>,
     stats: Arc<PoolStats>,
     limiter: MemoryLimiter,
 }
 
 impl PagedPoolInner {
+    /// Reference to the inner [`MemoryLimiter`] for sibling modules (e.g. the pruner).
+    pub(super) fn limiter(&self) -> &MemoryLimiter {
+        &self.limiter
+    }
+
+    /// Reserved bytes for the given buffer kind. Mirror of [`PagedPool::reserved_bytes`]
+    /// for sibling modules that hold a reference to the inner type.
+    pub(super) fn reserved_bytes(&self, kind: BufferKind) -> usize {
+        self.stats.reserved_bytes(kind)
+    }
+
     fn get_pool_for_size(&self, size: usize) -> Option<&SizePool> {
         if size == 0 {
             return None;
@@ -273,7 +298,7 @@ impl PagedPoolInner {
         Some(&self.ordered_size_pools[index])
     }
 
-    fn trim(&self) -> bool {
+    pub(super) fn trim(&self) -> bool {
         let mut removed = false;
         for pool in &self.ordered_size_pools {
             if pool.stats.empty_pages() == 0 {
