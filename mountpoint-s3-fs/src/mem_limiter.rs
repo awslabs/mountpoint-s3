@@ -6,7 +6,7 @@ use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::memory::PagedPool;
-use crate::prefetch::{CursorId, HandleId};
+use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
 
@@ -28,7 +28,7 @@ impl BufferArea {
     }
 }
 
-/// Describes an active FUSE read request for a specific file handle.
+/// Describes an active FUSE read request for a specific cursor.
 /// Used by the pruning logic to determine which buffers are high priority
 /// (actively being waited on by a user) vs. speculative (prefetched ahead).
 #[derive(Debug, Clone, Copy)]
@@ -48,16 +48,16 @@ impl ActiveRead {
     }
 }
 
-/// RAII guard that clears the active read for a handle when dropped.
+/// RAII guard that clears the active read for a cursor when dropped.
 /// Ensures the active read is always cleared, even on early returns or panics.
 pub struct ActiveReadGuard {
     mem_limiter: Arc<MemoryLimiter>,
-    handle_id: HandleId,
+    cursor_id: CursorId,
 }
 
 impl Drop for ActiveReadGuard {
     fn drop(&mut self) {
-        self.mem_limiter.clear_active_read(self.handle_id);
+        self.mem_limiter.clear_active_read(self.cursor_id);
     }
 }
 
@@ -68,16 +68,16 @@ impl Drop for ActiveReadGuard {
 ///
 /// Single instance of this struct is shared among all of the prefetchers (file handles) and uploaders.
 ///
-/// Each file handle makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` on the first
-/// `read()` call. This is accepted unconditionally since we want to allow any file handle to make
-/// progress even if that means going over the memory limit. Additional reservations for a file handle arise when the
+/// Each cursor makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` when
+/// it is created. This is accepted unconditionally since we want to allow any cursor to make
+/// progress even if that means going over the memory limit. Additional reservations for a cursor arise when the
 /// backpressure read window is incremented to fetch more data from underlying part streams. Those reservations may be
 /// rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
 /// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
-/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_cursor` will
+/// 2) the cursor is destroyed (`BackpressureController` will be dropped and `release_cursor` will
 ///    release any remaining unallocated reservation for that cursor).
 ///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
@@ -98,9 +98,9 @@ pub struct MemoryLimiter {
     /// Memory pool used by the S3 client and disk cache.
     /// We rely on the pool's stats to account for all buffer allocations (e.g. GetObject, DiskCache, PutObject buffers).
     pool: PagedPool,
-    /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
-    /// the requested range is stored here. Absence means the handle is speculative.
-    active_reads: DashMap<HandleId, ActiveRead>,
+    /// Per-cursor active read tracking. When a FUSE read is in progress for a cursor,
+    /// the requested range is stored here. Absence means the cursor is speculative.
+    active_reads: DashMap<CursorId, ActiveRead>,
 }
 
 impl MemoryLimiter {
@@ -202,23 +202,23 @@ impl MemoryLimiter {
 
     /// Record that a FUSE read is active for the given handle at the specified range.
     /// Returns a guard that will clear the active read when dropped.
-    pub fn set_active_read(self: &Arc<Self>, handle_id: HandleId, offset: u64, size: usize) -> ActiveReadGuard {
-        self.active_reads.insert(handle_id, ActiveRead { offset, size });
+    pub fn set_active_read(self: &Arc<Self>, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.active_reads.insert(cursor_id, ActiveRead { offset, size });
         ActiveReadGuard {
             mem_limiter: Arc::clone(self),
-            handle_id,
+            cursor_id,
         }
     }
 
     /// Clear the active read for the given handle (read completed or errored).
-    fn clear_active_read(&self, handle_id: HandleId) {
-        self.active_reads.remove(&handle_id);
+    fn clear_active_read(&self, cursor_id: CursorId) {
+        self.active_reads.remove(&cursor_id);
     }
 
     /// Check if the given handle has an active read overlapping the specified range.
-    pub fn has_active_read_in_range(&self, handle_id: HandleId, offset: u64, size: usize) -> bool {
+    pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         self.active_reads
-            .get(&handle_id)
+            .get(&cursor_id)
             .map(|r| r.overlaps(offset, size))
             .unwrap_or(false)
     }
@@ -475,23 +475,23 @@ mod tests {
     #[test]
     fn test_active_read_overlap_detection() {
         let limiter = new_limiter();
-        let handle = HandleId::new(1);
+        let cursor_id = CursorId::new_from_raw(1);
 
         // Active read at [1000, 5096)
-        let _guard = limiter.set_active_read(handle, 1000, 4096);
+        let _guard = limiter.set_active_read(cursor_id, 1000, 4096);
 
         // Overlapping ranges → true
-        assert!(limiter.has_active_read_in_range(handle, 1000, 4096)); // exact match
-        assert!(limiter.has_active_read_in_range(handle, 500, 1000)); // overlap from left
-        assert!(limiter.has_active_read_in_range(handle, 5000, 1000)); // overlap from right
-        assert!(limiter.has_active_read_in_range(handle, 2000, 100)); // contained
+        assert!(limiter.has_active_read_in_range(cursor_id, 1000, 4096)); // exact match
+        assert!(limiter.has_active_read_in_range(cursor_id, 500, 1000)); // overlap from left
+        assert!(limiter.has_active_read_in_range(cursor_id, 5000, 1000)); // overlap from right
+        assert!(limiter.has_active_read_in_range(cursor_id, 2000, 100)); // contained
 
         // Non-overlapping ranges → false
-        assert!(!limiter.has_active_read_in_range(handle, 0, 500)); // before
-        assert!(!limiter.has_active_read_in_range(handle, 5096, 1000)); // after
+        assert!(!limiter.has_active_read_in_range(cursor_id, 0, 500)); // before
+        assert!(!limiter.has_active_read_in_range(cursor_id, 5096, 1000)); // after
 
-        // Different handle → false
-        assert!(!limiter.has_active_read_in_range(HandleId::new(2), 1000, 4096));
+        // Different cursor_id → false
+        assert!(!limiter.has_active_read_in_range(CursorId::new_from_raw(2), 1000, 4096));
     }
 
     /// Simulates the allocation queue's perspective: one thread holds an active read
@@ -499,21 +499,21 @@ mod tests {
     #[test]
     fn test_query_active_read_from_another_thread() {
         let limiter = new_limiter();
-        let handle = HandleId::new(1);
+        let cursor_id = CursorId::new_from_raw(1);
 
-        let guard = limiter.set_active_read(handle, 1000, 4096);
+        let guard = limiter.set_active_read(cursor_id, 1000, 4096);
 
         let limiter_clone = Arc::clone(&limiter);
         let query_thread = std::thread::spawn(move || {
             // Allocation for the active range → high priority
-            assert!(limiter_clone.has_active_read_in_range(handle, 1000, 4096));
+            assert!(limiter_clone.has_active_read_in_range(cursor_id, 1000, 4096));
             // Allocation for a prefetch-ahead range → low priority
-            assert!(!limiter_clone.has_active_read_in_range(handle, 50000, 4096));
+            assert!(!limiter_clone.has_active_read_in_range(cursor_id, 50000, 4096));
         });
         query_thread.join().unwrap();
 
         drop(guard);
-        assert!(!limiter.has_active_read_in_range(handle, 1000, 4096));
+        assert!(!limiter.has_active_read_in_range(cursor_id, 1000, 4096));
     }
 
     /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a

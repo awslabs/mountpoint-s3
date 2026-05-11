@@ -35,6 +35,7 @@ pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static>
 #[derive(Clone, Debug)]
 /// The configs for spawning a task in [ObjectPartStream::spawn_get_object_request].
 pub struct RequestTaskConfig {
+    pub cursor_id: CursorId,
     pub bucket: String,
     pub object_id: ObjectId,
     pub range: RequestRange,
@@ -234,19 +235,13 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
 
         let range = config.range;
 
-        let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size(),
-            // We don't want to completely block the stream so let's use
-            // the read part size as minimum read window.
-            min_read_window_size: config.read_part_size,
-            max_read_window_size: config.max_read_window_size,
-            read_window_size_multiplier: config.read_window_size_multiplier,
-            request_range: range.into(),
-            read_window_alignment_config: ReadWindowAlignmentConfig::AlignToPartSize {
+        let backpressure_config = BackpressureConfig::new(
+            &config,
+            ReadWindowAlignmentConfig::AlignToPartSize {
                 from_offset: range.start() + config.initial_request_size as u64,
                 part_size: config.read_part_size as u64,
             },
-        };
+        );
         let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
