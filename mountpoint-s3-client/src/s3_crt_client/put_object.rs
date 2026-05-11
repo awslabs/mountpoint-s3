@@ -73,6 +73,9 @@ impl S3CrtClient {
             options.send_using_async_writes(true);
             options.on_upload_review(move |review| callback.invoke(review));
             options.part_size(self.inner.write_part_size as u64);
+            if let Some(id) = params.custom_id {
+                options.custom_id(id);
+            }
 
             let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
             let on_failure_sender = on_mpu_created_sender.clone();

@@ -2,14 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
-};
-use crate::s3::Prefix;
-use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::debug;
+
+use crate::metablock::{
+    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, PendingUploadHook, ROOT_INODE_NO,
+    ValidKey,
+};
+use crate::s3::Prefix;
+use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug, Clone)]
 pub struct Inode {
@@ -101,11 +103,6 @@ impl Inode {
         &self.inner.valid_key
     }
 
-    pub fn is_remote(&self) -> Result<bool, InodeError> {
-        let state = self.get_inode_state()?;
-        Ok(state.write_status == WriteStatus::Remote)
-    }
-
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
     pub fn get_inode_state(&self) -> Result<InodeLockedForReading<'_>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
@@ -162,6 +159,7 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
+                pending_upload_hook: None,
             },
         )
     }
@@ -191,6 +189,7 @@ impl Inode {
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
+            pending_upload_hook: None,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -245,6 +244,7 @@ pub struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
+    pub pending_upload_hook: Option<PendingUploadHook>,
 }
 
 impl InodeState {
@@ -253,6 +253,7 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
+            pending_upload_hook: None,
         }
     }
 }
@@ -294,11 +295,11 @@ impl InodeKindData {
 pub enum WriteStatus {
     /// Local inode created but not yet opened
     LocalUnopened,
-    /// Local inode already opened
-    LocalOpen,
-    /// Remote inode
+    /// Local inode currently opened for writing
+    LocalOpenForWriting,
+    /// Remote inode - already exists in S3 with internal state in sync with the S3 state
     Remote,
-    /// Pending rename for indoe
+    /// Originally remote inode now pending a rename (as the source or destination)
     PendingRename,
 }
 
@@ -342,6 +343,7 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
+                pending_upload_hook: None,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -484,6 +486,7 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
+                    pending_upload_hook: None,
                 }),
             }),
         };
@@ -538,9 +541,10 @@ mod tests {
                     .unwrap(),
                 checksum,
                 sync: RwLock::new(InodeState {
-                    write_status: WriteStatus::LocalOpen,
+                    write_status: WriteStatus::LocalOpenForWriting,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
+                    pending_upload_hook: None,
                 }),
             }),
         };

@@ -43,6 +43,10 @@ impl ErrorLogger for FileErrorLogger {
     fn error(&self, err: &crate::fs::Error, fuse_operation: &str, fuse_request_id: u64) {
         self.log_error(err, fuse_operation, fuse_request_id);
     }
+
+    fn event(&self, operation: &str, event_code: &str) {
+        self.log_event(operation, event_code);
+    }
 }
 
 impl FileErrorLogger {
@@ -70,20 +74,17 @@ impl FileErrorLogger {
         if error_code == MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT {
             return;
         }
-        let event = Event {
-            timestamp: OffsetDateTime::now_utc(),
-            operation: fuse_operation.to_string(),
-            fuse_request_id: Some(fuse_request_id),
-            error_code: error_code.to_string(),
-            errno: Some(error.errno),
-            internal_message: Some(format!("{error:#}")),
-            s3_object_key: error.meta().s3_object_key.clone(),
-            s3_bucket_name: error.meta().s3_bucket_name.clone(),
-            s3_error_http_status: error.meta().client_error_meta.http_code,
-            s3_error_code: error.meta().client_error_meta.error_code.clone(),
-            s3_error_message: error.meta().client_error_meta.error_message.clone(),
-            version: VERSION.to_string(),
-        };
+        let event = Event::new_error_event(error, fuse_operation, fuse_request_id, error_code);
+        self.event_sender
+            .as_ref()
+            .unwrap()
+            .send(event)
+            .expect("must be able to send an event");
+    }
+
+    /// Log an event with the given operation and code
+    fn log_event(&self, operation: &str, event_code: &str) {
+        let event = Event::new_simple_event(operation, event_code);
         self.event_sender
             .as_ref()
             .unwrap()
@@ -140,6 +141,44 @@ pub struct Event {
 }
 
 impl Event {
+    /// Creates a new simple event with just operation and event code
+    ///
+    /// Note: `event_code` is serialized as `error_code` because of the existing contract
+    pub fn new_simple_event(operation: &str, event_code: &str) -> Self {
+        Event {
+            timestamp: OffsetDateTime::now_utc(),
+            operation: operation.to_string(),
+            error_code: event_code.to_string(),
+            version: VERSION.to_string(),
+            fuse_request_id: None,
+            errno: None,
+            internal_message: None,
+            s3_object_key: None,
+            s3_bucket_name: None,
+            s3_error_http_status: None,
+            s3_error_code: None,
+            s3_error_message: None,
+        }
+    }
+
+    /// Creates a new error event with comprehensive error details from a filesystem error
+    pub fn new_error_event(error: &Error, fuse_operation: &str, fuse_request_id: u64, error_code: &str) -> Self {
+        Event {
+            timestamp: OffsetDateTime::now_utc(),
+            operation: fuse_operation.to_string(),
+            fuse_request_id: Some(fuse_request_id),
+            error_code: error_code.to_string(),
+            errno: Some(error.errno),
+            internal_message: Some(format!("{error:#}")),
+            s3_object_key: error.meta().s3_object_key.clone(),
+            s3_bucket_name: error.meta().s3_bucket_name.clone(),
+            s3_error_http_status: error.meta().client_error_meta.http_code,
+            s3_error_code: error.meta().client_error_meta.error_code.clone(),
+            s3_error_message: error.meta().client_error_meta.error_message.clone(),
+            version: VERSION.to_string(),
+        }
+    }
+
     fn write<W: std::io::Write>(&self, mut writer: W) -> std::io::Result<()> {
         serde_json::to_writer(&mut writer, &self)?;
         writer.write_all(b"\n")?;

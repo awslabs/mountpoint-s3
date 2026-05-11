@@ -4,7 +4,7 @@ use std::hint::black_box;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use mountpoint_s3_crt::checksums::{crc32, crc32c, crc64nvme, sha1, sha256};
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 #[ctor::ctor]
 fn init_crt() {

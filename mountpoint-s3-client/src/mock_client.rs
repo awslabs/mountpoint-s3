@@ -5,8 +5,9 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
+use std::ops::Range;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
@@ -15,8 +16,8 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use mountpoint_s3_crt::s3::client::BufferPoolUsageStats;
 use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand_chacha::ChaCha20Rng;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::trace;
@@ -67,6 +68,7 @@ pub struct MockClientConfig {
     enable_backpressure: bool,
     initial_read_window_size: usize,
     enable_rename: bool,
+    fail_on_non_aligned_read_window: bool,
 }
 
 impl MockClientConfig {
@@ -106,6 +108,14 @@ impl MockClientConfig {
         self
     }
 
+    /// Enable a check to ensure all read window increments are aligned with part boundaries
+    ///
+    /// Warning: A failed check on one request will result in all other requests from the client to fail.
+    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
+        self.fail_on_non_aligned_read_window = enable;
+        self
+    }
+
     /// Build the MockClient
     pub fn build(self) -> MockClient {
         MockClient::new(self)
@@ -120,6 +130,7 @@ pub struct MockClient {
     objects: Arc<RwLock<BTreeMap<String, MockObject>>>,
     in_progress_uploads: Arc<RwLock<BTreeSet<String>>>,
     operation_counts: Arc<RwLock<HashMap<Operation, u64>>>,
+    read_window_increment_failed: Arc<AtomicBool>,
 }
 
 fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, value: MockObject) {
@@ -129,11 +140,13 @@ fn add_object(objects: &Arc<RwLock<BTreeMap<String, MockObject>>>, key: &str, va
 impl MockClient {
     /// Create a new [MockClient] with the given config
     pub fn new(config: MockClientConfig) -> Self {
+        let read_window_increment_failed = Arc::new(AtomicBool::new(false));
         Self {
             config,
             objects: Default::default(),
             in_progress_uploads: Default::default(),
             operation_counts: Default::default(),
+            read_window_increment_failed,
         }
     }
 
@@ -374,7 +387,7 @@ impl MockClient {
         // Shuffle the keys now before we construct an iterator over them. This won't be stable in
         // the presence of mutation, but that's the expected behavior anyway.
         let mut object_keys: Vec<_> = objects.keys().filter(|key| key.starts_with(prefix)).collect();
-        object_keys.shuffle(&mut ChaCha20Rng::seed_from_u64(seed));
+        object_keys.shuffle(&mut SmallRng::seed_from_u64(seed));
 
         // Continuation tokens for unordered list will just be the index in the shuffled list. This
         // again won't work well in the presence of mutation, but again, that's the expected
@@ -720,11 +733,29 @@ fn validate_checksum(
 #[derive(Clone, Debug)]
 pub struct MockBackpressureHandle {
     read_window_end_offset: Arc<AtomicU64>,
+    request_range: Range<u64>,
+    part_size: u64,
+    read_window_increment_failed: Arc<AtomicBool>,
+    fail_on_non_aligned_read_window: bool,
 }
 
 impl ClientBackpressureHandle for MockBackpressureHandle {
     fn increment_read_window(&mut self, len: usize) {
-        self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+        let prev_read_window_end_offset = self.read_window_end_offset.fetch_add(len as u64, Ordering::SeqCst);
+        let read_window_end_offset = prev_read_window_end_offset + len as u64;
+        let relative_read_window_end = read_window_end_offset - self.request_range.start;
+        if self.fail_on_non_aligned_read_window
+            && read_window_end_offset < self.request_range.end
+            && !relative_read_window_end.is_multiple_of(self.part_size)
+        {
+            tracing::warn!(
+                relative_read_window_end,
+                self.part_size,
+                self.request_range.end,
+                "read window is not aligned with part boundaries",
+            );
+            self.read_window_increment_failed.store(true, Ordering::SeqCst);
+        }
     }
 
     fn ensure_read_window(&mut self, desired_end_offset: u64) {
@@ -783,6 +814,17 @@ impl Stream for MockGetObjectResponse {
     type Item = ObjectClientResult<GetBodyPart, GetObjectError, MockClientError>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if let Some(backpressure_handle) = &self.backpressure_handle
+            && backpressure_handle.read_window_increment_failed.load(Ordering::SeqCst)
+        {
+            // Return an error for this and all future requests made by this client.
+            // This ensures the error is observed by the user, since errors that occur
+            // during readahead are not propagated to userspace and may otherwise be missed.
+            return Poll::Ready(Some(Err(ObjectClientError::ClientError(MockClientError(
+                "read window increment failed".into(),
+            )))));
+        }
+
         if self.length == 0 {
             return Poll::Ready(None);
         }
@@ -930,7 +972,13 @@ impl ObjectClient for MockClient {
                 let read_window_end_offset = Arc::new(AtomicU64::new(
                     next_offset + self.config.initial_read_window_size as u64,
                 ));
-                Some(MockBackpressureHandle { read_window_end_offset })
+                Some(MockBackpressureHandle {
+                    read_window_end_offset,
+                    request_range: next_offset..next_offset + length as u64,
+                    part_size: self.read_part_size() as u64,
+                    read_window_increment_failed: self.read_window_increment_failed.clone(),
+                    fail_on_non_aligned_read_window: self.config.fail_on_non_aligned_read_window,
+                })
             } else {
                 None
             };
@@ -1332,8 +1380,7 @@ enum MockObjectParts {
 #[cfg(test)]
 mod tests {
     use futures::StreamExt;
-    use rand::{Rng, RngCore, SeedableRng};
-    use rand_chacha::ChaChaRng;
+    use rand::{Rng, RngExt, SeedableRng};
     use std::ops::Range;
     use test_case::test_case;
 
@@ -1357,7 +1404,7 @@ mod tests {
         range: Option<Range<u64>>,
         object_metadata: HashMap<String, String>,
     ) {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
@@ -1408,7 +1455,7 @@ mod tests {
         range: Option<Range<u64>>,
         backpressure_read_window_size: usize,
     ) {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let client = MockClient::config()
             .bucket("test_bucket")
@@ -1458,7 +1505,7 @@ mod tests {
     #[allow(clippy::reversed_empty_ranges)]
     #[tokio::test]
     async fn get_object_errors() {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
@@ -1515,7 +1562,7 @@ mod tests {
     async fn verify_backpressure_get_object() {
         let key = "key1";
 
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
         let client = MockClient::config()
             .bucket("test_bucket")
             .part_size(1024)
@@ -1761,7 +1808,7 @@ mod tests {
         let prefixes: HashSet<_> = result1
             .common_prefixes
             .into_iter()
-            .chain(result2.common_prefixes.into_iter())
+            .chain(result2.common_prefixes)
             .collect();
         let objects: HashSet<_> = result1
             .objects
@@ -1826,7 +1873,7 @@ mod tests {
                 .expect("should not fail");
             continuation_token = result.next_continuation_token;
 
-            prefixes.extend(result.common_prefixes.into_iter());
+            prefixes.extend(result.common_prefixes);
             objects.extend(result.objects.into_iter().map(|o| o.key));
 
             if continuation_token.is_none() {
@@ -1893,7 +1940,7 @@ mod tests {
                 .expect("should not fail");
             continuation_token = result.next_continuation_token;
 
-            prefixes.extend(result.common_prefixes.into_iter());
+            prefixes.extend(result.common_prefixes);
             objects.extend(result.objects.into_iter().map(|o| o.key));
 
             if continuation_token.is_none() {
@@ -1944,7 +1991,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_put_object() {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 
@@ -2047,7 +2094,7 @@ mod tests {
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksums_set_after_meta_put(trailing_checksums: PutObjectTrailingChecksums) {
-        let mut rng = ChaChaRng::seed_from_u64(0x12345678);
+        let mut rng = SmallRng::seed_from_u64(0x12345678);
 
         let obj = MockObject::ramp(0xaa, 2 * RAMP_BUFFER_SIZE, ETag::for_tests());
 

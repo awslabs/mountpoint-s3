@@ -1,11 +1,12 @@
-use crate::common::fuse::{self, TestClient, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
-use mountpoint_s3_fs::S3FilesystemConfig;
-use rand::distr::{Alphanumeric, SampleString};
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
 use std::collections::HashMap;
 use std::fs;
+
+use mountpoint_s3_fs::S3FilesystemConfig;
+use rand::distr::{Alphanumeric, SampleString};
+use rand::rngs::{SmallRng, StdRng};
+use rand::{RngExt, SeedableRng};
+
+use crate::common::fuse::{self, TestClient, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 // Unit Tests
 // Generate a filesystem with many entries
@@ -108,7 +109,7 @@ fn readdir_while_writing(creator_fn: impl TestSessionCreator, prefix: &str, rng_
         options.create(true);
         let f = options.open(path).unwrap();
 
-        let mut rng = ChaCha20Rng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
+        let mut rng = SmallRng::seed_from_u64(0x12345678 + OBJECT_SIZE as u64);
         let mut body = vec![0u8; OBJECT_SIZE];
         rng.fill(&mut body[..]);
         opened_files.push(f);

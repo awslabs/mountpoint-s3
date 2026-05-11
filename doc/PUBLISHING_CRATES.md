@@ -11,7 +11,7 @@ We currently publish 5 crates:
   * [`mountpoint-s3-crt`](https://crates.io/crates/mountpoint-s3-crt)
   * [`mountpoint-s3-crt-sys`](https://crates.io/crates/mountpoint-s3-crt-sys)
 
-* Mountpoint fork of the [fuser](https://crates.io/crates/fuser) crate:  
+* Mountpoint fork of the [fuser](https://crates.io/crates/fuser) crate:
   * [`mountpoint-s3-fuser`](https://crates.io/crates/mountpoint-s3-fuser)
 
 * Core Mountpoint file system crate:
@@ -83,6 +83,12 @@ First, ensure you have the latest commit on main which was just merged.
 git switch main && git pull upstream main
 ```
 
+Next, verify that publishing in `--dry-run` mode succeeds (there should be no warnings in logs and versions match expectations):
+
+```
+cargo publish --workspace --dry-run
+```
+
 If you haven't already, you should login to crates.io.
 Maintainers' GitHub accounts are authorized to publish new crate versions.
 
@@ -120,7 +126,7 @@ For each crate replacing the crate and version number where applicable:
 
 Once these steps have been completed for all crates that need to be updated, you're done. You can check the new versions on crates.io:
 
-* [mountpoint-s3-crt-sys](https://crates.io/crates/mountpoint-s3-client)
+* [mountpoint-s3-crt-sys](https://crates.io/crates/mountpoint-s3-crt-sys)
 * [mountpoint-s3-crt](https://crates.io/crates/mountpoint-s3-crt)
 * [mountpoint-s3-client](https://crates.io/crates/mountpoint-s3-client)
 * [mountpoint-s3-fuser](https://crates.io/crates/mountpoint-s3-fuser)

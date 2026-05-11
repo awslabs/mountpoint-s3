@@ -218,7 +218,9 @@ impl ClientConfig {
     ///
     /// When not set, the client will use the default pool with the configured memory limit.
     pub fn buffer_pool_factory(&mut self, pool_factory: CrtBufferPoolFactory) -> &mut Self {
-        let (factory_fn, user_data) = pool_factory.as_inner();
+        // SAFETY: `pool_factory` is stored in `self.pool_factory` below so that it
+        // remains alive until the client is initialized.
+        let (factory_fn, user_data) = unsafe { pool_factory.as_inner() };
         self.inner.buffer_pool_factory_fn = factory_fn;
         self.inner.buffer_pool_user_data = user_data;
         self.pool_factory = Some(pool_factory);
@@ -283,6 +285,10 @@ struct MetaRequestOptionsInner<'a> {
 
     /// Finish callback, if provided (and not already called, since it's FnOnce).
     on_finish: Option<FinishCallback>,
+
+    /// Opaque caller-supplied identifier for this meta request, readable from the buffer pool
+    /// reserve path. Not related to the S3 request ID returned by the service.
+    custom_id: Option<u64>,
 
     /// Pin this struct because inner.user_data will be a pointer to this object.
     _pinned: PhantomPinned,
@@ -356,6 +362,7 @@ impl<'a> MetaRequestOptions<'a> {
             on_body_ex: None,
             on_upload_review: None,
             on_finish: None,
+            custom_id: None,
             _pinned: Default::default(),
         });
 
@@ -504,6 +511,16 @@ impl<'a> MetaRequestOptions<'a> {
         options.inner.copy_source_uri = unsafe { options.copy_source_uri.as_mut().unwrap().as_aws_byte_cursor() };
         self
     }
+
+    /// Set an opaque caller-supplied identifier for this meta request.
+    ///
+    /// Not related to the S3 request ID returned by the service.
+    pub fn custom_id(&mut self, id: u64) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.custom_id = Some(id);
+        self
+    }
 }
 
 impl Default for MetaRequestOptions<'_> {
@@ -514,7 +531,7 @@ impl Default for MetaRequestOptions<'_> {
 
 /// What transformation to apply to a single [MetaRequest] to transform it into a collection of
 /// requests to S3.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaRequestType {
     /// Send the request as-is (no transformation)
     Default,
@@ -677,6 +694,36 @@ pub struct MetaRequest {
 }
 
 impl MetaRequest {
+    /// Creates a new instance from an `aws_s3_meta_request` raw pointer, incrementing its ref-count.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a valid, non-null pointer to an `aws_s3_meta_request` whose `user_data`
+    /// was initialised by [`MetaRequestOptions`].
+    pub(crate) unsafe fn from_raw_acquire(raw: *mut aws_s3_meta_request) -> Self {
+        // SAFETY: caller guarantees `raw` is valid and non-null.
+        // `aws_s3_meta_request_acquire` always returns its input, which is non-null.
+        let inner = unsafe { NonNull::new_unchecked(aws_s3_meta_request_acquire(raw)) };
+        Self { inner }
+    }
+
+    /// Returns the type of this meta request.
+    pub fn meta_request_type(&self) -> MetaRequestType {
+        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` since we hold a ref count to it.
+        unsafe { (*self.inner.as_ptr()).type_ }.into()
+    }
+
+    /// Returns the caller-supplied custom identifier, or `None` if not set.
+    pub fn custom_id(&self) -> Option<u64> {
+        // SAFETY: self.inner is a valid aws_s3_meta_request whose user_data was set
+        // to point to a valid MetaRequestOptionsInner in MetaRequestOptions::new.
+        let user_data = unsafe { (*self.inner.as_ptr()).user_data };
+        debug_assert!(!user_data.is_null());
+        // SAFETY: `user_data` points to a valid `MetaRequestOptionsInner` set in `MetaRequestOptions::new`.
+        let options = unsafe { &*(user_data as *const MetaRequestOptionsInner) };
+        options.custom_id
+    }
+
     /// Cancel the meta request. Does nothing (but does not fail/panic) if the request has already
     /// completed. If the request has not already completed, parts may still be delivered to the
     /// `body_callback` after this method completes, and the `finish_callback` will still be
@@ -1242,6 +1289,78 @@ impl RequestMetrics {
         Some(out)
     }
 
+    /// Get the time when the request started being signed
+    pub fn sign_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_sign_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    ///Get the time when the request finished being signed
+    pub fn sign_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_sign_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request started to acquire memory
+    pub fn mem_acquire_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_mem_acquire_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request finished acquiring memory
+    pub fn mem_acquire_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_mem_acquire_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request started to be delivered (i.e. on body callback is invoked)
+    pub fn delivery_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_delivery_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the response finished being delivered
+    pub fn delivery_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_delivery_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
     /// Return the response status code for this request, or None if unavailable (e.g. the
     /// request failed before sending).
     pub fn status_code(&self) -> Option<i32> {
@@ -1390,6 +1509,26 @@ impl RequestMetrics {
         Some(Duration::from_nanos(receive_start.saturating_sub(send_end)))
     }
 
+    /// Get the S3 operation name of the request (e.g. "HeadObject").
+    ///
+    /// This is tied to the lifetime of the [RequestMetrics] struct.
+    pub fn operation_name(&self) -> Option<&str> {
+        let mut out: *const aws_string = std::ptr::null();
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_operation_name(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?
+        };
+        assert!(!out.is_null(), "operation name should be available if call succeeded");
+        // SAFETY: `out` is now a valid pointer to an aws_string that lives as long as the RequestMetrics
+        unsafe {
+            let byte_cursor = aws_byte_cursor_from_string(out);
+            let slice = aws_byte_cursor_as_slice(&byte_cursor);
+            std::str::from_utf8(slice).ok()
+        }
+    }
+
     /// Return whether the request was canceled according to its error code
     pub fn is_canceled(&self) -> bool {
         self.error().raw_error() == mountpoint_s3_crt_sys::aws_s3_errors::AWS_ERROR_S3_CANCELED as i32
@@ -1406,6 +1545,12 @@ impl Debug for RequestMetrics {
             .field("send_end_timestamp_ns", &self.send_end_timestamp_ns())
             .field("receive_start_timestamp_ns", &self.receive_start_timestamp_ns())
             .field("receive_end_timestamp_ns", &self.receive_end_timestamp_ns())
+            .field("sign_start_timestamp_ns", &self.sign_start_timestamp_ns())
+            .field("sign_end_timestamp_ns", &self.sign_end_timestamp_ns())
+            .field("mem_acquire_start_timestamp_ns", &self.mem_acquire_start_timestamp_ns())
+            .field("mem_acquire_end_timestamp_ns", &self.mem_acquire_end_timestamp_ns())
+            .field("delivery_start_timestamp_ns", &self.delivery_start_timestamp_ns())
+            .field("delivery_end_timestamp_ns", &self.delivery_end_timestamp_ns())
             .field("response_status_code", &self.status_code())
             .field("response_headers", &self.response_headers())
             .field("request_path_query", &self.request_path_query())
@@ -1415,6 +1560,7 @@ impl Debug for RequestMetrics {
             .field("thread_id", &self.thread_id())
             .field("request_stream_id", &self.request_stream_id())
             .field("request_type", &self.request_type())
+            .field("operation_name", &self.operation_name())
             .field("error_code", &self.error())
             .finish()
     }

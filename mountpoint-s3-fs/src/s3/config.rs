@@ -132,19 +132,6 @@ impl TargetThroughputSetting {
     }
 }
 
-// This is a weird looking number! We really want our first request size to be 1MiB,
-// which is a common IO size. But Linux's readahead will try to read an extra 128k on on
-// top of a 1MiB read, which we'd have to wait for a second request to service. Because
-// FUSE doesn't know the difference between regular reads and readahead reads, it will
-// send us a READ request for that 128k, so we'll have to block waiting for it even if
-// the application doesn't want it. This is all in the noise for sequential IO, but
-// waiting for the readahead hurts random IO. So we add 128k to the first request size
-// to avoid the latency hit of the second request.
-//
-// Note the CRT does not respect this value right now, they always return chunks of part size
-// but this is the first window size we prefer.
-pub const INITIAL_READ_WINDOW_SIZE: usize = 1024 * 1024 + 128 * 1024;
-
 impl ClientConfig {
     /// Create an [S3CrtClient]
     pub fn create_client(
@@ -158,7 +145,7 @@ impl ClientConfig {
             .read_part_size(self.part_config.read_size_bytes)
             .write_part_size(self.part_config.write_size_bytes)
             .read_backpressure(true)
-            .initial_read_window(INITIAL_READ_WINDOW_SIZE)
+            .initial_read_window(self.part_config.read_size_bytes)
             .user_agent(self.user_agent)
             .memory_pool(memory_pool);
         if let Some(interfaces) = self.bind {

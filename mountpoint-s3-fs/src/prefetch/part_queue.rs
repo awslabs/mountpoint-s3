@@ -157,6 +157,7 @@ mod tests {
     use crate::object::ObjectId;
 
     use super::*;
+    use crate::prefetch::part::PartSource;
 
     use bytes::Bytes;
     use futures::executor::block_on;
@@ -214,7 +215,7 @@ mod tests {
                     let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(n).collect();
                     let bytes: Bytes = body.into();
                     let checksummed_bytes = ChecksummedBytes::new(bytes);
-                    let part = Part::new(part_id.clone(), offset, checksummed_bytes);
+                    let part = Part::new(part_id.clone(), offset, checksummed_bytes, PartSource::S3);
                     part_queue_producer.push(Ok(part));
                     current_length += n;
                 }

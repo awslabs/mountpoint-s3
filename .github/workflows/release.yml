@@ -13,7 +13,7 @@ jobs:
   create-github-release:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - uses: taiki-e/create-gh-release-action@v1
       with:
         title: "mountpoint-s3 v$version"

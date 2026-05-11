@@ -12,10 +12,12 @@ use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
+use super::HandleId;
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
-use super::part::Part;
+use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::task::RequestTask;
 
@@ -35,12 +37,29 @@ pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static>
 pub struct RequestTaskConfig {
     pub bucket: String,
     pub object_id: ObjectId,
+    pub handle_id: HandleId,
     pub range: RequestRange,
     pub read_part_size: usize,
     pub preferred_part_size: usize,
-    pub initial_read_window_size: usize,
+    pub initial_request_size: usize,
     pub max_read_window_size: usize,
     pub read_window_size_multiplier: usize,
+}
+
+impl RequestTaskConfig {
+    /// Infers initial read window size to set in the [BackpressureConfig].
+    ///
+    /// Note that if `initial_read_window` configured on the client is larger than the
+    /// one inferred here, we'll underestimate the memory used in the start of the task.
+    pub fn initial_read_window_size(&self) -> usize {
+        if self.initial_request_size > 0 {
+            self.initial_request_size
+        } else {
+            // Set to the smallest possible value: assuming `initial_read_window_size` on the client is non-zero,
+            // CRT will allocate at least `read_part_size` before blocking.
+            self.read_part_size
+        }
+    }
 }
 
 /// The range of an [ObjectPartStream].
@@ -217,13 +236,17 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
         let range = config.range;
 
         let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size,
+            initial_read_window_size: config.initial_read_window_size(),
             // We don't want to completely block the stream so let's use
             // the read part size as minimum read window.
             min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
+            read_window_alignment_config: ReadWindowAlignmentConfig::AlignToPartSize {
+                from_offset: range.start() + config.initial_request_size as u64,
+                part_size: config.read_part_size as u64,
+            },
         };
         let (backpressure_controller, mut backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
@@ -236,14 +259,15 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             .runtime
             .spawn_with_handle(
                 async move {
-                    let first_read_window_end_offset = config.range.start() + config.initial_read_window_size as u64;
+                    let initial_request_end_offset = config.range.start() + config.initial_request_size as u64;
                     let request_stream = read_from_client_stream(
                         &mut backpressure_limiter,
                         &client,
                         config.bucket,
                         config.object_id.clone(),
-                        first_read_window_end_offset,
+                        initial_request_end_offset,
                         config.range,
+                        config.handle_id,
                     );
 
                     let part_composer = ClientPartComposer {
@@ -301,7 +325,7 @@ where
                 // S3 doesn't provide checksum for us if the request range is not aligned to
                 // object part boundaries, so we're computing our own checksum here.
                 let checksum_bytes = ChecksummedBytes::new(chunk);
-                let part = Part::new(self.object_id.clone(), curr_offset, checksum_bytes);
+                let part = Part::new(self.object_id.clone(), curr_offset, checksum_bytes, PartSource::S3);
                 curr_offset += part.len() as u64;
                 self.part_queue_producer.push(Ok(part));
             }
@@ -311,7 +335,7 @@ where
 }
 
 /// Creates a request stream with a given range. The stream will be served from two `GetObject` requests where the first request serves
-/// data up to `first_read_window_end_offset` and the second request serves the rest of the stream.
+/// data up to `initial_request_end_offset` and the second request serves the rest of the stream.
 /// A [PrefetchReadError] is returned when the request cannot be completed.
 ///
 /// This is a workaround for a specific issue where initial read window size could be very small (~1MB), but the CRT only returns data
@@ -322,12 +346,13 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     client: &'a Client,
     bucket: String,
     object_id: ObjectId,
-    first_read_window_end_offset: u64,
+    initial_request_end_offset: u64,
     range: RequestRange,
+    handle_id: HandleId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
-        let first_req_range = range.trim_end(first_read_window_end_offset);
+        let first_req_range = range.trim_end(initial_request_end_offset);
         let mut current_offset = first_req_range.start();
         if !first_req_range.is_empty() {
             let first_request_stream = read_from_request(
@@ -336,6 +361,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 first_req_range.into(),
+                handle_id,
             );
             pin_mut!(first_request_stream);
             while let Some(next) = first_request_stream.next().await {
@@ -347,7 +373,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
 
         // After the first request is completed we will create the second request for the rest of the stream,
         // but only if there is something left to be fetched.
-        let range = range.trim_start(first_read_window_end_offset);
+        let range = range.trim_start(initial_request_end_offset);
         if !range.is_empty() {
             if current_offset < range.start() {
                 // We got less data than we requested. We assume the consumer will consume
@@ -388,6 +414,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 range.into(),
+                handle_id,
             );
             pin_mut!(request_stream);
             while let Some(next) = request_stream.next().await {
@@ -406,10 +433,11 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
+    handle_id: HandleId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(handle_id.as_raw())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
@@ -417,6 +445,18 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
         let mut client_backpressure_handle = request.backpressure_handle()
             .expect("S3 client backpressure should always be enabled in Mountpoint")
             .clone();
+        // If `initial_read_window` configured on the client is smaller than what
+        // `backpressure_limiter` expects, immediately increase the window to guarantee progress.
+        //
+        // Without this line we could get stuck in `request.next()` when `initial_read_window`
+        // on the client is lower than the one on the `backpressure_limiter`.
+        //
+        // Example: This could happen if `initial_request_size` is 3x larger than `part_size` and
+        // `initial_read_window` on the client equals to `part_size`.
+        //
+        // In that case, `wait_for_read_window_increment` will return `None`, assuming that the
+        // window end (set in the `backpressure_limiter`) is also known to the client. However,
+        // the client will only know about a lower value configured by `initial_read_window`.
         client_backpressure_handle.ensure_read_window(backpressure_limiter.read_window_end_offset());
 
         pin_mut!(request);
@@ -490,10 +530,10 @@ mod tests {
 
         assert_eq!(range.start(), aligned_range.start());
         assert_eq!(range.object_size(), aligned_range.object_size());
-        if range.start() as usize % part_size == 0 {
+        if range.start().is_multiple_of(part_size as u64) {
             assert!(
-                aligned_range.end() as usize == aligned_range.object_size()
-                    || aligned_range.end() as usize % part_size == 0,
+                aligned_range.end().is_multiple_of(aligned_range.object_size() as u64)
+                    || aligned_range.end().is_multiple_of(part_size as u64),
                 "ranges starting on a part boundary should be aligned to another part boundary, or to the end of the object"
             );
         }

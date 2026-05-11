@@ -35,9 +35,6 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
         features = ["mock", "mem_limiter"]
         build_env = {}
 
-        if cfg.mountpoint.otlp_metrics:
-            features.append("otlp_integration")
-
         if stub_mode == "s3_client":
             # `mock-mount-s3` requires bucket to be prefixed with `sthree-` to verify we're not actually reaching S3
             logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")

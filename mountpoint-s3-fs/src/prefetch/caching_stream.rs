@@ -12,10 +12,11 @@ use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::mem_limiter::MemoryLimiter;
 use crate::object::ObjectId;
+use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
-use super::part::Part;
+use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::part_stream::{
     ObjectPartStream, RequestRange, RequestReaderOutput, RequestTaskConfig, read_from_client_stream,
@@ -52,11 +53,12 @@ where
         let range = config.range;
 
         let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size,
+            initial_read_window_size: config.initial_read_window_size(),
             min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
             read_window_size_multiplier: config.read_window_size_multiplier,
             request_range: range.into(),
+            read_window_alignment_config: ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
         };
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
@@ -151,7 +153,8 @@ where
                 Ok(Some(block)) => {
                     trace!(?cache_key, ?range, block_index, "cache hit");
                     // Cache blocks always contain bytes in the request range
-                    let part = try_make_part(&block, block_offset, cache_key, &range).unwrap();
+                    let part = try_make_part(&block, block_offset, cache_key, &range, PartSource::Cache).unwrap();
+
                     part_queue_producer.push(Ok(part));
                     block_offset += block_size;
 
@@ -175,8 +178,6 @@ where
                 ),
             }
             // If a block is uncached or reading it fails, fallback to S3 for the rest of the stream.
-            metrics::counter!("prefetch.blocks_served_from_cache").increment(block_index - block_range.start);
-            metrics::counter!("prefetch.blocks_requested_to_client").increment(block_range.end - block_index);
             return self
                 .get_from_client(
                     range.trim_start(block_offset),
@@ -185,8 +186,6 @@ where
                 )
                 .await;
         }
-        // We served the whole range from cache.
-        metrics::counter!("prefetch.blocks_served_from_cache").increment(block_range.end - block_range.start);
     }
 
     async fn get_from_client(
@@ -197,7 +196,7 @@ where
     ) {
         let bucket = &self.config.bucket;
         let cache_key = &self.config.object_id;
-        let first_read_window_end_offset = self.config.range.start() + self.config.initial_read_window_size as u64;
+        let initial_request_end_offset = self.config.range.start() + self.config.initial_request_size as u64;
         let block_size = self.cache.block_size();
         assert!(block_size > 0);
 
@@ -219,8 +218,9 @@ where
             &self.client,
             bucket.clone(),
             cache_key.clone(),
-            first_read_window_end_offset,
+            initial_request_end_offset,
             block_aligned_byte_range,
+            self.config.handle_id,
         );
 
         let mut part_composer = CachingPartComposer {
@@ -239,7 +239,7 @@ where
         let block_size = self.cache.block_size();
         let start_block = range.start() / block_size;
         let mut end_block = range.end() / block_size;
-        if !range.is_empty() && range.end() % block_size != 0 {
+        if !range.is_empty() && !range.end().is_multiple_of(block_size) {
             end_block += 1;
         }
 
@@ -318,7 +318,8 @@ where
                 //
                 // A side effect from this is the delay on cache updating which makes testing a bit more complicated because
                 // the cache is not updated synchronously.
-                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range) {
+                if let Some(part) = try_make_part(&chunk, offset, &self.cache_key, &self.original_range, PartSource::S3)
+                {
                     self.part_queue_producer.push(Ok(part));
                 }
                 offset += chunk.len() as u64;
@@ -378,7 +379,13 @@ where
 
 /// Creates a Part that can be streamed to the prefetcher if the given bytes
 /// are in the request range, otherwise return None.
-fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, range: &RequestRange) -> Option<Part> {
+fn try_make_part(
+    bytes: &ChecksummedBytes,
+    offset: u64,
+    object_id: &ObjectId,
+    range: &RequestRange,
+    source: PartSource,
+) -> Option<Part> {
     let part_range = range.trim_start(offset).trim_end(offset + bytes.len() as u64);
     if part_range.is_empty() {
         return None;
@@ -390,6 +397,7 @@ fn try_make_part(bytes: &ChecksummedBytes, offset: u64, object_id: &ObjectId, ra
         object_id.clone(),
         part_range.start(),
         bytes.slice(trim_start..trim_end),
+        source,
     ))
 }
 
@@ -412,6 +420,7 @@ mod tests {
         mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
         memory::PagedPool,
         object::ObjectId,
+        prefetch::HandleId,
     };
 
     use super::*;
@@ -437,9 +446,10 @@ mod tests {
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let id = ObjectId::new(key.to_owned(), object.etag());
+        let handle_id = HandleId::new(1);
 
         // backpressure config
-        let initial_read_window_size = 1 * MB;
+        let initial_request_size = 1 * MB;
         let max_read_window_size = 64 * MB;
         let read_window_size_multiplier = 2;
 
@@ -451,7 +461,7 @@ mod tests {
                 .bucket(bucket)
                 .part_size(client_part_size)
                 .enable_backpressure(true)
-                .initial_read_window_size(initial_read_window_size)
+                .initial_read_window_size(client_part_size)
                 .build(),
         );
         let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
@@ -470,10 +480,11 @@ mod tests {
             let config = RequestTaskConfig {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
+                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
-                initial_read_window_size,
+                initial_request_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
@@ -496,10 +507,11 @@ mod tests {
             let config = RequestTaskConfig {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
+                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
-                initial_read_window_size,
+                initial_request_size,
                 max_read_window_size,
                 read_window_size_multiplier,
             };
@@ -522,7 +534,7 @@ mod tests {
         let id = ObjectId::new(key.to_owned(), object.etag());
 
         // backpressure config
-        let initial_read_window_size = 1 * MB;
+        let initial_request_size = 1 * MB;
         let max_read_window_size = 64 * MB;
         let read_window_size_multiplier = 2;
 
@@ -534,7 +546,7 @@ mod tests {
                 .bucket(bucket)
                 .part_size(client_part_size)
                 .enable_backpressure(true)
-                .initial_read_window_size(initial_read_window_size)
+                .initial_read_window_size(client_part_size)
                 .build(),
         );
         let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
@@ -549,10 +561,11 @@ mod tests {
                 let config = RequestTaskConfig {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
+                    handle_id: HandleId::new(1),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
-                    initial_read_window_size,
+                    initial_request_size,
                     max_read_window_size,
                     read_window_size_multiplier,
                 };

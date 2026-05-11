@@ -6,11 +6,12 @@ use mountpoint_s3_client::types::{
     ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
+use crate::content_type::{ContentTypeDetection, infer_content_type};
 
 use super::UploadError;
 
@@ -36,6 +37,7 @@ pub struct UploadRequestParams {
     pub server_side_encryption: ServerSideEncryption,
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub storage_class: Option<String>,
+    pub content_type_detection: ContentTypeDetection,
 }
 
 impl<Client> UploadRequest<Client>
@@ -63,6 +65,10 @@ where
 
         if let Some(storage_class) = &params.storage_class {
             put_object_params = put_object_params.storage_class(storage_class.clone());
+        }
+        if let Some(content_type) = infer_content_type(&params.key, params.content_type_detection) {
+            trace!(key=%params.key, content_type, "detected content type by extension for atomic upload");
+            put_object_params = put_object_params.add_custom_header("Content-Type".to_owned(), content_type);
         }
         // If we have detected corruption of SSE settings, we return an error, which will currently be reported as
         // `libc::EIO` on `open()`. MP won't be able to open files for write from this point, but this is a relatively
@@ -109,7 +115,12 @@ where
         }
 
         self.hasher.update(data);
-        self.request.get_mut().await?.unwrap().write(data).await?;
+        self.request
+            .get_mut()
+            .await?
+            .ok_or(UploadError::UploadAlreadyTerminated)?
+            .write(data)
+            .await?;
 
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
@@ -122,7 +133,7 @@ where
             .request
             .into_inner()
             .await?
-            .unwrap()
+            .ok_or(UploadError::UploadAlreadyTerminated)?
             .review_and_complete(move |review| verify_checksums(review, size, checksum))
             .await?;
         if let Err(err) = self
@@ -306,6 +317,7 @@ mod tests {
         let mut put_failures = HashMap::new();
         put_failures.insert(1, Ok((1, MockClientError("error".to_owned().into()))));
         put_failures.insert(2, Ok((2, MockClientError("error".to_owned().into()))));
+        put_failures.insert(3, Err(MockClientError("error".to_owned().into()).into()));
 
         let failure_client = Arc::new(countdown_failure_client(
             client.clone(),
@@ -335,6 +347,25 @@ mod tests {
             _ = request.write(0, data).await.unwrap();
 
             request.complete().await.expect_err("complete should fail");
+        }
+        assert!(!client.is_upload_in_progress(key));
+        assert!(!client.contains_key(key));
+
+        // Third request fails on first write (because CreateMPU returns an error).
+        {
+            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+
+            let data = b"foo";
+            request.write(0, data).await.expect_err("first write should fail");
+
+            let err = request
+                .write(0, data)
+                .await
+                .expect_err("subsequent writes should also fail");
+            assert!(matches!(err, UploadError::UploadAlreadyTerminated));
+
+            let err = request.complete().await.expect_err("complete should also fail");
+            assert!(matches!(err, UploadError::UploadAlreadyTerminated));
         }
         assert!(!client.is_upload_in_progress(key));
         assert!(!client.contains_key(key));

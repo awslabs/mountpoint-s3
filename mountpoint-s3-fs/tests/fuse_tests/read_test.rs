@@ -2,15 +2,13 @@ use std::fs::{File, read_dir};
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(feature = "s3express_tests"))]
 use std::os::unix::prelude::PermissionsExt;
-use std::path::Path;
 #[cfg(not(feature = "s3express_tests"))]
 use std::time::{Duration, Instant};
 
 use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::data_cache::InMemoryDataCache;
-use rand::RngCore;
-use rand::SeedableRng as _;
-use rand_chacha::ChaChaRng;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use test_case::test_matrix;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
@@ -36,35 +34,40 @@ impl std::fmt::Display for BucketPrefix {
     }
 }
 
-fn open_for_read(path: impl AsRef<Path>, read_only: bool) -> std::io::Result<File> {
-    let mut options = File::options();
-    if !read_only {
-        options.write(true);
-    }
-    options.read(true).open(path)
-}
+fn basic_read_test(
+    creator_fn: impl TestSessionCreator,
+    prefix: &str,
+    read_only: bool,
+    pass_fuse_fd: bool,
+    size_mb: usize,
+    fail_on_non_aligned_read_window: bool,
+) {
+    let mut rng = SmallRng::seed_from_u64(0x87654321);
 
-fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only: bool, pass_fuse_fd: bool) {
-    let mut rng = ChaChaRng::seed_from_u64(0x87654321);
-
-    let test_session = creator_fn(prefix, TestSessionConfig::default().with_pass_fuse_fd(pass_fuse_fd));
+    let test_session = creator_fn(
+        prefix,
+        TestSessionConfig::default()
+            .with_pass_fuse_fd(pass_fuse_fd)
+            .fail_on_non_aligned_read_window(fail_on_non_aligned_read_window),
+    );
 
     test_session.client().put_object("hello.txt", b"hello world").unwrap();
-    let mut two_mib_body = vec![0; 2 * 1024 * 1024];
-    rng.fill_bytes(&mut two_mib_body);
-    test_session.client().put_object("test2MiB.bin", &two_mib_body).unwrap();
+    let mut test_body = vec![0; size_mb * 1024 * 1024];
+    rng.fill_bytes(&mut test_body);
+    test_session.client().put_object("test2MiB.bin", &test_body).unwrap();
 
     let read_dir_iter = read_dir(test_session.mount_path()).unwrap();
     let dir_entry_names = read_dir_to_entry_names(read_dir_iter);
     assert_eq!(dir_entry_names, vec!["hello.txt", "test2MiB.bin"]);
 
-    let mut hello_fh1 = open_for_read(test_session.mount_path().join("hello.txt"), read_only).unwrap();
+    let hello_path = test_session.mount_path().join("hello.txt");
+    let mut hello_fh1 = File::options().read(true).write(!read_only).open(&hello_path).unwrap();
     let mut hello_contents = String::new();
     hello_fh1.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
 
     // We can read from a file more than once at the same time.
-    let mut hello_fh2 = open_for_read(test_session.mount_path().join("hello.txt"), read_only).unwrap();
+    let mut hello_fh2 = File::options().read(true).write(!read_only).open(&hello_path).unwrap();
     let mut hello_contents = String::new();
     hello_fh2.read_to_string(&mut hello_contents).unwrap();
     assert_eq!(hello_contents, "hello world");
@@ -74,8 +77,12 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
 
     // We could do this with std::io::copy into the digest, but we'd like to control the buffer size
     // so we can make it weird.
-    let mut bin = open_for_read(test_session.mount_path().join("test2MiB.bin"), read_only).unwrap();
-    let mut two_mib_read = Vec::with_capacity(2 * 1024 * 1024);
+    let mut bin = File::options()
+        .read(true)
+        .write(!read_only)
+        .open(test_session.mount_path().join("test2MiB.bin"))
+        .unwrap();
+    let mut test_read = Vec::with_capacity(size_mb * 1024 * 1024);
     let mut bytes_read = 0usize;
     let mut buf = vec![0; 70000]; // weird size just to test alignment and the like
     loop {
@@ -83,12 +90,12 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
         if read == 0 {
             break;
         }
-        two_mib_read.extend_from_slice(&buf[..read]);
+        test_read.extend_from_slice(&buf[..read]);
         bytes_read += read;
     }
     drop(bin);
-    assert_eq!(bytes_read, 2 * 1024 * 1024);
-    assert_eq!(two_mib_body, two_mib_read);
+    assert_eq!(bytes_read, size_mb * 1024 * 1024);
+    assert_eq!(test_body, test_read);
 
     let mut hello = File::open(test_session.mount_path().join("hello.txt")).unwrap();
     hello.seek(SeekFrom::Start(50)).unwrap();
@@ -102,7 +109,14 @@ fn basic_read_test(creator_fn: impl TestSessionCreator, prefix: &str, read_only:
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
 fn basic_read_test_s3(read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::s3_session::new, "basic_read_test", read_only, pass_fuse_fd);
+    basic_read_test(
+        fuse::s3_session::new,
+        "basic_read_test",
+        read_only,
+        pass_fuse_fd,
+        2,
+        false,
+    );
 }
 
 #[cfg(feature = "s3_tests")]
@@ -116,6 +130,8 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
         "basic_read_test_with_cache",
         read_only,
         pass_fuse_fd,
+        2,
+        false,
     );
 }
 
@@ -125,7 +141,14 @@ fn basic_read_test_s3_with_cache(read_only: bool, pass_fuse_fd: bool) {
     [FUSE_PASS_FD, FUSE_SELF_MOUNT]
 )]
 fn basic_read_test_mock(prefix: BucketPrefix, read_only: bool, pass_fuse_fd: bool) {
-    basic_read_test(fuse::mock_session::new, &prefix.to_string(), read_only, pass_fuse_fd);
+    basic_read_test(
+        fuse::mock_session::new,
+        &prefix.to_string(),
+        read_only,
+        pass_fuse_fd,
+        2,
+        false,
+    );
 }
 
 #[test_matrix(
@@ -139,6 +162,20 @@ fn basic_read_test_mock_with_cache(prefix: BucketPrefix, read_only: bool, pass_f
         &prefix.to_string(),
         read_only,
         pass_fuse_fd,
+        2,
+        false,
+    );
+}
+
+#[test]
+fn basic_read_test_mock_large() {
+    basic_read_test(
+        fuse::mock_session::new,
+        "basic_read_test_mock_large",
+        true,
+        false,
+        20,
+        true,
     );
 }
 
@@ -333,8 +370,10 @@ fn read_errors_test(creator_fn: impl TestSessionCreator, prefix: &str) {
     assert_eq!(err.raw_os_error(), Some(libc::EBADF));
 
     // Read should also fail from different file handle
-    let err =
-        open_for_read(&file_path, true).expect_err("opening for read should fail with pending write handles open");
+    let err = File::options()
+        .read(true)
+        .open(&file_path)
+        .expect_err("opening for read should fail with pending write handles open");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 }
 
@@ -355,13 +394,13 @@ fn read_after_flush_test(creator_fn: impl TestSessionCreator) {
     const KEY: &str = "data.bin";
     let test_session = creator_fn("read_after_flush_test", Default::default());
 
-    let mut rng = ChaChaRng::seed_from_u64(0x87654321);
+    let mut rng = SmallRng::seed_from_u64(0x87654321);
     let mut two_mib_body = vec![0; 2 * 1024 * 1024];
     rng.fill_bytes(&mut two_mib_body);
     test_session.client().put_object(KEY, &two_mib_body).unwrap();
 
     let path = test_session.mount_path().join(KEY);
-    let mut f = open_for_read(path, true).unwrap();
+    let mut f = File::options().read(true).open(path).unwrap();
 
     let mut content = vec![0; 128];
     f.read_exact(&mut content).unwrap();

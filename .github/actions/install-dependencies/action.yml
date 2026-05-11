@@ -19,6 +19,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  otelcol:
+    description: "Install OpenTelemetry Collector"
+    required: false
+    type: boolean
+    default: false
   run-as-root:
     description: "Install as root user"
     required: false
@@ -35,6 +40,7 @@ runs:
         ${{ fromJSON(inputs.llvm) && '--with-llvm' || '' }} \
         ${{ fromJSON(inputs.libunwind) && '--with-libunwind' || '' }} \
         ${{ fromJSON(inputs.fio) && '--with-fio' || '' }} \
+        ${{ fromJSON(inputs.otelcol) && '--with-otelcol' || '' }} \
         ${{ fromJSON(inputs.run-as-root) && '--run-as-root' || '' }}
   - name: Configure FUSE to allow other users to access FS
     shell: bash

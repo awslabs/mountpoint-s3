@@ -1,13 +1,13 @@
 use std::io;
 
 use anyhow::Context;
-use const_format::formatcp;
 #[cfg(target_os = "linux")]
 use fuser::MountOption;
 use fuser::{Filesystem, Session, SessionUnmounter};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::config::{FuseSessionConfig, MountPoint};
+use crate::metrics::defs::{FUSE_IDLE_THREADS, FUSE_TOTAL_THREADS};
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 use crate::sync::mpsc::{self, Sender};
@@ -26,6 +26,14 @@ pub struct FuseSession {
 
 type OnClose = Box<dyn FnOnce() + Send>;
 
+struct SessionAndConfig<FS>
+where
+    FS: Filesystem + Send + Sync + 'static,
+{
+    session: Session<FS>,
+    clone_fuse_fd: bool,
+}
+
 impl FuseSession {
     /// Create a new multi-threaded FUSE session.
     pub fn new<FS: Filesystem + Send + Sync + 'static>(
@@ -43,13 +51,19 @@ impl FuseSession {
                 session_acl_from_mount_options(&fuse_session_config.options),
             ),
         };
-        Self::from_session(session, fuse_session_config.max_threads).context("Failed to start FUSE session")
+        Self::from_session(
+            session,
+            fuse_session_config.max_threads,
+            fuse_session_config.clone_fuse_fd,
+        )
+        .context("Failed to start FUSE session")
     }
 
     /// Create worker threads to dispatch requests for a FUSE session.
     pub fn from_session<FS: Filesystem + Send + Sync + 'static>(
         mut session: Session<FS>,
         max_worker_threads: usize,
+        clone_fuse_fd: bool,
     ) -> anyhow::Result<Self> {
         assert!(max_worker_threads > 0);
 
@@ -100,7 +114,9 @@ impl FuseSession {
                 .context("failed to spawn waiter thread")?
         };
 
-        WorkerPool::start(session, workers_tx, max_worker_threads).context("failed to start worker thread pool")?;
+        let session_and_config = SessionAndConfig { session, clone_fuse_fd };
+        WorkerPool::start(session_and_config, workers_tx, max_worker_threads)
+            .context("failed to start worker thread pool")?;
 
         Ok(Self {
             unmounter,
@@ -126,15 +142,21 @@ impl FuseSession {
     /// Block until the file system is unmounted or this process is interrupted via SIGTERM/SIGINT.
     /// When that happens, unmount the file system (if it hasn't been already unmounted).
     pub fn join(mut self) -> anyhow::Result<()> {
-        let msg = self.receiver.recv();
-        trace!("received message {msg:?}, closing filesystem session");
+        match self.receiver.recv() {
+            Ok(Message::WorkersExited) => info!("all FUSE workers exited, shutting down Mountpoint"),
+            Ok(Message::Interrupted) => info!("received interrupt signal, shutting down Mountpoint"),
+            Err(_recv_err) => {
+                debug_assert!(false, "session channel must always send a message to signal shutdown");
+                error!("session channel closed without receiving message, shutting down anyway");
+            }
+        }
 
         trace!("executing {} handler(s) on close", self.on_close.len());
         for handler in self.on_close {
             handler();
         }
 
-        trace!("unmounting filesystem");
+        info!("attempting unmount");
         self.unmounter.unmount().context("failed to unmount FUSE session")
     }
 }
@@ -177,10 +199,6 @@ struct WorkerPool<W: Work> {
     workers: Sender<JoinHandle<W::Result>>,
     max_workers: usize,
 }
-
-const METRIC_NAME_PREFIX_WORKERS: &str = "fuse.mp_workers";
-const METRIC_NAME_FUSE_WORKERS_TOTAL: &str = formatcp!("{METRIC_NAME_PREFIX_WORKERS}.total_count");
-const METRIC_NAME_FUSE_WORKERS_IDLE: &str = formatcp!("{METRIC_NAME_PREFIX_WORKERS}.idle_count");
 
 #[derive(Debug)]
 struct WorkerPoolState<W: Work> {
@@ -232,8 +250,8 @@ impl<W: Work> WorkerPool<W> {
 
         let new_count = old_count + 1;
         let idle_worker_count = self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst) + 1;
-        metrics::gauge!(METRIC_NAME_FUSE_WORKERS_TOTAL).set(new_count as f64);
-        metrics::gauge!(METRIC_NAME_FUSE_WORKERS_IDLE).set(idle_worker_count as f64);
+        metrics::gauge!(FUSE_TOTAL_THREADS).set(new_count as f64);
+        metrics::histogram!(FUSE_IDLE_THREADS).record(idle_worker_count as f64);
 
         let worker_index = old_count;
         let clone = (*self).clone();
@@ -251,7 +269,7 @@ impl<W: Work> WorkerPool<W> {
         self.state.work.run(
             || {
                 let previous_idle_count = self.state.idle_worker_count.fetch_sub(1, Ordering::SeqCst);
-                metrics::gauge!(METRIC_NAME_FUSE_WORKERS_IDLE).decrement(1);
+                metrics::histogram!(FUSE_IDLE_THREADS).record((previous_idle_count - 1) as f64);
                 if previous_idle_count == 1 {
                     // This was the only idle thread, try to spawn a new one.
                     if let Err(error) = self.try_add_worker() {
@@ -260,8 +278,8 @@ impl<W: Work> WorkerPool<W> {
                 }
             },
             || {
-                self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);
-                metrics::gauge!(METRIC_NAME_FUSE_WORKERS_IDLE).increment(1);
+                let idle_worker_count = self.state.idle_worker_count.fetch_add(1, Ordering::SeqCst);
+                metrics::histogram!(FUSE_IDLE_THREADS).record((idle_worker_count + 1) as f64);
             },
         )
     }
@@ -277,7 +295,7 @@ impl<W: Work> Clone for WorkerPool<W> {
     }
 }
 
-impl<FS> Work for Session<FS>
+impl<FS> Work for SessionAndConfig<FS>
 where
     FS: Filesystem + Send + Sync + 'static,
 {
@@ -288,7 +306,7 @@ where
         FB: FnMut(),
         FA: FnMut(),
     {
-        self.run_with_callbacks(
+        self.session.run_with_callbacks(
             |req| {
                 // Do not scale threads on bursts of forget messages.
                 if req.is_forget() {
@@ -303,7 +321,7 @@ where
                 }
                 after();
             },
-            false,
+            self.clone_fuse_fd,
         )
     }
 }

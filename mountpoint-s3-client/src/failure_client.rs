@@ -249,21 +249,17 @@ impl<Client: ObjectClient> Stream for FailureGetResponse<Client> {
         *this.poll_count += 1;
 
         match this.failure_mode {
-            Some(GetObjectFailureMode::StreamShortCircuit(pos)) => {
-                if this.poll_count >= pos {
-                    return Poll::Ready(None);
-                }
+            Some(GetObjectFailureMode::StreamShortCircuit(pos)) if *this.poll_count >= *pos => {
+                return Poll::Ready(None);
             }
-            Some(GetObjectFailureMode::StreamPositionError(pos, _)) => {
-                if this.poll_count >= pos {
-                    let GetObjectFailureMode::StreamPositionError(_, err) = this.failure_mode.take().unwrap() else {
-                        unreachable!()
-                    };
-                    return Poll::Ready(Some(Err(err)));
-                }
+            Some(GetObjectFailureMode::StreamPositionError(pos, _)) if *this.poll_count >= *pos => {
+                let GetObjectFailureMode::StreamPositionError(_, err) = this.failure_mode.take().unwrap() else {
+                    unreachable!()
+                };
+                return Poll::Ready(Some(Err(err)));
             }
             Some(GetObjectFailureMode::OperationError(_)) => unreachable!(),
-            None => {}
+            _ => {}
         }
 
         this.request.poll_next(cx)
@@ -435,8 +431,10 @@ pub fn countdown_failure_client<Client: ObjectClient>(
                 },
                 result_fn: |state| {
                     state.count += 1;
-                    if state.count >= state.fail_count {
-                        Err(state.error.take().unwrap())
+                    if state.count >= state.fail_count
+                        && let Some(error) = state.error.take()
+                    {
+                        Err(error)
                     } else {
                         Ok(())
                     }

@@ -210,8 +210,8 @@ struct FormattedFields(String);
 
 #[cfg(test)]
 mod tests {
+    use super::super::testing::LockedWriter;
     use super::*;
-    use crate::logging::testing::LockedWriter;
 
     use tracing_subscriber::layer::SubscriberExt;
 
@@ -227,7 +227,7 @@ mod tests {
             let _enter2 = span2.enter();
             tracing::info!(field5 = 5, field6 = 6, "this is a real {:?} message", "cool");
         });
-        let output = buf.into_string();
+        let output = buf.get_string();
         // The actual output is syslog-formatted, so includes the current time and PID. Let's just
         // check the parts of the payload we really care about.
         let expected = format!(

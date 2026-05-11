@@ -5,12 +5,11 @@ use std::path::Path;
 use criterion::async_executor::{AsyncExecutor, FuturesExecutor};
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
-
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::data_cache::{ChecksummedBytes, DataCache, DiskDataCache, DiskDataCacheConfig};
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
-use rand::RngCore;
+use rand::Rng;
 use tempfile::TempDir;
 
 const BLOCK_SIZE: u64 = 1024 * 1024;

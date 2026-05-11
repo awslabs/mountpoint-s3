@@ -1,11 +1,8 @@
 #![cfg(feature = "s3_tests")]
 
-pub mod common;
-
 use std::collections::HashMap;
 
 use aws_sdk_s3::primitives::ByteStream;
-use common::*;
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::checksums::{crc32, crc32c, crc64nvme, sha1, sha256};
 use mountpoint_s3_client::config::S3ClientConfig;
@@ -13,8 +10,11 @@ use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
     Checksum, ChecksumAlgorithm, GetObjectParams, PutObjectResult, PutObjectSingleParams, UploadChecksum,
 };
-use rand::Rng;
+use rand::RngExt;
 use test_case::test_case;
+
+pub mod common;
+use common::*;
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.

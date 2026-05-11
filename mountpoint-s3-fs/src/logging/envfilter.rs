@@ -47,8 +47,8 @@ pub fn toggleable<S>(mut filters: ToggleableFilters) -> (ToggleableLayer<S>, Tog
 mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
+    use super::super::testing::LockedWriter;
     use super::*;
-    use crate::logging::testing::LockedWriter;
 
     #[test]
     fn it_works() {
@@ -84,7 +84,7 @@ mod tests {
         });
 
         assert_eq!(
-            buf.into_string(),
+            buf.get_string(),
             "\
 ERROR test: error log 1
 DEBUG test: debug log 2

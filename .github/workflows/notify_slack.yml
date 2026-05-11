@@ -6,13 +6,16 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize]
 
+permissions:
+  contents: read
+
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
       - name: Send issue notification to Slack
         if: github.event_name == 'issues'
-        uses: slackapi/slack-github-action@v2.1.1
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_ISSUE }}
           webhook-type: incoming-webhook
@@ -24,7 +27,7 @@ jobs:
 
       - name: Send pull request notification to Slack
         if: github.event_name == 'pull_request_target'
-        uses: slackapi/slack-github-action@v2.1.1
+        uses: slackapi/slack-github-action@v3.0.3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_PR }}
           webhook-type: incoming-webhook

@@ -1,0 +1,9 @@
+[project]
+name = "mountpoint-s3-spec-generator"
+version = "0.1.0"
+description = "RPM spec file generator for Mountpoint-S3 for specific build target platforms"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "jinja2>=3.0.0",
+]

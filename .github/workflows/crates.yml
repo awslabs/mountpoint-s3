@@ -8,6 +8,9 @@ on:
   merge_group:
     types: [ "checks_requested" ]
 
+permissions:
+  contents: read
+
 jobs:
   verify-crate:
     name: Verify crate
@@ -20,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           submodules: true
       - name: Set up Rust toolchain

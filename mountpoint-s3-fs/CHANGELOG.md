@@ -1,6 +1,51 @@
-## Unreleased (v0.8.1)
+## Unreleased
 
-* Upgrade toolchain to Rust 1.89. ([#1628](https://github.com/awslabs/mountpoint-s3/pull/1628))
+* Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
+* Add `S3FilesystemConfig::content_type_detection` option to configure automatic content type inference for new uploads. When set to `ContentTypeDetection::Auto`, Mountpoint will infer the `Content-Type` of new objects based on their file extension. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
+* Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. Some FUSE operations have a new log printed where they didn't already have one. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718))
+
+## v0.9.3 (April 28, 2026)
+
+* Update to latest S3 client. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+
+## v0.9.2 (March 20, 2026)
+
+* Update to latest CRT dependencies.
+
+## v0.9.1 (March 9, 2026)
+
+* Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in `mountpoint-s3-fs` v0.9.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
+* Fix incorrect validation of default data cache limit which would cause Mountpoint to preserve less than 5% of available space ([#1779](https://github.com/awslabs/mountpoint-s3/pull/1779))
+* Upgrade cargo dependencies.
+
+## v0.9.0 (January 22, 2026)
+
+* Update Mountpoint's semantics to enable opening a new file handle on an inode if all the existing open handles have been flushed. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
+* Upgrade cargo dependencies.
+
+## v0.8.4 (December 22, 2025)
+
+* Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
+* Remove redundant cache metrics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
+* Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
+* Improve memory limiter accuracy and make `initial_request_size` configurable. ([#1707](https://github.com/awslabs/mountpoint-s3/pull/1707))
+
+## v0.8.3 (October 30, 2025)
+
+* Update to latest S3 client. ([#1683](https://github.com/awslabs/mountpoint-s3/pull/1683))
+* Change metric logging format to add metric units ([#1677](https://github.com/awslabs/mountpoint-s3/pull/1677))
+* Remove `otlp_integration` feature flag. ([#1685](https://github.com/awslabs/mountpoint-s3/pull/1685))
+
+## v0.8.2 (October 27, 2025)
+
+* Change FUSE and S3 request metric names in logs. ([#1630](https://github.com/awslabs/mountpoint-s3/pull/1630), [#1653](https://github.com/awslabs/mountpoint-s3/pull/1653))
+* Keep a constant memory reservation for backwards seek for each file handle. ([#1631](https://github.com/awslabs/mountpoint-s3/pull/1631))
+
+## v0.8.1 (October 17, 2025)
+
+* Upgrade toolchain to Rust 1.90. ([#1650](https://github.com/awslabs/mountpoint-s3/pull/1650))
+* Emit a `event.ready` when error logging is enabled. ([#1647](https://github.com/awslabs/mountpoint-s3/pull/1647))
 
 ## v0.8.0 (September 30, 2025)
 

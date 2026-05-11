@@ -1,9 +1,12 @@
-use opentelemetry::{global, metrics};
+use metrics::Unit;
+use opentelemetry::{global, metrics as otel_metrics};
 use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
 use opentelemetry_sdk::metrics::{
     Aggregation, Instrument, InstrumentKind, PeriodicReader, SdkMeterProvider, Stream, Temporality,
 };
 use std::time::Duration;
+
+use crate::metrics::defs::{MetricStability, to_ucum};
 
 /// Get temporality preference from environment variable
 /// By default, we will use delta.
@@ -46,10 +49,15 @@ impl OtlpConfig {
 
 #[derive(Debug)]
 pub struct OtlpMetricsExporter {
-    meter: metrics::Meter,
+    meter: otel_metrics::Meter,
 }
 
 impl OtlpMetricsExporter {
+    #[cfg(test)]
+    pub fn new_for_test(meter: otel_metrics::Meter) -> Self {
+        Self { meter }
+    }
+
     /// Create a new OtlpMetricsExporter with the specified configuration
     /// Returns a Result containing the new exporter or an error if initialisation failed
     pub fn new(config: &OtlpConfig) -> Result<Self, Box<dyn std::error::Error>> {
@@ -111,16 +119,41 @@ impl OtlpMetricsExporter {
         Ok(Self { meter })
     }
 
-    pub fn create_counter_instrument(&self, name: String) -> opentelemetry::metrics::Counter<u64> {
-        self.meter.u64_counter(name).build()
+    fn otlp_metric_name(&self, name: &str, stability: MetricStability) -> String {
+        match stability {
+            MetricStability::Experimental => format!("experimental.{name}"),
+            _ => name.to_string(),
+        }
     }
 
-    pub fn create_gauge_instrument(&self, name: String) -> opentelemetry::metrics::Gauge<f64> {
-        self.meter.f64_gauge(name).build()
+    pub fn create_counter_instrument(
+        &self,
+        name: &str,
+        unit: Unit,
+        stability: MetricStability,
+    ) -> otel_metrics::Counter<u64> {
+        let metric_name = self.otlp_metric_name(name, stability);
+        self.meter.u64_counter(metric_name).with_unit(to_ucum(unit)).build()
     }
 
-    pub fn create_histogram_instrument(&self, name: String) -> opentelemetry::metrics::Histogram<f64> {
-        self.meter.f64_histogram(name).build()
+    pub fn create_gauge_instrument(
+        &self,
+        name: &str,
+        unit: Unit,
+        stability: MetricStability,
+    ) -> otel_metrics::Gauge<f64> {
+        let metric_name = self.otlp_metric_name(name, stability);
+        self.meter.f64_gauge(metric_name).with_unit(to_ucum(unit)).build()
+    }
+
+    pub fn create_histogram_instrument(
+        &self,
+        name: &str,
+        unit: Unit,
+        stability: MetricStability,
+    ) -> otel_metrics::Histogram<f64> {
+        let metric_name = self.otlp_metric_name(name, stability);
+        self.meter.f64_histogram(metric_name).with_unit(to_ucum(unit)).build()
     }
 }
 
@@ -129,128 +162,5 @@ impl TryFrom<&OtlpConfig> for OtlpMetricsExporter {
 
     fn try_from(config: &OtlpConfig) -> Result<Self, Self::Error> {
         OtlpMetricsExporter::new(config)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// This is a manual test for verifying OpenTelemetry metrics export functionality.
-    /// It provides end-to-end verification of the metrics pipeline without needing to run the full mountpoint application.
-    ///
-    /// # Requirements
-    /// - An OpenTelemetry collector running at the specified endpoint (default: http://localhost:4318/v1/metrics)
-    ///
-    /// # How to run
-    /// ```bash
-    /// # Start the OpenTelemetry collector (e.g., using Docker)
-    /// docker run -p 4317:4317 -p 4318:4318 -v $(pwd)/collector-config.yaml:/etc/otel-collector-config.yaml \
-    ///   otel/opentelemetry-collector:latest --config=/etc/otel-collector-config.yaml
-    ///
-    /// # Run the test with default endpoint (ignored by default)
-    /// cargo test --package mountpoint-s3-fs --lib -- metrics_otel::tests::direct_otlp_test --exact --ignored
-    ///
-    /// # Or run with a custom endpoint by setting the MOUNTPOINT_TEST_OTLP_ENDPOINT environment variable
-    /// MOUNTPOINT_TEST_OTLP_ENDPOINT="http://custom-server:4318/v1/metrics" cargo test --package mountpoint-s3-fs --lib -- metrics_otel::tests::direct_otlp_test --exact --ignored
-    ///
-    /// # Verify metrics in collector logs
-    #[test]
-    #[ignore]
-    fn direct_otlp_test() {
-        use opentelemetry::global;
-        use opentelemetry_otlp::{Protocol, WithExportConfig};
-        use std::time::Duration;
-        use tracing::info;
-        use tracing_subscriber::fmt::format::FmtSpan;
-        use tracing_subscriber::util::SubscriberInitExt;
-
-        // Create and set the subscriber
-        tracing_subscriber::fmt()
-            .with_span_events(FmtSpan::CLOSE)
-            .with_target(false)
-            .with_thread_ids(true)
-            .with_level(true)
-            .with_file(true)
-            .with_line_number(true)
-            .with_test_writer()
-            .set_default();
-
-        info!("Setting up direct OpenTelemetry test...");
-
-        // Get OTLP endpoint from environment variable or use default
-        let endpoint = std::env::var("MOUNTPOINT_TEST_OTLP_ENDPOINT")
-            .unwrap_or_else(|_| "http://localhost:4318/v1/metrics".to_string());
-
-        info!("Using OTLP endpoint: {}", endpoint);
-
-        // Create a config with custom settings
-        let config = OtlpConfig::new(&endpoint).with_interval_secs(1);
-
-        // Initialize the OpenTelemetry SDK directly
-        let exporter = MetricExporter::builder()
-            .with_http()
-            .with_protocol(Protocol::HttpBinary)
-            .with_endpoint(&config.endpoint)
-            .with_timeout(Duration::from_secs(10))
-            .build()
-            .expect("Failed to create exporter");
-
-        info!("Created exporter");
-
-        let reader = PeriodicReader::builder(exporter)
-            .with_interval(Duration::from_secs(1))
-            .build();
-
-        info!("Created reader");
-
-        let provider = SdkMeterProvider::builder().with_reader(reader).build();
-
-        info!("Created provider");
-
-        global::set_meter_provider(provider.clone());
-
-        info!("Set meter provider");
-
-        let meter = global::meter("mountpoint-s3");
-
-        // Create and record multiple metrics to ensure visibility
-        let counter = meter
-            .u64_counter("test_counter")
-            .with_description("Test counter for direct OTLP export")
-            .with_unit("1")
-            .build();
-
-        info!("Created counter metric");
-
-        // Add multiple data points with different attributes
-        counter.add(
-            100,
-            &[
-                opentelemetry::KeyValue::new("test", "true"),
-                opentelemetry::KeyValue::new("source", "direct_test"),
-                opentelemetry::KeyValue::new("type", "counter"),
-            ],
-        );
-
-        info!("Recorded counter with value 100 to endpoint {}", endpoint);
-
-        // Add another data point to ensure we're seeing updates
-        counter.add(
-            150,
-            &[
-                opentelemetry::KeyValue::new("test", "true"),
-                opentelemetry::KeyValue::new("source", "direct_test"),
-                opentelemetry::KeyValue::new("type", "counter"),
-            ],
-        );
-
-        info!("Recorded counter with value 150 to endpoint {}", endpoint);
-        info!("Waiting for metrics to be exported...");
-
-        // Wait longer to ensure metrics are exported
-        std::thread::sleep(Duration::from_secs(10));
-
-        info!("Test complete. Check docker logs otel-collector for metrics with prefix 'mountpoint.'");
     }
 }

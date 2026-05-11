@@ -53,6 +53,8 @@ pub trait TestClient: Send {
 
     fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
 
+    fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
+
     fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
     fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
@@ -74,15 +76,17 @@ pub struct TestSessionConfig {
     pub cache_block_size: usize,
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
+    pub fail_on_non_aligned_read_window: bool,
 }
 
 impl Default for TestSessionConfig {
     fn default() -> Self {
         let part_size = 8 * 1024 * 1024;
+        let initial_read_window_size = 1024 * 1024 + 128 * 1024;
         let cache_block_size = 1024 * 1024;
         Self {
             part_size,
-            initial_read_window_size: part_size,
+            initial_read_window_size,
             filesystem_config: Default::default(),
             auth_config: Default::default(),
             pass_fuse_fd: false,
@@ -91,6 +95,7 @@ impl Default for TestSessionConfig {
             cache_block_size,
             #[cfg(feature = "manifest")]
             manifest: None,
+            fail_on_non_aligned_read_window: false,
         }
     }
 }
@@ -103,6 +108,20 @@ impl TestSessionConfig {
 
     pub fn with_pass_fuse_fd(mut self, pass_fuse_fd: bool) -> Self {
         self.pass_fuse_fd = pass_fuse_fd;
+        self
+    }
+
+    /// Enable a check to ensure all read window increments are aligned with part boundaries
+    ///
+    /// Warning: A failed check on one request will result in all other requests from the client to fail.
+    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
+        self.fail_on_non_aligned_read_window = enable;
+        self
+    }
+
+    /// Override the memory limit for this test session.
+    pub fn with_mem_limit(mut self, mem_limit: u64) -> Self {
+        self.filesystem_config.mem_limit = mem_limit;
         self
     }
 }
@@ -254,7 +273,7 @@ where
     };
 
     (
-        FuseSession::from_session(session, test_config.max_worker_threads).unwrap(),
+        FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap(),
         mount,
     )
 }
@@ -307,6 +326,7 @@ pub mod mock_session {
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
                 .enable_rename(test_config.filesystem_config.allow_rename)
+                .fail_on_non_aligned_read_window(test_config.fail_on_non_aligned_read_window)
                 .build(),
         );
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -447,6 +467,11 @@ pub mod mock_session {
                 &HeadObjectParams::new(),
             ))?;
             Ok(head_object.size as usize)
+        }
+
+        fn get_object_content_type(&self, _key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+            // MockClient's HeadObject does not expose Content-Type headers.
+            Ok(None)
         }
 
         fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -722,6 +747,12 @@ pub mod s3_session {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
             Ok(head_object.content_length().unwrap() as usize)
+        }
+
+        fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
+            Ok(head_object.content_type().map(|s| s.to_owned()))
         }
 
         // Schedule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.

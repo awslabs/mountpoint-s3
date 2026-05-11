@@ -23,8 +23,6 @@ env:
   S3_EXPRESS_ONE_ZONE_ENDPOINT_URL: ${{ vars.S3_EXPRESS_ONE_ZONE_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_REGION }}
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_TEST_PREFIX || 'github-actions-tmp/' }}run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
-  # A bucket our IAM role has no access to, but is in the right region, for permissions tests
-  S3_FORBIDDEN_BUCKET_NAME: ${{ vars.S3_FORBIDDEN_BUCKET_NAME }}
   # An IAM role that tests can assume when they want to create session policies
   S3_SUBSESSION_IAM_ROLE: ${{ vars.S3_SUBSESSION_IAM_ROLE }}
   # Different Access Points Aliases and ARNs
@@ -51,7 +49,7 @@ jobs:
       - name: Approval Gate
         run: echo "Approved!"
 
-  test:
+  fs-test:
     name: FS Tests (${{ matrix.bucket-type.name }}, ${{ matrix.runner.name }}, FUSE ${{ matrix.fuseVersion }})
     runs-on: ${{ matrix.runner.tags }}
 
@@ -65,7 +63,7 @@ jobs:
       matrix:
         bucket-type:
         - name: S3
-          feature: 
+          feature:
         - name: S3XOZ
           feature: s3express_tests
         fuseVersion: [2, 3]
@@ -83,12 +81,12 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -99,14 +97,18 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
         fuseVersion: ${{ matrix.fuseVersion }}
     - name: Build tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
@@ -125,7 +127,7 @@ jobs:
       matrix:
         bucket-type:
         - name: S3
-          feature: 
+          feature:
         - name: S3XOZ
           feature: s3express_tests
         runner:
@@ -143,12 +145,12 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -159,21 +161,25 @@ jobs:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
         # not required for client tests. TODO: make it optional.
         fuseVersion: 2
     - name: Build tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}' --no-run
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
-      run: cargo test ${{ env.packages }} --features '${{ env.features }}'
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   fstab:
-    name: fstab tests (${{ matrix.runner.name }}
+    name: fstab tests (${{ matrix.runner.name }})
     runs-on: ${{ matrix.runner.tags }}
 
     needs: approval
@@ -190,12 +196,12 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           submodules: true
@@ -233,12 +239,12 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -249,6 +255,10 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
         components: rust-src
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest
     - name: Install operating system dependencies
       uses: ./.github/actions/install-dependencies
       with:
@@ -261,3 +271,190 @@ jobs:
     - name: Save dump files
       if: ${{ failure() }}
       run: ./.github/actions/scripts/save-coredump.sh
+
+  metrics:
+    name: Metrics Tests (${{ matrix.runner.name }})
+    runs-on: ${{ matrix.runner.tags }}
+
+    needs: approval
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+        - name: Ubuntu x86
+          tags: [ubuntu-22.04]
+        - name: AL2 arm
+          tags: [self-hosted, linux, arm64]
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+          aws-region: ${{ vars.S3_REGION }}
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: true
+          persist-credentials: false
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: Install operating system dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          fuseVersion: 2
+          otelcol: true
+      - name: Run OTLP metrics tests
+        run: ./mountpoint-s3/tests/metrics/otel_export.sh
+
+  build-srpm:
+    name: Build SRPM
+    needs: approval
+    runs-on: ubuntu-latest
+    container:
+      image: amazonlinux:2023
+
+    outputs:
+      version-tag: ${{ steps.build-srpm.outputs.version-tag }}
+
+    steps:
+    - name: Install build tools and dependencies
+      run: |
+        dnf -y install git rpm-build rpmdevtools rust cargo wget
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz" && \
+        wget -q "https://github.com/EmbarkStudios/cargo-about/releases/download/0.8.2/cargo-about-0.8.2-$(uname -p)-unknown-linux-musl.tar.gz.sha256" && \
+        echo -n "$(sha256sum cargo-about-*.tar.gz | cut -d' ' -f1)" > checksum.sha256 && \
+        diff cargo-about-*.tar.gz.sha256 checksum.sha256 && \
+        tar xzf cargo-about-*.tar.gz && \
+        cp cargo-about-*/cargo-about /usr/bin && \
+        rm -rf cargo-about-* checksum.sha256
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.ref }}
+        submodules: true
+        persist-credentials: false
+
+    - name: Create SRPM
+      id: build-srpm
+      run: |
+        chmod +x package/generate_amzn2023_srpm.sh
+        ./package/generate_amzn2023_srpm.sh
+
+        echo "## Generated Amazon Linux 2023 Spec File" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```spec' >> $GITHUB_STEP_SUMMARY
+        cat ~/rpmbuild/SPECS/amzn2023.spec >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload SRPM artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: srpm-package
+        path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
+        retention-days: 1
+
+  test-rpm:
+    name: Test RPM on ${{ matrix.arch }}
+    needs: [build-srpm, approval]
+    runs-on: ${{ matrix.runner }}
+    env:
+      test-prefix: "${S3_BUCKET_TEST_PREFIX}test-rpm/${{ matrix.arch }}/"
+
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: [self-hosted, linux, arm64]
+
+    container:
+      image: amazonlinux:2023
+      options: --privileged
+
+    steps:
+    - name: Install build tools and dependencies
+      run: |
+        dnf -y install make mock ca-certificates sudo awscli
+
+    - name: Preventing container PAM sudo errors
+      run: |
+        # https://github.com/geerlingguy/docker-rockylinux9-ansible/issues/6
+        chmod 0400 /etc/shadow
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
+        aws-region: ${{ vars.S3_REGION }}
+
+    - name: Download SRPM artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: srpm-package
+        path: /tmp/srpms
+
+    - name: Test RPM build with Mock in Amazon Linux 2023 chroot
+      run: |
+        VERSION_TAG="${{ needs.build-srpm.outputs.version-tag }}"
+        sudo mock -r amazonlinux-2023-${{ matrix.arch }} --rebuild /tmp/srpms/mount-s3-${VERSION_TAG}.src.rpm
+
+    - name: Build log
+      if: always()
+      run: |
+        echo "Mock build log:"
+        cat /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/build.log
+
+    - name: Test RPM installation
+      run: |
+        VERSION_TAG="${{ needs.build-srpm.outputs.version-tag }}"
+        dnf -y install /var/lib/mock/amazonlinux-2023-${{ matrix.arch }}/result/mount-s3-${VERSION_TAG}.${{ matrix.arch }}.rpm
+        which mount-s3
+        mount-s3 --version
+        mount-s3 --help
+
+    - name: Basic Functionality Tests
+      run: |
+        mkdir -p /mnt/s3-test
+
+        # Read Test
+        echo "Hello from RPM test" | aws s3 cp - "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}test.txt"
+        mount-s3 "${S3_BUCKET_NAME}" /mnt/s3-test --prefix="${{ env.test-prefix }}" --region="${S3_REGION}"
+        cat /mnt/s3-test/test.txt | grep -q "Hello from RPM test"
+
+        # Write Test
+        echo "Hello from RPM write test" > /mnt/s3-test/write-test.txt
+        aws s3 cp "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}write-test.txt" - | grep -q "Hello from RPM write test"
+
+        sudo umount /mnt/s3-test
+
+    - name: Cleanup test resources
+      if: always()
+      run: |
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}test.txt"
+        aws s3 rm "s3://${S3_BUCKET_NAME}/${{ env.test-prefix }}write-test.txt"
+
+  workflow-complete:
+    name: "Integration Tests Complete"
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - fs-test
+      - client-test
+      - fstab
+      - asan
+      - metrics
+      - test-rpm
+    steps:
+      - name: Verify jobs succeeded
+        run: echo '${{ toJSON(needs) }}' | jq -e 'to_entries | all(.value.result == "success")'

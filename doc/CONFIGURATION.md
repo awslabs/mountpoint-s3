@@ -10,6 +10,7 @@ We've tried hard to make this simple command adopt good defaults for most scenar
 * [File system configuration](#file-system-configuration), including making a bucket read-only or allowing file deletion
 * [Caching configuration](#caching-configuration), where metadata and object data can be served from a cache
 * [Logging](#logging) for troubleshooting Mountpoint
+* [Metrics](#metrics) for monitoring Mountpoint
 
 ## AWS credentials
 
@@ -271,6 +272,10 @@ If you want to forbid all mutating actions on your S3 bucket via Mountpoint, use
 
 For more details on the behavior of file operations with Mountpoint, see the [file operations section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#file-operations) of the semantics documentation for more information.
 
+### Content type detection
+
+By default, the `Content-Type` of new objects is set to `binary/octet-stream`. If you want Mountpoint to automatically infer the Content-Type from the file extension, use the `--infer-content-type` flag at mount time. Content-Type is not updated on rename.
+
 ### S3 storage classes
 
 Amazon S3 offers a [range of storage classes](https://aws.amazon.com/s3/storage-classes/) that you can choose from based on the data access, resiliency, and cost requirements of your workloads. When creating new files with Mountpoint, you can control which storage class the corresponding objects are stored in. Mountpoint respects the default storage class from S3 unless otherwise configured, which is appropriate for a wide variety of use cases. To store new objects in a different storage class, use the `--storage-class` command-line flag. Possible values for this argument include:
@@ -309,11 +314,11 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 
 In its default configuration, there is no maximum on the size of objects Mountpoint can read. However, Mountpoint uses [multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) when writing new objects, and multipart upload allows a maximum of 10,000 parts for an object. This means Mountpoint can only upload objects up to 80,000 MiB (78.1 GiB) in size. If your application tries to write objects larger than this limit, writes will fail with an out of space error.
 
-To increase the maximum object size for writes, use the `--write-part-size` command-line argument to specify a maximum number of bytes per part, which defaults to 8 MiB. The maximum object size will be 10,000 multiplied by the value you provide for this argument. Even with multipart upload, S3 allows a maximum object size of 5 TiB, and so setting this argument higher than 524.3 MiB will not further increase the object size limit.
+To increase the maximum object size for writes, use the `--write-part-size` command-line argument to specify a maximum number of bytes per part, which defaults to 8 MiB. The maximum object size will be 10,000 multiplied by the value you provide for this argument. S3 allows a maximum part size of 5 GiB and a maximum object size of 48.8 TiB. For more information, see the [Amazon S3 multipart upload limits](https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html).
 
 ### Automatically mounting an S3 bucket at boot
 
-Mountpoint supports automatically mounting an S3 bucket as a local filesystem when your EC2 instance boots up or restarts using the filesystem table file (`/etc/fstab`). Once you modify the fstab file to add a new entry for Mountpoint, your compute instance will read the configuration from the fstab file whenever it restarts to automatically mount the S3 bucket.
+Since v1.18, Mountpoint supports automatically mounting an S3 bucket as a local filesystem when your EC2 instance boots up or restarts using the filesystem table file (`/etc/fstab`). Once you modify the fstab file to add a new entry for Mountpoint, your compute instance will read the configuration from the fstab file whenever it restarts to automatically mount the S3 bucket.
 
 #### Example fstab entry
 
@@ -657,6 +662,10 @@ We welcome feedback on how this works for your applications and workloads.
 ## Logging
 
 By default, Mountpoint emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. You can change what level of information is logged, and to where it is logged. See [LOGGING.md](LOGGING.md) for more details on configuring logging.
+
+## Metrics
+
+Mountpoint supports exporting metrics using OpenTelemetry protocol (OTLP) to provide insights into operations such as FUSE requests, S3 requests, and throughput. Use the `--otlp-endpoint` command-line argument to export metrics to CloudWatch Agent or other OTLP-compatible collectors. See [METRICS.md](METRICS.md) for more details.
 
 ## Unstable configurations
 

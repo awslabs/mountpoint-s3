@@ -51,6 +51,7 @@ mod endpoint_config;
 pub mod failure_client;
 pub mod imds_crt_client;
 pub mod instance_info;
+pub mod metrics;
 #[doc(hidden)]
 pub mod mock_client;
 mod object_client;
@@ -82,7 +83,7 @@ pub mod config {
     #[doc(hidden)]
     pub use mountpoint_s3_crt::s3::s3_library_init;
 
-    pub use mountpoint_s3_crt::s3::client::MetaRequestType;
+    pub use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestType};
     pub use mountpoint_s3_crt::s3::pool::{MemoryPool, MemoryPoolFactory, MemoryPoolFactoryOptions};
 }
 

@@ -8,7 +8,7 @@ if [[ $ENHANCED_GETOPT -ne 4 ]]; then
     exit 1
 fi
 
-LONGOPTS="fuse-version:,with-fio,with-libunwind,with-llvm,dry-run,run-as-root"
+LONGOPTS="fuse-version:,with-fio,with-libunwind,with-llvm,with-otelcol,dry-run,run-as-root"
 getopt --quiet-output --long=$LONGOPTS --name "$0" -- "$@"
 if [[ $? -ne 0 ]]; then
     echo "couldn't read arguments" >&2
@@ -19,6 +19,7 @@ dry_run=false
 install_llvm=false
 install_fio=false
 install_libunwind=false
+install_otelcol=false
 run_as_root=false
 unset -v fuse_version
 
@@ -42,6 +43,10 @@ while true; do
             ;;
         --with-llvm)
             install_llvm=true
+            shift
+            ;;
+        --with-otelcol)
+            install_otelcol=true
             shift
             ;;
         --run-as-root)
@@ -77,6 +82,25 @@ if [[ ! -f "/etc/os-release" ]]; then
     exit 5
 fi
 
+install_otel_collector() {
+    local OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+    local ARCH=$(uname -m)
+    if [[ "$ARCH" == "x86_64" ]]; then
+        ARCH="amd64"
+    elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
+        ARCH="arm64"
+    fi
+
+    local VERSION=$(curl -s https://api.github.com/repos/open-telemetry/opentelemetry-collector-releases/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+    echo "Installing OpenTelemetry Collector version: $VERSION for $OS/$ARCH"
+    local URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${VERSION}/otelcol_${VERSION}_${OS}_${ARCH}.tar.gz"
+    curl -L "$URL" -o /tmp/otelcol.tar.gz
+    tar -xzf /tmp/otelcol.tar.gz -C /tmp
+    chmod +x /tmp/otelcol
+    $privilege_escalation_cmd mv /tmp/otelcol /usr/local/bin/otelcol
+    rm -f /tmp/otelcol.tar.gz
+    otelcol --version
+}
 
 os_release_id=$(cat /etc/os-release | grep "^ID=" | cut -d '=' -f2 | tr -d '"')
 
@@ -183,6 +207,10 @@ if [[ $dry_run == false ]]; then
             exit 6
             ;;
     esac
+
+    if [[ $install_otelcol == true ]]; then
+        install_otel_collector
+    fi
 else
     echo "dry-run, no changes made"
 fi

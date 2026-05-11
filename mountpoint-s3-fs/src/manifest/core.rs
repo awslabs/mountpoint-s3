@@ -72,7 +72,7 @@ impl ManifestEntry {
         let s3_location = self
             .parent_partial_key
             .map(move |_| S3Location::new(s3_path, partial_key));
-        Ok(Lookup::new(id, stat, inode_kind, true, s3_location))
+        Ok(Lookup::new(id, stat, inode_kind, s3_location))
     }
 
     /// Converts this entry into inode information and name. Used in readdir.
@@ -86,7 +86,7 @@ impl ManifestEntry {
         let stat = Self::stat(entry_kind, mount_time);
         let inode_kind = partial_key.kind();
         let name = partial_key.name();
-        Ok((InodeInformation::new(id, stat, inode_kind, true), name.to_string()))
+        Ok((InodeInformation::new(id, stat, inode_kind), name.to_string()))
     }
 
     fn channel(&self, channels: &[Arc<S3Path>]) -> Result<Arc<S3Path>, ManifestError> {

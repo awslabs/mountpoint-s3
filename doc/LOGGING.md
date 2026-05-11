@@ -1,6 +1,6 @@
 # Logging
 
-By default, Mountpoint for Amazon S3 emits high-severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system. To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
+By default, Mountpoint for Amazon S3 emits INFO level and higher severity log information to [syslog](https://datatracker.ietf.org/doc/html/rfc5424) if available on your system (Note that for versions up to 1.20, only WARN level and higher severity events are logged by default). To view these logs on systems using `journald` (most modern Linux distributions, including Amazon Linux), run:
 
     journalctl -e SYSLOG_IDENTIFIER=mount-s3
 
@@ -33,7 +33,7 @@ no effect on messages sent to the standard output. If no output is desired, cons
 
 ## Verbose logging
 
-By default, Mountpoint only logs high-severity events. For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
+By default, Mountpoint logs INFO level and higher severity events (WARN level and higher up to version 1.20). For reporting issues or debugging application problems, it can be helpful to increase this verbosity.
 You can enable more verbose logging with the `--debug` command-line argument. We recommend logging to a file (the `-l, --log-directory` argument above) when using this option.
 
 ### Advanced logging verbosity options
@@ -66,14 +66,14 @@ Note that increasing logging verbosity might affect runtime performance and caus
 Mountpoint optionally collects metrics measuring various values across different components.
 For example, Mountpoint records the durations of FUSE operations and the number of S3 responses grouped by HTTP status code.
 
-To opt-in, use the `--log-metrics` command-line argument.
+Metrics logging is controlled by the '--log-metrics' flag. When neither '--log-metrics' nor '--debug' is set, metrics logging will be turned off. In debug mode or when '--log-metrics' is set, metrics will be logged at the INFO level.
+
 Metrics will be collected by Mountpoint and flushed to the logs every five seconds.
 See below an example of what the emitted metrics may look like in the logs.
 
-    [INFO] mountpoint_s3_fs::metrics: fuse.io_size[type=read]: n=4: min=3184 p10=3199 p50=16511 avg=26494.00 p90=70143 p99=70143 p99.9=70143 max=70143
-    [INFO] mountpoint_s3_fs::metrics: fuse.op_latency_us[op=lookup]: n=8: min=22912 p10=23039 p50=65023 avg=62632.00 p90=95231 p99=95231 p99.9=95231 max=95231
-    [INFO] mountpoint_s3_fs::metrics: fuse.op_latency_us[op=open]: n=3: min=24448 p10=24575 p50=64255 avg=54037.33 p90=73727 p99=73727 p99.9=73727 max=73727
-    [INFO] mountpoint_s3_fs::metrics: fuse.total_bytes[type=read]: 105584 (n=4)
+    [INFO] mountpoint_s3_fs::metrics: fuse.io_size(B)[fuse_request=read]: n=4: min=3184 p10=3199 p50=16511 avg=26494.00 p90=70143 p99=70143 p99.9=70143 max=70143
+    [INFO] mountpoint_s3_fs::metrics: fuse.request_latency(μs)[fuse_request=lookup]: n=8: min=22912 p10=23039 p50=65023 avg=62632.00 p90=95231 p99=95231 p99.9=95231 max=95231
+    [INFO] mountpoint_s3_fs::metrics: fuse.request_latency(μs)[fuse_request=open]: n=3: min=24448 p10=24575 p50=64255 avg=54037.33 p90=73727 p99=73727 p99.9=73727 max=73727
 
 We recommend using the metrics only for debugging at this time.
 Metrics are currently output in an unstructured format and are subject to change in future releases.

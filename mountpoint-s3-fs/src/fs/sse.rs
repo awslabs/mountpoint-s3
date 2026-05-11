@@ -80,15 +80,19 @@ impl ServerSideEncryption {
         sse_kms_key_id: Option<&str>,
     ) -> Result<(), SseCorruptedError> {
         self.validate()?; // validate in-memory values, as we are using them to decide whether to skip the response check or not
-        if self.sse_type.is_some() && self.sse_type.as_deref() != sse_type {
+        if let Some(stored_sse_type) = self.sse_type.as_deref()
+            && Some(stored_sse_type) != sse_type
+        {
             return Err(SseCorruptedError::TypeMismatch(
-                self.sse_type.as_ref().unwrap().clone(),
+                stored_sse_type.to_string(),
                 sse_type.map(str::to_string),
             ));
         }
-        if self.sse_kms_key_id.is_some() && self.sse_kms_key_id.as_deref() != sse_kms_key_id {
+        if let Some(stored_sse_kms_key_id) = self.sse_kms_key_id.as_deref()
+            && Some(stored_sse_kms_key_id) != sse_kms_key_id
+        {
             return Err(SseCorruptedError::KeyMismatch(
-                self.sse_kms_key_id.as_ref().unwrap().clone(),
+                stored_sse_kms_key_id.to_string(),
                 sse_kms_key_id.map(str::to_string),
             ));
         }

@@ -78,6 +78,9 @@ impl S3CrtClient {
 
             let mut options = message.into_options(S3Operation::GetObject);
             options.part_size(self.inner.read_part_size as u64);
+            if let Some(id) = params.custom_id {
+                options.custom_id(id);
+            }
 
             let mut headers_sender = Some(event_sender.clone());
             let part_sender = event_sender.clone();
@@ -170,6 +173,7 @@ impl ClientBackpressureHandle for S3BackpressureHandle {
     }
 
     fn ensure_read_window(&mut self, desired_end_offset: u64) {
+        trace!(desired_end_offset, "applying new read window for meta request");
         let diff = desired_end_offset.saturating_sub(self.read_window_end_offset()) as usize;
         self.increment_read_window(diff);
     }
