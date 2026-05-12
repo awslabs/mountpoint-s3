@@ -14,6 +14,7 @@ use crate::metablock::{
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
+use crate::write_handle_limiter::WriteHandleLimiter;
 
 use super::core::{Manifest, ManifestDirIter, ManifestError};
 
@@ -187,6 +188,7 @@ impl Metablock for ManifestMetablock {
         _fh: u64,
         _write_mode: &WriteMode,
         flags: OpenFlags,
+        _write_handle_limiter: Option<&Arc<WriteHandleLimiter>>,
     ) -> Result<NewHandle, InodeError> {
         let lookup = self.getattr(ino, false).await?;
         if flags.contains(OpenFlags::O_WRONLY) {

@@ -86,6 +86,7 @@ Mountpoint emits the following metrics:
 
 | Metric | Type | Dimensions | Description |
 |--------|------|------------|-------------|
+| `fs.write_handle_limit_exceeded` | Counter | | Number of `open()` calls for write rejected because the [concurrent-writers cap](CONFIGURATION.md#maximum-number-of-files-open-for-write) was reached |
 | `fuse.io_size` | Histogram | `fuse_request` (read, write) | Bytes transferred per FUSE request |
 | `fuse.request_errors` | Counter | `fuse_request` (read, write, etc.) | Number of FUSE request errors |
 | `fuse.request_latency` | Histogram | `fuse_request` (read, write, etc.) | Time to process a FUSE request |

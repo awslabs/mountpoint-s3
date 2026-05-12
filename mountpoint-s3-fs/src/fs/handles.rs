@@ -10,6 +10,7 @@ use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
 use crate::sync::{Arc, AsyncMutex};
 use crate::upload::{AppendUploadRequest, UploadRequest};
+use crate::write_handle_limiter::WriteHandleSlot;
 
 use super::{Error, InodeNo, OpenFlags, S3Filesystem, ToErrno};
 
@@ -23,6 +24,11 @@ where
     pub state: AsyncMutex<FileHandleState<Client>>,
     /// Process that created the handle
     pub open_pid: u32,
+    /// Slot reserved on the [`MemoryLimiter`] for this handle. `Some` for write handles, `None`
+    /// for read handles. Released automatically when the `FileHandle` is dropped — held purely
+    /// for that `Drop` side effect, so the field is never read directly.
+    #[expect(dead_code, reason = "held for its Drop side effect")]
+    pub(super) write_slot: Option<WriteHandleSlot>,
 }
 
 impl<Client> FileHandle<Client>

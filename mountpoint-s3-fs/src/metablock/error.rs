@@ -9,6 +9,7 @@ use crate::manifest::ManifestError;
 use crate::metablock::S3Location;
 use crate::sync::Arc;
 use crate::upload::UploadError;
+use crate::write_handle_limiter::WriteHandleLimitError;
 
 use super::InodeNo;
 
@@ -82,6 +83,16 @@ pub enum InodeError {
     NoSuchDirHandle { fh: u64 },
     #[error("objects in flexible retrieval storage classes are not accessible")]
     FlexibleRetrievalObjectNotAccessible(InodeErrorInfo),
+    #[error(
+        "cannot open file for write: exceeded max allowed concurrent write file handlers of {max} \
+         based on memory target {mem_limit_mib}MiB (part size is {write_part_size_mib}MiB). \
+         Increase --memory-target or decrease --write-part-size to allow for more concurrent writes, \
+         or close existing open for write file handlers and retry open() operation.",
+        max = .0.max,
+        mem_limit_mib = .0.mem_limit_mib,
+        write_part_size_mib = .0.write_part_size_mib,
+    )]
+    WriteHandleLimitExceeded(WriteHandleLimitError),
 }
 
 impl InodeError {

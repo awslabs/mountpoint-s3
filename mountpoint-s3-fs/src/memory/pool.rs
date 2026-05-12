@@ -199,6 +199,16 @@ impl PagedPool {
 
     // ─── Delegation methods for MemoryLimiter ───────────────────────────────────
 
+    /// The configured memory limit in bytes.
+    pub fn mem_limit(&self) -> u64 {
+        self.inner.limiter.mem_limit()
+    }
+
+    /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
+    pub fn data_buffer_budget(&self) -> u64 {
+        self.inner.limiter.data_buffer_budget()
+    }
+
     /// Reserve memory for future uses. Always succeeds (unconditional).
     pub fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
         self.inner.limiter.reserve(cursor_id, area, size);

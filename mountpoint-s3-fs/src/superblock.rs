@@ -48,6 +48,7 @@ use crate::metablock::{
 };
 use crate::s3::{S3Path, S3Personality};
 use crate::sync::{Arc, RwLock};
+use crate::write_handle_limiter::{WriteHandleLimiter, WriteHandleSlot};
 
 mod handles_map;
 use handles_map::{InodeHandleMap, SetWriterError};
@@ -814,6 +815,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         fh: u64,
         write_mode: &WriteMode,
         flags: OpenFlags,
+        write_handle_limiter: Option<&Arc<WriteHandleLimiter>>,
     ) -> Result<NewHandle, InodeError> {
         let force_revalidate_if_remote = !self.inner.config.cache_config.serve_lookup_from_cache || flags.direct_io();
         let looked_up_inode = self.getattr_with_inode(ino, force_revalidate_if_remote).await?;
@@ -847,6 +849,14 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 looked_up_inode.inode.err(),
             ));
         }
+
+        // Reserve a write-handle slot *before* mutating or locking inode.
+        let write_slot: Option<WriteHandleSlot> = match (&mode, write_handle_limiter) {
+            (ReadWriteMode::Write, Some(limiter)) => {
+                Some(limiter.try_acquire().map_err(InodeError::WriteHandleLimitExceeded)?)
+            }
+            _ => None,
+        };
 
         let inode = looked_up_inode.inode;
         let (pending_upload_hook, inode_lookup) = {
@@ -887,7 +897,11 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             inode_lookup
         };
 
-        Ok(NewHandle { lookup, mode })
+        Ok(NewHandle {
+            lookup,
+            mode,
+            write_slot,
+        })
     }
 
     async fn inc_file_size(&self, ino: InodeNo, len: usize) -> Result<usize, InodeError> {
@@ -2607,7 +2621,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
+                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY, None)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename.into());
@@ -2656,7 +2670,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
+                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY, None)
                 .await
                 .expect("should be able to start writing");
             expected_list.push(filename.to_owned().into());
@@ -2812,7 +2826,7 @@ mod tests {
                 .await
                 .unwrap();
             superblock
-                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
+                .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY, None)
                 .await
                 .expect("should be able to start writing");
         }
@@ -3053,7 +3067,7 @@ mod tests {
             .unwrap();
 
         superblock
-            .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
+            .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY, None)
             .await
             .expect("should be able to start writing");
 
@@ -3210,7 +3224,7 @@ mod tests {
             .unwrap();
 
         superblock
-            .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
+            .open_handle(new_inode.ino(), 0, &Default::default(), OpenFlags::O_WRONLY, None)
             .await
             .expect("should be able to start writing");
 
