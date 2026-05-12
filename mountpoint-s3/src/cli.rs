@@ -490,7 +490,7 @@ impl CliArgs {
         Ok(s3path)
     }
 
-    pub(crate) fn mem_limit(&self) -> u64 {
+    pub fn mem_limit(&self) -> u64 {
         let mut mem_limit = MINIMUM_MEM_LIMIT;
 
         let default_mem_target = (effective_total_memory() as f64 * 0.95) as u64;

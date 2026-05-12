@@ -95,9 +95,8 @@ impl Drop for ActiveReadGuard {
 ///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
 /// requests. Under memory pressure, each instance will limit to a single buffer.
-// TODO: Extract ActiveRead tracking into its own struct in a follow-up.
 #[derive(Debug)]
-pub(crate) struct MemoryLimiter {
+pub struct MemoryLimiter {
     mem_limit: u64,
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
@@ -111,7 +110,6 @@ pub(crate) struct MemoryLimiter {
     additional_mem_reserved: u64,
     /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
     /// the requested range is stored here. Absence means the handle is speculative.
-    // TODO: Extract ActiveRead tracking into its own struct in a follow-up refactor.
     active_reads: Arc<DashMap<HandleId, ActiveRead>>,
 }
 
@@ -496,9 +494,14 @@ mod tests {
     /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a
     /// container started with `--memory=4g`), verify that [effective_total_memory]
     /// returns a value equal to the cgroup limit rather than the host's total RAM.
+    ///
+    /// This test is run by the `cgroup-mem-limit` CI job (see `.github/workflows/tests.yml`)
+    /// inside a memory-limited container. Outside that job the env var is unset and the
+    /// test is skipped.
     #[test]
     fn test_effective_total_memory_respects_cgroup() {
         let Ok(expected_str) = std::env::var("TEST_CGROUP_MEM_LIMIT_MB") else {
+            // Nothing to check outside the dedicated CI container job.
             return;
         };
         let expected_bytes: u64 = expected_str.parse::<u64>().expect("invalid TEST_CGROUP_MEM_LIMIT_MB") * 1024 * 1024;
@@ -517,6 +520,8 @@ mod tests {
         let mut sys = System::new();
         sys.refresh_memory();
         if sys.cgroup_limits().is_some() {
+            // A cgroup limit is active on this machine -- the fallback path
+            // won't be exercised, so there's nothing to assert here.
             return;
         }
         assert_eq!(
