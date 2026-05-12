@@ -3,7 +3,7 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
 use crate::checksums::ChecksummedBytes;
-use crate::memory::PagedPool;
+use crate::memory::CursorHandle;
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
 
@@ -19,14 +19,12 @@ pub struct Cursor<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    /// Unique id for this cursor
-    cursor_id: CursorId,
     /// Id of the object to download
     object_id: ObjectId,
     /// Start offset for sequential read, used for calculating contiguous read metric
     start_offset: u64,
-    /// Associated memory limiter
-    pool: PagedPool,
+    /// Per-cursor state (reservation + active read tracking)
+    cursor_handle: CursorHandle,
     /// Background task to request data
     request_task: RequestTask<Client>,
     /// Holds data for backward seeks
@@ -46,18 +44,16 @@ where
 {
     /// Create a new cursor at the given offset.
     pub fn new(
-        cursor_id: CursorId,
         request_task: RequestTask<Client>,
-        pool: PagedPool,
+        cursor_handle: CursorHandle,
         config: &PrefetcherConfig,
         object_id: ObjectId,
         offset: u64,
     ) -> Self {
         Self {
-            cursor_id,
             object_id,
             start_offset: offset,
-            pool,
+            cursor_handle,
             request_task,
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
             max_forward_seek_wait_distance: config.max_forward_seek_wait_distance,
@@ -75,7 +71,7 @@ where
         &mut self,
         length: usize,
     ) -> Result<(ChecksummedBytes, bool), PrefetchReadError<Client::ClientError>> {
-        let _active_read_guard = self.pool.set_active_read(self.cursor_id, self.current_offset, length);
+        let _active_read_guard = self.cursor_handle.set_active_read(self.current_offset, length);
 
         self.do_read(length).await
     }
@@ -90,7 +86,7 @@ where
         // the skipped bytes the prefetcher must consume to reach the requested offset.
         let active_start = self.current_offset.min(offset);
         let active_size = length + offset.saturating_sub(active_start) as usize;
-        let _active_read_guard = self.pool.set_active_read(self.cursor_id, active_start, active_size);
+        let _active_read_guard = self.cursor_handle.set_active_read(active_start, active_size);
 
         if !self.try_seek(offset).await? {
             // Seek failed

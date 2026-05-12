@@ -1,5 +1,5 @@
+use std::ops::Range;
 use std::time::Instant;
-use std::{ops::Range, sync::Arc};
 
 use futures::task::{Spawn, SpawnExt};
 use futures::{Stream, StreamExt, pin_mut};
@@ -13,6 +13,7 @@ use crate::data_cache::{BlockIndex, DataCache};
 use crate::memory::PagedPool;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
+use crate::sync::Arc;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
@@ -49,15 +50,16 @@ where
     Cache: DataCache + Send + Sync + 'static,
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
+    fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client> {
         let range = config.range;
 
         let backpressure_config = BackpressureConfig::new(
             &config,
             ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
         );
+        let cursor_state = config.cursor_state.clone();
         let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.pool.clone());
+            new_backpressure_controller(backpressure_config, cursor_state);
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -80,6 +82,10 @@ where
 
     fn client(&self) -> &Client {
         &self.client
+    }
+
+    fn pool(&self) -> &PagedPool {
+        &self.pool
     }
 }
 
@@ -422,7 +428,6 @@ mod tests {
         data_cache::InMemoryDataCache,
         memory::{MINIMUM_MEM_LIMIT, PagedPool},
         object::ObjectId,
-        prefetch::CursorId,
     };
 
     use super::*;
@@ -478,7 +483,7 @@ mod tests {
             // First request (from client)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let config = RequestTaskConfig {
-                cursor_id: CursorId::new_from_raw(0),
+                cursor_state: pool.create_cursor().state(),
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
@@ -488,7 +493,7 @@ mod tests {
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(config);
+            let request_task = stream.spawn_request_task(config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -505,7 +510,7 @@ mod tests {
             // Second request (from cache)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let config = RequestTaskConfig {
-                cursor_id: CursorId::new_from_raw(0),
+                cursor_state: pool.create_cursor().state(),
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
@@ -515,7 +520,7 @@ mod tests {
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(config);
+            let request_task = stream.spawn_request_task(config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -558,7 +563,7 @@ mod tests {
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
                 let config = RequestTaskConfig {
-                    cursor_id: CursorId::new_from_raw(0),
+                    cursor_state: pool.create_cursor().state(),
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
@@ -568,7 +573,7 @@ mod tests {
                     max_read_window_size,
                     read_window_size_multiplier,
                 };
-                let request_task = stream.spawn_get_object_request(config);
+                let request_task = stream.spawn_request_task(config);
                 compare_read(&id, &object, request_task);
             }
         }

@@ -4,8 +4,8 @@ use async_channel::{Receiver, RecvError, Sender, unbounded};
 use humansize::make_format;
 use tracing::trace;
 
-use crate::memory::BufferArea;
-use crate::memory::PagedPool;
+use crate::memory::CursorState;
+use crate::sync::Arc;
 
 use super::CursorId;
 use super::PrefetchReadError;
@@ -52,8 +52,6 @@ impl ReadWindowAlignmentConfig {
 }
 
 pub struct BackpressureConfig {
-    /// Id of the associated Cursor
-    pub cursor_id: CursorId,
     /// Backpressure's initial read window size
     pub initial_read_window_size: usize,
     /// Minimum read window size that the backpressure controller is allowed to scale down to
@@ -71,7 +69,6 @@ pub struct BackpressureConfig {
 impl BackpressureConfig {
     pub fn new(config: &RequestTaskConfig, read_window_alignment_config: ReadWindowAlignmentConfig) -> Self {
         Self {
-            cursor_id: config.cursor_id,
             initial_read_window_size: config.initial_read_window_size(),
             min_read_window_size: config.read_part_size,
             max_read_window_size: config.max_read_window_size,
@@ -106,13 +103,8 @@ pub struct BackpressureController {
     ///
     /// The request can return data up to this offset *exclusively*.
     request_end_offset: u64,
-    /// Memory limiter is used to guide decisions on how much data to prefetch and to track
-    /// per-cursor memory reservations.
-    ///
-    /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
-    pool: PagedPool,
-    /// Unique cursor ID for per-cursor memory reservation tracking.
-    cursor_id: CursorId,
+    /// Cursor state handle for direct reservation operations.
+    cursor_state: Arc<CursorState>,
     /// Enable alignment of read window end to part boundary
     read_window_alignment_config: ReadWindowAlignmentConfig,
 }
@@ -142,17 +134,14 @@ pub struct BackpressureLimiter {
 /// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
 pub fn new_backpressure_controller(
     config: BackpressureConfig,
-    pool: PagedPool,
+    cursor_state: Arc<CursorState>,
 ) -> (BackpressureController, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
-    pool.reserve(
-        config.cursor_id,
-        BufferArea::Prefetch,
-        config.initial_read_window_size as u64,
-    );
+    cursor_state.reserve(config.initial_read_window_size as u64);
 
+    let cursor_id = cursor_state.id();
     let (read_window_updater, read_window_increment_queue) = unbounded();
     let read_window_increment_queue = ReadWindowIncrementQueue::new(read_window_increment_queue);
 
@@ -165,8 +154,7 @@ pub fn new_backpressure_controller(
         read_window_end_offset,
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
-        cursor_id: config.cursor_id,
-        pool,
+        cursor_state,
         read_window_alignment_config: config.read_window_alignment_config,
     };
 
@@ -176,7 +164,7 @@ pub fn new_backpressure_controller(
         read_window_increment_queue,
         read_window_end_offset,
         request_end_offset: config.request_range.end,
-        cursor_id: config.cursor_id,
+        cursor_id,
     };
 
     (controller, limiter)
@@ -223,18 +211,14 @@ impl BackpressureController {
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
                         trace!(new_read_window_end_offset, "sending a read window increment");
-                        self.pool
-                            .reserve(self.cursor_id, BufferArea::Prefetch, to_increase as u64);
+                        self.cursor_state.reserve(to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
                     }
 
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
-                    if self
-                        .pool
-                        .try_reserve(self.cursor_id, BufferArea::Prefetch, to_increase as u64)
-                    {
+                    if self.cursor_state.try_reserve(to_increase as u64) {
                         trace!(new_read_window_end_offset, "sending a read window increment");
                         self.increment_read_window(to_increase).await;
                         break;
@@ -278,7 +262,7 @@ impl BackpressureController {
             // because only `preferred_read_window_size` is increased but the actual read window will
             // be updated later on `DataRead` event (where we do reserve memory).
             let to_increase = (new_read_window_size - self.preferred_read_window_size) as u64;
-            let available_mem = self.pool.available_mem();
+            let available_mem = self.cursor_state.available_mem();
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
                 trace!(
@@ -310,15 +294,6 @@ impl BackpressureController {
             metrics::histogram!("prefetch.window_after_decrease_mib")
                 .record((self.preferred_read_window_size / 1024 / 1024) as f64);
         }
-    }
-}
-
-impl Drop for BackpressureController {
-    fn drop(&mut self) {
-        // Release whatever remains of this cursor's reservation. The per-cursor counter
-        // tracks only the unallocated portion — pool allocations already decremented it
-        // via the on_reserve callback.
-        self.pool.release_cursor(self.cursor_id, BufferArea::Prefetch);
     }
 }
 
@@ -420,7 +395,6 @@ mod tests {
     fn test_read_window_scale_up(initial_read_window_size: usize, read_window_size_multiplier: usize) {
         let request_range = 0..(5 * 1024 * 1024 * 1024);
         let backpressure_config = BackpressureConfig {
-            cursor_id: CursorId::new_from_raw(0),
             initial_read_window_size,
             min_read_window_size: 8 * 1024 * 1024,
             max_read_window_size: 2 * 1024 * 1024 * 1024,
@@ -449,7 +423,6 @@ mod tests {
     fn test_read_window_scale_down(initial_read_window_size: usize, read_window_size_multiplier: usize) {
         let request_range = 0..(5 * 1024 * 1024 * 1024);
         let backpressure_config = BackpressureConfig {
-            cursor_id: CursorId::new_from_raw(0),
             initial_read_window_size,
             min_read_window_size: 8 * 1024 * 1024,
             max_read_window_size: 2 * 1024 * 1024 * 1024,
@@ -480,7 +453,6 @@ mod tests {
         // OK, back to basics. Just reproduce what happened, verify it passes after the fix.
         #[allow(clippy::identity_op)]
         let backpressure_config = BackpressureConfig {
-            cursor_id: CursorId::new_from_raw(0),
             initial_read_window_size: 1 * MIB,
             min_read_window_size: 8 * MIB,
             max_read_window_size: 2 * GIB,
@@ -536,6 +508,7 @@ mod tests {
     ) -> (BackpressureController, BackpressureLimiter) {
         let pool =
             PagedPool::new_with_candidate_sizes([8 * 1024 * 1024], backpressure_config.max_read_window_size as u64);
-        new_backpressure_controller(backpressure_config, pool)
+        let cursor_state = pool.create_cursor().state();
+        new_backpressure_controller(backpressure_config, cursor_state)
     }
 }

@@ -73,7 +73,7 @@ where
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
         let part_stream = ClientPartStream::new(runtime, self.client, pool.clone());
-        Prefetcher::new(PartStream::new(part_stream), pool, prefetcher_config)
+        Prefetcher::new(PartStream::new(part_stream), prefetcher_config)
     }
 }
 
@@ -94,6 +94,6 @@ where
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
         let part_stream = CachingPartStream::new(runtime, self.client, pool.clone(), self.cache);
-        Prefetcher::new(PartStream::new(part_stream), pool, prefetcher_config)
+        Prefetcher::new(PartStream::new(part_stream), prefetcher_config)
     }
 }
