@@ -7,7 +7,6 @@ use crate::sync::Arc;
 
 use super::pages::PagedBufferPtr;
 use super::stats::{BufferKind, PoolStats};
-use crate::prefetch::CursorId;
 
 /// A buffer backed by the pool.
 ///
@@ -31,15 +30,8 @@ impl PoolBuffer {
         Self(PoolBufferInner::Primary { buffer_ptr, size })
     }
 
-    pub(super) fn new_secondary(
-        size: usize,
-        kind: BufferKind,
-        cursor_id: Option<CursorId>,
-        stats: Arc<PoolStats>,
-    ) -> Self {
-        Self(PoolBufferInner::Secondary(FreeBuffer::new(
-            size, kind, cursor_id, stats,
-        )))
+    pub(super) fn new_secondary(size: usize, kind: BufferKind, stats: Arc<PoolStats>) -> Self {
+        Self(PoolBufferInner::Secondary(FreeBuffer::new(size, kind, stats)))
     }
 
     pub fn capacity(&self) -> usize {
@@ -182,9 +174,9 @@ struct FreeBuffer {
 }
 
 impl FreeBuffer {
-    fn new(size: usize, kind: BufferKind, cursor_id: Option<CursorId>, stats: Arc<PoolStats>) -> Self {
+    fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>) -> Self {
         let data = vec![0u8; size].into_boxed_slice();
-        stats.reserve_bytes(data.len(), kind, cursor_id);
+        stats.reserve_bytes(data.len(), kind);
         Self { data, kind, stats }
     }
 }
@@ -206,14 +198,14 @@ mod tests {
     fn primary(buffer_size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(buffer_size);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other, None)
+            .try_reserve(BufferKind::Other)
             .expect("should be able to reserve a buffer from a new page");
 
         PoolBuffer::new_primary(buffer_ptr, buffer_size)
     }
 
     fn secondary(buffer_size: usize) -> PoolBuffer {
-        PoolBuffer::new_secondary(buffer_size, BufferKind::Other, None, Arc::new(PoolStats::default()))
+        PoolBuffer::new_secondary(buffer_size, BufferKind::Other, Arc::new(PoolStats::default()))
     }
 
     #[test_case(primary)]

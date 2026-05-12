@@ -88,7 +88,7 @@ impl Drop for ActiveReadGuard {
 /// rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
-/// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
+/// 1) the memory pool allocates a buffer: `on_pool_reserve` decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
 /// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_cursor` will
 ///    release any remaining unallocated reservation for that cursor).
@@ -102,7 +102,7 @@ pub(crate) struct MemoryLimiter {
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
     /// Per-cursor reservation tracking. Keyed by CursorId (unique per BackpressureController
-    /// lifetime) so that late on_reserve callbacks from cancelled CRT meta-requests cannot
+    /// lifetime) so that late on_pool_reserve calls from cancelled CRT meta-requests cannot
     /// incorrectly decrement a re-created entry for the same handle.
     mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>>,
     /// Counter for generating unique [CursorId]s.
@@ -117,7 +117,6 @@ pub(crate) struct MemoryLimiter {
 
 impl MemoryLimiter {
     /// Create a new `MemoryLimiter` with the given memory limit.
-    /// The `on_pool_reserve` callback is wired externally by `PagedPool` construction.
     pub(crate) fn new(mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
@@ -137,16 +136,6 @@ impl MemoryLimiter {
             additional_mem_reserved,
             active_reads: Arc::new(DashMap::new()),
         }
-    }
-
-    /// Get a clone of the `mem_reserved` Arc for use in the on_reserve callback.
-    pub(crate) fn mem_reserved_arc(&self) -> Arc<AtomicU64> {
-        self.mem_reserved.clone()
-    }
-
-    /// Get a clone of the `mem_reserved_per_cursor` Arc for use in the on_reserve callback.
-    pub(crate) fn mem_reserved_per_cursor_arc(&self) -> Arc<DashMap<CursorId, Arc<AtomicU64>>> {
-        self.mem_reserved_per_cursor.clone()
     }
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
@@ -251,17 +240,12 @@ impl MemoryLimiter {
     ///
     /// No-op when `cursor_id` is `None` (e.g. uploads) or the cursor has already been removed
     /// by `release_cursor`.
-    pub(crate) fn on_pool_reserve(
-        bytes: usize,
-        cursor_id: Option<CursorId>,
-        mem_reserved: &AtomicU64,
-        per_cursor: &DashMap<CursorId, Arc<AtomicU64>>,
-    ) {
+    pub(crate) fn on_pool_reserve(&self, bytes: usize, cursor_id: Option<CursorId>) {
         let Some(cursor_id) = cursor_id else {
             return;
         };
         // Clone the Arc to release the DashMap shard lock before doing atomic operations.
-        let Some(cursor_reservation) = per_cursor.get(&cursor_id).map(|r| r.value().clone()) else {
+        let Some(cursor_reservation) = self.mem_reserved_per_cursor.get(&cursor_id).map(|r| r.value().clone()) else {
             return;
         };
         let mut current = cursor_reservation.load(Ordering::SeqCst);
@@ -272,7 +256,7 @@ impl MemoryLimiter {
                 Err(actual) => current = actual,
             }
         };
-        mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
+        self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
@@ -300,10 +284,10 @@ mod tests {
         let cursor = limiter.next_cursor_id();
 
         limiter.reserve(cursor, BufferArea::Prefetch, 100);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 100);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 100);
 
         limiter.release_cursor(cursor, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -314,11 +298,11 @@ mod tests {
 
         // Reserve 1024 bytes of intent
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 1024);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
-        // Pool allocation triggers on_reserve callback, decrementing mem_reserved
+        // Pool allocation calls on_pool_reserve, decrementing mem_reserved
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -329,15 +313,15 @@ mod tests {
 
         // Reserve 2048 bytes of intent
         limiter.reserve(cursor, BufferArea::Prefetch, 2048);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 2048);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 2048);
 
-        // Pool allocates 1024 — callback decrements both global and per-cursor
+        // Pool allocates 1024 — on_pool_reserve decrements both global and per-cursor
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 1024);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
         // release_cursor releases the remaining per-cursor balance (2048 - 1024 = 1024)
         limiter.release_cursor(cursor, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -362,14 +346,14 @@ mod tests {
 
         limiter.reserve(cursor1, BufferArea::Prefetch, 100);
         limiter.reserve(cursor2, BufferArea::Prefetch, 200);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 300);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 300);
 
         // Release cursor1 — only its 100 bytes
         limiter.release_cursor(cursor1, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 200);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 200);
 
         limiter.release_cursor(cursor2, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -382,43 +366,43 @@ mod tests {
 
         // Second call is a no-op
         limiter.release_cursor(cursor, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
-    fn test_callback_noop_after_release_cursor() {
+    fn test_on_pool_reserve_noop_after_release_cursor() {
         let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
         limiter.release_cursor(cursor, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // Late allocation for the cancelled request — cursor is gone
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
 
         // mem_reserved should stay at 0, not go negative or wrap
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
-    fn test_callback_saturates_on_over_decrement() {
+    fn test_on_pool_reserve_saturates_on_over_decrement() {
         let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
         // Reserve only 512 bytes
         limiter.reserve(cursor, BufferArea::Prefetch, 512);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 512);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 512);
 
-        // Pool allocates 1024 — callback should saturate at 512 (not underflow)
+        // Pool allocates 1024 — on_pool_reserve should saturate at 512 (not underflow)
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // release_cursor should subtract 0 (the per-cursor counter is already 0)
         limiter.release_cursor(cursor, BufferArea::Prefetch);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -434,9 +418,9 @@ mod tests {
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
         assert_eq!(limiter.available_mem(stats), initial_available - 1024);
 
-        // Pool allocates (on_reserve converts intent to pool stats) — available stays the same
+        // Pool allocates (on_pool_reserve converts intent to pool stats) — available stays the same
         let buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
         assert_eq!(limiter.available_mem(stats), initial_available - 1024);
 
         // Drop the buffer — pool stats decrease, available goes back up
@@ -451,11 +435,11 @@ mod tests {
         let stats = pool.inner_stats();
 
         let initial_available = limiter.available_mem(stats);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // Upload allocates without cursor_id — should not touch mem_reserved
         let buffer = pool.get_buffer_mut(1024, BufferKind::Append, None);
-        assert_eq!(limiter.mem_reserved_arc().load(Ordering::SeqCst), 0);
+        assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // But available_mem should decrease (pool stats increased)
         assert_eq!(limiter.available_mem(stats), initial_available - 1024);

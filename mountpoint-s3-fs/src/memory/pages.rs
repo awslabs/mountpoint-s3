@@ -3,7 +3,6 @@ use std::alloc::{self, Layout};
 use crate::sync::{Arc, Mutex};
 
 use super::stats::{BufferKind, SizePoolStats};
-use crate::prefetch::CursorId;
 
 /// Page in a size pool.
 ///
@@ -79,14 +78,14 @@ impl Page {
     /// Try to reserve a buffer from this page.
     ///
     /// Returns [None] if the page is already full.
-    pub fn try_reserve(&self, kind: BufferKind, cursor_id: Option<CursorId>) -> Option<PagedBufferPtr> {
+    pub fn try_reserve(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
         let (index, page_status) = consume(&mut self.inner.reserved_bitmask.lock().unwrap())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
             self.inner.stats.remove_empty_page();
         };
 
-        self.inner.stats.add_reserved_buffer(kind, cursor_id);
+        self.inner.stats.add_reserved_buffer(kind);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
         let ptr = unsafe { self.inner.bytes.add(offset) };
@@ -215,24 +214,24 @@ mod tests {
         let mut buffers = Vec::new();
         for _ in 0..Page::BUFFERS_PER_PAGE {
             let buffer_ptr = page
-                .try_reserve(BufferKind::Other, None)
+                .try_reserve(BufferKind::Other)
                 .expect("reserving up to 16 buffers from a new page should succeed");
             buffers.push(buffer_ptr);
         }
 
         assert!(
-            page.try_reserve(BufferKind::Other, None).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving the 17th buffer from a page should return None"
         );
 
         _ = buffers.pop().expect("drop one of the reserved buffers");
 
         buffers.push(
-            page.try_reserve(BufferKind::Other, None)
+            page.try_reserve(BufferKind::Other)
                 .expect("reserving after dropping 1 buffer should succeed"),
         );
         assert!(
-            page.try_reserve(BufferKind::Other, None).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving when all 16 buffers are in use should return None"
         );
 
@@ -248,7 +247,7 @@ mod tests {
             "invalidation of a new, empty page should succeed"
         );
         assert!(
-            page.try_reserve(BufferKind::Other, None).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving from an invalidated page should return None"
         );
     }
@@ -257,7 +256,7 @@ mod tests {
     fn test_invalidate_in_use() {
         let page = Page::new_for_tests(1024);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other, None)
+            .try_reserve(BufferKind::Other)
             .expect("reserving from a new page should succeed");
         assert!(!page.invalidate_if_empty(), "invalidation of a page in use should fail");
         drop(buffer_ptr);
@@ -266,7 +265,7 @@ mod tests {
             "invalidation of an empty page should succeed"
         );
         assert!(
-            page.try_reserve(BufferKind::Other, None).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving from an invalidated page should return None"
         );
     }
