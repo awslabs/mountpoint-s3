@@ -283,17 +283,6 @@ impl MemoryLimiter {
 }
 
 #[cfg(test)]
-pub(crate) mod test_helpers {
-    use super::super::stats::PoolStats;
-
-    /// Create a default PoolStats for testing the limiter in isolation.
-    #[allow(dead_code)]
-    pub fn default_pool_stats() -> PoolStats {
-        PoolStats::default()
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::memory::{BufferKind, PagedPool};
@@ -303,13 +292,6 @@ mod tests {
 
     fn new_limiter() -> Arc<MemoryLimiter> {
         Arc::new(MemoryLimiter::new(MINIMUM_MEM_LIMIT))
-    }
-
-    /// Create a pool with its own internal limiter for tests that need to inspect limiter state.
-    /// Returns a reference-counted pointer to the pool's internal limiter and the pool itself.
-    fn new_limiter_with_pool(buffer_size: usize, mem_limit: u64) -> (PagedPool,) {
-        let pool = PagedPool::new_with_candidate_sizes([buffer_size], mem_limit);
-        (pool,)
     }
 
     #[test]
@@ -326,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_pool_allocation_decrements_mem_reserved() {
-        let (pool,) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
@@ -341,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_reserve_pool_allocate_release_cursor() {
-        let (pool,) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
@@ -405,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_callback_noop_after_release_cursor() {
-        let (pool,) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
@@ -422,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_callback_saturates_on_over_decrement() {
-        let (pool,) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
@@ -441,7 +423,7 @@ mod tests {
 
     #[test]
     fn test_available_mem_accounts_for_pool_allocations() {
-        let (pool,) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
         let stats = pool.inner_stats();
@@ -464,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_upload_allocation_does_not_affect_mem_reserved() {
-        let (pool,) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let stats = pool.inner_stats();
 
