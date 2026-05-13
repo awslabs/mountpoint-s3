@@ -146,6 +146,7 @@ impl ManifestEntry {
                     size,
                     mount_time,
                     Some(etag.into()),
+                    None,
                     // Intentionally leaving `storage_class` and `restore_status` empty,
                     // which may result in EIO errors on read for GLACIER | DEEP_ARCHIVE objects
                     None,

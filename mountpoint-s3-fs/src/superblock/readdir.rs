@@ -194,6 +194,7 @@ impl ReaddirHandle {
                     *size as usize,
                     *last_modified,
                     Some(etag.as_str().into()),
+                    None,
                     storage_class.as_deref(),
                     *restore_status,
                     inner.config.cache_config.file_ttl,

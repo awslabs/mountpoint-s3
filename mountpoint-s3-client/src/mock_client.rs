@@ -549,6 +549,8 @@ pub struct MockObject {
     ///
     /// Typically, at most one of the checksums should be set.
     checksum: Checksum,
+    /// Version ID of the object (for versioning-enabled buckets)
+    version_id: Option<String>,
 }
 
 impl MockObject {
@@ -569,6 +571,7 @@ impl MockObject {
             parts: None,
             object_metadata: HashMap::new(),
             checksum: Checksum::empty(),
+            version_id: None,
         }
     }
 
@@ -583,7 +586,14 @@ impl MockObject {
             parts: None,
             object_metadata: HashMap::new(),
             checksum: Checksum::empty(),
+            version_id: None,
         }
+    }
+
+    /// Builder method to set the version ID
+    pub fn with_version_id(mut self, version_id: impl Into<String>) -> Self {
+        self.version_id = Some(version_id.into());
+        self
     }
 
     pub fn ramp(seed: u8, size: usize, etag: ETag) -> Self {
@@ -607,6 +617,7 @@ impl MockObject {
             parts: None,
             object_metadata: HashMap::new(),
             checksum: Checksum::empty(),
+            version_id: None,
         }
     }
 
@@ -959,6 +970,16 @@ impl ObjectClient for MockClient {
                 )));
             }
 
+            // Validate versionId if specified. Return NoSuchKey if version doesn't exist,
+            // which matches AWS S3 behavior when a specific version is requested but not found.
+            if let Some(version_id) = params.version_id.as_ref() {
+                if object.version_id.as_ref() != Some(version_id) {
+                    return Err(ObjectClientError::ServiceError(GetObjectError::NoSuchKey(
+                        Default::default(),
+                    )));
+                }
+            }
+
             let (next_offset, length) = if let Some(range) = params.range.as_ref() {
                 if range.start >= object.len() as u64 || range.end > object.len() as u64 {
                     return mock_client_error(format!("invalid range, length={}", object.len()));
@@ -1026,6 +1047,7 @@ impl ObjectClient for MockClient {
                 checksum,
                 sse_type: None,
                 sse_kms_key_id: None,
+                version_id: object.version_id.clone(),
             })
         } else {
             Err(ObjectClientError::ServiceError(HeadObjectError::NotFound))

@@ -75,6 +75,7 @@ impl HeadObjectResult {
         let sse_type = headers.get_as_optional_string("x-amz-server-side-encryption")?;
         let sse_kms_key_id = headers.get_as_optional_string("x-amz-server-side-encryption-aws-kms-key-id")?;
         let checksum = parse_checksum(headers)?;
+        let version_id = headers.get_as_optional_string("x-amz-version-id")?;
         let result = HeadObjectResult {
             size,
             last_modified,
@@ -84,6 +85,7 @@ impl HeadObjectResult {
             checksum,
             sse_type,
             sse_kms_key_id,
+            version_id,
         };
         Ok(result)
     }
@@ -103,8 +105,14 @@ impl S3CrtClient {
                 .map_err(S3RequestError::construction_failure)?;
 
             let key = key.to_string();
+            let path = if let Some(version_id) = &params.version_id {
+                let encoded_version_id = percent_encoding::utf8_percent_encode(version_id, percent_encoding::NON_ALPHANUMERIC).to_string();
+                format!("/{key}?versionId={encoded_version_id}")
+            } else {
+                format!("/{key}")
+            };
             message
-                .set_request_path(format!("/{key}"))
+                .set_request_path(path)
                 .map_err(S3RequestError::construction_failure)?;
 
             let bucket = bucket.to_owned();

@@ -16,6 +16,7 @@ impl Debug for ObjectId {
         f.debug_struct("ObjectId")
             .field("key", &self.inner.key)
             .field("etag", &self.inner.etag)
+            .field("version_id", &self.inner.version_id)
             .finish()
     }
 }
@@ -24,12 +25,19 @@ impl Debug for ObjectId {
 struct InnerObjectId {
     key: String,
     etag: ETag,
+    version_id: Option<String>,
 }
 
 impl ObjectId {
     pub fn new(key: String, etag: ETag) -> Self {
         Self {
-            inner: Arc::new(InnerObjectId { key, etag }),
+            inner: Arc::new(InnerObjectId { key, etag, version_id: None }),
+        }
+    }
+
+    pub fn with_version(key: String, etag: ETag, version_id: String) -> Self {
+        Self {
+            inner: Arc::new(InnerObjectId { key, etag, version_id: Some(version_id) }),
         }
     }
 
@@ -39,5 +47,9 @@ impl ObjectId {
 
     pub fn etag(&self) -> &ETag {
         &self.inner.etag
+    }
+
+    pub fn version_id(&self) -> Option<&str> {
+        self.inner.version_id.as_deref()
     }
 }
