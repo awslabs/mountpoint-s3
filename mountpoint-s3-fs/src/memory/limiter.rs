@@ -531,7 +531,7 @@ mod tests {
         let mut sys = System::new();
         sys.refresh_memory();
         if sys.cgroup_limits().is_some() {
-            // A cgroup limit is active on this machine - the fallback path
+            // A cgroup limit is active on this machine — the fallback path
             // won't be exercised, so there's nothing to assert here.
             return;
         }

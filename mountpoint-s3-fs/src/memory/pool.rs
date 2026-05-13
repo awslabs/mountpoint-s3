@@ -183,6 +183,8 @@ impl PagedPool {
             .sum()
     }
 
+    // TODO: Refactor MemoryLimiter unit tests to remove inner_stats and inner_limiter. We should have clearly separated unit tests for the PagedPool and the MemoryLimiter.
+
     /// Expose the internal stats for testing purposes (e.g., to wire a standalone limiter).
     #[cfg(test)]
     pub(crate) fn inner_stats(&self) -> &PoolStats {

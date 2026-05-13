@@ -1,3 +1,7 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::Instant;
+
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
@@ -9,9 +13,6 @@ use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use rand::{RngExt, SeedableRng};
 use rand_pcg::Pcg64;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::time::Instant;
 use thiserror::Error;
 
 use crate::config::{AccessPattern, ChecksumAlgorithm, GlobalConfig, ResolvedJobConfig, SseType, WorkloadType};
