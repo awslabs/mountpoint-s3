@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
-use crate::prefetch::{CursorId, HandleId};
+use crate::prefetch::CursorId;
 use crate::sync::{Arc, RwLock};
 
 use super::buffers::{PoolBuffer, PoolBufferMut};
@@ -227,15 +227,15 @@ impl PagedPool {
         self.inner.limiter.available_mem(&self.inner.stats)
     }
 
-    /// Record that a FUSE read is active for the given handle.
+    /// Record that a FUSE read is active for the given cursor.
     /// Returns a guard that clears the active read on drop.
-    pub fn set_active_read(&self, handle_id: HandleId, offset: u64, size: usize) -> ActiveReadGuard {
-        self.inner.limiter.set_active_read(handle_id, offset, size)
+    pub fn set_active_read(&self, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.inner.limiter.set_active_read(cursor_id, offset, size)
     }
 
-    /// Check if the given handle has an active read overlapping the specified range.
-    pub fn has_active_read_in_range(&self, handle_id: HandleId, offset: u64, size: usize) -> bool {
-        self.inner.limiter.has_active_read_in_range(handle_id, offset, size)
+    /// Check if the given cursor has an active read overlapping the specified range.
+    pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
+        self.inner.limiter.has_active_read_in_range(cursor_id, offset, size)
     }
 }
 

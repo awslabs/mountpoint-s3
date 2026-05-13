@@ -5,7 +5,7 @@ use humansize::make_format;
 use sysinfo::System;
 use tracing::{debug, trace};
 
-use crate::prefetch::{CursorId, HandleId};
+use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
 
@@ -41,7 +41,7 @@ impl BufferArea {
     }
 }
 
-/// Describes an active FUSE read request for a specific file handle.
+/// Describes an active FUSE read request for a specific cursor.
 /// Used by the pruning logic to determine which buffers are high priority
 /// (actively being waited on by a user) vs. speculative (prefetched ahead).
 #[derive(Debug, Clone, Copy)]
@@ -61,16 +61,16 @@ impl ActiveRead {
     }
 }
 
-/// RAII guard that clears the active read for a handle when dropped.
+/// RAII guard that clears the active read for a cursor when dropped.
 /// Ensures the active read is always cleared, even on early returns or panics.
 pub struct ActiveReadGuard {
-    active_reads: Arc<DashMap<HandleId, ActiveRead>>,
-    handle_id: HandleId,
+    active_reads: Arc<DashMap<CursorId, ActiveRead>>,
+    cursor_id: CursorId,
 }
 
 impl Drop for ActiveReadGuard {
     fn drop(&mut self) {
-        self.active_reads.remove(&self.handle_id);
+        self.active_reads.remove(&self.cursor_id);
     }
 }
 
@@ -81,16 +81,16 @@ impl Drop for ActiveReadGuard {
 ///
 /// Single instance of this struct is shared among all of the prefetchers (file handles) and uploaders.
 ///
-/// Each file handle makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` on the first
-/// `read()` call. This is accepted unconditionally since we want to allow any file handle to make
-/// progress even if that means going over the memory limit. Additional reservations for a file handle arise when the
+/// Each cursor makes an initial reservation request with a minimal read window size of `1MiB + 128KiB` when
+/// it is created. This is accepted unconditionally since we want to allow any cursor to make
+/// progress even if that means going over the memory limit. Additional reservations for a cursor arise when the
 /// backpressure read window is incremented to fetch more data from underlying part streams. Those reservations may be
 /// rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
 /// 1) the memory pool allocates a buffer: `on_pool_reserve` decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
-/// 2) the prefetcher is destroyed (`BackpressureController` will be dropped and `release_cursor` will
+/// 2) the cursor is destroyed (`BackpressureController` will be dropped and `release_cursor` will
 ///    release any remaining unallocated reservation for that cursor).
 ///
 /// Incremental uploader instances check available memory before allocating buffers to queue append
@@ -102,15 +102,15 @@ pub struct MemoryLimiter {
     mem_reserved: Arc<AtomicU64>,
     /// Per-cursor reservation tracking. Keyed by CursorId (unique per BackpressureController
     /// lifetime) so that late on_pool_reserve calls from cancelled CRT meta-requests cannot
-    /// incorrectly decrement a re-created entry for the same handle.
+    /// incorrectly decrement a re-created entry for the same cursor.
     mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>>,
     /// Counter for generating unique [CursorId]s.
     next_cursor_id: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
-    /// Per-handle active read tracking. When a FUSE read is in progress for a handle,
-    /// the requested range is stored here. Absence means the handle is speculative.
-    active_reads: Arc<DashMap<HandleId, ActiveRead>>,
+    /// Per-cursor active read tracking. When a FUSE read is in progress for a cursor,
+    /// the requested range is stored here. Absence means the cursor is speculative.
+    active_reads: Arc<DashMap<CursorId, ActiveRead>>,
 }
 
 impl MemoryLimiter {
@@ -205,20 +205,20 @@ impl MemoryLimiter {
             .saturating_sub(self.additional_mem_reserved)
     }
 
-    /// Record that a FUSE read is active for the given handle at the specified range.
+    /// Record that a FUSE read is active for the given cursor at the specified range.
     /// Returns a guard that will clear the active read when dropped.
-    pub(crate) fn set_active_read(&self, handle_id: HandleId, offset: u64, size: usize) -> ActiveReadGuard {
-        self.active_reads.insert(handle_id, ActiveRead { offset, size });
+    pub fn set_active_read(&self, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.active_reads.insert(cursor_id, ActiveRead { offset, size });
         ActiveReadGuard {
             active_reads: self.active_reads.clone(),
-            handle_id,
+            cursor_id,
         }
     }
 
-    /// Check if the given handle has an active read overlapping the specified range.
-    pub(crate) fn has_active_read_in_range(&self, handle_id: HandleId, offset: u64, size: usize) -> bool {
+    /// Check if the given cursor has an active read overlapping the specified range.
+    pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         self.active_reads
-            .get(&handle_id)
+            .get(&cursor_id)
             .map(|r| r.overlaps(offset, size))
             .unwrap_or(false)
     }
@@ -268,7 +268,6 @@ impl MemoryLimiter {
 mod tests {
     use super::*;
     use crate::memory::{BufferKind, PagedPool};
-    use crate::prefetch::HandleId;
     use crate::sync::Arc;
     use crate::sync::atomic::Ordering;
 
@@ -450,23 +449,23 @@ mod tests {
     #[test]
     fn test_active_read_overlap_detection() {
         let limiter = new_limiter();
-        let handle = HandleId::new(1);
+        let cursor_id = CursorId::new_from_raw(1);
 
         // Active read at [1000, 5096)
-        let _guard = limiter.set_active_read(handle, 1000, 4096);
+        let _guard = limiter.set_active_read(cursor_id, 1000, 4096);
 
         // Overlapping ranges → true
-        assert!(limiter.has_active_read_in_range(handle, 1000, 4096)); // exact match
-        assert!(limiter.has_active_read_in_range(handle, 500, 1000)); // overlap from left
-        assert!(limiter.has_active_read_in_range(handle, 5000, 1000)); // overlap from right
-        assert!(limiter.has_active_read_in_range(handle, 2000, 100)); // contained
+        assert!(limiter.has_active_read_in_range(cursor_id, 1000, 4096)); // exact match
+        assert!(limiter.has_active_read_in_range(cursor_id, 500, 1000)); // overlap from left
+        assert!(limiter.has_active_read_in_range(cursor_id, 5000, 1000)); // overlap from right
+        assert!(limiter.has_active_read_in_range(cursor_id, 2000, 100)); // contained
 
         // Non-overlapping ranges → false
-        assert!(!limiter.has_active_read_in_range(handle, 0, 500)); // before
-        assert!(!limiter.has_active_read_in_range(handle, 5096, 1000)); // after
+        assert!(!limiter.has_active_read_in_range(cursor_id, 0, 500)); // before
+        assert!(!limiter.has_active_read_in_range(cursor_id, 5096, 1000)); // after
 
-        // Different handle → false
-        assert!(!limiter.has_active_read_in_range(HandleId::new(2), 1000, 4096));
+        // Different cursor_id → false
+        assert!(!limiter.has_active_read_in_range(CursorId::new_from_raw(2), 1000, 4096));
     }
 
     /// Simulates the allocation queue's perspective: one thread holds an active read
@@ -474,21 +473,21 @@ mod tests {
     #[test]
     fn test_query_active_read_from_another_thread() {
         let limiter = new_limiter();
-        let handle = HandleId::new(1);
+        let cursor_id = CursorId::new_from_raw(1);
 
-        let guard = limiter.set_active_read(handle, 1000, 4096);
+        let guard = limiter.set_active_read(cursor_id, 1000, 4096);
 
         let limiter_clone = Arc::clone(&limiter);
         let query_thread = std::thread::spawn(move || {
             // Allocation for the active range → high priority
-            assert!(limiter_clone.has_active_read_in_range(handle, 1000, 4096));
+            assert!(limiter_clone.has_active_read_in_range(cursor_id, 1000, 4096));
             // Allocation for a prefetch-ahead range → low priority
-            assert!(!limiter_clone.has_active_read_in_range(handle, 50000, 4096));
+            assert!(!limiter_clone.has_active_read_in_range(cursor_id, 50000, 4096));
         });
         query_thread.join().unwrap();
 
         drop(guard);
-        assert!(!limiter.has_active_read_in_range(handle, 1000, 4096));
+        assert!(!limiter.has_active_read_in_range(cursor_id, 1000, 4096));
     }
 
     /// When the `TEST_CGROUP_MEM_LIMIT_MB` environment variable is set (e.g. in a

@@ -52,14 +52,10 @@ where
     fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
         let range = config.range;
 
-        let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size(),
-            min_read_window_size: config.read_part_size,
-            max_read_window_size: config.max_read_window_size,
-            read_window_size_multiplier: config.read_window_size_multiplier,
-            request_range: range.into(),
-            read_window_alignment_config: ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
-        };
+        let backpressure_config = BackpressureConfig::new(
+            &config,
+            ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
+        );
         let (backpressure_controller, backpressure_limiter) =
             new_backpressure_controller(backpressure_config, self.pool.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
@@ -422,7 +418,12 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{data_cache::InMemoryDataCache, memory::MINIMUM_MEM_LIMIT, memory::PagedPool, object::ObjectId};
+    use crate::{
+        data_cache::InMemoryDataCache,
+        memory::{MINIMUM_MEM_LIMIT, PagedPool},
+        object::ObjectId,
+        prefetch::CursorId,
+    };
 
     use super::*;
 
@@ -477,6 +478,7 @@ mod tests {
             // First request (from client)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let config = RequestTaskConfig {
+                cursor_id: CursorId::new_from_raw(0),
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
@@ -503,6 +505,7 @@ mod tests {
             // Second request (from cache)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let config = RequestTaskConfig {
+                cursor_id: CursorId::new_from_raw(0),
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
                 range,
@@ -555,6 +558,7 @@ mod tests {
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
                 let config = RequestTaskConfig {
+                    cursor_id: CursorId::new_from_raw(0),
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
