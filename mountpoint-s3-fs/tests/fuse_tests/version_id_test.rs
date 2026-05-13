@@ -180,3 +180,52 @@ async fn test_get_object_with_wrong_version_id() {
         other => panic!("Expected NoSuchKey error, got {:?}", other),
     }
 }
+
+#[tokio::test]
+async fn test_version_id_with_special_chars() {
+    use mountpoint_s3_client::object_client::{GetObjectParams, ObjectClient};
+
+    let bucket = "test-bucket";
+    let key = "test-key-special";
+    // versionId with special chars that need URL encoding: +, /, =
+    let version_id = "v+abc/def=ghi";
+    let etag = ETag::for_tests();
+    let test_data = vec![0x55u8; 50];
+
+    // Create a mock client and add a versioned object
+    let client = MockClient::config()
+        .bucket(bucket.to_string())
+        .build();
+
+    let obj = MockObject::from_bytes(&test_data, etag.clone())
+        .with_version_id(version_id.to_string());
+
+    client.add_object(key, obj);
+
+    // Get object with special char version_id - should succeed
+    let params = GetObjectParams::new()
+        .version_id(Some(version_id.to_string()));
+
+    let result = client
+        .get_object(bucket, key, &params)
+        .await;
+
+    assert!(result.is_ok(), "get_object with special-char version_id should succeed");
+}
+
+#[test]
+fn test_version_id_url_encoding() {
+    // Test that percent-encoding is working correctly
+    let test_cases = vec![
+        ("simple123", "simple123"),        // no encoding needed
+        ("v+abc", "v%2Babc"),              // + encodes to %2B
+        ("v/abc", "v%2Fabc"),              // / encodes to %2F
+        ("v=abc", "v%3Dabc"),              // = encodes to %3D
+        ("v+/=", "v%2B%2F%3D"),            // mixed special chars
+    ];
+
+    for (input, expected) in test_cases {
+        let encoded = percent_encoding::utf8_percent_encode(input, percent_encoding::NON_ALPHANUMERIC).to_string();
+        assert_eq!(encoded, expected, "Encoding mismatch for '{}'", input);
+    }
+}
