@@ -47,6 +47,8 @@ pub struct InodeStat {
     pub atime: OffsetDateTime,
     /// Etag for the file (object)
     pub etag: Option<Box<str>>,
+    /// Version ID for the file (object) for versioning-enabled buckets
+    pub version_id: Option<Box<str>>,
     /// Inodes corresponding to S3 objects with GLACIER or DEEP_ARCHIVE storage classes
     /// are only readable after restoration. For objects with other storage classes
     /// this field should be always `true`.
@@ -93,6 +95,7 @@ impl InodeStat {
         size: usize,
         datetime: OffsetDateTime,
         etag: Option<Box<str>>,
+        version_id: Option<Box<str>>,
         storage_class: Option<&str>,
         restore_status: Option<mountpoint_s3_client::types::RestoreStatus>,
         validity: Duration,
@@ -105,6 +108,7 @@ impl InodeStat {
             ctime: datetime,
             mtime: datetime,
             etag,
+            version_id,
             is_readable,
         }
     }

@@ -71,9 +71,13 @@ impl S3CrtClient {
                     .map_err(S3RequestError::construction_failure)?;
             }
 
-            let key = format!("/{key}");
+            let path = if let Some(version_id) = &params.version_id {
+                format!("/{key}?versionId={version_id}")
+            } else {
+                format!("/{key}")
+            };
             message
-                .set_request_path(key)
+                .set_request_path(path)
                 .map_err(S3RequestError::construction_failure)?;
 
             let mut options = message.into_options(S3Operation::GetObject);

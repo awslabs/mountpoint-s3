@@ -436,8 +436,12 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     handle_id: HandleId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
+        // Use both ETag (if_match) and versionId for redundant consistency checks:
+        // - versionId pins the request to a specific immutable object version
+        // - if_match (ETag) provides additional validation that the exact version exists
+        // Even though versionId alone would be sufficient, ETag is retained for extra safety.
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(handle_id.as_raw())))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).version_id(id.version_id().map(str::to_owned)).custom_id(Some(handle_id.as_raw())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;
