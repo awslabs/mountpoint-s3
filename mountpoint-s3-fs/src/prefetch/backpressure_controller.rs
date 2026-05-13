@@ -268,7 +268,7 @@ impl BackpressureController {
 
     /// Scale up preferred read window size with a multiplier configured at initialization.
     ///
-    /// Fails silently if there is insufficient free memory to perform it according to [Self::mem_limiter].
+    /// Fails silently if there is insufficient free memory to perform it according to [Self::pool].
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
             let new_read_window_size = (self.preferred_read_window_size * self.read_window_size_multiplier)

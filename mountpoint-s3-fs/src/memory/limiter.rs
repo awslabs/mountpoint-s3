@@ -115,7 +115,7 @@ pub struct MemoryLimiter {
 
 impl MemoryLimiter {
     /// Create a new `MemoryLimiter` with the given memory limit.
-    pub(crate) fn new(mem_limit: u64) -> Self {
+    pub fn new(mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -138,13 +138,13 @@ impl MemoryLimiter {
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
-    pub(crate) fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
+    pub fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
         self.add_reservation(cursor_id, size);
         metrics::gauge!("mem.bytes_reserved", "area" => area.as_str()).increment(size as f64);
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub(crate) fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64, stats: &PoolStats) -> bool {
+    pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64, stats: &PoolStats) -> bool {
         let start = Instant::now();
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
@@ -182,7 +182,7 @@ impl MemoryLimiter {
     }
 
     /// Release all remaining reservation for a cursor and remove it from tracking.
-    pub(crate) fn release_cursor(&self, cursor_id: CursorId, area: BufferArea) {
+    pub fn release_cursor(&self, cursor_id: CursorId, area: BufferArea) {
         if let Some((_, reservation)) = self.mem_reserved_per_cursor.remove(&cursor_id) {
             let remaining = reservation.swap(0, Ordering::SeqCst);
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
@@ -191,12 +191,12 @@ impl MemoryLimiter {
     }
 
     /// Generate a new unique [CursorId] for per-cursor memory tracking.
-    pub(crate) fn next_cursor_id(&self) -> CursorId {
+    pub fn next_cursor_id(&self) -> CursorId {
         CursorId::new_from_raw(self.next_cursor_id.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Query available memory tracked by the memory limiter.
-    pub(crate) fn available_mem(&self, stats: &PoolStats) -> u64 {
+    pub fn available_mem(&self, stats: &PoolStats) -> u64 {
         let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         let pool_mem_reserved = self.pool_mem_reserved(stats);
         self.mem_limit
@@ -238,7 +238,7 @@ impl MemoryLimiter {
     ///
     /// No-op when `cursor_id` is `None` (e.g. uploads) or the cursor has already been removed
     /// by `release_cursor`.
-    pub(crate) fn on_pool_reserve(&self, bytes: usize, cursor_id: Option<CursorId>) {
+    pub fn on_pool_reserve(&self, bytes: usize, cursor_id: Option<CursorId>) {
         let Some(cursor_id) = cursor_id else {
             return;
         };
@@ -285,6 +285,7 @@ mod tests {
 
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
     }
 
     #[test]
@@ -319,6 +320,7 @@ mod tests {
         // release_cursor releases the remaining per-cursor balance (2048 - 1024 = 1024)
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
     }
 
     #[test]
@@ -351,6 +353,7 @@ mod tests {
 
         limiter.release_cursor(cursor2, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(limiter.mem_reserved_per_cursor.is_empty());
     }
 
     #[test]
@@ -364,6 +367,7 @@ mod tests {
         // Second call is a no-op
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
     }
 
     #[test]
@@ -375,6 +379,8 @@ mod tests {
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
 
         // Late allocation for the cancelled request — cursor is gone
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
@@ -400,6 +406,7 @@ mod tests {
         // release_cursor should subtract 0 (the per-cursor counter is already 0)
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
     }
 
     #[test]
