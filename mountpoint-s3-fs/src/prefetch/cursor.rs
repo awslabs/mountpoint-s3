@@ -3,10 +3,9 @@ use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
 use crate::checksums::ChecksummedBytes;
-use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
-use crate::sync::Arc;
 
 use super::seek_window::SeekWindow;
 use super::task::RequestTask;
@@ -27,7 +26,7 @@ where
     /// Start offset for sequential read, used for calculating contiguous read metric
     start_offset: u64,
     /// Associated memory limiter
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
     /// Background task to request data
     request_task: RequestTask<Client>,
     /// Holds data for backward seeks
@@ -49,7 +48,7 @@ where
     pub fn new(
         cursor_id: CursorId,
         request_task: RequestTask<Client>,
-        mem_limiter: Arc<MemoryLimiter>,
+        pool: PagedPool,
         config: &PrefetcherConfig,
         object_id: ObjectId,
         offset: u64,
@@ -58,7 +57,7 @@ where
             cursor_id,
             object_id,
             start_offset: offset,
-            mem_limiter,
+            pool,
             request_task,
             backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
             max_forward_seek_wait_distance: config.max_forward_seek_wait_distance,
@@ -76,9 +75,7 @@ where
         &mut self,
         length: usize,
     ) -> Result<(ChecksummedBytes, bool), PrefetchReadError<Client::ClientError>> {
-        let _active_read_guard = self
-            .mem_limiter
-            .set_active_read(self.cursor_id, self.current_offset, length);
+        let _active_read_guard = self.pool.set_active_read(self.cursor_id, self.current_offset, length);
 
         self.do_read(length).await
     }
@@ -93,9 +90,7 @@ where
         // the skipped bytes the prefetcher must consume to reach the requested offset.
         let active_start = self.current_offset.min(offset);
         let active_size = length + offset.saturating_sub(active_start) as usize;
-        let _active_read_guard = self
-            .mem_limiter
-            .set_active_read(self.cursor_id, active_start, active_size);
+        let _active_read_guard = self.pool.set_active_read(self.cursor_id, active_start, active_size);
 
         if !self.try_seek(offset).await? {
             // Seek failed

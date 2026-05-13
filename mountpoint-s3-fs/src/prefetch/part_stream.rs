@@ -10,7 +10,7 @@ use tracing::{Instrument, debug_span, error, trace};
 
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
-use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
@@ -214,16 +214,12 @@ impl<Client> Debug for PartStream<Client> {
 pub struct ClientPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
 }
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ClientPartStream<Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>) -> Self {
-        Self {
-            runtime,
-            client,
-            mem_limiter,
-        }
+    pub fn new(runtime: Runtime, client: Client, pool: PagedPool) -> Self {
+        Self { runtime, client, pool }
     }
 }
 
@@ -243,7 +239,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             },
         );
         let (backpressure_controller, mut backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, self.pool.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 

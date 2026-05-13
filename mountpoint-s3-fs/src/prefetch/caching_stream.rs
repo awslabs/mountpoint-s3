@@ -10,7 +10,7 @@ use tracing::{Instrument, debug_span, trace, warn};
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
 use crate::data_cache::{BlockIndex, DataCache};
-use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
 
@@ -30,16 +30,16 @@ pub struct CachingPartStream<Cache, Client: ObjectClient + Clone + Send + Sync +
     cache: Arc<Cache>,
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
 }
 
 impl<Cache, Client: ObjectClient + Clone + Send + Sync + 'static> CachingPartStream<Cache, Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>, cache: Cache) -> Self {
+    pub fn new(runtime: Runtime, client: Client, pool: PagedPool, cache: Cache) -> Self {
         Self {
             cache: Arc::new(cache),
             runtime,
             client,
-            mem_limiter,
+            pool,
         }
     }
 }
@@ -57,7 +57,7 @@ where
             ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
         );
         let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, self.pool.clone());
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -420,8 +420,7 @@ mod tests {
 
     use crate::{
         data_cache::InMemoryDataCache,
-        mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
-        memory::PagedPool,
+        memory::{MINIMUM_MEM_LIMIT, PagedPool},
         object::ObjectId,
         prefetch::CursorId,
     };
@@ -466,12 +465,11 @@ mod tests {
                 .initial_read_window_size(client_part_size)
                 .build(),
         );
-        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size], MINIMUM_MEM_LIMIT);
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let stream = CachingPartStream::new(runtime, mock_client.clone(), mem_limiter.clone(), cache);
+        let stream = CachingPartStream::new(runtime, mock_client.clone(), pool.clone(), cache);
         let range = RequestRange::new(object_size, offset as u64, preferred_size);
         let expected_start_block = (range.start() as usize).div_euclid(block_size);
         let expected_end_block = (range.end() as usize).div_ceil(block_size);
@@ -551,12 +549,11 @@ mod tests {
                 .initial_read_window_size(client_part_size)
                 .build(),
         );
-        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size], MINIMUM_MEM_LIMIT);
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let stream = CachingPartStream::new(runtime, mock_client, mem_limiter.clone(), cache);
+        let stream = CachingPartStream::new(runtime, mock_client, pool.clone(), cache);
 
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {

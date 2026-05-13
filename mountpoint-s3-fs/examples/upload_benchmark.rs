@@ -5,8 +5,8 @@ use clap::Parser;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::effective_total_memory;
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use tracing_subscriber::EnvFilter;
@@ -96,7 +96,13 @@ fn main() {
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), url).expect("Failed to parse endpoint URL");
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
-    let pool = PagedPool::new_with_candidate_sizes([args.write_part_size]);
+    let max_memory_target = if let Some(target) = args.max_memory_target {
+        target * 1024 * 1024
+    } else {
+        // Default to 95% of total system memory (cgroup-aware)
+        (effective_total_memory() as f64 * 0.95) as u64
+    };
+    let pool = PagedPool::new_with_candidate_sizes([args.write_part_size], max_memory_target);
     let config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)
@@ -107,14 +113,6 @@ fn main() {
     let runtime = Runtime::new(client.event_loop_group());
 
     for i in 0..args.iterations {
-        let max_memory_target = if let Some(target) = args.max_memory_target {
-            target * 1024 * 1024
-        } else {
-            // Default to 95% of total system memory (cgroup-aware)
-            (effective_total_memory() as f64 * 0.95) as u64
-        };
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), max_memory_target));
-
         let buffer_size = args.write_part_size;
         let server_side_encryption = ServerSideEncryption::new(args.sse.clone(), args.sse_kms_key_id.clone());
 
@@ -130,7 +128,6 @@ fn main() {
             client.clone(),
             runtime.clone(),
             pool.clone(),
-            mem_limiter,
             UploaderConfig::new(buffer_size)
                 .server_side_encryption(server_side_encryption)
                 .default_checksum_algorithm(checksum_algorithm),

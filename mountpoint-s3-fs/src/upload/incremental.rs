@@ -16,9 +16,7 @@ use tracing::{Instrument, debug_span, trace};
 use crate::ServerSideEncryption;
 use crate::async_util::Runtime;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
-use crate::mem_limiter::MemoryLimiter;
 use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
-use crate::sync::Arc;
 
 use super::hasher::ChecksumHasher;
 use super::{ChecksumHasherError, UploadError};
@@ -63,11 +61,10 @@ where
         client: Client,
         buffer_size: usize,
         pool: PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
         let offset = params.initial_offset;
-        let upload_queue = AppendUploadQueue::new(runtime, client, pool, mem_limiter, params);
+        let upload_queue = AppendUploadQueue::new(runtime, client, pool, params);
         Self {
             buffer: None,
             upload_queue,
@@ -160,7 +157,6 @@ struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for receiving the events from the background queue.
     event_receiver: Receiver<AppendUploadEvent<Client::ClientError>>,
     pool: PagedPool,
-    mem_limiter: Arc<MemoryLimiter>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
     checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
@@ -174,13 +170,7 @@ impl<Client> AppendUploadQueue<Client>
 where
     Client: ObjectClient + Send + Sync + 'static,
 {
-    pub fn new(
-        runtime: &Runtime,
-        client: Client,
-        pool: PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
-        params: AppendUploadQueueParams,
-    ) -> Self {
+    pub fn new(runtime: &Runtime, client: Client, pool: PagedPool, params: AppendUploadQueueParams) -> Self {
         assert!(params.capacity > 0, "append queue capacity must be greater than 0");
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
         let (buffer_sender, buffer_receiver) = bounded(params.capacity);
@@ -211,7 +201,6 @@ where
             requests_in_queue: 0,
             checksum_algorithm: None,
             pool,
-            mem_limiter,
             _task_handle: task_handle,
         }
     }
@@ -268,7 +257,7 @@ where
             }
         };
         while self.requests_in_queue > 0 {
-            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, &self.mem_limiter)? {
+            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool)? {
                 Some(buffer) => return Ok(buffer),
                 None => {
                     // wait for requests in the queue to complete before trying to reserve memory again
@@ -460,9 +449,8 @@ impl UploadBuffer {
         capacity: usize,
         checksum_algorithm: &Option<ChecksumAlgorithm>,
         pool: &PagedPool,
-        mem_limiter: &MemoryLimiter,
     ) -> Result<Option<Self>, ChecksumHasherError> {
-        if mem_limiter.available_mem() >= capacity as u64 {
+        if pool.available_mem() >= capacity as u64 {
             let hasher = ChecksumHasher::new(checksum_algorithm)?;
             let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
             Ok(Some(Self { data, hasher }))
@@ -499,8 +487,9 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use crate::mem_limiter::MINIMUM_MEM_LIMIT;
+    use crate::memory::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
+    use crate::sync::Arc;
 
     use super::super::{Uploader, UploaderConfig};
     use super::*;
@@ -522,14 +511,13 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
+        let pool =
+            PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()], MINIMUM_MEM_LIMIT);
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,
             runtime,
             pool,
-            mem_limiter.into(),
             UploaderConfig::new(buffer_size)
                 .server_side_encryption(server_side_encryption.unwrap_or_default())
                 .default_checksum_algorithm(default_checksum_algorithm),
@@ -1188,15 +1176,13 @@ mod tests {
         let key = "hello";
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
-        let pool = PagedPool::new_with_candidate_sizes([32]);
+        // Use a pool with 0 memory limit to simulate memory pressure.
+        let pool = PagedPool::new_with_candidate_sizes([32], 0);
 
-        // Use a memory limiter with 0 limit
-        let mem_limiter = MemoryLimiter::new(pool.clone(), 0);
         let uploader = Uploader::new(
             client.clone(),
             Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
             pool,
-            mem_limiter.into(),
             UploaderConfig::new(part_size),
         );
 

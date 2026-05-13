@@ -197,11 +197,14 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     let client_config = args.client_config(build_info::FULL_VERSION);
 
     // Set up a paged memory pool
-    let pool = PagedPool::new_with_candidate_sizes([
-        args.cache_block_size_in_bytes() as usize,
-        client_config.part_config.read_size_bytes,
-        client_config.part_config.write_size_bytes,
-    ]);
+    let pool = PagedPool::new_with_candidate_sizes(
+        [
+            args.cache_block_size_in_bytes() as usize,
+            client_config.part_config.read_size_bytes,
+            client_config.part_config.write_size_bytes,
+        ],
+        args.mem_limit(),
+    );
     // Schedule trimming of empty memory pages every minutes. We should consider
     // event-based triggers and/or a configurable interval in the future.
     pool.schedule_trim(Duration::from_secs(60));

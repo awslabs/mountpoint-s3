@@ -431,7 +431,7 @@ jobs:
     - name: Run cgroup-aware memory detection test
       env:
         TEST_CGROUP_MEM_LIMIT_MB: "2048"
-      run: cargo test -p mountpoint-s3-fs --lib mem_limiter::tests::test_effective_total_memory_respects_cgroup
+      run: cargo test -p mountpoint-s3-fs --lib memory::limiter::tests::test_effective_total_memory_respects_cgroup
 
   workflow-complete:
     name: "Tests Workflow Complete"

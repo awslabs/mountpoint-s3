@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn get_path_for_block_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([1024]);
         let data_cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_dir,
@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn get_path_for_block_key_huge_block_index() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([1024]);
         let data_cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_dir,
@@ -761,7 +761,7 @@ mod tests {
         let object_2_size = data_2.len();
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([pool_buffer_size]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([pool_buffer_size]);
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -848,7 +848,7 @@ mod tests {
         let slice = data.slice(1..5);
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([8 * 1024 * 1024]);
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -930,7 +930,7 @@ mod tests {
         let small_object_key = ObjectId::new("small".into(), ETag::for_tests());
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([BLOCK_SIZE]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([BLOCK_SIZE]);
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -1113,7 +1113,7 @@ mod tests {
         // "Corrupt" the serialized value with an invalid length.
         replace_u64_at(&mut buf, offset, u64::MAX);
 
-        let pool = PagedPool::new_with_candidate_sizes([MAX_LENGTH as usize]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([MAX_LENGTH as usize]);
         let err =
             DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None).expect_err("deserialization should fail");
         match length_to_corrupt {
@@ -1130,7 +1130,7 @@ mod tests {
     fn test_concurrent_access() {
         let block_size = 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([block_size]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([block_size]);
         let data_cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),

@@ -1,8 +1,8 @@
-use crate::{data_cache::DataCache, sync::Arc};
+use crate::data_cache::DataCache;
 
 use mountpoint_s3_client::ObjectClient;
 
-use crate::{Runtime, mem_limiter::MemoryLimiter};
+use crate::{Runtime, memory::PagedPool};
 
 use super::caching_stream::CachingPartStream;
 use super::part_stream::{ClientPartStream, PartStream};
@@ -35,13 +35,8 @@ where
     }
 
     /// Build a [Prefetcher] instance.
-    pub fn build(
-        self,
-        runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter>,
-        prefetcher_config: PrefetcherConfig,
-    ) -> Prefetcher<Client> {
-        self.inner.build(runtime, mem_limiter, prefetcher_config)
+    pub fn build(self, runtime: Runtime, pool: PagedPool, prefetcher_config: PrefetcherConfig) -> Prefetcher<Client> {
+        self.inner.build(runtime, pool, prefetcher_config)
     }
 }
 
@@ -58,7 +53,7 @@ where
     fn build(
         self: Box<Self>,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter>,
+        pool: PagedPool,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client>;
 }
@@ -74,11 +69,11 @@ where
     fn build(
         self: Box<Self>,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter>,
+        pool: PagedPool,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
-        let part_stream = ClientPartStream::new(runtime, self.client, mem_limiter.clone());
-        Prefetcher::new(PartStream::new(part_stream), mem_limiter, prefetcher_config)
+        let part_stream = ClientPartStream::new(runtime, self.client, pool.clone());
+        Prefetcher::new(PartStream::new(part_stream), pool, prefetcher_config)
     }
 }
 
@@ -95,10 +90,10 @@ where
     fn build(
         self: Box<Self>,
         runtime: Runtime,
-        mem_limiter: Arc<MemoryLimiter>,
+        pool: PagedPool,
         prefetcher_config: PrefetcherConfig,
     ) -> Prefetcher<Client> {
-        let part_stream = CachingPartStream::new(runtime, self.client, mem_limiter.clone(), self.cache);
-        Prefetcher::new(PartStream::new(part_stream), mem_limiter, prefetcher_config)
+        let part_stream = CachingPartStream::new(runtime, self.client, pool.clone(), self.cache);
+        Prefetcher::new(PartStream::new(part_stream), pool, prefetcher_config)
     }
 }

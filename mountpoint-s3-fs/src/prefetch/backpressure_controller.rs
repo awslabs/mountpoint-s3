@@ -1,11 +1,11 @@
 use std::ops::Range;
-use std::sync::Arc;
 
 use async_channel::{Receiver, RecvError, Sender, unbounded};
 use humansize::make_format;
 use tracing::trace;
 
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
+use crate::memory::BufferArea;
+use crate::memory::PagedPool;
 
 use super::CursorId;
 use super::PrefetchReadError;
@@ -110,7 +110,7 @@ pub struct BackpressureController {
     /// per-cursor memory reservations.
     ///
     /// For example, when memory is low we should scale down [Self::preferred_read_window_size].
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
     /// Unique cursor ID for per-cursor memory reservation tracking.
     cursor_id: CursorId,
     /// Enable alignment of read window end to part boundary
@@ -142,12 +142,12 @@ pub struct BackpressureLimiter {
 /// informing a producer (a holder of the [BackpressureLimiter]) when it should provide data more aggressively.
 pub fn new_backpressure_controller(
     config: BackpressureConfig,
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
 ) -> (BackpressureController, BackpressureLimiter) {
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
-    mem_limiter.reserve(
+    pool.reserve(
         config.cursor_id,
         BufferArea::Prefetch,
         config.initial_read_window_size as u64,
@@ -166,7 +166,7 @@ pub fn new_backpressure_controller(
         next_read_offset: config.request_range.start,
         request_end_offset: config.request_range.end,
         cursor_id: config.cursor_id,
-        mem_limiter,
+        pool,
         read_window_alignment_config: config.read_window_alignment_config,
     };
 
@@ -223,7 +223,7 @@ impl BackpressureController {
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
                         trace!(new_read_window_end_offset, "sending a read window increment");
-                        self.mem_limiter
+                        self.pool
                             .reserve(self.cursor_id, BufferArea::Prefetch, to_increase as u64);
                         self.increment_read_window(to_increase).await;
                         break;
@@ -232,7 +232,7 @@ impl BackpressureController {
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
                     if self
-                        .mem_limiter
+                        .pool
                         .try_reserve(self.cursor_id, BufferArea::Prefetch, to_increase as u64)
                     {
                         trace!(new_read_window_end_offset, "sending a read window increment");
@@ -268,7 +268,7 @@ impl BackpressureController {
 
     /// Scale up preferred read window size with a multiplier configured at initialization.
     ///
-    /// Fails silently if there is insufficient free memory to perform it according to [Self::mem_limiter].
+    /// Fails silently if there is insufficient free memory to perform it according to [Self::pool].
     fn scale_up(&mut self) {
         if self.preferred_read_window_size < self.max_read_window_size {
             let new_read_window_size = (self.preferred_read_window_size * self.read_window_size_multiplier)
@@ -278,7 +278,7 @@ impl BackpressureController {
             // because only `preferred_read_window_size` is increased but the actual read window will
             // be updated later on `DataRead` event (where we do reserve memory).
             let to_increase = (new_read_window_size - self.preferred_read_window_size) as u64;
-            let available_mem = self.mem_limiter.available_mem();
+            let available_mem = self.pool.available_mem();
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
                 trace!(
@@ -318,7 +318,7 @@ impl Drop for BackpressureController {
         // Release whatever remains of this cursor's reservation. The per-cursor counter
         // tracks only the unallocated portion — pool allocations already decremented it
         // via the on_reserve callback.
-        self.mem_limiter.release_cursor(self.cursor_id, BufferArea::Prefetch);
+        self.pool.release_cursor(self.cursor_id, BufferArea::Prefetch);
     }
 }
 
@@ -406,13 +406,10 @@ impl ReadWindowIncrementQueue {
 mod tests {
     use super::*;
 
-    use std::sync::Arc;
-
     use futures::executor::block_on;
     use mountpoint_s3_client::mock_client::MockClientError;
     use test_case::test_case;
 
-    use crate::mem_limiter::MemoryLimiter;
     use crate::memory::PagedPool;
     use crate::prefetch::INITIAL_REQUEST_SIZE;
 
@@ -537,11 +534,8 @@ mod tests {
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController, BackpressureLimiter) {
-        let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(
-            pool,
-            backpressure_config.max_read_window_size as u64,
-        ));
-        new_backpressure_controller(backpressure_config, mem_limiter.clone())
+        let pool =
+            PagedPool::new_with_candidate_sizes([8 * 1024 * 1024], backpressure_config.max_read_window_size as u64);
+        new_backpressure_controller(backpressure_config, pool)
     }
 }

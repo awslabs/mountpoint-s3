@@ -1,13 +1,12 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 use std::time::Instant;
 
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::effective_total_memory;
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
@@ -65,7 +64,8 @@ impl Executor {
             ChecksumAlgorithm::Off => None,
         };
 
-        let pool = PagedPool::new_with_candidate_sizes([read_part_size, write_part_size]);
+        let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
+        let pool = PagedPool::new_with_candidate_sizes([read_part_size, write_part_size], memory_target_bytes);
 
         let mut endpoint_config = EndpointConfig::new(region);
         if let Some(url) = &global.endpoint_url {
@@ -92,9 +92,6 @@ impl Executor {
         let client = S3CrtClient::new(client_config)
             .map_err(|e| ExecutionError::ResourceInitError(format!("Failed to create S3 client: {}", e)))?;
 
-        let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), memory_target_bytes));
-
         let runtime = Runtime::new(client.event_loop_group());
 
         let server_side_encryption = ServerSideEncryption::new(sse_type, global.sse_kms_key_id.clone());
@@ -103,14 +100,12 @@ impl Executor {
             client.clone(),
             runtime.clone(),
             pool.clone(),
-            mem_limiter.clone(),
             UploaderConfig::new(write_part_size)
                 .server_side_encryption(server_side_encryption)
                 .default_checksum_algorithm(checksum_algorithm),
         );
 
-        let prefetcher =
-            Prefetcher::default_builder(client.clone()).build(runtime, mem_limiter, PrefetcherConfig::default());
+        let prefetcher = Prefetcher::default_builder(client.clone()).build(runtime, pool, PrefetcherConfig::default());
 
         Ok(Self {
             client,

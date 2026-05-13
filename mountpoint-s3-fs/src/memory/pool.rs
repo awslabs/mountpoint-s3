@@ -2,12 +2,13 @@ use std::time::Duration;
 
 use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
+use crate::prefetch::CursorId;
 use crate::sync::{Arc, RwLock};
 
 use super::buffers::{PoolBuffer, PoolBufferMut};
+use super::limiter::{ActiveReadGuard, BufferArea, MemoryLimiter};
 use super::pages::{Page, PagedBufferPtr};
 use super::stats::{BufferKind, PoolStats, SizePoolStats};
-use crate::prefetch::CursorId;
 
 /// A pool of reusable fixed-size buffers allocated in large pages.
 ///
@@ -62,7 +63,10 @@ impl PagedPool {
     /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE](Self::MAX_BUFFER_SIZE))
     /// or duplicate values for buffer sizes. If no valid value is provided,
     /// uses [DEFAULT_BUFFER_SIZE](Self::DEFAULT_BUFFER_SIZE).
-    pub fn new_with_candidate_sizes(buffer_sizes: impl Into<Vec<usize>>) -> Self {
+    ///
+    /// An internal [MemoryLimiter] is created with the given `mem_limit`.
+    /// Buffer allocations automatically decrement the limiter's reservation counters.
+    pub fn new_with_candidate_sizes(buffer_sizes: impl Into<Vec<usize>>, mem_limit: u64) -> Self {
         let mut ordered_sizes: Vec<_> = buffer_sizes.into();
         ordered_sizes.retain(|&size| size > 0 && size <= Self::MAX_BUFFER_SIZE);
         ordered_sizes.dedup();
@@ -80,11 +84,28 @@ impl PagedPool {
             })
             .collect();
 
+        let limiter = MemoryLimiter::new(mem_limit);
+
         let inner = PagedPoolInner {
             ordered_size_pools,
             stats,
+            limiter,
         };
         Self { inner: Arc::new(inner) }
+    }
+
+    /// Create a pool without effective memory limiting.
+    ///
+    /// This is a convenience for tests and examples that don't need memory budgeting.
+    /// The internal limiter uses `u64::MAX` as its limit, so it never rejects reservations.
+    pub fn new_with_candidate_sizes_unlimited(buffer_sizes: impl Into<Vec<usize>>) -> Self {
+        Self::new_with_candidate_sizes(buffer_sizes, u64::MAX)
+    }
+
+    /// Create a pool with [MINIMUM_MEM_LIMIT] as the memory limit.
+    pub fn new_with_candidate_sizes_minimally_limited(buffer_sizes: impl Into<Vec<usize>>) -> Self {
+        use super::limiter::MINIMUM_MEM_LIMIT;
+        Self::new_with_candidate_sizes(buffer_sizes, MINIMUM_MEM_LIMIT)
     }
 
     /// Trim empty pages in the pool.
@@ -116,15 +137,9 @@ impl PagedPool {
         self.inner.stats.total_reserved_bytes()
     }
 
-    /// Register a callback to be invoked whenever bytes are reserved in the pool.
-    /// Must be called before any pool allocations occur to ensure accurate accounting.
-    pub fn set_on_reserve(&self, callback: Arc<dyn Fn(usize, Option<CursorId>) + Send + Sync>) {
-        self.inner.stats.set_on_reserve(callback);
-    }
-
     /// Get a new empty mutable buffer from the pool with the requested capacity.
-    /// If `cursor_id` is provided, it will be passed to the `on_reserve` callback
-    /// for per-cursor memory tracking.
+    /// If `cursor_id` is provided, `on_pool_reserve` will decrement the limiter's
+    /// reservation counters for per-cursor memory tracking.
     pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBufferMut {
         let buffer = self.get_buffer(capacity, kind, cursor_id);
         PoolBufferMut::new(buffer)
@@ -133,17 +148,19 @@ impl PagedPool {
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         match self.inner.get_pool_for_size(size) {
             Some(pool) => {
-                let buffer_ptr = pool.reserve(kind, cursor_id);
+                let buffer_ptr = pool.reserve(kind);
                 metrics::histogram!("pool.reserved_bytes", "type" => "primary", "kind" => kind.as_str())
                     .record(size as f64);
                 metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
                     .record((pool.buffer_size() - size) as f64);
+                self.inner.limiter.on_pool_reserve(pool.buffer_size(), cursor_id);
                 PoolBuffer::new_primary(buffer_ptr, size)
             }
             None => {
                 metrics::histogram!("pool.reserved_bytes", "type" => "secondary", "kind" => kind.as_str())
                     .record(size as f64);
-                PoolBuffer::new_secondary(size, kind, cursor_id, self.inner.stats.clone())
+                self.inner.limiter.on_pool_reserve(size, cursor_id);
+                PoolBuffer::new_secondary(size, kind, self.inner.stats.clone())
             }
         }
     }
@@ -164,6 +181,58 @@ impl PagedPool {
             .iter()
             .map(|pool| pool.stats.reserved_buffers(kind))
             .sum()
+    }
+
+    // TODO: Refactor MemoryLimiter unit tests to remove inner_stats and inner_limiter. We should have clearly separated unit tests for the PagedPool and the MemoryLimiter.
+
+    /// Expose the internal stats for testing purposes (e.g., to wire a standalone limiter).
+    #[cfg(test)]
+    pub(crate) fn inner_stats(&self) -> &PoolStats {
+        &self.inner.stats
+    }
+
+    /// Expose the internal limiter for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn inner_limiter(&self) -> &MemoryLimiter {
+        &self.inner.limiter
+    }
+
+    // ─── Delegation methods for MemoryLimiter ───────────────────────────────────
+
+    /// Reserve memory for future uses. Always succeeds (unconditional).
+    pub fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
+        self.inner.limiter.reserve(cursor_id, area, size);
+    }
+
+    /// Reserve memory if available. Returns `false` if over budget.
+    pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) -> bool {
+        self.inner.limiter.try_reserve(cursor_id, area, size, &self.inner.stats)
+    }
+
+    /// Release all remaining reservation for a cursor and remove it from tracking.
+    pub fn release_cursor(&self, cursor_id: CursorId, area: BufferArea) {
+        self.inner.limiter.release_cursor(cursor_id, area);
+    }
+
+    /// Generate a new unique CursorId.
+    pub fn next_cursor_id(&self) -> CursorId {
+        self.inner.limiter.next_cursor_id()
+    }
+
+    /// Query available memory.
+    pub fn available_mem(&self) -> u64 {
+        self.inner.limiter.available_mem(&self.inner.stats)
+    }
+
+    /// Record that a FUSE read is active for the given cursor.
+    /// Returns a guard that clears the active read on drop.
+    pub fn set_active_read(&self, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
+        self.inner.limiter.set_active_read(cursor_id, offset, size)
+    }
+
+    /// Check if the given cursor has an active read overlapping the specified range.
+    pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
+        self.inner.limiter.has_active_read_in_range(cursor_id, offset, size)
     }
 }
 
@@ -187,6 +256,7 @@ impl MemoryPool for PagedPool {
 struct PagedPoolInner {
     ordered_size_pools: Vec<SizePool>,
     stats: Arc<PoolStats>,
+    limiter: MemoryLimiter,
 }
 
 impl PagedPoolInner {
@@ -239,11 +309,11 @@ struct SizePool {
 }
 
 impl SizePool {
-    fn reserve(&self, kind: BufferKind, cursor_id: Option<CursorId>) -> PagedBufferPtr {
+    fn reserve(&self, kind: BufferKind) -> PagedBufferPtr {
         {
             // Fast path: reserve a buffer from the existing pages (under a read lock).
             let read_pages = self.pages.read().unwrap();
-            if let Some(buffer_ptr) = self.try_get_buffer_ptr(read_pages.iter(), kind, cursor_id) {
+            if let Some(buffer_ptr) = self.try_get_buffer_ptr(read_pages.iter(), kind) {
                 return buffer_ptr;
             }
         }
@@ -253,13 +323,13 @@ impl SizePool {
         // in case a buffer became available while we waited for the lock or another concurrent
         // reserve already added a new page.
         let mut write_pages = self.pages.write().unwrap();
-        if let Some(buffer_ptr) = self.try_get_buffer_ptr(write_pages.iter(), kind, cursor_id) {
+        if let Some(buffer_ptr) = self.try_get_buffer_ptr(write_pages.iter(), kind) {
             return buffer_ptr;
         }
 
         tracing::trace!(size = self.stats.buffer_size, "allocate new memory pool page");
         let page = Page::new(self.stats.clone());
-        let buffer_ptr = page.try_reserve(kind, cursor_id).unwrap();
+        let buffer_ptr = page.try_reserve(kind).unwrap();
         write_pages.push(page);
         buffer_ptr
     }
@@ -268,9 +338,8 @@ impl SizePool {
         &self,
         mut pages: impl Iterator<Item = &'a Page>,
         kind: BufferKind,
-        cursor_id: Option<CursorId>,
     ) -> Option<PagedBufferPtr> {
-        pages.find_map(|page| page.try_reserve(kind, cursor_id))
+        pages.find_map(|page| page.try_reserve(kind))
     }
 
     fn buffer_size(&self) -> usize {
@@ -300,14 +369,14 @@ mod tests {
     #[test_case(&[1, 2, 3], &[5, 10])]
     #[test_case(&vec![42u8; 1000], &[128, 1024])]
     fn test_from_slice(original: &[u8], buffer_sizes: &[usize]) {
-        let pool = PagedPool::new_with_candidate_sizes(buffer_sizes);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
         let bytes = copy_from_slice(&pool, original);
         assert_eq!(original, bytes.as_ref());
     }
 
     #[test_case(&[5, 10, 1024])]
     fn test_pages(buffer_sizes: &[usize]) {
-        let pool = PagedPool::new_with_candidate_sizes(buffer_sizes);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
 
         for &size in buffer_sizes {
             let original = vec![1u8; size];
@@ -343,7 +412,7 @@ mod tests {
     #[test_matrix(&vec![42u8; 1000], &[128, 1024], [None, Some(Duration::from_millis(10))])]
     #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [None, Some(Duration::from_millis(10))])]
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
-        let pool = PagedPool::new_with_candidate_sizes(buffer_sizes);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
         if let Some(duration) = schedule {
             pool.schedule_trim(duration);
         }
@@ -377,7 +446,7 @@ mod tests {
     fn test_reserved_bytes() {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
-        let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
+        let pool = PagedPool::new_with_candidate_sizes_unlimited([buffer_size]);
         let mut buffers = Vec::new();
         for (&kind, &count) in &reservations {
             for _ in 0..count {

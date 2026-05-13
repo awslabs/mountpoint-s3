@@ -5,10 +5,11 @@ use humansize::make_format;
 use sysinfo::System;
 use tracing::{debug, trace};
 
-use crate::memory::PagedPool;
 use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
+
+use super::stats::PoolStats;
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -51,13 +52,13 @@ impl ActiveRead {
 /// RAII guard that clears the active read for a cursor when dropped.
 /// Ensures the active read is always cleared, even on early returns or panics.
 pub struct ActiveReadGuard {
-    mem_limiter: Arc<MemoryLimiter>,
+    active_reads: Arc<DashMap<CursorId, ActiveRead>>,
     cursor_id: CursorId,
 }
 
 impl Drop for ActiveReadGuard {
     fn drop(&mut self) {
-        self.mem_limiter.clear_active_read(self.cursor_id);
+        self.active_reads.remove(&self.cursor_id);
     }
 }
 
@@ -75,7 +76,7 @@ impl Drop for ActiveReadGuard {
 /// rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
-/// 1) the memory pool allocates a buffer: the `on_reserve` callback decrements `mem_reserved` by the
+/// 1) the memory pool allocates a buffer: `on_pool_reserve` decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
 /// 2) the cursor is destroyed (`BackpressureController` will be dropped and `release_cursor` will
 ///    release any remaining unallocated reservation for that cursor).
@@ -88,23 +89,20 @@ pub struct MemoryLimiter {
     /// Global total of reserved memory (lock-free). Used in budget checks (try_reserve, available_mem).
     mem_reserved: Arc<AtomicU64>,
     /// Per-cursor reservation tracking. Keyed by CursorId (unique per BackpressureController
-    /// lifetime) so that late on_reserve callbacks from cancelled CRT meta-requests cannot
-    /// incorrectly decrement a re-created entry for the same handle.
+    /// lifetime) so that late on_pool_reserve calls from cancelled CRT meta-requests cannot
+    /// incorrectly decrement a re-created entry for the same cursor.
     mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>>,
     /// Counter for generating unique [CursorId]s.
     next_cursor_id: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
-    /// Memory pool used by the S3 client and disk cache.
-    /// We rely on the pool's stats to account for all buffer allocations (e.g. GetObject, DiskCache, PutObject buffers).
-    pool: PagedPool,
     /// Per-cursor active read tracking. When a FUSE read is in progress for a cursor,
     /// the requested range is stored here. Absence means the cursor is speculative.
-    active_reads: DashMap<CursorId, ActiveRead>,
+    active_reads: Arc<DashMap<CursorId, ActiveRead>>,
 }
 
 impl MemoryLimiter {
-    pub fn new(pool: PagedPool, mem_limit: u64) -> Self {
+    pub fn new(mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -114,20 +112,14 @@ impl MemoryLimiter {
             formatter(additional_mem_reserved)
         );
         let mem_reserved = Arc::new(AtomicU64::new(0));
-        let mem_reserved_cb: Arc<AtomicU64> = mem_reserved.clone();
         let mem_reserved_per_cursor: Arc<DashMap<CursorId, Arc<AtomicU64>>> = Arc::new(DashMap::new());
-        let mem_reserved_per_cursor_cb = mem_reserved_per_cursor.clone();
-        pool.set_on_reserve(Arc::new(move |bytes, cursor_id| {
-            Self::on_pool_reserve(bytes, cursor_id, &mem_reserved_cb, &mem_reserved_per_cursor_cb);
-        }));
         Self {
-            pool,
             mem_limit,
             mem_reserved,
             mem_reserved_per_cursor,
             next_cursor_id: AtomicU64::new(1),
             additional_mem_reserved,
-            active_reads: DashMap::new(),
+            active_reads: Arc::new(DashMap::new()),
         }
     }
 
@@ -139,12 +131,12 @@ impl MemoryLimiter {
     }
 
     /// Reserve the memory for future uses. If there is not enough memory returns `false`.
-    pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) -> bool {
+    pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64, stats: &PoolStats) -> bool {
         let start = Instant::now();
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
             let new_mem_reserved = mem_reserved.saturating_add(size);
-            let pool_mem_reserved = self.pool_mem_reserved();
+            let pool_mem_reserved = self.pool_mem_reserved(stats);
             let new_total_mem_usage = new_mem_reserved
                 .saturating_add(pool_mem_reserved)
                 .saturating_add(self.additional_mem_reserved);
@@ -191,31 +183,26 @@ impl MemoryLimiter {
     }
 
     /// Query available memory tracked by the memory limiter.
-    pub fn available_mem(&self) -> u64 {
+    pub fn available_mem(&self, stats: &PoolStats) -> u64 {
         let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
-        let pool_mem_reserved = self.pool_mem_reserved();
+        let pool_mem_reserved = self.pool_mem_reserved(stats);
         self.mem_limit
             .saturating_sub(mem_reserved)
             .saturating_sub(pool_mem_reserved)
             .saturating_sub(self.additional_mem_reserved)
     }
 
-    /// Record that a FUSE read is active for the given handle at the specified range.
+    /// Record that a FUSE read is active for the given cursor at the specified range.
     /// Returns a guard that will clear the active read when dropped.
-    pub fn set_active_read(self: &Arc<Self>, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
+    pub fn set_active_read(&self, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
         self.active_reads.insert(cursor_id, ActiveRead { offset, size });
         ActiveReadGuard {
-            mem_limiter: Arc::clone(self),
+            active_reads: self.active_reads.clone(),
             cursor_id,
         }
     }
 
-    /// Clear the active read for the given handle (read completed or errored).
-    fn clear_active_read(&self, cursor_id: CursorId) {
-        self.active_reads.remove(&cursor_id);
-    }
-
-    /// Check if the given handle has an active read overlapping the specified range.
+    /// Check if the given cursor has an active read overlapping the specified range.
     pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         self.active_reads
             .get(&cursor_id)
@@ -238,17 +225,12 @@ impl MemoryLimiter {
     ///
     /// No-op when `cursor_id` is `None` (e.g. uploads) or the cursor has already been removed
     /// by `release_cursor`.
-    fn on_pool_reserve(
-        bytes: usize,
-        cursor_id: Option<CursorId>,
-        mem_reserved: &AtomicU64,
-        per_cursor: &DashMap<CursorId, Arc<AtomicU64>>,
-    ) {
+    pub fn on_pool_reserve(&self, bytes: usize, cursor_id: Option<CursorId>) {
         let Some(cursor_id) = cursor_id else {
             return;
         };
         // Clone the Arc to release the DashMap shard lock before doing atomic operations.
-        let Some(cursor_reservation) = per_cursor.get(&cursor_id).map(|r| r.value().clone()) else {
+        let Some(cursor_reservation) = self.mem_reserved_per_cursor.get(&cursor_id).map(|r| r.value().clone()) else {
             return;
         };
         let mut current = cursor_reservation.load(Ordering::SeqCst);
@@ -259,13 +241,13 @@ impl MemoryLimiter {
                 Err(actual) => current = actual,
             }
         };
-        mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
+        self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
     /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
-    fn pool_mem_reserved(&self) -> u64 {
+    fn pool_mem_reserved(&self, stats: &PoolStats) -> u64 {
         // All pool buffer kinds are accounted for here.
-        self.pool.total_reserved_bytes() as u64
+        stats.total_reserved_bytes() as u64
     }
 }
 
@@ -285,16 +267,11 @@ pub fn effective_total_memory() -> u64 {
 mod tests {
     use super::*;
     use crate::memory::{BufferKind, PagedPool};
+    use crate::sync::Arc;
+    use crate::sync::atomic::Ordering;
 
     fn new_limiter() -> Arc<MemoryLimiter> {
-        let pool = PagedPool::new_with_candidate_sizes([1024]);
-        Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT))
-    }
-
-    fn new_limiter_with_pool(buffer_size: usize, mem_limit: u64) -> (Arc<MemoryLimiter>, PagedPool) {
-        let pool = PagedPool::new_with_candidate_sizes([buffer_size]);
-        let limiter = Arc::new(MemoryLimiter::new(pool.clone(), mem_limit));
-        (limiter, pool)
+        Arc::new(MemoryLimiter::new(MINIMUM_MEM_LIMIT))
     }
 
     #[test]
@@ -312,28 +289,30 @@ mod tests {
 
     #[test]
     fn test_pool_allocation_decrements_mem_reserved() {
-        let (limiter, pool) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
         // Reserve 1024 bytes of intent
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
-        // Pool allocation triggers on_reserve callback, decrementing mem_reserved
+        // Pool allocation calls on_pool_reserve, decrementing mem_reserved
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
     }
 
     #[test]
     fn test_reserve_pool_allocate_release_cursor() {
-        let (limiter, pool) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
         // Reserve 2048 bytes of intent
         limiter.reserve(cursor, BufferArea::Prefetch, 2048);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 2048);
 
-        // Pool allocates 1024 — callback decrements both global and per-cursor
+        // Pool allocates 1024 — on_pool_reserve decrements both global and per-cursor
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 1024);
 
@@ -347,13 +326,14 @@ mod tests {
     fn test_try_reserve_respects_limit() {
         let limiter = new_limiter();
         let cursor = limiter.next_cursor_id();
+        let stats = crate::memory::stats::PoolStats::default();
 
         // Fill up to the limit (minus additional_mem_reserved)
-        let available = limiter.available_mem();
+        let available = limiter.available_mem(&stats);
         limiter.reserve(cursor, BufferArea::Prefetch, available);
 
         // Should fail — no room left
-        assert!(!limiter.try_reserve(cursor, BufferArea::Prefetch, 1));
+        assert!(!limiter.try_reserve(cursor, BufferArea::Prefetch, 1, &stats));
     }
 
     #[test]
@@ -390,18 +370,22 @@ mod tests {
         // Second call is a no-op
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
     }
 
     #[test]
-    fn test_callback_noop_after_release_cursor() {
-        // Simulates the cancellation race: on_reserve fires after release_cursor
-        // removed the entry. The callback should be a no-op.
-        let (limiter, pool) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+    fn test_on_pool_reserve_noop_after_release_cursor() {
+        // Simulates the cancellation race: on_pool_reserve fires after release_cursor
+        // removed the entry. The call should be a no-op.
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
 
         // Late allocation for the cancelled request — cursor is gone
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
@@ -411,53 +395,55 @@ mod tests {
     }
 
     #[test]
-    fn test_callback_saturates_on_over_decrement() {
-        // Simulates a late callback trying to decrement more than what remains
-        // in the per-cursor counter (e.g. due to a race with a new cursor reusing
-        // the same entry after release).
-        let (limiter, pool) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+    fn test_on_pool_reserve_saturates_on_over_decrement() {
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
 
         // Reserve only 512 bytes
         limiter.reserve(cursor, BufferArea::Prefetch, 512);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 512);
 
-        // Pool allocates 1024 — callback should saturate at 512 (not underflow)
+        // Pool allocates 1024 — on_pool_reserve should saturate at 512 (not underflow)
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // release_cursor should subtract 0 (the per-cursor counter is already 0)
         limiter.release_cursor(cursor, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor));
     }
 
     #[test]
     fn test_available_mem_accounts_for_pool_allocations() {
-        let (limiter, pool) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
+        let stats = pool.inner_stats();
 
-        let initial_available = limiter.available_mem();
+        let initial_available = limiter.available_mem(stats);
 
         // Reserve intent — available decreases
         limiter.reserve(cursor, BufferArea::Prefetch, 1024);
-        assert_eq!(limiter.available_mem(), initial_available - 1024);
+        assert_eq!(limiter.available_mem(stats), initial_available - 1024);
 
-        // Pool allocates (on_reserve converts intent to pool stats) — available stays the same
-        // because mem_reserved decreases by 1024 while pool stats increase by 1024.
+        // Pool allocates (on_pool_reserve converts intent to pool stats) — available stays the same
         let buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-        assert_eq!(limiter.available_mem(), initial_available - 1024);
+        assert_eq!(limiter.available_mem(stats), initial_available - 1024);
 
         // Drop the buffer — pool stats decrease, available goes back up
         drop(buffer);
-        assert_eq!(limiter.available_mem(), initial_available);
+        assert_eq!(limiter.available_mem(stats), initial_available);
     }
 
     #[test]
     fn test_upload_allocation_does_not_affect_mem_reserved() {
-        let (limiter, pool) = new_limiter_with_pool(1024, MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let limiter = pool.inner_limiter();
+        let stats = pool.inner_stats();
 
-        let initial_available = limiter.available_mem();
+        let initial_available = limiter.available_mem(stats);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // Upload allocates without cursor_id — should not touch mem_reserved
@@ -465,11 +451,11 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // But available_mem should decrease (pool stats increased)
-        assert_eq!(limiter.available_mem(), initial_available - 1024);
+        assert_eq!(limiter.available_mem(stats), initial_available - 1024);
 
         // Drop the buffer — available goes back up
         drop(buffer);
-        assert_eq!(limiter.available_mem(), initial_available);
+        assert_eq!(limiter.available_mem(stats), initial_available);
     }
 
     #[test]
