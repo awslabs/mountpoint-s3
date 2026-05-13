@@ -198,31 +198,26 @@ impl PagedPool {
     // ─── Delegation methods for MemoryLimiter ───────────────────────────────────
 
     /// Reserve memory for future uses. Always succeeds (unconditional).
-    /// Delegates to the internal MemoryLimiter.
     pub fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
         self.inner.limiter.reserve(cursor_id, area, size);
     }
 
     /// Reserve memory if available. Returns `false` if over budget.
-    /// Delegates to the internal MemoryLimiter.
     pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) -> bool {
         self.inner.limiter.try_reserve(cursor_id, area, size, &self.inner.stats)
     }
 
     /// Release all remaining reservation for a cursor and remove it from tracking.
-    /// Delegates to the internal MemoryLimiter.
     pub fn release_cursor(&self, cursor_id: CursorId, area: BufferArea) {
         self.inner.limiter.release_cursor(cursor_id, area);
     }
 
     /// Generate a new unique CursorId.
-    /// Delegates to the internal MemoryLimiter.
     pub fn next_cursor_id(&self) -> CursorId {
         self.inner.limiter.next_cursor_id()
     }
 
     /// Query available memory.
-    /// Delegates to the internal MemoryLimiter.
     pub fn available_mem(&self) -> u64 {
         self.inner.limiter.available_mem(&self.inner.stats)
     }
@@ -259,8 +254,6 @@ impl MemoryPool for PagedPool {
 struct PagedPoolInner {
     ordered_size_pools: Vec<SizePool>,
     stats: Arc<PoolStats>,
-    /// Memory limiter owned by the pool. Use `u64::MAX` as the limit to effectively
-    /// disable memory limiting (the limiter will never reject).
     limiter: MemoryLimiter,
 }
 

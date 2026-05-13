@@ -13,18 +13,6 @@ use super::stats::PoolStats;
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
-/// Returns the effective total memory available to this process in bytes.
-///
-/// On Linux, this respects cgroup memory limits when set.
-/// On other platforms, returns the total physical memory.
-pub fn effective_total_memory() -> u64 {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    sys.cgroup_limits()
-        .map(|cg| cg.total_memory)
-        .unwrap_or_else(|| sys.total_memory())
-}
-
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
 #[derive(Debug)]
 pub enum BufferArea {
@@ -114,7 +102,6 @@ pub struct MemoryLimiter {
 }
 
 impl MemoryLimiter {
-    /// Create a new `MemoryLimiter` with the given memory limit.
     pub fn new(mem_limit: u64) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
@@ -264,6 +251,18 @@ impl MemoryLimiter {
     }
 }
 
+/// Returns the effective total memory available to this process in bytes.
+///
+/// On Linux, this respects cgroup memory limits when set.
+/// On other platforms, returns the total physical memory.
+pub fn effective_total_memory() -> u64 {
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.cgroup_limits()
+        .map(|cg| cg.total_memory)
+        .unwrap_or_else(|| sys.total_memory())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,6 +349,10 @@ mod tests {
         // Release cursor1 — only its 100 bytes
         limiter.release_cursor(cursor1, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 200);
+        assert!(!limiter.mem_reserved_per_cursor.contains_key(&cursor1));
+
+        // Cursor2 still tracked
+        assert!(limiter.mem_reserved_per_cursor.contains_key(&cursor2));
 
         limiter.release_cursor(cursor2, BufferArea::Prefetch);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
@@ -372,6 +375,8 @@ mod tests {
 
     #[test]
     fn test_on_pool_reserve_noop_after_release_cursor() {
+        // Simulates the cancellation race: on_pool_reserve fires after release_cursor
+        // removed the entry. The call should be a no-op.
         let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
         let limiter = pool.inner_limiter();
         let cursor = limiter.next_cursor_id();
@@ -526,7 +531,7 @@ mod tests {
         let mut sys = System::new();
         sys.refresh_memory();
         if sys.cgroup_limits().is_some() {
-            // A cgroup limit is active on this machine -- the fallback path
+            // A cgroup limit is active on this machine - the fallback path
             // won't be exercised, so there's nothing to assert here.
             return;
         }

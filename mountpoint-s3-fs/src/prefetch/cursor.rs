@@ -75,9 +75,7 @@ where
         &mut self,
         length: usize,
     ) -> Result<(ChecksummedBytes, bool), PrefetchReadError<Client::ClientError>> {
-        let _active_read_guard = self
-            .pool
-            .set_active_read(self.cursor_id, self.current_offset, length);
+        let _active_read_guard = self.pool.set_active_read(self.cursor_id, self.current_offset, length);
 
         self.do_read(length).await
     }
@@ -92,9 +90,7 @@ where
         // the skipped bytes the prefetcher must consume to reach the requested offset.
         let active_start = self.current_offset.min(offset);
         let active_size = length + offset.saturating_sub(active_start) as usize;
-        let _active_read_guard = self
-            .pool
-            .set_active_read(self.cursor_id, active_start, active_size);
+        let _active_read_guard = self.pool.set_active_read(self.cursor_id, active_start, active_size);
 
         if !self.try_seek(offset).await? {
             // Seek failed
