@@ -106,7 +106,8 @@ impl S3CrtClient {
 
             let key = key.to_string();
             let path = if let Some(version_id) = &params.version_id {
-                format!("/{key}?versionId={version_id}")
+                let encoded_version_id = percent_encoding::utf8_percent_encode(version_id, percent_encoding::NON_ALPHANUMERIC).to_string();
+                format!("/{key}?versionId={encoded_version_id}")
             } else {
                 format!("/{key}")
             };
