@@ -243,6 +243,8 @@ pub struct GetObjectParams {
     /// An optional caller-supplied identifier passed through to the memory pool on buffer
     /// allocations for this request. Not related to the S3 request ID returned by the service.
     pub custom_id: Option<u64>,
+    /// Retrieve a specific version of the object (for versioning-enabled buckets)
+    pub version_id: Option<String>,
 }
 
 impl GetObjectParams {
@@ -273,6 +275,12 @@ impl GetObjectParams {
     /// allocations for this request. Not related to the S3 request ID returned by the service.
     pub fn custom_id(mut self, value: Option<u64>) -> Self {
         self.custom_id = value;
+        self
+    }
+
+    /// Set the specific version to retrieve
+    pub fn version_id(mut self, value: Option<String>) -> Self {
+        self.version_id = value;
         self
     }
 }
@@ -306,6 +314,8 @@ pub enum ListObjectsError {
 pub struct HeadObjectParams {
     /// Enable to retrieve checksum as part of the HeadObject request
     pub checksum_mode: Option<ChecksumMode>,
+    /// Retrieve a specific version of the object (for versioning-enabled buckets)
+    pub version_id: Option<String>,
 }
 
 impl HeadObjectParams {
@@ -317,6 +327,12 @@ impl HeadObjectParams {
     /// Set option to retrieve checksum as part of the HeadObject request
     pub fn checksum_mode(mut self, value: Option<ChecksumMode>) -> Self {
         self.checksum_mode = value;
+        self
+    }
+
+    /// Set the specific version to request
+    pub fn version_id(mut self, value: Option<String>) -> Self {
+        self.version_id = value;
         self
     }
 }
@@ -366,6 +382,9 @@ pub struct HeadObjectResult {
 
     /// Server-side encryption KMS key ID that was used to store the object.
     pub sse_kms_key_id: Option<String>,
+
+    /// Version ID of the object (for versioning-enabled buckets)
+    pub version_id: Option<String>,
 }
 
 /// Errors returned by a [`head_object`](ObjectClient::head_object) request

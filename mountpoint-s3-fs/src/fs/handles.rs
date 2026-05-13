@@ -76,7 +76,11 @@ where
                     None => return Err(err!(libc::EBADF, "no E-Tag for inode {}", ino)),
                     Some(etag) => ETag::from_str(etag).expect("E-Tag should be set"),
                 };
-                let object_id = ObjectId::new(full_key.into(), etag);
+                let object_id = if let Some(version_id) = &stat.version_id {
+                    ObjectId::with_version(full_key.into(), etag, version_id.to_string())
+                } else {
+                    ObjectId::new(full_key.into(), etag)
+                };
                 let request = fs
                     .prefetcher
                     .prefetch(bucket.to_string(), object_id, HandleId::new(fh), object_size);

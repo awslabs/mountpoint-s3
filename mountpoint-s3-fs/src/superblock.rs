@@ -1276,6 +1276,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                     None,
                     None,
                     None,
+                    None,
                     self.inner.config.cache_config.file_ttl,
                 ),
                 InodeKind::Directory => {
@@ -1556,8 +1557,16 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
             select_biased! {
                 result = file_lookup => {
                     match result {
-                        Ok(HeadObjectResult { size, last_modified, restore_status, etag, storage_class, .. }) => {
-                            let stat = InodeStat::for_file(size as usize, last_modified, Some(etag.into_inner().into_boxed_str()), storage_class.as_deref(), restore_status, self.config.cache_config.file_ttl);
+                        Ok(HeadObjectResult { size, last_modified, restore_status, etag, storage_class, version_id, .. }) => {
+                            let stat = InodeStat::for_file(
+                                size as usize,
+                                last_modified,
+                                Some(etag.into_inner().into_boxed_str()),
+                                version_id.map(|v| v.into_boxed_str()),
+                                storage_class.as_deref(),
+                                restore_status,
+                                self.config.cache_config.file_ttl
+                            );
                             file_state = Some(stat);
                         }
                         // If the object is not found, might be a directory, so keep going
@@ -2408,6 +2417,7 @@ mod tests {
             etag,
             None,
             None,
+            None,
             std::time::Duration::from_secs(24 * 60 * 60),
         );
         if invalidate_stat {
@@ -3248,7 +3258,7 @@ mod tests {
     #[test]
     fn test_inodestat_constructors() {
         let ts = OffsetDateTime::UNIX_EPOCH + Duration::days(90);
-        let file_inodestat = InodeStat::for_file(128, ts, None, None, None, Default::default());
+        let file_inodestat = InodeStat::for_file(128, ts, None, None, None, None, Default::default());
         assert_eq!(file_inodestat.size, 128);
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
@@ -3260,6 +3270,47 @@ mod tests {
         assert_eq!(file_inodestat.atime, ts);
         assert_eq!(file_inodestat.ctime, ts);
         assert_eq!(file_inodestat.mtime, ts);
+    }
+
+    #[test]
+    fn test_version_id_propagated_to_inode_stat() {
+        let ts = OffsetDateTime::UNIX_EPOCH;
+
+        // Create a file stat with version_id
+        let version_id = Some("v123".into());
+        let file_stat = InodeStat::for_file(
+            1024,
+            ts,
+            Some("etag-value".into()),
+            version_id.clone(),
+            None,
+            None,
+            Default::default()
+        );
+
+        assert_eq!(file_stat.size, 1024);
+        assert_eq!(file_stat.etag, Some("etag-value".into()));
+        assert_eq!(file_stat.version_id, version_id);
+    }
+
+    #[test]
+    fn test_no_version_id_backward_compat() {
+        let ts = OffsetDateTime::UNIX_EPOCH;
+
+        // Create a file stat without version_id (backward compat)
+        let file_stat = InodeStat::for_file(
+            512,
+            ts,
+            Some("etag-value".into()),
+            None,  // No version_id
+            None,
+            None,
+            Default::default()
+        );
+
+        assert_eq!(file_stat.size, 512);
+        assert_eq!(file_stat.etag, Some("etag-value".into()));
+        assert_eq!(file_stat.version_id, None);
     }
 
     #[test]

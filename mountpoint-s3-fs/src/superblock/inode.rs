@@ -183,6 +183,7 @@ impl Inode {
                 old_inode_state.stat.size,
                 old_inode_state.stat.atime,
                 old_inode_state.stat.etag.clone(),
+                old_inode_state.stat.version_id.clone(),
                 None,
                 None,
                 new_validity,
@@ -341,7 +342,7 @@ mod tests {
             &superblock.inner.s3_path.prefix,
             InodeState {
                 write_status: WriteStatus::Remote,
-                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
+                stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
                 pending_upload_hook: None,
             },
@@ -482,6 +483,7 @@ mod tests {
                         Some(ETag::for_tests().into_inner().into_boxed_str()),
                         None,
                         None,
+                        None,
                         NEVER_EXPIRE_TTL,
                     ),
                     write_status: WriteStatus::Remote,
@@ -542,7 +544,7 @@ mod tests {
                 checksum,
                 sync: RwLock::new(InodeState {
                     write_status: WriteStatus::LocalOpenForWriting,
-                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
+                    stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
                     pending_upload_hook: None,
                 }),
