@@ -1455,7 +1455,7 @@ fn open_for_write_returns_enomem_when_cap_exhausted() {
     open_files.pop();
 
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    let retried = loop {
+    let _retried = loop {
         match File::options().append(true).create(true).open(&extra_path) {
             Ok(f) => break f,
             Err(err) if err.raw_os_error() == Some(libc::ENOMEM) => {
@@ -1468,7 +1468,6 @@ fn open_for_write_returns_enomem_when_cap_exhausted() {
             Err(err) => panic!("unexpected error retrying open after a slot was freed: {err:?}"),
         }
     };
-    drop(retried);
 }
 
 #[derive(Clone, Copy)]
