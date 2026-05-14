@@ -1380,7 +1380,7 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(200)]
+#[test_case(48)]
 fn concurrent_open_for_write_test(max_files: usize) {
     let test_session = fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
 
@@ -1415,6 +1415,53 @@ fn concurrent_open_for_write_test(max_files: usize) {
             "object must exist in S3"
         );
     }
+}
+
+#[cfg(feature = "s3_tests")]
+#[test]
+fn open_for_write_returns_enomem_when_cap_exhausted() {
+    const CAP: usize = 48;
+
+    let test_session = fuse::s3_session::new(
+        "open_for_write_returns_enomem_when_cap_exhausted",
+        Default::default(),
+    );
+
+    // Open `CAP` files for write — all should succeed.
+    let mut open_files = Vec::with_capacity(CAP);
+    for i in 0..CAP {
+        let path = test_session.mount_path().join(format!("file-{i}"));
+        let f = File::options()
+            .append(true)
+            .create(true)
+            .open(&path)
+            .expect("open should succeed within the cap");
+        open_files.push(f);
+    }
+
+    // The next open exceeds the cap → ENOMEM at the syscall boundary.
+    let extra_path = test_session.mount_path().join(format!("file-{CAP}"));
+    let err = File::options()
+        .append(true)
+        .create(true)
+        .open(&extra_path)
+        .expect_err("open past the cap must fail");
+    assert_eq!(
+        err.raw_os_error(),
+        Some(libc::ENOMEM),
+        "open past the cap should return ENOMEM, got {err:?}",
+    );
+
+    // Closing one of the open handles releases a slot. Drop to trigger release.
+    open_files.pop();
+
+    // The previously rejected open now succeeds: the limiter does not leave inode state
+    // behind on rejection, so the same path can be opened cleanly once a slot frees.
+    let _retried = File::options()
+        .append(true)
+        .create(true)
+        .open(&extra_path)
+        .expect("open should succeed after a slot is freed");
 }
 
 #[derive(Clone, Copy)]
