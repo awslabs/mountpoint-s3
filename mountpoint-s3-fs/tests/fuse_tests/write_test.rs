@@ -1449,16 +1449,26 @@ fn open_for_write_returns_enomem_when_cap_exhausted() {
         "open past the cap should return ENOMEM, got {err:?}",
     );
 
-    // Closing one of the open handles releases a slot. Drop to trigger release.
+    // Closing one of the open handles releases a slot. Userspace `close()` returns immediately,
+    // but the kernel dispatches the FUSE RELEASE op asynchronously to Mountpoint, where the slot
+    // is actually freed. Poll the open with a short timeout so we tolerate scheduler jitter.
     open_files.pop();
 
-    // The previously rejected open now succeeds: the limiter does not leave inode state
-    // behind on rejection, so the same path can be opened cleanly once a slot frees.
-    let _retried = File::options()
-        .append(true)
-        .create(true)
-        .open(&extra_path)
-        .expect("open should succeed after a slot is freed");
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    let retried = loop {
+        match File::options().append(true).create(true).open(&extra_path) {
+            Ok(f) => break f,
+            Err(err) if err.raw_os_error() == Some(libc::ENOMEM) => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "open did not succeed within 1s of releasing a slot",
+                );
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(err) => panic!("unexpected error retrying open after a slot was freed: {err:?}"),
+        }
+    };
+    drop(retried);
 }
 
 #[derive(Clone, Copy)]
