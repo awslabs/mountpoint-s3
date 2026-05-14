@@ -1422,10 +1422,7 @@ fn concurrent_open_for_write_test(max_files: usize) {
 fn open_for_write_returns_enomem_when_cap_exhausted() {
     const CAP: usize = 48;
 
-    let test_session = fuse::s3_session::new(
-        "open_for_write_returns_enomem_when_cap_exhausted",
-        Default::default(),
-    );
+    let test_session = fuse::s3_session::new("open_for_write_returns_enomem_when_cap_exhausted", Default::default());
 
     // Open `CAP` files for write — all should succeed.
     let mut open_files = Vec::with_capacity(CAP);
