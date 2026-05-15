@@ -189,6 +189,7 @@ impl ToErrno for InodeError {
             InodeError::OutOfOrderReadDir { .. } => libc::EBADF,
             InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
             InodeError::FlexibleRetrievalObjectNotAccessible(_) => libc::EACCES,
+            InodeError::WriteHandleLimitExceeded(_) => libc::ENOMEM,
         }
     }
 }

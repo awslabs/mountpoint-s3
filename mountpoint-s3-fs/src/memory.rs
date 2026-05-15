@@ -3,6 +3,7 @@ mod limiter;
 mod pages;
 mod pool;
 mod stats;
+mod write_handle_limiter;
 
 pub use buffers::{PoolBuffer, PoolBufferMut};
 pub use limiter::{
@@ -10,3 +11,4 @@ pub use limiter::{
 };
 pub use pool::PagedPool;
 pub use stats::BufferKind;
+pub use write_handle_limiter::{WriteHandleLimitError, WriteHandleLimiter, WriteHandleSlot};

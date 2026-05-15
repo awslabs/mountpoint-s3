@@ -295,6 +295,18 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 * By default, Mountpoint can serve up to 16 concurrent file or directory operations, and automatically scales up to reach this limit. If your application makes more than this many concurrent reads and writes (including to the same or different files), you can improve performance by increasing this limit with the `--max-threads` command-line argument. Higher values of this flag might cause Mountpoint to use more of your instance's resources.
 * When reading or writing files to S3, Mountpoint divides them into parts and uses parallel requests to improve throughput. You can change the part size Mountpoint uses for these parallel requests using the `--read-part-size` and `--write-part-size` command-line arguments, providing a maximum number of bytes per part for reading or writing respectively. For Mountpoint v1.7.2 or earlier, use `--part-size` instead. The default value for these arguments is 8 MiB (8,306,688 bytes), which in our testing is the largest value that achieves maximum throughput. Larger values can reduce the number of billed requests Mountpoint makes, but also reduce the throughput of object reads and writes to S3.
 
+### Maximum number of files open for write
+
+Mountpoint enforces a cap on the number of files that may be open for write at the same time, to control memory usage. The cap is computed at startup from the configured memory target and write part size:
+
+```
+max_concurrent_writes = (memory_target − additional_mem_reserved) / write_part_size
+```
+
+`memory_target` is set with `--memory-target` and defaults to 95% of total system memory with a minimum of 512 MiB. `write_part_size` is set with `--write-part-size` (or with `--part-size`) and defaults to 8 MiB. `additional_mem_reserved` is `max(128 MiB, memory_target / 8)` and is held back from data buffers for Mountpoint's own overhead. With the minimum supported `memory_target` of 512 MiB and the default 8 MiB write part size, the cap is 48 concurrent writers.
+
+Once the cap is reached, `open()` calls for write return `ENOMEM` ("Cannot allocate memory") until an existing write handle is closed. To raise the cap, increase `--memory-target` or decrease `--write-part-size`.
+
 ### Maximum object size
 
 In its default configuration, there is no maximum on the size of objects Mountpoint can read. However, Mountpoint uses [multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) when writing new objects, and multipart upload allows a maximum of 10,000 parts for an object. This means Mountpoint can only upload objects up to 80,000 MiB (78.1 GiB) in size. If your application tries to write objects larger than this limit, writes will fail with an out of space error.

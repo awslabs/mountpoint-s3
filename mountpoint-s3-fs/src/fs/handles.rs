@@ -5,7 +5,8 @@ use mountpoint_s3_client::types::ETag;
 use tracing::{debug, error};
 
 use crate::fs::InodeError;
-use crate::metablock::{Lookup, Metablock, NewHandle, PendingUploadHook, ReadWriteMode, S3Location};
+use crate::memory::WriteHandleSlot;
+use crate::metablock::{Lookup, Metablock, PendingUploadHook, ReadWriteMode, S3Location};
 use crate::object::ObjectId;
 use crate::prefetch::PrefetchGetObject;
 use crate::sync::{Arc, AsyncMutex};
@@ -50,6 +51,10 @@ where
         state: UploadState<Client>,
         /// Set to true when `flush` called on the handle, and unset on a `write`
         flushed: bool,
+        /// Slot reserved on the [`crate::memory::WriteHandleLimiter`] for this
+        /// handle. Held purely for its `Drop` side effect, which releases the slot when the file
+        /// handle is closed.
+        _write_slot: Option<WriteHandleSlot>,
     },
 }
 
@@ -58,17 +63,19 @@ where
     Client: ObjectClient + Clone + Send + Sync,
 {
     pub async fn new(
-        handle: &NewHandle,
+        mode: ReadWriteMode,
+        lookup: &Lookup,
+        write_slot: Option<WriteHandleSlot>,
         flags: OpenFlags,
         fs: &S3Filesystem<Client>,
     ) -> Result<FileHandleState<Client>, Error> {
-        let ino = handle.lookup.ino();
-        let stat = handle.lookup.stat();
-        let location = handle.lookup.s3_location()?;
+        let ino = lookup.ino();
+        let stat = lookup.stat();
+        let location = lookup.s3_location()?;
         let full_key = location.full_key();
         let bucket = location.bucket_name();
 
-        match handle.mode {
+        match mode {
             ReadWriteMode::Read => {
                 let object_size = stat.size as u64;
                 let etag = match &stat.etag {
@@ -116,6 +123,7 @@ where
                 let handle = FileHandleState::Write {
                     state: upload_state,
                     flushed: false,
+                    _write_slot: write_slot,
                 };
                 metrics::gauge!("fs.current_handles", "type" => "write").increment(1.0);
                 Ok(handle)

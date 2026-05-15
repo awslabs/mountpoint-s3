@@ -14,7 +14,7 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -77,6 +77,7 @@ pub struct TestSessionConfig {
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
     pub fail_on_non_aligned_read_window: bool,
+    pub mem_limit: u64,
 }
 
 impl Default for TestSessionConfig {
@@ -96,6 +97,7 @@ impl Default for TestSessionConfig {
             #[cfg(feature = "manifest")]
             manifest: None,
             fail_on_non_aligned_read_window: false,
+            mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
 }
@@ -312,7 +314,7 @@ pub mod mock_session {
         };
 
         let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([test_config.part_size]);
+        let pool = PagedPool::new_with_candidate_sizes([test_config.part_size], test_config.mem_limit);
         let client = Arc::new(
             MockClient::config()
                 .bucket(s3_path.bucket.to_string())
@@ -354,10 +356,10 @@ pub mod mock_session {
             };
 
             let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
-            let pool = PagedPool::new_with_candidate_sizes_minimally_limited([
-                test_config.cache_block_size,
-                test_config.part_size,
-            ]);
+            let pool = PagedPool::new_with_candidate_sizes(
+                [test_config.cache_block_size, test_config.part_size],
+                test_config.mem_limit,
+            );
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
 
             let client = Arc::new(
@@ -510,7 +512,7 @@ pub mod s3_session {
     pub fn new_with_test_client(test_config: TestSessionConfig, sdk_client: Client, s3_path: S3Path) -> TestSession {
         let mount_dir = tempfile::tempdir().unwrap();
 
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([test_config.part_size]);
+        let pool = PagedPool::new_with_candidate_sizes([test_config.part_size], test_config.mem_limit);
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(get_test_endpoint_config())
@@ -550,10 +552,10 @@ pub mod s3_session {
             let s3_path = get_test_s3_path(test_name);
             let region = get_test_region();
 
-            let pool = PagedPool::new_with_candidate_sizes_minimally_limited([
-                test_config.cache_block_size,
-                test_config.part_size,
-            ]);
+            let pool = PagedPool::new_with_candidate_sizes(
+                [test_config.cache_block_size, test_config.part_size],
+                test_config.mem_limit,
+            );
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
 
             let client = create_crt_client(

@@ -47,6 +47,8 @@ pub struct S3FilesystemConfig {
     /// This option may also be configured by `UNSTABLE_MOUNTPOINT_MAX_BACKGROUND` environment variable,
     /// but the value specified in the config takes priority.
     pub max_background_fuse_requests: Option<u16>,
+    /// Whether this mount is read-only.
+    pub read_only: bool,
 }
 
 impl Default for S3FilesystemConfig {
@@ -72,6 +74,7 @@ impl Default for S3FilesystemConfig {
             content_type_detection: ContentTypeDetection::Disabled,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,
+            read_only: false,
         }
     }
 }
