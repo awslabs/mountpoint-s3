@@ -4,38 +4,41 @@ use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use std::marker::{Send, Sync};
-use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
 use tracing::{Instrument, debug_span, error, trace};
 
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
-use crate::memory::PagedPool;
+use crate::memory::{CursorState, PagedPool};
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
+use crate::sync::Arc;
 
-use super::CursorId;
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::cursor::CursorId;
 use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::task::RequestTask;
 
 /// A generic interface to retrieve data from objects in a S3-like store.
 pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
-    /// Spawns a request to get the content of an object. The object data will be retrieved in fixed size
-    /// parts and can then be consumed using [RequestTask::read]. Callers need to specify a preferred
-    /// size for the parts, but implementations are allowed to ignore it.
-    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client>;
+    /// Spawn a background task that issues GetObject requests and pushes parts into the
+    /// returned [RequestTask]. Implementations differ in how they source data (direct S3
+    /// vs cache-then-S3).
+    fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client>;
 
     /// The underlying [ObjectClient].
     fn client(&self) -> &Client;
+
+    /// The shared [PagedPool].
+    fn pool(&self) -> &PagedPool;
 }
 
+/// Internal configuration for spawning a [RequestTask].
 #[derive(Clone, Debug)]
-/// The configs for spawning a task in [ObjectPartStream::spawn_get_object_request].
 pub struct RequestTaskConfig {
-    pub cursor_id: CursorId,
+    pub cursor_state: Arc<CursorState>,
     pub bucket: String,
     pub object_id: ObjectId,
     pub range: RequestRange,
@@ -194,12 +197,16 @@ where
         }
     }
 
-    pub fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
-        self.inner.spawn_get_object_request(config)
+    pub fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client> {
+        self.inner.spawn_request_task(config)
     }
 
     pub fn client(&self) -> &Client {
         self.inner.client()
+    }
+
+    pub fn pool(&self) -> &PagedPool {
+        self.inner.pool()
     }
 }
 
@@ -226,7 +233,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ClientPartStream<Clie
 pub type RequestReaderOutput<E> = Result<GetBodyPart, PrefetchReadError<E>>;
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Client> for ClientPartStream<Client> {
-    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
+    fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client> {
         assert!(config.preferred_part_size > 0);
 
         let range = config.range;
@@ -238,8 +245,9 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
                 part_size: config.read_part_size as u64,
             },
         );
+        let cursor_state = config.cursor_state.clone();
         let (backpressure_controller, mut backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.pool.clone());
+            new_backpressure_controller(backpressure_config, cursor_state);
         let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
@@ -277,6 +285,10 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
 
     fn client(&self) -> &Client {
         &self.client
+    }
+
+    fn pool(&self) -> &PagedPool {
+        &self.pool
     }
 }
 
