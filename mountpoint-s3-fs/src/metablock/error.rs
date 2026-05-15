@@ -84,7 +84,7 @@ pub enum InodeError {
     #[error("objects in flexible retrieval storage classes are not accessible")]
     FlexibleRetrievalObjectNotAccessible(InodeErrorInfo),
     #[error(
-        "cannot open file for write: exceeded max allowed concurrent write file handlers of {max} \
+        "cannot open file for write: exceeded max allowed concurrent write file handles of {max} \
          based on memory target {mem_limit_mib}MiB (part size is {write_part_size_mib}MiB). \
          Increase --memory-target or decrease --write-part-size to allow for more concurrent writes, \
          or close existing open for write file handlers and retry open() operation.",
