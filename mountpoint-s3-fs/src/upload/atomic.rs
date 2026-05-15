@@ -209,7 +209,6 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::fs::SseCorruptedError;
-    use crate::memory::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
     use crate::sync::Arc;
     use crate::upload::{Uploader, UploaderConfig};
@@ -232,7 +231,10 @@ mod tests {
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let buffer_size = client.write_part_size();
-        let pool = PagedPool::new_with_candidate_sizes([buffer_size], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([buffer_size])
+            .with_minimum_memory_limit()
+            .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         Uploader::new(
             client,

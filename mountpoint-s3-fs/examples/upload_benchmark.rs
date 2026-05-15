@@ -102,7 +102,10 @@ fn main() {
         // Default to 95% of total system memory (cgroup-aware)
         (effective_total_memory() as f64 * 0.95) as u64
     };
-    let pool = PagedPool::new_with_candidate_sizes([args.write_part_size], max_memory_target);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([args.write_part_size])
+        .with_memory_limit(max_memory_target)
+        .build();
     let config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)
         .throughput_target_gbps(args.throughput_target_gbps as f64)

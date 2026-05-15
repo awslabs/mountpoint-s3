@@ -487,7 +487,6 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use crate::memory::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
     use crate::sync::Arc;
 
@@ -511,8 +510,10 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool =
-            PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([client.read_part_size(), client.write_part_size()])
+            .with_minimum_memory_limit()
+            .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         Uploader::new(
             client,
@@ -1177,7 +1178,10 @@ mod tests {
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
         // Use a pool with 0 memory limit to simulate memory pressure.
-        let pool = PagedPool::new_with_candidate_sizes([32], 0);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([32])
+            .with_memory_limit(0)
+            .build();
 
         let uploader = Uploader::new(
             client.clone(),

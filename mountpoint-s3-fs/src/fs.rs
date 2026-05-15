@@ -785,7 +785,6 @@ where
 mod tests {
     use super::*;
 
-    use crate::memory::MINIMUM_MEM_LIMIT;
     use crate::prefetch::Prefetcher;
     use crate::s3::{Bucket, S3Path};
     use crate::{Superblock, SuperblockConfig};
@@ -809,7 +808,10 @@ mod tests {
         client.add_object("dir1/file1.bin", MockObject::constant(0xa1, 15, ETag::for_tests()));
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let pool = PagedPool::new_with_candidate_sizes([32], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([32])
+            .with_minimum_memory_limit()
+            .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let server_side_encryption =
             ServerSideEncryption::new(Some("aws:kms".to_owned()), Some("some_key_alias".to_owned()));
@@ -1073,7 +1075,10 @@ mod tests {
         );
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(10).create().unwrap());
-        let pool = PagedPool::new_with_candidate_sizes([32], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([32])
+            .with_minimum_memory_limit()
+            .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let fs_config = S3FilesystemConfig {
             allow_overwrite,

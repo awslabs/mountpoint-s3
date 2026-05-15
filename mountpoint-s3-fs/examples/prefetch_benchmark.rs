@@ -167,10 +167,10 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
-    let pool = PagedPool::new_with_candidate_sizes(
-        [args.part_size.unwrap_or(8 * 1024 * 1024) as usize],
-        args.memory_target_in_bytes(),
-    );
+    let pool = PagedPool::config()
+        .with_candidate_sizes([args.part_size.unwrap_or(8 * 1024 * 1024) as usize])
+        .with_memory_limit(args.memory_target_in_bytes())
+        .build();
     let client_config = args.s3_client_config().memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
     let runtime = Runtime::new(client.event_loop_group());
