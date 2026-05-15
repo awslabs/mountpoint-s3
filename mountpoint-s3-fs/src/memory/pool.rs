@@ -113,18 +113,16 @@ impl PagedPool {
         self.inner.trim()
     }
 
-    /// Schedule recurring calls to [trim](Self::trim).
-    pub fn schedule_trim(&self, recurring_time: Duration) {
-        let weak = Arc::downgrade(&self.inner);
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(recurring_time);
-                let Some(pool) = weak.upgrade() else {
-                    return;
-                };
-                pool.trim();
-            }
-        });
+    /// Spawn the background pool maintenance thread. Must be called once after
+    /// construction, at filesystem init.
+    ///
+    /// The thread serves two responsibilities on a single OS thread:
+    ///   - **Periodic trim**: every `idle_interval`, run [`Self::trim`] to release
+    ///     empty pages back to the system allocator.
+    ///   - **Pressure pruning**: on [`MemoryLimiter::trigger_pruning`], wake
+    ///     immediately and run pruning rounds until the allocation queue drains.
+    pub fn spawn_pool_maintenance_thread(&self, idle_interval: Duration) {
+        super::maintenance::spawn_pool_maintenance_thread(&self.inner, idle_interval);
     }
 
     /// Return the reserved memory in bytes for the given kind of buffer.
@@ -197,18 +195,11 @@ impl PagedPool {
         &self.inner.limiter
     }
 
-    /// Internal access for the pruner module (sibling), used by pruner tests.
+    /// Internal access for the maintenance module (sibling), used by maintenance tests.
     #[cfg(test)]
     #[allow(dead_code)]
     pub(super) fn inner(&self) -> &Arc<PagedPoolInner> {
         &self.inner
-    }
-
-    /// Spawn the background pruning loop. Must be called once after construction,
-    /// at filesystem init.
-    #[allow(dead_code)]
-    pub fn spawn_pruning_loop(&self) {
-        super::pruner::spawn_pruning_loop(&self.inner);
     }
 
     // ─── Delegation methods for MemoryLimiter ───────────────────────────────────
@@ -274,15 +265,9 @@ pub(super) struct PagedPoolInner {
 }
 
 impl PagedPoolInner {
-    /// Reference to the inner [`MemoryLimiter`] for sibling modules (e.g. the pruner).
+    /// Reference to the inner [`MemoryLimiter`] for sibling modules (e.g. the maintenance thread).
     pub(super) fn limiter(&self) -> &MemoryLimiter {
         &self.limiter
-    }
-
-    /// Reserved bytes for the given buffer kind. Mirror of [`PagedPool::reserved_bytes`]
-    /// for sibling modules that hold a reference to the inner type.
-    pub(super) fn reserved_bytes(&self, kind: BufferKind) -> usize {
-        self.stats.reserved_bytes(kind)
     }
 
     fn get_pool_for_size(&self, size: usize) -> Option<&SizePool> {
@@ -439,7 +424,7 @@ mod tests {
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
         let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
         if let Some(duration) = schedule {
-            pool.schedule_trim(duration);
+            pool.spawn_pool_maintenance_thread(duration);
         }
 
         let num_threads = 10000;

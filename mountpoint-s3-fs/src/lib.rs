@@ -21,6 +21,7 @@ pub mod s3;
 mod superblock;
 mod sync;
 pub mod upload;
+mod wake_signal;
 
 pub use async_util::Runtime;
 pub use config::MountpointConfig;

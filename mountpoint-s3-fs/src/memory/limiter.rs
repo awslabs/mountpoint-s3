@@ -9,7 +9,8 @@ use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
 
-use super::pruner::PruningSignal;
+use crate::wake_signal::WakeSignal;
+
 use super::stats::PoolStats;
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
@@ -101,9 +102,9 @@ pub struct MemoryLimiter {
     /// the requested range is stored here. Absence means the cursor is speculative.
     active_reads: Arc<DashMap<CursorId, ActiveRead>>,
     /// Wakes the background pruning loop's outer wait when memory pressure starts.
-    /// Once the inner tick is running it polls every [`PRUNING_TICK`](super::pruner::PRUNING_TICK)
+    /// Once the inner tick is running it polls every [`PRUNING_TICK`](super::maintenance::PRUNING_TICK)
     /// regardless.
-    pruning_signal: Arc<PruningSignal>,
+    pruning_signal: Arc<WakeSignal>,
 }
 
 impl MemoryLimiter {
@@ -125,7 +126,7 @@ impl MemoryLimiter {
             next_cursor_id: AtomicU64::new(1),
             additional_mem_reserved,
             active_reads: Arc::new(DashMap::new()),
-            pruning_signal: Arc::new(PruningSignal::new()),
+            pruning_signal: Arc::new(WakeSignal::new()),
         }
     }
 
@@ -257,7 +258,7 @@ impl MemoryLimiter {
     }
 
     // -----------------------------------------------------------------------
-    // Pruning hooks — see `pruner.rs` for the loop, signal, and round logic.
+    // Pruning hooks — see `maintenance.rs` for the loop, signal, and round logic.
     // -----------------------------------------------------------------------
 
     /// Returns `true` while there is at least one queued allocation request.
@@ -277,7 +278,7 @@ impl MemoryLimiter {
     }
 
     /// Shared notify handle. The pruner needs its own clone to park on.
-    pub(crate) fn pruning_signal(&self) -> &Arc<PruningSignal> {
+    pub(crate) fn pruning_signal(&self) -> &Arc<WakeSignal> {
         &self.pruning_signal
     }
 
