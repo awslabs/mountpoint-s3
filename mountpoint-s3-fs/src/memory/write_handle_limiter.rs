@@ -34,7 +34,7 @@
 //! remedy is to raise `--memory-target` or lower `--write-part-size`.
 
 use thiserror::Error;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
@@ -82,6 +82,11 @@ impl WriteHandleLimiter {
                  budget for write buffers. All write opens will fail with ENOMEM. Increase \
                  --memory-target or decrease --write-part-size. See CONFIGURATION.md \
                  (\"Maximum number of files open for write\") for details."
+            );
+        } else {
+            info!(
+                "max files concurrently open for write: {} (memory target {} MiB, write part size {} MiB)",
+                max_concurrent_writes, mem_limit_mib, write_part_size_mib,
             );
         }
         Self {

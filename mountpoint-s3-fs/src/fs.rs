@@ -58,7 +58,7 @@ where
     metablock: Arc<dyn Metablock>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
-    write_handle_limiter: WriteHandleLimiter,
+    write_handle_limiter: Option<WriteHandleLimiter>,
     next_handle: AtomicU64,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
@@ -154,8 +154,8 @@ where
         trace!(?config, "new filesystem");
 
         let pool = pool.clone();
-        let write_handle_limiter =
-            WriteHandleLimiter::new(pool.mem_limit(), pool.data_buffer_budget(), client.write_part_size());
+        let write_handle_limiter = (!config.read_only)
+            .then(|| WriteHandleLimiter::new(pool.mem_limit(), pool.data_buffer_budget(), client.write_part_size()));
         let prefetcher = prefetch_builder.build(runtime.clone(), pool.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
@@ -362,7 +362,7 @@ where
             write_slot,
         } = self
             .metablock
-            .open_handle(ino, fh, &write_mode, flags, Some(&self.write_handle_limiter))
+            .open_handle(ino, fh, &write_mode, flags, self.write_handle_limiter.as_ref())
             .await?;
         let state = FileHandleState::new(mode, &lookup, write_slot, flags, self).await?;
         let handle = FileHandle {
@@ -1150,7 +1150,11 @@ mod tests {
         let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
 
         // Sanity-check the derivation: tunings above must yield exactly `EXPECTED_CAP` writer slots.
-        let cap = fs.write_handle_limiter.max_concurrent_writes();
+        let cap = fs
+            .write_handle_limiter
+            .as_ref()
+            .expect("limiter should exist when read_only is false")
+            .max_concurrent_writes();
         assert_eq!(cap, EXPECTED_CAP);
 
         // Resolve the directory inode for mknod calls below.
