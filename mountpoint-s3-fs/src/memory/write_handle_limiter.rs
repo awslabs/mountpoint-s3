@@ -55,8 +55,9 @@ pub struct WriteHandleLimiter {
     /// Maximum number of concurrent open-for-write file handles. Computed once at construction.
     max_concurrent_writes: usize,
     /// Currently open write handles. Acquired by [`Self::try_acquire`], released by
-    /// [`WriteHandleSlot::drop`].
-    active: AtomicUsize,
+    /// [`WriteHandleSlot::drop`]. Shared with each issued [`WriteHandleSlot`] via [`Arc`] so the
+    /// limiter itself can be owned by value (no outer `Arc` required).
+    active: Arc<AtomicUsize>,
     /// Memory target in MiB. Cached for the rejection error message — reported using the
     /// `--memory-target` CLI flag's units so the diagnostic is directly actionable.
     mem_limit_mib: u64,
@@ -85,7 +86,7 @@ impl WriteHandleLimiter {
         }
         Self {
             max_concurrent_writes,
-            active: AtomicUsize::new(0),
+            active: Arc::new(AtomicUsize::new(0)),
             mem_limit_mib,
             write_part_size_mib,
         }
@@ -94,7 +95,7 @@ impl WriteHandleLimiter {
     /// Try to acquire a slot for a new open-for-write file handle. On success, returns a
     /// [`WriteHandleSlot`] whose `Drop` releases the slot. On failure, returns the data needed to
     /// construct a customer-facing `ENOMEM` error at the FUSE boundary.
-    pub fn try_acquire(self: &Arc<Self>) -> Result<WriteHandleSlot, WriteHandleLimitError> {
+    pub fn try_acquire(&self) -> Result<WriteHandleSlot, WriteHandleLimitError> {
         let outcome = self.active.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
             if current >= self.max_concurrent_writes {
                 None
@@ -104,7 +105,7 @@ impl WriteHandleLimiter {
         });
         match outcome {
             Ok(_) => Ok(WriteHandleSlot {
-                limiter: Arc::clone(self),
+                active: Arc::clone(&self.active),
             }),
             Err(_) => {
                 metrics::counter!("fs.write_handle_limit_exceeded").increment(1);
@@ -128,18 +129,20 @@ impl WriteHandleLimiter {
 /// Releases the slot when dropped.
 #[derive(Debug)]
 pub struct WriteHandleSlot {
-    limiter: Arc<WriteHandleLimiter>,
+    active: Arc<AtomicUsize>,
 }
 
 impl Drop for WriteHandleSlot {
     fn drop(&mut self) {
-        let prev = self.limiter.active.fetch_sub(1, Ordering::SeqCst);
+        let prev = self.active.fetch_sub(1, Ordering::SeqCst);
         debug_assert!(prev > 0, "WriteHandleSlot dropped more times than acquired");
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
 
     const MIN_LIMIT: u64 = 512 * 1024 * 1024;
@@ -147,29 +150,22 @@ mod tests {
     const LARGE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
     const LARGE_BUDGET: u64 = LARGE_LIMIT - 512 * 1024 * 1024;
     const PART_SIZE_8MIB: usize = 8 * 1024 * 1024;
+    const PART_SIZE_1GIB: usize = 1024 * 1024 * 1024;
 
-    #[test]
-    fn test_max_concurrent_writes_at_512mb_8mb() {
-        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB);
-        assert_eq!(limiter.max_concurrent_writes(), 48);
-    }
-
-    #[test]
-    fn test_max_concurrent_writes_at_4gb_8mb() {
-        let limiter = WriteHandleLimiter::new(LARGE_LIMIT, LARGE_BUDGET, PART_SIZE_8MIB);
-        assert_eq!(limiter.max_concurrent_writes(), 448);
-    }
-
-    #[test]
-    fn test_max_concurrent_writes_saturates_to_zero_when_part_too_large() {
-        let limiter = Arc::new(WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, 1024 * 1024 * 1024));
-        assert_eq!(limiter.max_concurrent_writes(), 0);
-        assert!(limiter.try_acquire().is_err());
+    #[test_case(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB, 48; "512MiB_limit_8MiB_part")]
+    #[test_case(LARGE_LIMIT, LARGE_BUDGET, PART_SIZE_8MIB, 448; "4GiB_limit_8MiB_part")]
+    #[test_case(MIN_LIMIT, MIN_BUDGET, PART_SIZE_1GIB, 0; "part_larger_than_budget_saturates_to_zero")]
+    fn test_max_concurrent_writes(mem_limit: u64, data_buffer_budget: u64, write_part_size: usize, expected: usize) {
+        let limiter = WriteHandleLimiter::new(mem_limit, data_buffer_budget, write_part_size);
+        assert_eq!(limiter.max_concurrent_writes(), expected);
+        if expected == 0 {
+            assert!(limiter.try_acquire().is_err());
+        }
     }
 
     #[test]
     fn test_try_acquire_caps_at_max() {
-        let limiter = Arc::new(WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB));
+        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB);
         let max = limiter.max_concurrent_writes();
 
         let mut slots = Vec::new();
@@ -182,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_release_allows_reacquire() {
-        let limiter = Arc::new(WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB));
+        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB);
         let max = limiter.max_concurrent_writes();
 
         let mut slots: Vec<WriteHandleSlot> = (0..max)

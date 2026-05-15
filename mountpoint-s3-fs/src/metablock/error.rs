@@ -6,10 +6,10 @@ use thiserror::Error;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 #[cfg(feature = "manifest")]
 use crate::manifest::ManifestError;
+use crate::memory::WriteHandleLimitError;
 use crate::metablock::S3Location;
 use crate::sync::Arc;
 use crate::upload::UploadError;
-use crate::write_handle_limiter::WriteHandleLimitError;
 
 use super::InodeNo;
 

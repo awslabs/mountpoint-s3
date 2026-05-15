@@ -6,6 +6,7 @@ use mountpoint_s3_client::types::ETag;
 use time::OffsetDateTime;
 
 use crate::fs::OpenFlags;
+use crate::memory::WriteHandleLimiter;
 use crate::metablock::{
     AddDirEntry, AddDirEntryResult, InodeError, InodeErrorInfo, InodeInformation, InodeKind, InodeNo, InodeStat,
     Lookup, Metablock, NEVER_EXPIRE_TTL, NewHandle, PendingUploadHook, ROOT_INODE_NO, ReadWriteMode, S3Location,
@@ -14,7 +15,6 @@ use crate::metablock::{
 use crate::s3::S3Path;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, RwLock};
-use crate::write_handle_limiter::WriteHandleLimiter;
 
 use super::core::{Manifest, ManifestDirIter, ManifestError};
 
@@ -188,7 +188,7 @@ impl Metablock for ManifestMetablock {
         _fh: u64,
         _write_mode: &WriteMode,
         flags: OpenFlags,
-        _write_handle_limiter: Option<&Arc<WriteHandleLimiter>>,
+        _write_handle_limiter: Option<&WriteHandleLimiter>,
     ) -> Result<NewHandle, InodeError> {
         let lookup = self.getattr(ino, false).await?;
         if flags.contains(OpenFlags::O_WRONLY) {

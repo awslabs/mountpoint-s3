@@ -1380,9 +1380,20 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_case(48)]
-fn concurrent_open_for_write_test(max_files: usize) {
-    let test_session = fuse::s3_session::new("concurrent_open_for_write_test", Default::default());
+// `additional_mem_reserved = max(mem_limit/8, 128 MiB)` and `write_part_size = 8 MiB`, so the
+// write-handle cap is `(mem_limit - additional_mem_reserved) / 8 MiB`:
+// - `mem_limit = 512 MiB` → reserved 128 MiB, budget 384 MiB, cap 48 (boundary case at the
+//   minimum supported memory target).
+// - `mem_limit = 2 GiB` → reserved 256 MiB, budget 1792 MiB, cap 224 (high-fan-out case
+//   exercising the concurrent-write path without bumping into the cap).
+#[test_case(512 * 1024 * 1024, 48; "minimum_mem_limit_48_writers")]
+#[test_case(2 * 1024 * 1024 * 1024, 224; "2gib_mem_limit_224_writers")]
+fn concurrent_open_for_write_test(mem_limit: u64, max_files: usize) {
+    let test_config = TestSessionConfig {
+        mem_limit,
+        ..Default::default()
+    };
+    let test_session = fuse::s3_session::new("concurrent_open_for_write_test", test_config);
 
     let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
 
@@ -1420,9 +1431,16 @@ fn concurrent_open_for_write_test(max_files: usize) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn open_for_write_returns_enomem_when_cap_exhausted() {
+    // With `mem_limit = 512 MiB`, `additional_mem_reserved = max(mem_limit/8, 128 MiB) = 128 MiB`,
+    // and the default `write_part_size = 8 MiB`, the cap is `(512 - 128) / 8 = 48` writers.
+    const MEM_LIMIT: u64 = 512 * 1024 * 1024;
     const CAP: usize = 48;
 
-    let test_session = fuse::s3_session::new("open_for_write_returns_enomem_when_cap_exhausted", Default::default());
+    let test_config = TestSessionConfig {
+        mem_limit: MEM_LIMIT,
+        ..Default::default()
+    };
+    let test_session = fuse::s3_session::new("open_for_write_returns_enomem_when_cap_exhausted", test_config);
 
     // Open `CAP` files for write — all should succeed.
     let mut open_files = Vec::with_capacity(CAP);

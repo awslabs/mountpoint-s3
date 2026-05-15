@@ -42,13 +42,13 @@ use tracing::{debug, error, trace, warn};
 
 use crate::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags};
 use crate::logging;
+use crate::memory::{WriteHandleLimiter, WriteHandleSlot};
 use crate::metablock::{
     AddDirEntry, AddDirEntryResult, InodeError, InodeInformation, InodeKind, InodeNo, InodeStat, Lookup, Metablock,
     NewHandle, PendingUploadHook, ReadWriteMode, S3Location, ValidKey, ValidName, WriteMode,
 };
 use crate::s3::{S3Path, S3Personality};
 use crate::sync::{Arc, RwLock};
-use crate::write_handle_limiter::{WriteHandleLimiter, WriteHandleSlot};
 
 mod handles_map;
 use handles_map::{InodeHandleMap, SetWriterError};
@@ -815,7 +815,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         fh: u64,
         write_mode: &WriteMode,
         flags: OpenFlags,
-        write_handle_limiter: Option<&Arc<WriteHandleLimiter>>,
+        write_handle_limiter: Option<&WriteHandleLimiter>,
     ) -> Result<NewHandle, InodeError> {
         let force_revalidate_if_remote = !self.inner.config.cache_config.serve_lookup_from_cache || flags.direct_io();
         let looked_up_inode = self.getattr_with_inode(ino, force_revalidate_if_remote).await?;

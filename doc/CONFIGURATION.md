@@ -297,13 +297,13 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 
 ### Maximum number of files open for write
 
-Mountpoint enforces a cap on the number of files that may be open for write at the same time, to prevent out-of-memory crashes. The cap is computed at startup from the configured memory target and write part size:
+Mountpoint enforces a cap on the number of files that may be open for write at the same time, to control memory usage. The cap is computed at startup from the configured memory target and write part size:
 
 ```
 max_concurrent_writes = (memory_target − additional_mem_reserved) / write_part_size
 ```
 
-`memory_target` is set with `--memory-target` and `write_part_size` is set with `--write-part-size` (or with `--part-size`). `additional_mem_reserved` is `max(128 MiB, memory_target / 8)` and is held back from data buffers for Mountpoint's own overhead. The minimum supported `memory_target` is 512 MiB, which allows 48 concurrent writers at the default 8 MiB write part size.
+`memory_target` is set with `--memory-target` and defaults to 95% of total system memory with a minimum of 512 MiB. `write_part_size` is set with `--write-part-size` (or with `--part-size`) and defaults to 8 MiB. `additional_mem_reserved` is `max(128 MiB, memory_target / 8)` and is held back from data buffers for Mountpoint's own overhead. With the minimum supported `memory_target` of 512 MiB and the default 8 MiB write part size, the cap is 48 concurrent writers.
 
 Once the cap is reached, `open()` calls for write return `ENOMEM` ("Cannot allocate memory") until an existing write handle is closed. To raise the cap, increase `--memory-target` or decrease `--write-part-size`.
 

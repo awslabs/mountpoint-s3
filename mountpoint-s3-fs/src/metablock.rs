@@ -22,8 +22,7 @@ pub use pending_upload::PendingUploadHook;
 pub use stat::{InodeKind, InodeNo, InodeStat};
 
 use crate::fs::OpenFlags;
-use crate::sync::Arc;
-use crate::write_handle_limiter::WriteHandleLimiter;
+use crate::memory::WriteHandleLimiter;
 
 pub const ROOT_INODE_NO: InodeNo = crate::fs::FUSE_ROOT_INODE;
 
@@ -65,7 +64,7 @@ pub trait Metablock: Send + Sync {
         fh: u64,
         write_mode: &WriteMode,
         flags: OpenFlags,
-        write_handle_limiter: Option<&Arc<WriteHandleLimiter>>,
+        write_handle_limiter: Option<&WriteHandleLimiter>,
     ) -> Result<NewHandle, InodeError>;
 
     /// Increase the size of a file open for writing.
@@ -233,7 +232,7 @@ pub struct NewHandle {
     /// `Some` if the metablock layer reserved a slot during `open_handle`, `None` otherwise
     /// (read mode, or no limiter configured). The caller must transfer ownership into its own
     /// `FileHandle` so the slot is released when the file handle is dropped.
-    pub write_slot: Option<crate::write_handle_limiter::WriteHandleSlot>,
+    pub write_slot: Option<crate::memory::WriteHandleSlot>,
 }
 
 impl NewHandle {

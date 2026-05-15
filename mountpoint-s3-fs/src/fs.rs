@@ -16,13 +16,15 @@ use tracing::{Level, debug, trace};
 use crate::async_util::Runtime;
 use crate::logging;
 use crate::memory::PagedPool;
-use crate::metablock::{AddDirEntry, AddDirEntryResult, InodeInformation, Metablock, PendingUploadHook, ReadWriteMode};
+use crate::memory::WriteHandleLimiter;
+use crate::metablock::{
+    AddDirEntry, AddDirEntryResult, InodeInformation, Metablock, NewHandle, PendingUploadHook, ReadWriteMode,
+};
 pub use crate::metablock::{InodeError, InodeKind, InodeNo};
 use crate::prefetch::{Prefetcher, PrefetcherBuilder};
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{Uploader, UploaderConfig};
-use crate::write_handle_limiter::WriteHandleLimiter;
 
 mod config;
 pub use config::{CacheConfig, S3FilesystemConfig};
@@ -56,7 +58,7 @@ where
     metablock: Arc<dyn Metablock>,
     prefetcher: Prefetcher<Client>,
     uploader: Uploader<Client>,
-    write_handle_limiter: Arc<WriteHandleLimiter>,
+    write_handle_limiter: WriteHandleLimiter,
     next_handle: AtomicU64,
     file_handles: AsyncRwLock<HashMap<u64, Arc<FileHandle<Client>>>>,
 }
@@ -152,11 +154,8 @@ where
         trace!(?config, "new filesystem");
 
         let pool = pool.clone();
-        let write_handle_limiter = Arc::new(WriteHandleLimiter::new(
-            pool.mem_limit(),
-            pool.data_buffer_budget(),
-            client.write_part_size(),
-        ));
+        let write_handle_limiter =
+            WriteHandleLimiter::new(pool.mem_limit(), pool.data_buffer_budget(), client.write_part_size());
         let prefetcher = prefetch_builder.build(runtime.clone(), pool.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
@@ -357,20 +356,22 @@ where
 
         let fh = self.next_handle(); // TODO: can we delay obtaining the next handle until we know we are creating a new file handle?
         let write_mode = self.config.write_mode();
-        let mut new_handle = self
+        let NewHandle {
+            lookup,
+            mode,
+            write_slot,
+        } = self
             .metablock
             .open_handle(ino, fh, &write_mode, flags, Some(&self.write_handle_limiter))
             .await?;
-        let write_slot = new_handle.write_slot.take();
-        let state = FileHandleState::new(&new_handle, flags, self).await?;
+        let state = FileHandleState::new(mode, &lookup, write_slot, flags, self).await?;
         let handle = FileHandle {
             ino,
-            location: new_handle.lookup.try_into_s3_location()?,
+            location: lookup.try_into_s3_location()?,
             open_pid: pid,
             state: AsyncMutex::new(state),
-            write_slot,
         };
-        debug!(fh, ino, "new {:?} file handle created", new_handle.mode);
+        debug!(fh, ino, "new {:?} file handle created", mode);
         self.file_handles.write().await.insert(fh, Arc::new(handle));
         let reply_flags = if flags.direct_io() { FOPEN_DIRECT_IO } else { 0 };
         Ok(Opened { fh, flags: reply_flags })
@@ -503,7 +504,7 @@ where
             let mut state = handle.state.lock().await;
             let (request, flushed) = match &mut *state {
                 FileHandleState::Read { .. } => return Err(err!(libc::EBADF, "file handle is not open for writes")),
-                FileHandleState::Write { state, flushed } => (state, flushed),
+                FileHandleState::Write { state, flushed, .. } => (state, flushed),
             };
 
             // If the handle has been flushed, check if it has been overridden by a newer handle opened for the inode.
@@ -658,7 +659,7 @@ where
                 self.metablock.flush_reader(ino, fh).await?;
                 *flushed = true;
             }
-            FileHandleState::Write { state, flushed } => {
+            FileHandleState::Write { state, flushed, .. } => {
                 state
                     .complete(self, file_handle.clone(), pid, file_handle.open_pid, fh)
                     .await?;
@@ -1108,19 +1109,23 @@ mod tests {
     /// Verifies that the limiter rejects opens for write past the configured cap with `ENOMEM`,
     /// and that releasing a handle re-opens a slot. Uses a deliberately tight `mem_limit` so the
     /// derived cap is small enough to exhaust quickly.
-    ///
-    /// The MockClient `part_size` is also the value `client.write_part_size()` returns. With
-    /// `mem_limit = 256 MiB`, `part_size = 32 MiB`, `additional_mem_reserved = max(128, 32) = 128 MiB`,
-    /// the formula gives `(256 - 128) / 32 = 4` concurrent writers.
     #[tokio::test]
     async fn test_open_for_write_returns_enomem_when_cap_exhausted() {
+        // Tunings chosen to derive a small, exact write-handle cap. With `mem_limit = 256 MiB`,
+        // `additional_mem_reserved = max(mem_limit/8, 128 MiB) = 128 MiB`, and `part_size = 32 MiB`,
+        // the formula `(mem_limit - additional_mem_reserved) / part_size` gives
+        // `(256 - 128) / 32 = 4` concurrent writers.
+        const MEM_LIMIT: u64 = 256 * 1024 * 1024;
+        const PART_SIZE: usize = 32 * 1024 * 1024;
+        const EXPECTED_CAP: usize = 4;
+
         let test_name = "test_open_for_write_returns_enomem_when_cap_exhausted";
         let bucket = Bucket::new("bucket").unwrap();
         let client = MockClient::config()
             .bucket(bucket.to_string())
             .enable_backpressure(true)
             .initial_read_window_size(1024 * 1024)
-            .part_size(32 * 1024 * 1024)
+            .part_size(PART_SIZE)
             .build();
         client.add_object(
             &format!("dir1/{}1.txt", test_name),
@@ -1128,7 +1133,7 @@ mod tests {
         );
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(2).create().unwrap());
-        let pool = PagedPool::new_with_candidate_sizes([32 * 1024 * 1024], 256 * 1024 * 1024);
+        let pool = PagedPool::new_with_candidate_sizes([PART_SIZE], MEM_LIMIT);
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
         let fs_config = S3FilesystemConfig {
             allow_overwrite: true,
@@ -1144,9 +1149,9 @@ mod tests {
         );
         let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
 
-        // Sanity-check that we computed exactly 4 writer slots given the test's tuning.
+        // Sanity-check the derivation: tunings above must yield exactly `EXPECTED_CAP` writer slots.
         let cap = fs.write_handle_limiter.max_concurrent_writes();
-        assert_eq!(cap, 4);
+        assert_eq!(cap, EXPECTED_CAP);
 
         // Resolve the directory inode for mknod calls below.
         let dir_entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();

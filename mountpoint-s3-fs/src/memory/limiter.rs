@@ -131,7 +131,7 @@ impl MemoryLimiter {
 
     /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
     /// This is the upper bound on buffer-backed allocations and is used by
-    /// [`crate::write_handle_limiter::WriteHandleLimiter`] to derive its cap.
+    /// [`crate::memory::WriteHandleLimiter`] to derive its cap.
     pub fn data_buffer_budget(&self) -> u64 {
         self.mem_limit.saturating_sub(self.additional_mem_reserved)
     }
