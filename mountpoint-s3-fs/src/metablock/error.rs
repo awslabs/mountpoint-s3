@@ -87,7 +87,7 @@ pub enum InodeError {
         "cannot open file for write: exceeded max allowed concurrent write file handles of {max} \
          based on memory target {mem_limit_mib}MiB (part size is {write_part_size_mib}MiB). \
          Increase --memory-target or decrease --write-part-size to allow for more concurrent writes, \
-         or close existing open for write file handlers and retry open() operation.",
+         or close existing open for write file handles and retry open() operation.",
         max = .0.max,
         mem_limit_mib = .0.mem_limit_mib,
         write_part_size_mib = .0.write_part_size_mib,
