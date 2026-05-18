@@ -65,7 +65,10 @@ impl Executor {
         };
 
         let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
-        let pool = PagedPool::new_with_candidate_sizes([read_part_size, write_part_size], memory_target_bytes);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([read_part_size, write_part_size])
+            .with_memory_limit(memory_target_bytes)
+            .build();
 
         let mut endpoint_config = EndpointConfig::new(region);
         if let Some(url) = &global.endpoint_url {

@@ -310,7 +310,10 @@ fn mount_filesystem(
     let mem_limit = config
         .memory_limit_bytes
         .unwrap_or(mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT);
-    let pool = PagedPool::new_with_candidate_sizes([client_config.part_config.read_size_bytes], mem_limit);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([client_config.part_config.read_size_bytes])
+        .with_memory_limit(mem_limit)
+        .build();
     let client = client_config
         .create_client(pool.clone(), None)
         .context("Failed to create S3 client")?;

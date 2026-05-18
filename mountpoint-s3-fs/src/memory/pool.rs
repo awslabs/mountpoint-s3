@@ -10,6 +10,18 @@ use super::limiter::{CursorHandle, MemoryLimiter};
 use super::pages::{Page, PagedBufferPtr};
 use super::stats::{BufferKind, PoolStats, SizePoolStats};
 
+pub use super::limiter::MINIMUM_MEM_LIMIT;
+
+/// Maximum size for a primary buffer.
+///
+/// Buffers larger than this size will be allocated from secondary memory.
+pub const MAX_BUFFER_SIZE: usize = 64 * 1024 * 1024;
+
+/// Default size for a primary buffer.
+///
+/// Used when no other valid buffer size is provided when creating the pool.
+pub const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024;
+
 /// A pool of reusable fixed-size buffers allocated in large pages.
 ///
 /// This type implements [MemoryPool] and can be configured as a custom memory pool
@@ -47,44 +59,24 @@ pub struct PagedPool {
 }
 
 impl PagedPool {
-    /// Maximum size for a primary buffer.
-    ///
-    /// Buffers larger than this size will be allocated from secondary memory.
-    pub const MAX_BUFFER_SIZE: usize = 64 * 1024 * 1024;
+    /// Configuration for a [PagedPool].
+    pub fn config() -> PagedPoolConfig {
+        Default::default()
+    }
 
-    /// Default size for a primary buffer.
-    ///
-    /// Used when no other valid buffer size is provided when creating the pool.
-    pub const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024;
-
-    /// Create a new pool, configuring primary memory with the given set of
-    /// buffer sizes, if valid.
-    ///
-    /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE](Self::MAX_BUFFER_SIZE))
-    /// or duplicate values for buffer sizes. If no valid value is provided,
-    /// uses [DEFAULT_BUFFER_SIZE](Self::DEFAULT_BUFFER_SIZE).
-    ///
-    /// An internal [MemoryLimiter] is created with the given `mem_limit`.
-    /// Buffer allocations automatically decrement the limiter's reservation counters.
-    pub fn new_with_candidate_sizes(buffer_sizes: impl Into<Vec<usize>>, mem_limit: u64) -> Self {
-        let mut ordered_sizes: Vec<_> = buffer_sizes.into();
-        ordered_sizes.retain(|&size| size > 0 && size <= Self::MAX_BUFFER_SIZE);
-        ordered_sizes.dedup();
-        ordered_sizes.sort();
-        if ordered_sizes.is_empty() {
-            ordered_sizes.push(Self::DEFAULT_BUFFER_SIZE);
-        }
-
+    /// Create a new [PagedPool] with the given configuration.
+    pub fn new(config: &PagedPoolConfig) -> Self {
         let stats = Arc::new(PoolStats::default());
-        let ordered_size_pools = ordered_sizes
-            .into_iter()
-            .map(|buffer_size| SizePool {
+        let ordered_size_pools = config
+            .ordered_sizes()
+            .iter()
+            .map(|&buffer_size| SizePool {
                 pages: Default::default(),
                 stats: Arc::new(SizePoolStats::new(buffer_size, stats.clone())),
             })
             .collect();
 
-        let limiter = MemoryLimiter::new(mem_limit);
+        let limiter = MemoryLimiter::new(config.memory_limit());
 
         let inner = PagedPoolInner {
             ordered_size_pools,
@@ -92,20 +84,6 @@ impl PagedPool {
             limiter,
         };
         Self { inner: Arc::new(inner) }
-    }
-
-    /// Create a pool without effective memory limiting.
-    ///
-    /// This is a convenience for tests and examples that don't need memory budgeting.
-    /// The internal limiter uses `u64::MAX` as its limit, so it never rejects reservations.
-    pub fn new_with_candidate_sizes_unlimited(buffer_sizes: impl Into<Vec<usize>>) -> Self {
-        Self::new_with_candidate_sizes(buffer_sizes, u64::MAX)
-    }
-
-    /// Create a pool with [MINIMUM_MEM_LIMIT] as the memory limit.
-    pub fn new_with_candidate_sizes_minimally_limited(buffer_sizes: impl Into<Vec<usize>>) -> Self {
-        use super::limiter::MINIMUM_MEM_LIMIT;
-        Self::new_with_candidate_sizes(buffer_sizes, MINIMUM_MEM_LIMIT)
     }
 
     /// Trim empty pages in the pool.
@@ -320,9 +298,80 @@ impl SizePool {
     }
 }
 
+/// Configuration for a [PagedPool].
+///
+/// Defaults:
+/// - memory limit: [MINIMUM_MEM_LIMIT],
+/// - buffer size: [DEFAULT_BUFFER_SIZE].
+#[derive(Debug, Clone)]
+pub struct PagedPoolConfig {
+    ordered_sizes: Vec<usize>,
+    mem_limit: u64,
+}
+
+impl Default for PagedPoolConfig {
+    fn default() -> Self {
+        Self {
+            ordered_sizes: Default::default(),
+            mem_limit: MINIMUM_MEM_LIMIT,
+        }
+    }
+}
+
+impl PagedPoolConfig {
+    /// Configure primary memory with the given set of buffer sizes, if valid.
+    ///
+    /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE])
+    /// or duplicate values for buffer sizes. If no valid value is provided,
+    /// uses [DEFAULT_BUFFER_SIZE].
+    pub fn with_candidate_sizes(&mut self, buffer_sizes: impl Into<Vec<usize>>) -> &mut Self {
+        self.ordered_sizes = buffer_sizes.into();
+        self.ordered_sizes.retain(|&size| size > 0 && size <= MAX_BUFFER_SIZE);
+        self.ordered_sizes.sort();
+        self.ordered_sizes.dedup();
+        self
+    }
+
+    /// Configure the pool with the specified memory limit.
+    pub fn with_memory_limit(&mut self, mem_limit: u64) -> &mut Self {
+        self.mem_limit = mem_limit;
+        self
+    }
+
+    /// Configure the pool without effective memory limiting.
+    ///
+    /// This is a convenience for tests and examples that don't need memory budgeting.
+    /// The internal limiter uses `u64::MAX` as its limit, so it never rejects reservations.
+    pub fn with_no_memory_limit(&mut self) -> &mut Self {
+        self.with_memory_limit(u64::MAX)
+    }
+
+    /// Configure the pool with [MINIMUM_MEM_LIMIT] as the memory limit.
+    pub fn with_minimum_memory_limit(&mut self) -> &mut Self {
+        self.with_memory_limit(MINIMUM_MEM_LIMIT)
+    }
+
+    /// Build a [PagedPool] with this configuration.
+    pub fn build(&self) -> PagedPool {
+        PagedPool::new(self)
+    }
+
+    fn ordered_sizes(&self) -> &[usize] {
+        if self.ordered_sizes.is_empty() {
+            &[DEFAULT_BUFFER_SIZE]
+        } else {
+            &self.ordered_sizes
+        }
+    }
+
+    fn memory_limit(&self) -> u64 {
+        self.mem_limit
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::ops::Deref;
     use std::thread::{self, sleep};
     use std::time::Duration;
@@ -342,14 +391,20 @@ mod tests {
     #[test_case(&[1, 2, 3], &[5, 10])]
     #[test_case(&vec![42u8; 1000], &[128, 1024])]
     fn test_from_slice(original: &[u8], buffer_sizes: &[usize]) {
-        let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
+        let pool = PagedPool::config()
+            .with_candidate_sizes(buffer_sizes)
+            .with_no_memory_limit()
+            .build();
         let bytes = copy_from_slice(&pool, original);
         assert_eq!(original, bytes.as_ref());
     }
 
     #[test_case(&[5, 10, 1024])]
     fn test_pages(buffer_sizes: &[usize]) {
-        let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
+        let pool = PagedPool::config()
+            .with_candidate_sizes(buffer_sizes)
+            .with_no_memory_limit()
+            .build();
 
         for &size in buffer_sizes {
             let original = vec![1u8; size];
@@ -385,7 +440,10 @@ mod tests {
     #[test_matrix(&vec![42u8; 1000], &[128, 1024], [None, Some(Duration::from_millis(10))])]
     #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [None, Some(Duration::from_millis(10))])]
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
-        let pool = PagedPool::new_with_candidate_sizes_unlimited(buffer_sizes);
+        let pool = PagedPool::config()
+            .with_candidate_sizes(buffer_sizes)
+            .with_no_memory_limit()
+            .build();
         if let Some(duration) = schedule {
             pool.schedule_trim(duration);
         }
@@ -419,7 +477,10 @@ mod tests {
     fn test_reserved_bytes() {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
-        let pool = PagedPool::new_with_candidate_sizes_unlimited([buffer_size]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([buffer_size])
+            .with_no_memory_limit()
+            .build();
         let mut buffers = Vec::new();
         for (&kind, &count) in &reservations {
             for _ in 0..count {
@@ -431,5 +492,18 @@ mod tests {
             let reserved = pool.reserved_bytes(kind);
             assert_eq!(reserved, count * buffer_size);
         }
+    }
+
+    #[test_case(&[1024 * 1028, 8 * 1024 * 1028, 8 * 1024 * 1028])]
+    #[test_case(&[10, 8, 10])]
+    #[test_case(&[8, 8, 10])]
+    fn test_ordered_pool_sizes(buffer_sizes: &[usize]) {
+        let mut config = PagedPool::config();
+        config.with_candidate_sizes(buffer_sizes);
+
+        let ordered_sizes = config.ordered_sizes();
+        assert!(ordered_sizes.iter().is_sorted(), "Sizes should be sorted");
+        let unique: HashSet<_> = ordered_sizes.iter().collect();
+        assert_eq!(ordered_sizes.len(), unique.len(), "Sizes should be unique");
     }
 }

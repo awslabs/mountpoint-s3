@@ -377,7 +377,6 @@ mod tests {
 
     use crate::Runtime;
     use crate::data_cache::InMemoryDataCache;
-    use crate::memory::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
     use crate::sync::Arc;
 
@@ -428,8 +427,10 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool =
-            PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([client.read_part_size(), client.write_part_size()])
+            .with_minimum_memory_limit()
+            .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {
             PrefetcherType::Default => Prefetcher::default_builder(client),
@@ -1169,7 +1170,10 @@ mod tests {
                     .initial_read_window_size(part_size)
                     .build(),
             );
-            let pool = PagedPool::new_with_candidate_sizes([part_size], MINIMUM_MEM_LIMIT);
+            let pool = PagedPool::config()
+                .with_candidate_sizes([part_size])
+                .with_minimum_memory_limit()
+                .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1230,7 +1234,10 @@ mod tests {
                     .initial_read_window_size(part_size)
                     .build(),
             );
-            let pool = PagedPool::new_with_candidate_sizes([part_size], MINIMUM_MEM_LIMIT);
+            let pool = PagedPool::config()
+                .with_candidate_sizes([part_size])
+                .with_minimum_memory_limit()
+                .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 

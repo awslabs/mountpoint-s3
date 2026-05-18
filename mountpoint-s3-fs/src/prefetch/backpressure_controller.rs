@@ -506,8 +506,10 @@ mod tests {
     fn new_backpressure_controller_for_test(
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController, BackpressureLimiter) {
-        let pool =
-            PagedPool::new_with_candidate_sizes([8 * 1024 * 1024], backpressure_config.max_read_window_size as u64);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([8 * 1024 * 1024])
+            .with_memory_limit(backpressure_config.max_read_window_size as u64)
+            .build();
         let cursor_state = pool.create_cursor().state();
         new_backpressure_controller(backpressure_config, cursor_state)
     }
