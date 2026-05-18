@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Add `TlsConfig` type and `S3ClientConfig::tls_config()` builder for configuring a custom CA trust store. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+
 ## v0.20.0 (April 28, 2026)
 
 * Add S3 client error covering failures to create S3 Express session. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))

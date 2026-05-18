@@ -9,6 +9,7 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
+use crate::io::tls::TlsConnectionOptions;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
@@ -73,6 +74,11 @@ pub struct ClientConfig {
 
     /// Holds the custom pool implementation factory if set.
     pool_factory: Option<CrtBufferPoolFactory>,
+
+    /// Custom TLS connection options for S3 requests. When set, [`ClientConfig::tls_connection_options`]
+    /// stores a raw pointer to this value into `inner.tls_connection_options`, so the allocation
+    /// must outlive [`Client::new`] (which is guaranteed while this [`ClientConfig`] is alive).
+    tls_connection_options: Option<TlsConnectionOptions>,
 }
 
 /// This struct bundles together the list of owned strings for the network interfaces, and the
@@ -164,6 +170,16 @@ impl ClientConfig {
     pub fn signing_config(&mut self, signing_config: SigningConfig) -> &mut Self {
         self.inner.signing_config = signing_config.to_inner_ptr() as *mut aws_signing_config_aws;
         self.signing_config = Some(signing_config);
+        self
+    }
+
+    /// Custom TLS connection options to use for S3 connections. When set, the S3 client will use
+    /// these options for each connection instead of the CRT defaults. The options must have been
+    /// built from a [`crate::io::tls::TlsContext`] configured with the desired trust store.
+    pub fn tls_connection_options(&mut self, tls_connection_options: TlsConnectionOptions) -> &mut Self {
+        let stored = self.tls_connection_options.insert(tls_connection_options);
+        self.inner.tls_mode = aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED;
+        self.inner.tls_connection_options = stored.as_inner_ptr();
         self
     }
 
@@ -1778,7 +1794,10 @@ mod tests {
     use test_case::test_case;
 
     use crate::aws_s3_request_type;
-    use crate::s3::client::RequestType;
+    use crate::common::allocator::Allocator;
+    use crate::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions};
+    use crate::s3::client::{ClientConfig, RequestType};
+    use mountpoint_s3_crt_sys::aws_s3_meta_request_tls_mode;
 
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]
@@ -1786,5 +1805,21 @@ mod tests {
     fn request_type_from_aws_s3_request_type(c_request_type: aws_s3_request_type, expected_request_type: RequestType) {
         // Simple, but was previously broken.
         assert_eq!(expected_request_type, RequestType::from(c_request_type));
+    }
+
+    /// Verify that [`ClientConfig::tls_connection_options`] sets the raw pointer on the inner
+    /// struct and flips the TLS mode to ENABLED.
+    #[test]
+    fn tls_connection_options_wiring() {
+        let allocator = Allocator::default();
+        let opts = TlsContextOptions::new_default_client(&allocator);
+        let ctx = TlsContext::new(&allocator, &opts).expect("build TlsContext");
+        let conn_opts = TlsConnectionOptions::new(&ctx);
+
+        let mut config = ClientConfig::new();
+        assert!(config.inner.tls_connection_options.is_null());
+        config.tls_connection_options(conn_opts);
+        assert!(!config.inner.tls_connection_options.is_null());
+        assert_eq!(config.inner.tls_mode, aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED);
     }
 }

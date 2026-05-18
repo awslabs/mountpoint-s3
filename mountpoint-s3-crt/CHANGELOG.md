@@ -1,5 +1,9 @@
 ## Unreleased
 
+* Add `io::tls` module with safe wrappers around `aws-c-io`'s TLS primitives (`TlsContextOptions`, `TlsContext`, `TlsConnectionOptions`). ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Add `s3::client::ClientConfig::tls_connection_options()` builder to pass a custom `TlsConnectionOptions` into the S3 client. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Add `tls_ctx` field to `CredentialsProviderChainDefaultOptions` and `CredentialsProviderProfileOptions`. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+
 ## v0.14.0 (April 28, 2026)
 
 * Expose the originating `MetaRequest` in `MemoryPool` trait methods. ([#1812](https://github.com/awslabs/mountpoint-s3/pull/1812))
