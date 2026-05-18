@@ -6,7 +6,7 @@ use crate::prefetch::CursorId;
 use crate::sync::{Arc, RwLock};
 
 use super::buffers::{PoolBuffer, PoolBufferMut};
-use super::limiter::{ActiveReadGuard, BufferArea, MemoryLimiter};
+use super::limiter::{CursorHandle, MemoryLimiter};
 use super::pages::{Page, PagedBufferPtr};
 use super::stats::{BufferKind, PoolStats, SizePoolStats};
 
@@ -181,46 +181,17 @@ impl PagedPool {
             .sum()
     }
 
-    // TODO: Refactor MemoryLimiter unit tests to remove inner_stats and inner_limiter. We should have clearly separated unit tests for the PagedPool and the MemoryLimiter.
-
-    /// Expose the internal stats for testing purposes (e.g., to wire a standalone limiter).
+    /// Internal access for the maintenance module (sibling), used by maintenance tests
+    /// (which are gated `not(feature = "shuttle")`).
     #[cfg(test)]
-    pub(crate) fn inner_stats(&self) -> &PoolStats {
-        &self.inner.stats
-    }
-
-    /// Expose the internal limiter for testing purposes.
-    #[cfg(test)]
-    pub(crate) fn inner_limiter(&self) -> &MemoryLimiter {
-        &self.inner.limiter
-    }
-
-    /// Internal access for the maintenance module (sibling), used by maintenance tests.
-    #[cfg(test)]
+    #[cfg_attr(feature = "shuttle", allow(dead_code))]
     pub(super) fn inner(&self) -> &Arc<PagedPoolInner> {
         &self.inner
     }
 
-    // ─── Delegation methods for MemoryLimiter ───────────────────────────────────
-
-    /// Reserve memory for future uses. Always succeeds (unconditional).
-    pub fn reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) {
-        self.inner.limiter.reserve(cursor_id, area, size);
-    }
-
-    /// Reserve memory if available. Returns `false` if over budget.
-    pub fn try_reserve(&self, cursor_id: CursorId, area: BufferArea, size: u64) -> bool {
-        self.inner.limiter.try_reserve(cursor_id, area, size, &self.inner.stats)
-    }
-
-    /// Release all remaining reservation for a cursor and remove it from tracking.
-    pub fn release_cursor(&self, cursor_id: CursorId, area: BufferArea) {
-        self.inner.limiter.release_cursor(cursor_id, area);
-    }
-
-    /// Generate a new unique CursorId.
-    pub fn next_cursor_id(&self) -> CursorId {
-        self.inner.limiter.next_cursor_id()
+    /// Create a new cursor and return the shared state handle.
+    pub fn create_cursor(&self) -> CursorHandle {
+        self.inner.limiter.create_cursor(self)
     }
 
     /// Query available memory.
@@ -228,15 +199,19 @@ impl PagedPool {
         self.inner.limiter.available_mem(&self.inner.stats)
     }
 
-    /// Record that a FUSE read is active for the given cursor.
-    /// Returns a guard that clears the active read on drop.
-    pub fn set_active_read(&self, cursor_id: CursorId, offset: u64, size: usize) -> ActiveReadGuard {
-        self.inner.limiter.set_active_read(cursor_id, offset, size)
-    }
-
     /// Check if the given cursor has an active read overlapping the specified range.
     pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         self.inner.limiter.has_active_read_in_range(cursor_id, offset, size)
+    }
+
+    // ─── Internal components exposed to the rest of the `memory` module. ──────────
+
+    pub(super) fn stats(&self) -> &PoolStats {
+        &self.inner.stats
+    }
+
+    pub(super) fn limiter(&self) -> &MemoryLimiter {
+        &self.inner.limiter
     }
 }
 

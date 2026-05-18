@@ -42,7 +42,6 @@ use tracing::trace;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use crate::memory::PagedPool;
 use crate::metrics::defs::FUSE_CACHE_HIT;
 use crate::object::ObjectId;
 
@@ -186,7 +185,6 @@ fn determine_max_read_size() -> usize {
 #[derive(Debug)]
 pub struct Prefetcher<Client> {
     part_stream: PartStream<Client>,
-    pool: PagedPool,
     config: PrefetcherConfig,
 }
 
@@ -208,12 +206,8 @@ where
     }
 
     /// Create a new [Prefetcher] from the given [ObjectPartStream] instance.
-    pub fn new(part_stream: PartStream<Client>, pool: PagedPool, config: PrefetcherConfig) -> Self {
-        Self {
-            part_stream,
-            pool,
-            config,
-        }
+    pub fn new(part_stream: PartStream<Client>, config: PrefetcherConfig) -> Self {
+        Self { part_stream, config }
     }
 
     /// Start a new prefetch request to the specified object.
@@ -221,14 +215,7 @@ where
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        PrefetchGetObject::new(
-            self.part_stream.clone(),
-            self.pool.clone(),
-            self.config,
-            bucket,
-            object_id,
-            size,
-        )
+        PrefetchGetObject::new(self.part_stream.clone(), self.config, bucket, object_id, size)
     }
 }
 
@@ -239,7 +226,6 @@ where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
     part_stream: PartStream<Client>,
-    pool: PagedPool,
     config: PrefetcherConfig,
     bucket: String,
     object_id: ObjectId,
@@ -256,7 +242,6 @@ where
     /// Create and spawn a new prefetching request for an object
     fn new(
         part_stream: PartStream<Client>,
-        pool: PagedPool,
         config: PrefetcherConfig,
         bucket: String,
         object_id: ObjectId,
@@ -264,7 +249,6 @@ where
     ) -> Self {
         PrefetchGetObject {
             part_stream,
-            pool,
             config,
             bucket,
             object_id,
@@ -347,39 +331,33 @@ where
     /// Create a new Cursor and associated backpressure GetObject request which has a range from current offset
     /// to the end of the file.
     fn create_cursor(&self, offset: u64) -> Result<Cursor<Client>, PrefetchReadError<Client::ClientError>> {
-        let start = offset;
         let object_size = self.size as usize;
-        let read_part_size = self.part_stream.client().read_part_size();
-        let range = RequestRange::new(object_size, start, object_size);
+        let client = self.part_stream.client();
 
-        // The prefetcher now relies on backpressure mechanism so it must be enabled
-        match self.part_stream.client().initial_read_window_size() {
-            Some(value) => {
-                // Also, make sure that we don't get blocked from the beginning
-                if value == 0 {
-                    return Err(PrefetchReadError::BackpressurePreconditionFailed);
-                }
-            }
-            None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
-        };
+        // Validate backpressure preconditions: client must have backpressure enabled
+        // with an initial read window size greater than 0.
+        match client.initial_read_window_size() {
+            Some(0) | None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
+            Some(_) => {}
+        }
 
-        let cursor_id = self.pool.next_cursor_id();
-        let config = RequestTaskConfig {
-            cursor_id,
+        let pool = self.part_stream.pool();
+        let cursor_handle = pool.create_cursor();
+        let task_config = RequestTaskConfig {
+            cursor_state: cursor_handle.state(),
             bucket: self.bucket.clone(),
             object_id: self.object_id.clone(),
-            range,
-            read_part_size,
+            range: RequestRange::new(object_size, offset, object_size),
+            read_part_size: client.read_part_size(),
             preferred_part_size: self.preferred_part_size,
             initial_request_size: self.config.initial_request_size,
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
-        let request_task = self.part_stream.spawn_get_object_request(config);
+        let request_task = self.part_stream.spawn_request_task(task_config);
         Ok(Cursor::new(
-            cursor_id,
             request_task,
-            self.pool.clone(),
+            cursor_handle,
             &self.config,
             self.object_id.clone(),
             offset,
