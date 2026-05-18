@@ -205,9 +205,10 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
         ],
         args.mem_limit(),
     );
-    // Schedule trimming of empty memory pages every minutes. We should consider
-    // event-based triggers and/or a configurable interval in the future.
-    pool.schedule_trim(Duration::from_secs(60));
+    // Spawn the background pool maintenance thread. Performs periodic trim
+    // (every 60s) when idle, and runs pruning rounds on demand under memory
+    // pressure (woken by `MemoryLimiter::trigger_pruning`).
+    pool.spawn_pool_maintenance_thread(Duration::from_secs(60));
 
     let s3_path = args.s3_path()?;
     let (client, runtime, s3_personality) =

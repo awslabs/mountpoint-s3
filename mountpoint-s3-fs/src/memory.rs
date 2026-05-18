@@ -1,5 +1,6 @@
 mod buffers;
 mod limiter;
+mod maintenance;
 mod pages;
 mod pool;
 mod stats;

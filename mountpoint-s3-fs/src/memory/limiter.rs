@@ -8,6 +8,7 @@ use tracing::{debug, trace};
 use crate::prefetch::CursorId;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, Weak};
+use crate::wake_signal::WakeSignal;
 
 use super::PagedPool;
 use super::stats::PoolStats;
@@ -62,6 +63,10 @@ pub struct MemoryLimiter {
     next_cursor_id: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
+    /// Wakes the background pruning loop's outer wait when memory pressure starts.
+    /// Once the inner tick is running it polls every [`PRUNING_TICK`](super::maintenance::PRUNING_TICK)
+    /// regardless.
+    pruning_signal: Arc<WakeSignal>,
 }
 
 impl MemoryLimiter {
@@ -80,6 +85,7 @@ impl MemoryLimiter {
             cursors: Default::default(),
             next_cursor_id: AtomicU64::new(1),
             additional_mem_reserved,
+            pruning_signal: Arc::new(WakeSignal::new()),
         }
     }
 
@@ -193,6 +199,68 @@ impl MemoryLimiter {
     fn pool_mem_reserved(&self, stats: &PoolStats) -> u64 {
         // All pool buffer kinds are accounted for here.
         stats.total_reserved_bytes() as u64
+    }
+
+    // -----------------------------------------------------------------------
+    // Pruning hooks — see `maintenance.rs` for the loop, signal, and round logic.
+    // -----------------------------------------------------------------------
+
+    /// Returns `true` while there is at least one queued allocation request.
+    /// Callers use this to decide whether new prefetch reservations should
+    /// scale down or wait.
+    #[allow(dead_code)]
+    pub(crate) fn is_memory_pressure(&self) -> bool {
+        // TODO: Change to something like `!self.allocation_queue.lock().is_empty()`.
+        false
+    }
+
+    /// Wake the maintenance loop if it's currently parked between idle intervals.
+    #[allow(dead_code)]
+    pub fn trigger_pruning(&self) {
+        self.pruning_signal.notify();
+    }
+
+    /// Shared notify handle. The pruner needs its own clone to park on.
+    pub(crate) fn pruning_signal(&self) -> &Arc<WakeSignal> {
+        &self.pruning_signal
+    }
+
+    /// Returns `true` if any cursor has an active read in progress. An active
+    /// read with an allocated buffer is waiting on an in-flight S3 GET, and
+    /// the response will free the buffer without our help.
+    ///
+    /// TODO: once we track per-handle in-flight state we can be more precise.
+    /// For now this returns `true` whenever any cursor has an active read in
+    /// progress, which over-conservatively prefers waiting over dropping a handle.
+    pub(crate) fn has_active_reads(&self) -> bool {
+        self.cursors.iter().any(|entry| {
+            entry
+                .value()
+                .upgrade()
+                .is_some_and(|state| state.active_read.lock().unwrap().is_some())
+        })
+    }
+
+    /// Drop the least-recently-read idle prefetch handle to free its read
+    /// window reservation and buffered parts.
+    ///
+    /// Returns `true` if a handle was dropped. Stub for now: requires
+    /// per-handle tracking of the current `RequestTask` so we can drop it
+    /// synchronously.
+    pub(crate) fn drop_one_idle_prefetch_handle(&self) -> bool {
+        // TODO: Iterate the handle registry, filter to entries that have an
+        // allocated request task but no active read, sort by last-read tick
+        // ascending, drop the oldest entry's task and signal a reset.
+        false
+    }
+}
+
+impl Drop for MemoryLimiter {
+    fn drop(&mut self) {
+        // Wake the pruning thread so it observes its `Weak` failing to upgrade
+        // and exits. Without this, a pruner parked in the outer wait at drop
+        // time would never wake.
+        self.pruning_signal.notify();
     }
 }
 
