@@ -14,7 +14,7 @@ use mountpoint_s3_client::config::{
     AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, TlsConfig, Uri,
 };
 use mountpoint_s3_client::{NewClientError, S3CrtClient};
-use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair};
+use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair};
 use rustls::ServerConfig;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -40,6 +40,7 @@ pub fn generate_test_pki() -> TestPki {
         .push(DnType::CommonName, "mountpoint-s3 tls test CA");
     let ca_key = KeyPair::generate().expect("ca keypair");
     let ca_cert = ca_params.self_signed(&ca_key).expect("sign CA");
+    let ca_issuer = Issuer::new(ca_params, ca_key);
 
     let mut server_params =
         CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]).expect("server params");
@@ -47,9 +48,7 @@ pub fn generate_test_pki() -> TestPki {
         .distinguished_name
         .push(DnType::CommonName, "mountpoint-s3 tls test server");
     let server_key = KeyPair::generate().expect("server keypair");
-    let server_cert = server_params
-        .signed_by(&server_key, &ca_cert, &ca_key)
-        .expect("sign server");
+    let server_cert = server_params.signed_by(&server_key, &ca_issuer).expect("sign server");
 
     TestPki {
         ca_pem: ca_cert.pem().into_bytes(),
