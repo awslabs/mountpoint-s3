@@ -314,12 +314,12 @@ impl PagedPoolConfig {
     ///
     /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE])
     /// or duplicate values for buffer sizes. If no valid value is provided,
-    /// uses [DEFAULT_BUFFER_SIZE]).
+    /// uses [DEFAULT_BUFFER_SIZE].
     pub fn with_candidate_sizes(&mut self, buffer_sizes: impl Into<Vec<usize>>) -> &mut Self {
         self.ordered_sizes = buffer_sizes.into();
         self.ordered_sizes.retain(|&size| size > 0 && size <= MAX_BUFFER_SIZE);
-        self.ordered_sizes.dedup();
         self.ordered_sizes.sort();
+        self.ordered_sizes.dedup();
         self
     }
 
@@ -362,7 +362,7 @@ impl PagedPoolConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::ops::Deref;
     use std::thread::{self, sleep};
     use std::time::Duration;
@@ -483,5 +483,18 @@ mod tests {
             let reserved = pool.reserved_bytes(kind);
             assert_eq!(reserved, count * buffer_size);
         }
+    }
+
+    #[test_case(&[1024 * 1028, 8 * 1024 * 1028, 8 * 1024 * 1028])]
+    #[test_case(&[10, 8, 10])]
+    #[test_case(&[8, 8, 10])]
+    fn test_ordered_pool_sizes(buffer_sizes: &[usize]) {
+        let mut config = PagedPool::config();
+        config.with_candidate_sizes(buffer_sizes);
+
+        let ordered_sizes = config.ordered_sizes();
+        assert!(ordered_sizes.iter().is_sorted(), "Sizes should be sorted");
+        let unique: HashSet<_> = ordered_sizes.iter().collect();
+        assert_eq!(ordered_sizes.len(), unique.len(), "Sizes should be unique");
     }
 }
