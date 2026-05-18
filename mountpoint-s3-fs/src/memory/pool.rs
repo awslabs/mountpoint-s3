@@ -197,7 +197,6 @@ impl PagedPool {
 
     /// Internal access for the maintenance module (sibling), used by maintenance tests.
     #[cfg(test)]
-    #[allow(dead_code)]
     pub(super) fn inner(&self) -> &Arc<PagedPoolInner> {
         &self.inner
     }

@@ -8,7 +8,6 @@ use tracing::{debug, trace};
 use crate::prefetch::CursorId;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicU64, Ordering};
-
 use crate::wake_signal::WakeSignal;
 
 use super::stats::PoolStats;
@@ -270,8 +269,7 @@ impl MemoryLimiter {
         false
     }
 
-    /// Wake the pruning loop. Cheap; safe to call from any path that may have
-    /// changed pressure state.
+    /// Wake the maintenance loop if it's currently parked between idle intervals.
     #[allow(dead_code)]
     pub fn trigger_pruning(&self) {
         self.pruning_signal.notify();
@@ -289,7 +287,7 @@ impl MemoryLimiter {
     /// TODO: once we track per-handle in-flight state we can be more precise.
     /// For now this returns `true` whenever any cursor has an active read in
     /// progress, which over-conservatively prefers waiting over dropping a handle.
-    pub(crate) fn has_active_reads_with_buffers(&self) -> bool {
+    pub(crate) fn has_active_reads(&self) -> bool {
         !self.active_reads.is_empty()
     }
 

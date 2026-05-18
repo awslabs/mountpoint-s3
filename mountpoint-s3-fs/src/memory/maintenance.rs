@@ -73,7 +73,6 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
                 return; // pool dropped — exit
             };
             let outcome = run_pruning_round(&strong);
-            metrics::counter!("mem.pruning_rounds").increment(1);
             trace!(?outcome, "pruning round complete");
             drop(strong);
 
@@ -115,7 +114,7 @@ fn run_pruning_round(pool_inner: &PagedPoolInner) -> PruningOutcome {
 
     // 3. Natural release path: in-flight uploads complete, or active reads
     //    receive their S3 response, freeing buffers without our help.
-    let in_flight = has_uploads_in_flight(pool_inner) || pool_inner.limiter().has_active_reads_with_buffers();
+    let in_flight = has_uploads_in_flight(pool_inner) || pool_inner.limiter().has_active_reads();
     if in_flight && !starving {
         return PruningOutcome::WaitingForRelease;
     }
