@@ -1169,19 +1169,21 @@ mod tests {
         assert_eq!(expected_content, *actual);
     }
 
-    #[test_case(1024, 128, 10)]
-    #[test_case(1024, 4096, 20)]
+    #[test_case(8 * 1024, 128, 10)]
+    #[test_case(8 * 1024, 16 * 1024, 20)]
     #[tokio::test]
     async fn test_append_on_low_memory(part_size: usize, write_size: usize, part_count: usize) {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
         // Use a pool with 0 memory limit to simulate memory pressure.
         let pool = PagedPool::config()
-            .with_candidate_sizes([32])
+            .with_candidate_sizes([part_size])
             .with_memory_limit(0)
             .build();
+
+        assert_eq!(pool.available_mem(), 0);
 
         let uploader = Uploader::new(
             client.clone(),

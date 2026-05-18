@@ -303,10 +303,19 @@ impl SizePool {
 /// Defaults:
 /// - memory limit: [MINIMUM_MEM_LIMIT],
 /// - buffer size: [DEFAULT_BUFFER_SIZE].
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct PagedPoolConfig {
     ordered_sizes: Vec<usize>,
     mem_limit: u64,
+}
+
+impl Default for PagedPoolConfig {
+    fn default() -> Self {
+        Self {
+            ordered_sizes: Default::default(),
+            mem_limit: MINIMUM_MEM_LIMIT,
+        }
+    }
 }
 
 impl PagedPoolConfig {
@@ -356,7 +365,7 @@ impl PagedPoolConfig {
     }
 
     fn memory_limit(&self) -> u64 {
-        self.mem_limit.max(MINIMUM_MEM_LIMIT)
+        self.mem_limit
     }
 }
 
