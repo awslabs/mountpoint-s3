@@ -972,7 +972,11 @@ mod tests {
     fn ca_bundle_flag_threads_through_to_client_config() {
         let ca = PathBuf::from("/some/path/flag-ca.pem");
         let cli_args = CliArgs::try_parse_from([
-            "mount-s3", "bucket", "test/location", "--ca-bundle", ca.to_str().unwrap(),
+            "mount-s3",
+            "bucket",
+            "test/location",
+            "--ca-bundle",
+            ca.to_str().unwrap(),
         ])
         .expect("parse succeeds");
 

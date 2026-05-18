@@ -16,6 +16,7 @@ use mountpoint_s3_client::config::{
 use mountpoint_s3_client::{NewClientError, S3CrtClient};
 use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair};
 use rustls::ServerConfig;
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rusty_fork::rusty_fork_test;
 use tokio::net::TcpListener;
@@ -77,18 +78,11 @@ fn write_pem(dir: &Path, name: &str, contents: &[u8]) -> PathBuf {
 }
 
 fn parse_cert_der(pem: &[u8]) -> CertificateDer<'static> {
-    let mut cursor = std::io::Cursor::new(pem);
-    rustls_pemfile::certs(&mut cursor)
-        .next()
-        .expect("one cert")
-        .expect("parse cert")
+    CertificateDer::from_pem_slice(pem).expect("parse cert")
 }
 
 fn parse_key_der(pem: &[u8]) -> PrivateKeyDer<'static> {
-    let mut cursor = std::io::Cursor::new(pem);
-    rustls_pemfile::private_key(&mut cursor)
-        .expect("parse private key")
-        .expect("private key present")
+    PrivateKeyDer::from_pem_slice(pem).expect("parse private key")
 }
 
 // ---------------------------------------------------------------------------
