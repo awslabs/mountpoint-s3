@@ -220,6 +220,7 @@ where
             cache_key.clone(),
             initial_request_end_offset,
             block_aligned_byte_range,
+            self.config.handle_id,
         );
 
         let mut part_composer = CachingPartComposer {
@@ -419,6 +420,7 @@ mod tests {
         mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
         memory::PagedPool,
         object::ObjectId,
+        prefetch::HandleId,
     };
 
     use super::*;
@@ -444,6 +446,7 @@ mod tests {
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let id = ObjectId::new(key.to_owned(), object.etag());
+        let handle_id = HandleId::new(1);
 
         // backpressure config
         let initial_request_size = 1 * MB;
@@ -477,6 +480,7 @@ mod tests {
             let config = RequestTaskConfig {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
+                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
@@ -503,6 +507,7 @@ mod tests {
             let config = RequestTaskConfig {
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
+                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
@@ -556,6 +561,7 @@ mod tests {
                 let config = RequestTaskConfig {
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
+                    handle_id: HandleId::new(1),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,

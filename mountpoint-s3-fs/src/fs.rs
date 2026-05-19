@@ -160,7 +160,8 @@ where
             UploaderConfig::new(client.write_part_size())
                 .storage_class(config.storage_class.to_owned())
                 .server_side_encryption(config.server_side_encryption.clone())
-                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c)),
+                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c))
+                .content_type_detection(config.content_type_detection),
         );
 
         Self {
@@ -351,7 +352,7 @@ where
         let fh = self.next_handle(); // TODO: can we delay obtaining the next handle until we know we are creating a new file handle?
         let write_mode = self.config.write_mode();
         let new_handle = self.metablock.open_handle(ino, fh, &write_mode, flags).await?;
-        let state = FileHandleState::new(&new_handle, flags, self).await?;
+        let state = FileHandleState::new(fh, &new_handle, flags, self).await?;
         let handle = FileHandle {
             ino,
             location: new_handle.lookup.try_into_s3_location()?,

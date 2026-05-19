@@ -240,6 +240,9 @@ pub struct GetObjectParams {
     pub range: Option<Range<u64>>,
     pub if_match: Option<ETag>,
     pub checksum_mode: Option<ChecksumMode>,
+    /// An optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub custom_id: Option<u64>,
 }
 
 impl GetObjectParams {
@@ -263,6 +266,13 @@ impl GetObjectParams {
     /// Set option to retrieve checksum as part of the GetObject request
     pub fn checksum_mode(mut self, value: Option<ChecksumMode>) -> Self {
         self.checksum_mode = value;
+        self
+    }
+
+    /// Set an optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub fn custom_id(mut self, value: Option<u64>) -> Self {
+        self.custom_id = value;
         self
     }
 }
@@ -553,6 +563,9 @@ pub struct PutObjectParams {
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
     pub object_metadata: ObjectMetadata,
+    /// An optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub custom_id: Option<u64>,
 }
 
 impl PutObjectParams {
@@ -594,6 +607,13 @@ impl PutObjectParams {
     /// Set user defined object metadata.
     pub fn object_metadata(mut self, value: ObjectMetadata) -> Self {
         self.object_metadata = value;
+        self
+    }
+
+    /// Set an optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub fn custom_id(mut self, value: Option<u64>) -> Self {
+        self.custom_id = value;
         self
     }
 }
