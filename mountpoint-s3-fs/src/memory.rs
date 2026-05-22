@@ -1,3 +1,5 @@
+#[allow(unused)]
+pub(crate) mod allocation_queue;
 mod buffers;
 mod limiter;
 mod pages;
