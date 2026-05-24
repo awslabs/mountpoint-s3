@@ -196,7 +196,7 @@ mountpoint_s3_fs::fuse: setattr failed: inode error: inode 21 (full key "init.tx
 ## Invalid Hostname for DNS resolution
 
 Mountpoint by default resolves endpoint for requests in [virtual hosted style](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html).
-If your storage provider does not support virtual style hosted bucket, you may recieve the following error:
+If your storage provider does not support virtual style hosted bucket, you may receive the following error:
 
 ```
 Error: Failed to create S3 client

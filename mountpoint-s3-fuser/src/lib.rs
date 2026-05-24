@@ -527,7 +527,7 @@ pub trait Filesystem {
     /// will be undefined if the open method didn't set any value.
     ///
     /// write_flags: will contain FUSE_WRITE_CACHE, if this write is from the page cache. If set,
-    /// the pid, uid, gid, and fh may not match the value that would have been sent if write cachin
+    /// the pid, uid, gid, and fh may not match the value that would have been sent if write caching
     /// is disabled
     /// flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9
     /// lock_owner: only supported with ABI >= 7.9

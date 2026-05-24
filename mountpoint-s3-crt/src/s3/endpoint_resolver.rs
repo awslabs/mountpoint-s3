@@ -219,7 +219,7 @@ mod test {
     #[test_case("s3-bucket-test", "cn-north-1", "https://s3-bucket-test.s3.cn-north-1.amazonaws.com.cn"; "regions outside aws partition")]
     #[test_case("s3-bucket-test", "eu-west-1", "https://s3-bucket-test.s3.eu-west-1.amazonaws.com"; "regions within aws partition")]
     #[test_case("s3-bucket-test", "us-gov-west-1", "https://s3-bucket-test.s3.us-gov-west-1.amazonaws.com"; "regions in aws-us-gov partition")]
-    #[test_case("s3-bucket.test", "eu-west-1", "https://s3.eu-west-1.amazonaws.com/s3-bucket.test"; "bucket name with . to check default behviour for aliases")]
+    #[test_case("s3-bucket.test", "eu-west-1", "https://s3.eu-west-1.amazonaws.com/s3-bucket.test"; "bucket name with . to check default behaviour for aliases")]
     #[test_case("mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3", "us-east-1", "https://mountpoint-o-o000s3-bucket-test0000000000000000000000000--op-s3.op-000s3-bucket-test.s3-outposts.us-east-1.amazonaws.com"; "Outpost Access Point alias")]
     #[test_case("arn:aws:s3::accountID:accesspoint/s3-bucket-test.mrap", "eu-west-1", "https://s3-bucket-test.mrap.accesspoint.s3-global.amazonaws.com"; "ARN as bucket name")]
     #[test_case("s3-bucket-test", "invalid-region", "https://s3-bucket-test.s3.invalid-region.amazonaws.com"; "invalid region name")]
@@ -320,7 +320,7 @@ mod test {
             .unwrap();
         let err = endpoint_rule_engine
             .resolve(endpoint_request_context)
-            .expect_err("Ednpoint should not be formed without region specified");
+            .expect_err("Endpoint should not be formed without region specified");
         assert_eq!(
             err,
             ResolverError::EndpointNotResolved("A region must be set when sending requests to S3.".to_owned())

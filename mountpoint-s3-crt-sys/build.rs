@@ -354,7 +354,7 @@ fn static_link_modifiers_for_lib(library_name: &str) -> &'static str {
 /// `MOUNTPOINT_CRT_INCLUDE_DIR` variable must point to the directory the CRT headers were installed
 /// to. The build still needs access to the Git submodules for any private CRT headers we use, but
 /// the code from the submodules won't be compiled. When `MOUNTPOINT_CRT_LIB_DIR` is set,
-/// by default the CRT libraries will be dynmically linked. Static linking occurs when the
+/// by default the CRT libraries will be dynamically linked. Static linking occurs when the
 /// `MOUNTPOINT_CRT_LIB_LINK_STATIC` is set.
 ///
 /// Note that `MOUNTPOINT_CRT_LIB_DIR` requires a compatible version of the CRT libraries. The CRT
