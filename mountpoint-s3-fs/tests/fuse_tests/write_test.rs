@@ -1519,13 +1519,13 @@ fn write_checksums_test(
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_DISABLED])]
+#[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED])]
 fn write_checksums_test_s3(algorithm: Option<ChecksumAlgorithm>) {
     write_checksums_test(fuse::s3_session::new, algorithm, ATOMIC_UPLOAD);
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_DISABLED])]
+#[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED])]
 fn write_checksums_test_s3_incremental_upload(algorithm: Option<ChecksumAlgorithm>) {
     write_checksums_test(fuse::s3_session::new, algorithm, INCREMENTAL_UPLOAD);
 }

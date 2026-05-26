@@ -106,4 +106,16 @@ mod tests {
         let combined = crc64nvme::combine(crc64nvme::checksum(a), crc64nvme::checksum(b), b.len());
         assert_eq!(combined, crc64nvme::checksum(b"123456789"));
     }
+
+    /// Combining with an empty block on either side must be the identity. This case shows up in
+    /// practice on multipart uploads with a trailing zero-byte buffer or an initial flush.
+    #[test]
+    fn crc64nvme_combine_with_empty_block_is_identity() {
+        let data: &[u8] = b"123456789";
+        let data_crc = crc64nvme::checksum(data);
+        let empty_crc = crc64nvme::checksum(b"");
+        assert_eq!(crc64nvme::combine(empty_crc, data_crc, data.len()), data_crc);
+        assert_eq!(crc64nvme::combine(data_crc, empty_crc, 0), data_crc);
+        assert_eq!(crc64nvme::combine(empty_crc, empty_crc, 0), empty_crc);
+    }
 }

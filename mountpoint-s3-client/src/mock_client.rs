@@ -1310,7 +1310,6 @@ impl MockPutObjectRequest {
     }
 }
 
-
 /// Place a base64 part checksum into the field of `Checksum` corresponding to `algorithm`.
 fn checksum_for_algorithm(algorithm: &ChecksumAlgorithm, value: Option<String>) -> Checksum {
     let mut checksum = Checksum::empty();
@@ -1330,6 +1329,10 @@ fn compute_part_checksum_base64(algorithm: &ChecksumAlgorithm, part: &[u8]) -> S
         ChecksumAlgorithm::Crc32c => crc32c_to_base64(&crc32c::checksum(part)),
         ChecksumAlgorithm::Crc64nvme => crc64nvme_to_base64(&crc64nvme::checksum(part)),
         ChecksumAlgorithm::Crc32 => crc32_to_base64(&crc32::checksum(part)),
+        ChecksumAlgorithm::Sha1 => sha1_to_base64(&sha1::checksum(part).expect("SHA1 hashing should not fail in mock client")),
+        ChecksumAlgorithm::Sha256 => {
+            sha256_to_base64(&sha256::checksum(part).expect("SHA256 hashing should not fail in mock client"))
+        }
         other => unimplemented!("mock client does not yet support checksum algorithm {other}"),
     }
 }

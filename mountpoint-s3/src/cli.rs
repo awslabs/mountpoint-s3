@@ -395,8 +395,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Checksum algorithm to use for S3 uploads. Supported values are 'crc32c', 'crc64nvme', \
-                or 'off' to disable additional checksums [default: crc32c]",
+        help = "Checksum algorithm to use for S3 uploads [default: crc32c]",
         help_heading = BUCKET_OPTIONS_HEADER,
         value_name = "ALGORITHM",
     )]
