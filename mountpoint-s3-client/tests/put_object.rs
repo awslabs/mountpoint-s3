@@ -339,8 +339,8 @@ async fn test_put_object_initiate_failure() {
     assert_eq!(uploads_in_progress, 0);
 }
 
-#[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-#[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+#[test_case(PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c); "composite")]
+#[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
 #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
 #[tokio::test]
 async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
@@ -357,17 +357,18 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(trailing_checksums);
+    let params = PutObjectParams::new().trailing_checksums(trailing_checksums.clone());
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await
         .expect("put_object should succeed");
 
     request.write(&contents).await.unwrap();
+    let trailing_for_review = trailing_checksums.clone();
     request
         .review_and_complete(move |review| {
             let parts = review.parts;
-            if trailing_checksums == PutObjectTrailingChecksums::Disabled {
+            if matches!(trailing_for_review, PutObjectTrailingChecksums::Disabled) {
                 assert!(review.checksum_algorithm.is_none());
                 assert!(parts.iter().all(|p| p.checksum.is_none()));
             } else {
@@ -389,7 +390,7 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
         .unwrap();
     let parts = attributes.object_parts().unwrap().parts();
 
-    if trailing_checksums == PutObjectTrailingChecksums::Enabled {
+    if matches!(trailing_checksums, PutObjectTrailingChecksums::Composite(_)) {
         let checksums: Vec<_> = parts.iter().map(|p| p.checksum_crc32_c().unwrap()).collect();
         let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
 
@@ -473,7 +474,8 @@ async fn test_put_review(pass_review: bool) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Enabled);
+    let params =
+        PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c));
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await

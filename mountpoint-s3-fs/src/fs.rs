@@ -24,7 +24,7 @@ use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{Uploader, UploaderConfig};
 
 mod config;
-pub use config::{CacheConfig, S3FilesystemConfig};
+pub use config::{CacheConfig, S3FilesystemConfig, UploadChecksumAlgorithm};
 
 #[macro_use]
 mod error;
@@ -159,7 +159,7 @@ where
             UploaderConfig::new(client.write_part_size())
                 .storage_class(config.storage_class.to_owned())
                 .server_side_encryption(config.server_side_encryption.clone())
-                .default_checksum_algorithm(config.upload_checksum_algorithm.clone())
+                .default_checksum_algorithm(config.upload_checksum_algorithm.map(Into::into))
                 .content_type_detection(config.content_type_detection),
         );
 

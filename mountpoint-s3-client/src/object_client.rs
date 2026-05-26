@@ -547,20 +547,13 @@ pub enum RenameObjectError {
 pub type ObjectMetadata = HashMap<String, String>;
 
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct PutObjectParams {
-    /// Whether to compute and/or send trailing checksums for the upload.
+    /// Trailing-checksum mode for the upload. Variants carry the algorithm (and, for full-object
+    /// mode, the handle the caller will populate) so invalid states like "Disabled + algorithm"
+    /// or "Enabled with no handle for an algorithm that requires one" are unrepresentable.
     pub trailing_checksums: PutObjectTrailingChecksums,
-    /// Checksum algorithm used when `trailing_checksums` is `Enabled` or `ReviewOnly`.
-    /// Ignored when `trailing_checksums` is `Disabled`.
-    pub checksum_algorithm: ChecksumAlgorithm,
-    /// When set, the upload uses S3's full-object checksum mode for multipart uploads.
-    /// Per-part trailers are still computed (for upload review), but the object-level checksum
-    /// sent on `CompleteMultipartUpload` is whatever the caller writes into this handle before
-    /// the upload finishes. Required for algorithms that don't support composite checksums
-    /// (e.g. CRC64NVME).
-    pub full_object_checksum: Option<FullObjectChecksumHandle>,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
     /// The server-side encryption algorithm to be used for this object in Amazon S3 (for example, AES256, aws:kms, aws:kms:dsse)
@@ -577,22 +570,6 @@ pub struct PutObjectParams {
     pub custom_id: Option<u64>,
 }
 
-impl Default for PutObjectParams {
-    fn default() -> Self {
-        Self {
-            trailing_checksums: PutObjectTrailingChecksums::default(),
-            checksum_algorithm: ChecksumAlgorithm::Crc32c,
-            full_object_checksum: None,
-            storage_class: None,
-            server_side_encryption: None,
-            ssekms_key_id: None,
-            custom_headers: Vec::new(),
-            object_metadata: ObjectMetadata::new(),
-            custom_id: None,
-        }
-    }
-}
-
 impl PutObjectParams {
     /// Create a default [PutObjectParams].
     pub fn new() -> Self {
@@ -602,19 +579,6 @@ impl PutObjectParams {
     /// Set trailing checksum mode.
     pub fn trailing_checksums(mut self, value: PutObjectTrailingChecksums) -> Self {
         self.trailing_checksums = value;
-        self
-    }
-
-    /// Set the checksum algorithm used for trailing checksums.
-    pub fn checksum_algorithm(mut self, value: ChecksumAlgorithm) -> Self {
-        self.checksum_algorithm = value;
-        self
-    }
-
-    /// Use S3's full-object checksum mode for multipart uploads; the caller writes the final
-    /// checksum into `handle` before the upload completes.
-    pub fn full_object_checksum(mut self, handle: FullObjectChecksumHandle) -> Self {
-        self.full_object_checksum = Some(handle);
         self
     }
 
@@ -656,16 +620,49 @@ impl PutObjectParams {
     }
 }
 
-/// How CRC32c checksums are used for parts of a multi-part PutObject request
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// How additional checksums are computed and sent for a multi-part PutObject request. Each
+/// non-`Disabled` variant carries the algorithm, and (for full-object mode) the handle the
+/// caller will populate with the object-level checksum before the upload completes.
+#[derive(Debug, Default, Clone)]
 pub enum PutObjectTrailingChecksums {
-    /// Checksums are computed, passed to upload review, and also sent to S3
-    Enabled,
-    /// Checksums are computed, passed to upload review, but not sent to S3
-    ReviewOnly,
-    /// Checksums are not computed on the client side
+    /// Checksums are not computed on the client side. S3 may still compute its own
+    /// (CRC64NVME by default).
     #[default]
     Disabled,
+    /// S3 composite mode. Per-part trailers are sent; the object-level checksum on the response
+    /// is `composite(part_checksums)`. Supported for algorithms S3 composes (CRC32C, CRC32, SHA1,
+    /// SHA256). For CRC64NVME, use [`Self::FullObject`] instead — S3 rejects composite for it.
+    Composite(ChecksumAlgorithm),
+    /// S3 FULL_OBJECT mode. Per-part trailers are still sent (so upload review works), but the
+    /// object-level checksum sent on `CompleteMultipartUpload` is the value the caller writes
+    /// into `handle` (typically computed by the FS layer's local hasher). Required for CRC64NVME.
+    FullObject {
+        /// The algorithm whose digest the caller will write into `handle`.
+        algorithm: ChecksumAlgorithm,
+        /// Populated by the caller before the upload completes; the CRT reads it just before
+        /// issuing `CompleteMultipartUpload`. See [`FullObjectChecksumHandle::set`].
+        handle: FullObjectChecksumHandle,
+    },
+    /// Per-part trailing checksums are computed and passed to upload review, but no checksum is
+    /// sent to S3.
+    ReviewOnly(ChecksumAlgorithm),
+}
+
+impl PutObjectTrailingChecksums {
+    /// The algorithm carried by this variant, if any. Returns `None` only for `Disabled`.
+    pub fn algorithm(&self) -> Option<&ChecksumAlgorithm> {
+        match self {
+            Self::Disabled => None,
+            Self::Composite(algorithm) => Some(algorithm),
+            Self::FullObject { algorithm, .. } => Some(algorithm),
+            Self::ReviewOnly(algorithm) => Some(algorithm),
+        }
+    }
+
+    /// `true` for any variant that causes checksums to be computed on the client (i.e. not `Disabled`).
+    pub fn is_computing(&self) -> bool {
+        !matches!(self, Self::Disabled)
+    }
 }
 
 /// Info for the caller to review before an upload completes.

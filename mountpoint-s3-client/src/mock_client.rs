@@ -1244,15 +1244,12 @@ impl MockPutObjectRequest {
     }
 
     fn parts(&self) -> Vec<MockObjectPartAttributes> {
+        let algorithm = self.params.trailing_checksums.algorithm();
         self.buffer
             .chunks(self.part_size)
             .map(|part| {
                 let size = part.len();
-                let checksum = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
-                    Some(compute_part_checksum_base64(&self.params.checksum_algorithm, part))
-                } else {
-                    None
-                };
+                let checksum = algorithm.map(|algorithm| compute_part_checksum_base64(algorithm, part));
                 MockObjectPartAttributes { size, checksum }
             })
             .collect()
@@ -1262,42 +1259,40 @@ impl MockPutObjectRequest {
         mut self,
         parts: Vec<MockObjectPartAttributes>,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
-        // Mirror S3: CRC64NVME on a multipart upload requires full-object mode.
-        if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled
-            && matches!(self.params.checksum_algorithm, ChecksumAlgorithm::Crc64nvme)
-            && self.params.full_object_checksum.is_none()
-        {
-            return mock_client_error(
-                "CRC64NVME requires full-object checksum mode (set full_object_checksum on PutObjectParams)",
-            );
-        }
-
         let buffer = std::mem::take(&mut self.buffer);
         let mut object: MockObject = buffer.into();
         object.set_storage_class(self.params.storage_class.clone());
         object.set_object_metadata(self.params.object_metadata.clone());
 
-        // For S3 Standard, part attributes are only available when additional checksums are used
-        if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
-            let algorithm = self.params.checksum_algorithm.clone();
-            let whole_obj_checksum = if let Some(handle) = self.params.full_object_checksum.clone() {
+        // For S3 Standard, part attributes are only available when additional checksums are used.
+        // Composite and FullObject both store per-part attributes; only the object-level checksum
+        // construction differs.
+        match &self.params.trailing_checksums {
+            PutObjectTrailingChecksums::Composite(algorithm) => {
+                let whole_obj_checksum = compute_whole_object_checksum(algorithm, &parts);
+                object.set_checksum(whole_obj_checksum);
+                object.parts = Some(MockObjectParts::Parts {
+                    algorithm: algorithm.clone(),
+                    parts,
+                });
+            }
+            PutObjectTrailingChecksums::FullObject { algorithm, handle } => {
                 // Full-object mode: read the base64 value the caller wrote into the handle.
                 let value = handle.peek_base64().ok_or_else(|| {
                     ObjectClientError::ClientError(MockClientError(
                         "full_object_checksum handle was not populated before upload completed".into(),
                     ))
                 })?;
-                checksum_for_algorithm(&algorithm, Some(value))
-            } else {
-                compute_whole_object_checksum(&algorithm, &parts)
-            };
-            object.set_checksum(whole_obj_checksum);
-            object.parts = Some(MockObjectParts::Parts {
-                algorithm,
-                parts,
-            });
-        } else {
-            object.parts = Some(MockObjectParts::Count(parts.len()));
+                let whole_obj_checksum = checksum_for_algorithm(algorithm, Some(value));
+                object.set_checksum(whole_obj_checksum);
+                object.parts = Some(MockObjectParts::Parts {
+                    algorithm: algorithm.clone(),
+                    parts,
+                });
+            }
+            PutObjectTrailingChecksums::Disabled | PutObjectTrailingChecksums::ReviewOnly(_) => {
+                object.parts = Some(MockObjectParts::Count(parts.len()));
+            }
         }
 
         let etag = object.etag();
@@ -1329,7 +1324,9 @@ fn compute_part_checksum_base64(algorithm: &ChecksumAlgorithm, part: &[u8]) -> S
         ChecksumAlgorithm::Crc32c => crc32c_to_base64(&crc32c::checksum(part)),
         ChecksumAlgorithm::Crc64nvme => crc64nvme_to_base64(&crc64nvme::checksum(part)),
         ChecksumAlgorithm::Crc32 => crc32_to_base64(&crc32::checksum(part)),
-        ChecksumAlgorithm::Sha1 => sha1_to_base64(&sha1::checksum(part).expect("SHA1 hashing should not fail in mock client")),
+        ChecksumAlgorithm::Sha1 => {
+            sha1_to_base64(&sha1::checksum(part).expect("SHA1 hashing should not fail in mock client"))
+        }
         ChecksumAlgorithm::Sha256 => {
             sha256_to_base64(&sha256::checksum(part).expect("SHA256 hashing should not fail in mock client"))
         }
@@ -1342,20 +1339,15 @@ fn compute_part_checksum_base64(algorithm: &ChecksumAlgorithm, part: &[u8]) -> S
 /// whole-object slot empty and rely on per-part checksums.
 fn compute_whole_object_checksum(algorithm: &ChecksumAlgorithm, parts: &[MockObjectPartAttributes]) -> Checksum {
     let mut checksum = Checksum::empty();
-    let part_checksums = parts
-        .iter()
-        .map(|part| {
-            part.checksum
-                .clone()
-                .expect("checksum must be set when using trailing checksums")
-        });
-    match algorithm {
-        ChecksumAlgorithm::Crc32c => {
-            checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
-        }
-        // For other algorithms, the mock leaves the whole-object slot empty; consumers can still
-        // verify integrity via per-part checksums.
-        _ => {}
+    let part_checksums = parts.iter().map(|part| {
+        part.checksum
+            .clone()
+            .expect("checksum must be set when using trailing checksums")
+    });
+    // For algorithms other than CRC32C the mock leaves the whole-object slot empty; consumers
+    // can still verify integrity via per-part checksums.
+    if let ChecksumAlgorithm::Crc32c = algorithm {
+        checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
     }
     checksum
 }
@@ -1397,11 +1389,7 @@ impl PutObjectRequest for MockPutObjectRequest {
         self,
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        let checksum_algorithm = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
-            Some(self.params.checksum_algorithm.clone())
-        } else {
-            None
-        };
+        let checksum_algorithm = self.params.trailing_checksums.algorithm().cloned();
         let parts = self.parts();
         let review_parts = parts
             .iter()
@@ -2151,8 +2139,8 @@ mod tests {
         );
     }
 
-    #[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-    #[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+    #[test_case(PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c); "composite")]
+    #[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksums_set_after_meta_put(trailing_checksums: PutObjectTrailingChecksums) {
@@ -2163,7 +2151,7 @@ mod tests {
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
 
         let s3_key = "key1";
-        let put_object_params = PutObjectParams::new().trailing_checksums(trailing_checksums);
+        let put_object_params = PutObjectParams::new().trailing_checksums(trailing_checksums.clone());
         let mut put_request = client
             .put_object("test_bucket", s3_key, &put_object_params)
             .await
@@ -2188,6 +2176,10 @@ mod tests {
         let objects = client.objects.read().unwrap();
         let stored_object = objects.get(s3_key).expect("object should exist after PutObject");
 
+        let stored_on_object = matches!(
+            trailing_checksums,
+            PutObjectTrailingChecksums::Composite(_) | PutObjectTrailingChecksums::FullObject { .. }
+        );
         match stored_object
             .parts
             .as_ref()
@@ -2195,23 +2187,23 @@ mod tests {
         {
             MockObjectParts::Parts { .. } => {
                 assert!(
-                    matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled),
-                    "checksums should only be set if trailing checksums were sent to S3",
+                    stored_on_object,
+                    "per-part checksums should only be stored when a checksum is sent to S3",
                 );
             }
             MockObjectParts::Count(_) => {
                 assert!(
-                    !matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled),
-                    "checksums should be set if trailing checksums were sent to S3",
+                    !stored_on_object,
+                    "per-part checksums should be stored when a checksum is sent to S3",
                 );
             }
         }
 
         let mut expected_obj_checksum = Checksum::empty();
-        if let PutObjectTrailingChecksums::Enabled = trailing_checksums {
-            // Only if the checksums should be persisted should we check part-level checksums were set.
+        if let PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c) = trailing_checksums {
+            // Only composite mode produces a composite-of-checksums on the object.
             let Some(MockObjectParts::Parts { parts, .. }) = stored_object.parts.as_ref() else {
-                unreachable!("we know checksums were enabled for this upload");
+                unreachable!("composite mode stores per-part attributes");
             };
 
             let part_checksums = parts
@@ -2229,37 +2221,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crc64nvme_without_full_object_handle_is_rejected() {
-        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
-        let params = PutObjectParams::new()
-            .trailing_checksums(PutObjectTrailingChecksums::Enabled)
-            .checksum_algorithm(ChecksumAlgorithm::Crc64nvme);
-        let mut request = client
-            .put_object("test_bucket", "key_no_handle", &params)
-            .await
-            .unwrap();
-        request.write(&[0u8; 1024]).await.unwrap();
-        let result = request.complete().await;
-        assert!(
-            matches!(result, Err(ObjectClientError::ClientError(MockClientError(ref msg))) if msg.contains("CRC64NVME requires full-object")),
-            "CRC64NVME without a full-object handle should be rejected, got: {result:?}",
-        );
-    }
-
-    #[tokio::test]
     async fn crc64nvme_with_full_object_handle_lands_on_object() {
         use crate::types::FullObjectChecksumHandle;
 
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
         let handle = FullObjectChecksumHandle::new();
-        let params = PutObjectParams::new()
-            .trailing_checksums(PutObjectTrailingChecksums::Enabled)
-            .checksum_algorithm(ChecksumAlgorithm::Crc64nvme)
-            .full_object_checksum(handle.clone());
-        let mut request = client
-            .put_object("test_bucket", "key_full_obj", &params)
-            .await
-            .unwrap();
+        let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::FullObject {
+            algorithm: ChecksumAlgorithm::Crc64nvme,
+            handle: handle.clone(),
+        });
+        let mut request = client.put_object("test_bucket", "key_full_obj", &params).await.unwrap();
         request.write(&[0u8; 2048]).await.unwrap();
         // Populate the handle with the base64 the CRT would receive from our callback.
         handle.set(b"ZHVtbXk=".to_vec()); // base64 of "dummy"
@@ -2463,8 +2434,8 @@ mod tests {
         assert_eq!(1, head_counter_2.count());
     }
 
-    #[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-    #[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+    #[test_case(PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c); "composite")]
+    #[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
     #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
     #[tokio::test]
     async fn test_checksum_attributes(trailing_checksums: PutObjectTrailingChecksums) {
@@ -2482,16 +2453,17 @@ mod tests {
 
         let key = "key1";
         let put_params = PutObjectParams {
-            trailing_checksums,
+            trailing_checksums: trailing_checksums.clone(),
             ..Default::default()
         };
         let mut put_request = client.put_object(bucket, key, &put_params).await.unwrap();
         put_request.write(&body).await.unwrap();
 
+        let trailing_for_review = trailing_checksums.clone();
         put_request
             .review_and_complete(move |review| {
                 let parts = review.parts;
-                if trailing_checksums == PutObjectTrailingChecksums::Disabled {
+                if matches!(trailing_for_review, PutObjectTrailingChecksums::Disabled) {
                     assert!(review.checksum_algorithm.is_none());
                     assert!(parts.iter().all(|p| p.checksum.is_none()));
                 } else {
@@ -2519,7 +2491,7 @@ mod tests {
         let expected_parts = OBJECT_SIZE.div_ceil(PART_SIZE);
         assert_eq!(parts.total_parts_count, Some(expected_parts));
 
-        if trailing_checksums == PutObjectTrailingChecksums::Enabled {
+        if matches!(trailing_checksums, PutObjectTrailingChecksums::Composite(_)) {
             let part_attributes = parts
                 .parts
                 .expect("part attributes should be returned if checksums enabled");

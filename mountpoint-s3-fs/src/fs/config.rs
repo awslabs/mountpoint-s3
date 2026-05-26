@@ -11,6 +11,24 @@ use crate::s3::S3Personality;
 
 use super::{ServerSideEncryption, TimeToLive};
 
+/// The set of checksum algorithms supported by the upload path. Narrower than
+/// [`ChecksumAlgorithm`] so the FS-config and CLI boundaries can't accept algorithms the upload
+/// path doesn't handle (the `unimplemented!` arm in atomic.rs is then defensive only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadChecksumAlgorithm {
+    Crc32c,
+    Crc64nvme,
+}
+
+impl From<UploadChecksumAlgorithm> for ChecksumAlgorithm {
+    fn from(value: UploadChecksumAlgorithm) -> Self {
+        match value {
+            UploadChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32c,
+            UploadChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64nvme,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct S3FilesystemConfig {
     /// Kernel cache config
@@ -41,7 +59,7 @@ pub struct S3FilesystemConfig {
     pub server_side_encryption: ServerSideEncryption,
     /// Algorithm used to compute additional checksums for uploads.
     /// `None` disables upload checksums.
-    pub upload_checksum_algorithm: Option<ChecksumAlgorithm>,
+    pub upload_checksum_algorithm: Option<UploadChecksumAlgorithm>,
     /// Memory limit
     pub mem_limit: u64,
     /// Prefetcher configuration
@@ -73,7 +91,7 @@ impl Default for S3FilesystemConfig {
             storage_class: None,
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
-            upload_checksum_algorithm: Some(ChecksumAlgorithm::Crc32c),
+            upload_checksum_algorithm: Some(UploadChecksumAlgorithm::Crc32c),
             content_type_detection: ContentTypeDetection::Disabled,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
