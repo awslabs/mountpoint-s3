@@ -60,6 +60,7 @@ impl Executor {
         });
 
         let checksum_algorithm = match global.checksum_algorithm.unwrap_or(ChecksumAlgorithm::Crc32c) {
+            ChecksumAlgorithm::Crc64nvme => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Crc64nvme),
             ChecksumAlgorithm::Crc32c => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Crc32c),
             ChecksumAlgorithm::Crc32 => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Crc32),
             ChecksumAlgorithm::Sha1 => Some(mountpoint_s3_client::types::ChecksumAlgorithm::Sha1),

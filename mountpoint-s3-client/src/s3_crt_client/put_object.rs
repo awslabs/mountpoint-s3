@@ -48,10 +48,15 @@ impl S3CrtClient {
                 params.ssekms_key_id.as_deref(),
             )?;
 
-            let checksum_config = match params.trailing_checksums {
-                PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
-                PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
-                PutObjectTrailingChecksums::Disabled => None,
+            let checksum_config = match (params.trailing_checksums, params.full_object_checksum.clone()) {
+                (PutObjectTrailingChecksums::Disabled, _) => None,
+                (PutObjectTrailingChecksums::Enabled, Some(handle)) => Some(
+                    ChecksumConfig::with_full_object_handle(&params.checksum_algorithm, handle),
+                ),
+                (PutObjectTrailingChecksums::Enabled, None) => Some(ChecksumConfig::trailing(&params.checksum_algorithm)),
+                (PutObjectTrailingChecksums::ReviewOnly, _) => {
+                    Some(ChecksumConfig::upload_review(&params.checksum_algorithm))
+                }
             };
             message.set_checksum_config(checksum_config);
 

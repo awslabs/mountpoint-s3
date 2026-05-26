@@ -1,9 +1,10 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::checksums::{Crc32c, crc32c, crc32c_from_base64};
+use mountpoint_s3_client::checksums::{Crc32c, crc32c_from_base64, crc64nvme, crc64nvme_from_base64, crc64nvme_to_base64};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
-    ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
+    ChecksumAlgorithm, FullObjectChecksumHandle, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums,
+    UploadChecksum, UploadReview,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::{error, trace};
@@ -14,6 +15,7 @@ use crate::checksums::combine_checksums;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
 
 use super::UploadError;
+use super::hasher::ChecksumHasher;
 
 const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
@@ -25,7 +27,11 @@ pub struct UploadRequest<Client: ObjectClient> {
     bucket: String,
     key: String,
     next_request_offset: u64,
-    hasher: crc32c::Hasher,
+    hasher: ChecksumHasher,
+    /// Set when the upload uses S3 full-object checksum mode (e.g. CRC64NVME).
+    /// We populate it with the final base64 checksum before invoking `review_and_complete`,
+    /// and the CRT reads it just before issuing `CompleteMultipartUpload`.
+    full_object_checksum_handle: Option<FullObjectChecksumHandle>,
     maximum_upload_size: usize,
     sse: ServerSideEncryption,
 }
@@ -51,17 +57,37 @@ where
     ) -> Result<Self, UploadError<Client::ClientError>> {
         let mut put_object_params = PutObjectParams::new();
 
-        match &params.default_checksum_algorithm {
+        let full_object_checksum_handle = match &params.default_checksum_algorithm {
             Some(ChecksumAlgorithm::Crc32c) => {
-                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
+                put_object_params = put_object_params
+                    .trailing_checksums(PutObjectTrailingChecksums::Enabled)
+                    .checksum_algorithm(ChecksumAlgorithm::Crc32c);
+                None
+            }
+            Some(ChecksumAlgorithm::Crc64nvme) => {
+                // S3 requires FULL_OBJECT for CRC64NVME on multipart uploads. Set up a handle that
+                // we'll populate with the final CRC64NVME just before `review_and_complete`.
+                let handle = FullObjectChecksumHandle::new();
+                put_object_params = put_object_params
+                    .trailing_checksums(PutObjectTrailingChecksums::Enabled)
+                    .checksum_algorithm(ChecksumAlgorithm::Crc64nvme)
+                    .full_object_checksum(handle.clone());
+                Some(handle)
             }
             Some(unsupported) => {
                 unimplemented!("checksum algorithm not supported: {:?}", unsupported);
             }
             None => {
-                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
+                // Default to CRC32C upload review so the client can verify what S3 received.
+                put_object_params = put_object_params
+                    .trailing_checksums(PutObjectTrailingChecksums::ReviewOnly)
+                    .checksum_algorithm(ChecksumAlgorithm::Crc32c);
+                None
             }
-        }
+        };
+        let hasher_algorithm = put_object_params.checksum_algorithm.clone();
+        let hasher = ChecksumHasher::new(&Some(hasher_algorithm))
+            .expect("CRC32C/CRC64NVME hashers are infallible to construct");
 
         if let Some(storage_class) = &params.storage_class {
             put_object_params = put_object_params.storage_class(storage_class.clone());
@@ -90,7 +116,8 @@ where
             bucket: params.bucket,
             key: params.key,
             next_request_offset: 0,
-            hasher: crc32c::Hasher::new(),
+            hasher,
+            full_object_checksum_handle,
             maximum_upload_size,
             sse: params.server_side_encryption,
         })
@@ -114,7 +141,9 @@ where
             });
         }
 
-        self.hasher.update(data);
+        self.hasher
+            .update(data)
+            .expect("CRC32C/CRC64NVME hasher updates are infallible");
         self.request
             .get_mut()
             .await?
@@ -128,7 +157,18 @@ where
 
     pub async fn complete(self) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
         let size = self.size();
-        let checksum = self.hasher.finalize();
+        let checksum = self
+            .hasher
+            .finalize()
+            .expect("CRC32C/CRC64NVME hasher finalization is infallible")
+            .expect("UploadRequest always uses a non-empty hasher");
+        // For full-object mode (CRC64NVME on multipart), give the CRT the final base64 checksum
+        // before it starts assembling the CompleteMultipartUpload request.
+        if let Some(handle) = &self.full_object_checksum_handle {
+            if let UploadChecksum::Crc64nvme(crc) = &checksum {
+                handle.set(crc64nvme_to_base64(crc).into_bytes());
+            }
+        }
         let result = self
             .request
             .into_inner()
@@ -163,27 +203,8 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
     }
 }
 
-fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: Crc32c) -> bool {
-    let mut uploaded_size = 0u64;
-    let mut uploaded_checksum = Crc32c::new(0);
-    for (i, part) in review.parts.iter().enumerate() {
-        uploaded_size += part.size;
-
-        let Some(checksum) = &part.checksum else {
-            error!(part_number = i + 1, "missing part checksum");
-            return false;
-        };
-        let checksum = match crc32c_from_base64(checksum) {
-            Ok(checksum) => checksum,
-            Err(error) => {
-                error!(part_number = i + 1, ?error, "error decoding part checksum");
-                return false;
-            }
-        };
-
-        uploaded_checksum = combine_checksums(uploaded_checksum, checksum, part.size as usize);
-    }
-
+fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: UploadChecksum) -> bool {
+    let uploaded_size: u64 = review.parts.iter().map(|part| part.size).sum();
     if uploaded_size != expected_size {
         error!(
             uploaded_size,
@@ -192,15 +213,59 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
         return false;
     }
 
-    if uploaded_checksum != expected_checksum {
-        error!(
-            ?uploaded_checksum,
-            ?expected_checksum,
-            "Combined checksum of all uploaded parts differs from expected checksum"
-        );
+    match expected_checksum {
+        UploadChecksum::Crc32c(expected) => verify_crc32c(&review, expected),
+        UploadChecksum::Crc64nvme(expected) => verify_crc64nvme(&review, expected),
+        other => {
+            error!(?other, "atomic upload verification not implemented for this checksum algorithm");
+            false
+        }
+    }
+}
+
+fn verify_crc32c(review: &UploadReview, expected: Crc32c) -> bool {
+    let mut combined = Crc32c::new(0);
+    for (i, part) in review.parts.iter().enumerate() {
+        let Some(checksum) = &part.checksum else {
+            error!(part_number = i + 1, "missing part checksum");
+            return false;
+        };
+        let part_checksum = match crc32c_from_base64(checksum) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                error!(part_number = i + 1, ?error, "error decoding CRC32C part checksum");
+                return false;
+            }
+        };
+        combined = combine_checksums(combined, part_checksum, part.size as usize);
+    }
+    if combined != expected {
+        error!(?combined, ?expected, "Combined CRC32C checksum of parts differs from expected");
         return false;
     }
+    true
+}
 
+fn verify_crc64nvme(review: &UploadReview, expected: crc64nvme::Crc64nvme) -> bool {
+    let mut combined = crc64nvme::Crc64nvme::new(0);
+    for (i, part) in review.parts.iter().enumerate() {
+        let Some(checksum) = &part.checksum else {
+            error!(part_number = i + 1, "missing part checksum");
+            return false;
+        };
+        let part_checksum = match crc64nvme_from_base64(checksum) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                error!(part_number = i + 1, ?error, "error decoding CRC64NVME part checksum");
+                return false;
+            }
+        };
+        combined = crc64nvme::combine(combined, part_checksum, part.size as usize);
+    }
+    if combined != expected {
+        error!(?combined, ?expected, "Combined CRC64NVME checksum of parts differs from expected");
+        return false;
+    }
     true
 }
 

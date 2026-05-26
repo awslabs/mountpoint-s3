@@ -1,4 +1,4 @@
-use mountpoint_s3_crt_sys::aws_checksums_crc64nvme;
+use mountpoint_s3_crt_sys::{aws_checksums_crc64nvme, aws_checksums_crc64nvme_combine};
 
 /// CRC64-NVME (aka. CRC64-Rocksoft) checksum
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -23,6 +23,15 @@ pub fn checksum(buf: &[u8]) -> Crc64nvme {
     let mut hasher = Crc64nvmeHasher::new();
     hasher.update(buf);
     hasher.finalize()
+}
+
+/// Combines two CRC64-NVME checksums computed over consecutive data blocks
+/// (CRC of `A`, then CRC of `B`) into the CRC64-NVME of `A || B`.
+/// `suffix_len` is the byte length of `B`.
+pub fn combine(prefix: Crc64nvme, suffix: Crc64nvme, suffix_len: usize) -> Crc64nvme {
+    // SAFETY: aws_checksums_crc64nvme_combine is a pure arithmetic function with no pointer args.
+    let combined = unsafe { aws_checksums_crc64nvme_combine(prefix.0, suffix.0, suffix_len as u64) };
+    Crc64nvme(combined)
 }
 
 /// CRC64-NVME Hasher
@@ -88,5 +97,13 @@ mod tests {
         hasher.update(b"56789");
         let crc = hasher.finalize();
         assert_eq!(crc, Crc64nvme(0xAE8B14860A799888));
+    }
+
+    #[test]
+    fn crc64nvme_combine_matches_concatenation() {
+        let a: &[u8] = b"1234";
+        let b: &[u8] = b"56789";
+        let combined = crc64nvme::combine(crc64nvme::checksum(a), crc64nvme::checksum(b), b.len());
+        assert_eq!(combined, crc64nvme::checksum(b"123456789"));
     }
 }

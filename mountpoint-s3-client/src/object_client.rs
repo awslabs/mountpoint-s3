@@ -547,11 +547,20 @@ pub enum RenameObjectError {
 pub type ObjectMetadata = HashMap<String, String>;
 
 /// Parameters to a [`put_object`](ObjectClient::put_object) request
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PutObjectParams {
-    /// Enable Crc32c trailing checksums.
+    /// Whether to compute and/or send trailing checksums for the upload.
     pub trailing_checksums: PutObjectTrailingChecksums,
+    /// Checksum algorithm used when `trailing_checksums` is `Enabled` or `ReviewOnly`.
+    /// Ignored when `trailing_checksums` is `Disabled`.
+    pub checksum_algorithm: ChecksumAlgorithm,
+    /// When set, the upload uses S3's full-object checksum mode for multipart uploads.
+    /// Per-part trailers are still computed (for upload review), but the object-level checksum
+    /// sent on `CompleteMultipartUpload` is whatever the caller writes into this handle before
+    /// the upload finishes. Required for algorithms that don't support composite checksums
+    /// (e.g. CRC64NVME).
+    pub full_object_checksum: Option<FullObjectChecksumHandle>,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
     /// The server-side encryption algorithm to be used for this object in Amazon S3 (for example, AES256, aws:kms, aws:kms:dsse)
@@ -568,15 +577,44 @@ pub struct PutObjectParams {
     pub custom_id: Option<u64>,
 }
 
+impl Default for PutObjectParams {
+    fn default() -> Self {
+        Self {
+            trailing_checksums: PutObjectTrailingChecksums::default(),
+            checksum_algorithm: ChecksumAlgorithm::Crc32c,
+            full_object_checksum: None,
+            storage_class: None,
+            server_side_encryption: None,
+            ssekms_key_id: None,
+            custom_headers: Vec::new(),
+            object_metadata: ObjectMetadata::new(),
+            custom_id: None,
+        }
+    }
+}
+
 impl PutObjectParams {
     /// Create a default [PutObjectParams].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set Crc32c trailing checksums.
+    /// Set trailing checksum mode.
     pub fn trailing_checksums(mut self, value: PutObjectTrailingChecksums) -> Self {
         self.trailing_checksums = value;
+        self
+    }
+
+    /// Set the checksum algorithm used for trailing checksums.
+    pub fn checksum_algorithm(mut self, value: ChecksumAlgorithm) -> Self {
+        self.checksum_algorithm = value;
+        self
+    }
+
+    /// Use S3's full-object checksum mode for multipart uploads; the caller writes the final
+    /// checksum into `handle` before the upload completes.
+    pub fn full_object_checksum(mut self, handle: FullObjectChecksumHandle) -> Self {
+        self.full_object_checksum = Some(handle);
         self
     }
 
@@ -638,6 +676,9 @@ pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 
 /// A checksum algorithm used by the object client for integrity checks on uploads and downloads.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
+
+/// Handle used to provide an S3 full-object checksum to the CRT after streaming completes.
+pub type FullObjectChecksumHandle = mountpoint_s3_crt::s3::client::FullObjectChecksumHandle;
 
 /// Parameters to a [`put_object_single`](ObjectClient::put_object_single) request
 #[derive(Debug, Default, Clone)]

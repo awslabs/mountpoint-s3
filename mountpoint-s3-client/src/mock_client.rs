@@ -1126,7 +1126,7 @@ impl ObjectClient for MockClient {
                                 parts: None,
                                 total_parts_count: Some(*num_parts),
                             }),
-                            Some(MockObjectParts::Parts(parts)) => Some(GetObjectAttributesParts {
+                            Some(MockObjectParts::Parts { algorithm, parts }) => Some(GetObjectAttributesParts {
                                 is_truncated: Some(false),
                                 max_parts: Some(10000),
                                 next_part_number_marker: Some(parts.len()),
@@ -1136,13 +1136,7 @@ impl ObjectClient for MockClient {
                                         .iter()
                                         .enumerate()
                                         .map(|(i, part)| ObjectPart {
-                                            checksum: Some(Checksum {
-                                                checksum_crc64nvme: None,
-                                                checksum_crc32: None,
-                                                checksum_crc32c: part.checksum.clone(),
-                                                checksum_sha1: None,
-                                                checksum_sha256: None,
-                                            }),
+                                            checksum: Some(checksum_for_algorithm(algorithm, part.checksum.clone())),
                                             // Part numbers start at 1
                                             part_number: i + 1,
                                             size: part.size,
@@ -1255,8 +1249,7 @@ impl MockPutObjectRequest {
             .map(|part| {
                 let size = part.len();
                 let checksum = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
-                    let checksum = crc32c::checksum(part);
-                    Some(crc32c_to_base64(&checksum))
+                    Some(compute_part_checksum_base64(&self.params.checksum_algorithm, part))
                 } else {
                     None
                 };
@@ -1269,6 +1262,16 @@ impl MockPutObjectRequest {
         mut self,
         parts: Vec<MockObjectPartAttributes>,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
+        // Mirror S3: CRC64NVME on a multipart upload requires full-object mode.
+        if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled
+            && matches!(self.params.checksum_algorithm, ChecksumAlgorithm::Crc64nvme)
+            && self.params.full_object_checksum.is_none()
+        {
+            return mock_client_error(
+                "CRC64NVME requires full-object checksum mode (set full_object_checksum on PutObjectParams)",
+            );
+        }
+
         let buffer = std::mem::take(&mut self.buffer);
         let mut object: MockObject = buffer.into();
         object.set_storage_class(self.params.storage_class.clone());
@@ -1276,17 +1279,23 @@ impl MockPutObjectRequest {
 
         // For S3 Standard, part attributes are only available when additional checksums are used
         if self.params.trailing_checksums == PutObjectTrailingChecksums::Enabled {
-            let whole_obj_checksum = {
-                let mut whole_obj_checksum = Checksum::empty();
-                let part_checksums = parts
-                    .iter()
-                    .map(|part| part.checksum.clone())
-                    .map(|checksum| checksum.expect("checksum must be set when using trailing checksums"));
-                whole_obj_checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
-                whole_obj_checksum
+            let algorithm = self.params.checksum_algorithm.clone();
+            let whole_obj_checksum = if let Some(handle) = self.params.full_object_checksum.clone() {
+                // Full-object mode: read the base64 value the caller wrote into the handle.
+                let value = handle.peek_base64().ok_or_else(|| {
+                    ObjectClientError::ClientError(MockClientError(
+                        "full_object_checksum handle was not populated before upload completed".into(),
+                    ))
+                })?;
+                checksum_for_algorithm(&algorithm, Some(value))
+            } else {
+                compute_whole_object_checksum(&algorithm, &parts)
             };
             object.set_checksum(whole_obj_checksum);
-            object.parts = Some(MockObjectParts::Parts(parts));
+            object.parts = Some(MockObjectParts::Parts {
+                algorithm,
+                parts,
+            });
         } else {
             object.parts = Some(MockObjectParts::Count(parts.len()));
         }
@@ -1299,6 +1308,53 @@ impl MockPutObjectRequest {
             sse_kms_key_id: None,
         })
     }
+}
+
+
+/// Place a base64 part checksum into the field of `Checksum` corresponding to `algorithm`.
+fn checksum_for_algorithm(algorithm: &ChecksumAlgorithm, value: Option<String>) -> Checksum {
+    let mut checksum = Checksum::empty();
+    match algorithm {
+        ChecksumAlgorithm::Crc32c => checksum.checksum_crc32c = value,
+        ChecksumAlgorithm::Crc64nvme => checksum.checksum_crc64nvme = value,
+        ChecksumAlgorithm::Crc32 => checksum.checksum_crc32 = value,
+        ChecksumAlgorithm::Sha1 => checksum.checksum_sha1 = value,
+        ChecksumAlgorithm::Sha256 => checksum.checksum_sha256 = value,
+        other => unimplemented!("mock client does not yet support checksum algorithm {other}"),
+    }
+    checksum
+}
+
+fn compute_part_checksum_base64(algorithm: &ChecksumAlgorithm, part: &[u8]) -> String {
+    match algorithm {
+        ChecksumAlgorithm::Crc32c => crc32c_to_base64(&crc32c::checksum(part)),
+        ChecksumAlgorithm::Crc64nvme => crc64nvme_to_base64(&crc64nvme::checksum(part)),
+        ChecksumAlgorithm::Crc32 => crc32_to_base64(&crc32::checksum(part)),
+        other => unimplemented!("mock client does not yet support checksum algorithm {other}"),
+    }
+}
+
+/// Build the whole-object `Checksum` for an upload with `algorithm`. For algorithms with a
+/// well-defined S3 composite ("checksum of checksums"), produce it; otherwise leave the
+/// whole-object slot empty and rely on per-part checksums.
+fn compute_whole_object_checksum(algorithm: &ChecksumAlgorithm, parts: &[MockObjectPartAttributes]) -> Checksum {
+    let mut checksum = Checksum::empty();
+    let part_checksums = parts
+        .iter()
+        .map(|part| {
+            part.checksum
+                .clone()
+                .expect("checksum must be set when using trailing checksums")
+        });
+    match algorithm {
+        ChecksumAlgorithm::Crc32c => {
+            checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
+        }
+        // For other algorithms, the mock leaves the whole-object slot empty; consumers can still
+        // verify integrity via per-part checksums.
+        _ => {}
+    }
+    checksum
 }
 
 /// Compute a checksum of checksums, mirroring how S3 computes object checksums for MPUs.
@@ -1339,7 +1395,7 @@ impl PutObjectRequest for MockPutObjectRequest {
         review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         let checksum_algorithm = if self.params.trailing_checksums != PutObjectTrailingChecksums::Disabled {
-            Some(ChecksumAlgorithm::Crc32c)
+            Some(self.params.checksum_algorithm.clone())
         } else {
             None
         };
@@ -1374,7 +1430,10 @@ struct MockObjectPartAttributes {
 #[derive(Debug, Clone)]
 enum MockObjectParts {
     Count(usize),
-    Parts(Vec<MockObjectPartAttributes>),
+    Parts {
+        algorithm: ChecksumAlgorithm,
+        parts: Vec<MockObjectPartAttributes>,
+    },
 }
 
 #[cfg(test)]
@@ -2131,7 +2190,7 @@ mod tests {
             .as_ref()
             .expect("parts must exist when using meta put")
         {
-            MockObjectParts::Parts(_) => {
+            MockObjectParts::Parts { .. } => {
                 assert!(
                     matches!(trailing_checksums, PutObjectTrailingChecksums::Enabled),
                     "checksums should only be set if trailing checksums were sent to S3",
@@ -2148,7 +2207,7 @@ mod tests {
         let mut expected_obj_checksum = Checksum::empty();
         if let PutObjectTrailingChecksums::Enabled = trailing_checksums {
             // Only if the checksums should be persisted should we check part-level checksums were set.
-            let Some(MockObjectParts::Parts(parts)) = stored_object.parts.as_ref() else {
+            let Some(MockObjectParts::Parts { parts, .. }) = stored_object.parts.as_ref() else {
                 unreachable!("we know checksums were enabled for this upload");
             };
 
@@ -2163,6 +2222,56 @@ mod tests {
         assert_eq!(
             stored_object.checksum, expected_obj_checksum,
             "stored object checksum should equal expected checksum",
+        );
+    }
+
+    #[tokio::test]
+    async fn crc64nvme_without_full_object_handle_is_rejected() {
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
+        let params = PutObjectParams::new()
+            .trailing_checksums(PutObjectTrailingChecksums::Enabled)
+            .checksum_algorithm(ChecksumAlgorithm::Crc64nvme);
+        let mut request = client
+            .put_object("test_bucket", "key_no_handle", &params)
+            .await
+            .unwrap();
+        request.write(&[0u8; 1024]).await.unwrap();
+        let result = request.complete().await;
+        assert!(
+            matches!(result, Err(ObjectClientError::ClientError(MockClientError(ref msg))) if msg.contains("CRC64NVME requires full-object")),
+            "CRC64NVME without a full-object handle should be rejected, got: {result:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn crc64nvme_with_full_object_handle_lands_on_object() {
+        use crate::types::FullObjectChecksumHandle;
+
+        let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
+        let handle = FullObjectChecksumHandle::new();
+        let params = PutObjectParams::new()
+            .trailing_checksums(PutObjectTrailingChecksums::Enabled)
+            .checksum_algorithm(ChecksumAlgorithm::Crc64nvme)
+            .full_object_checksum(handle.clone());
+        let mut request = client
+            .put_object("test_bucket", "key_full_obj", &params)
+            .await
+            .unwrap();
+        request.write(&[0u8; 2048]).await.unwrap();
+        // Populate the handle with the base64 the CRT would receive from our callback.
+        handle.set(b"ZHVtbXk=".to_vec()); // base64 of "dummy"
+        request.complete().await.unwrap();
+
+        let objects = client.objects.read().unwrap();
+        let stored = objects.get("key_full_obj").expect("object should exist");
+        assert_eq!(
+            stored.checksum.checksum_crc64nvme.as_deref(),
+            Some("ZHVtbXk="),
+            "full-object CRC64NVME should be the value the caller set on the handle",
+        );
+        assert!(
+            stored.checksum.checksum_crc32c.is_none(),
+            "no other algorithm slots should be populated",
         );
     }
 

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 use nix::unistd::{getgid, getuid};
 
 use crate::content_type::ContentTypeDetection;
@@ -38,8 +39,9 @@ pub struct S3FilesystemConfig {
     pub s3_personality: S3Personality,
     /// Server side encryption configuration to be used when creating new S3 object
     pub server_side_encryption: ServerSideEncryption,
-    /// Use additional checksums for uploads
-    pub use_upload_checksums: bool,
+    /// Algorithm used to compute additional checksums for uploads.
+    /// `None` disables upload checksums.
+    pub upload_checksum_algorithm: Option<ChecksumAlgorithm>,
     /// Memory limit
     pub mem_limit: u64,
     /// Prefetcher configuration
@@ -71,7 +73,7 @@ impl Default for S3FilesystemConfig {
             storage_class: None,
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
-            use_upload_checksums: true,
+            upload_checksum_algorithm: Some(ChecksumAlgorithm::Crc32c),
             content_type_detection: ContentTypeDetection::Disabled,
             mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),

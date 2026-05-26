@@ -6,6 +6,7 @@ use anyhow::{Context as _, anyhow};
 use clap::{ArgGroup, Parser, ValueEnum, value_parser};
 use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::data_cache::{CacheLimit, DataCacheConfig, DiskDataCacheConfig, ExpressDataCacheConfig};
@@ -394,7 +395,8 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Checksum algorithm to use for S3 uploads [default: crc32c]",
+        help = "Checksum algorithm to use for S3 uploads. Supported values are 'crc32c', 'crc64nvme', \
+                or 'off' to disable additional checksums [default: crc32c]",
         help_heading = BUCKET_OPTIONS_HEADER,
         value_name = "ALGORITHM",
     )]
@@ -450,17 +452,19 @@ impl ValueEnum for BucketType {
 #[derive(Debug, Clone, Copy)]
 pub enum UploadChecksums {
     Crc32c,
+    Crc64nvme,
     Off,
 }
 
 impl ValueEnum for UploadChecksums {
     fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Crc32c, Self::Off]
+        &[Self::Crc32c, Self::Crc64nvme, Self::Off]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         match self {
             Self::Crc32c => Some(clap::builder::PossibleValue::new("crc32c")),
+            Self::Crc64nvme => Some(clap::builder::PossibleValue::new("crc64nvme")),
             Self::Off => Some(clap::builder::PossibleValue::new("off")),
         }
     }
@@ -504,18 +508,19 @@ impl CliArgs {
         mem_limit
     }
 
-    fn should_use_upload_checksum(&self, s3_personality: S3Personality) -> bool {
+    fn upload_checksum_algorithm(&self, s3_personality: S3Personality) -> Option<ChecksumAlgorithm> {
         // Written in this awkward way to force us to update it if we add new checksum types
         match self.upload_checksums {
-            Some(UploadChecksums::Crc32c) => true,
-            Some(UploadChecksums::Off) => false,
+            Some(UploadChecksums::Crc32c) => Some(ChecksumAlgorithm::Crc32c),
+            Some(UploadChecksums::Crc64nvme) => Some(ChecksumAlgorithm::Crc64nvme),
+            Some(UploadChecksums::Off) => None,
             None => {
-                // Default to true if supported
+                // Default to CRC32C if supported
                 if s3_personality.supports_additional_checksums() {
-                    true
+                    Some(ChecksumAlgorithm::Crc32c)
                 } else {
                     tracing::info!("disabling upload checksums because target S3 personality does not support them");
-                    false
+                    None
                 }
             }
         }
@@ -543,7 +548,7 @@ impl CliArgs {
         filesystem_config.server_side_encryption = sse;
         filesystem_config.cache_config = self.cache_config();
         filesystem_config.mem_limit = self.mem_limit();
-        filesystem_config.use_upload_checksums = self.should_use_upload_checksum(s3_personality);
+        filesystem_config.upload_checksum_algorithm = self.upload_checksum_algorithm(s3_personality);
         filesystem_config.content_type_detection = if self.infer_content_type {
             ContentTypeDetection::Auto
         } else {
@@ -947,5 +952,38 @@ mod tests {
         assert!(cli_args.infer_content_type);
         let filesystem_config = cli_args.filesystem_config(ServerSideEncryption::default(), S3Personality::Standard);
         assert_eq!(filesystem_config.content_type_detection, ContentTypeDetection::Auto);
+    }
+
+    #[test_case("crc32c", S3Personality::Standard, Some(ChecksumAlgorithm::Crc32c); "crc32c flag")]
+    #[test_case("crc64nvme", S3Personality::Standard, Some(ChecksumAlgorithm::Crc64nvme); "crc64nvme flag")]
+    #[test_case("off", S3Personality::Standard, None; "off flag")]
+    #[test_case("crc64nvme", S3Personality::Outposts, Some(ChecksumAlgorithm::Crc64nvme); "explicit flag overrides personality")]
+    fn parse_upload_checksums_flag(flag_value: &str, personality: S3Personality, expected: Option<ChecksumAlgorithm>) {
+        let cli_args = CliArgs::try_parse_from([
+            "mount-s3",
+            "bucket",
+            "test/location",
+            "--upload-checksums",
+            flag_value,
+        ])
+        .expect("--upload-checksums should parse");
+        let filesystem_config = cli_args.filesystem_config(ServerSideEncryption::default(), personality);
+        assert_eq!(filesystem_config.upload_checksum_algorithm, expected);
+    }
+
+    #[test_case(S3Personality::Standard, Some(ChecksumAlgorithm::Crc32c); "standard defaults to crc32c")]
+    #[test_case(S3Personality::ExpressOneZone, Some(ChecksumAlgorithm::Crc32c); "express defaults to crc32c")]
+    #[test_case(S3Personality::Outposts, None; "outposts disables upload checksums by default")]
+    fn upload_checksums_default(personality: S3Personality, expected: Option<ChecksumAlgorithm>) {
+        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location"])
+            .expect("CliArgs without --upload-checksums should parse");
+        let filesystem_config = cli_args.filesystem_config(ServerSideEncryption::default(), personality);
+        assert_eq!(filesystem_config.upload_checksum_algorithm, expected);
+    }
+
+    #[test]
+    fn parse_upload_checksums_rejects_unknown_value() {
+        let result = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--upload-checksums", "md5"]);
+        assert!(result.is_err(), "unsupported checksum algorithm should be rejected");
     }
 }

@@ -91,11 +91,11 @@ pub mod config {
 pub mod types {
     pub use super::object_client::{
         Checksum, ChecksumAlgorithm, ChecksumMode, ClientBackpressureHandle, CopyObjectParams, CopyObjectResult,
-        DeleteObjectResult, ETag, GetBodyPart, GetObjectAttributesParts, GetObjectAttributesResult, GetObjectParams,
-        GetObjectResponse, HeadObjectParams, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult,
-        ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums,
-        RenameObjectParams, RenameObjectResult, RenamePreconditionTypes, RestoreStatus, UploadChecksum, UploadReview,
-        UploadReviewPart,
+        DeleteObjectResult, ETag, FullObjectChecksumHandle, GetBodyPart, GetObjectAttributesParts,
+        GetObjectAttributesResult, GetObjectParams, GetObjectResponse, HeadObjectParams, HeadObjectResult,
+        ListObjectsResult, ObjectAttribute, ObjectClientResult, ObjectInfo, ObjectPart, PutObjectParams,
+        PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums, RenameObjectParams, RenameObjectResult,
+        RenamePreconditionTypes, RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
     };
 }
 

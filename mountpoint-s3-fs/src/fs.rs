@@ -8,7 +8,6 @@ use bytes::Bytes;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_client::types::ChecksumAlgorithm;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{Level, debug, trace};
@@ -160,7 +159,7 @@ where
             UploaderConfig::new(client.write_part_size())
                 .storage_class(config.storage_class.to_owned())
                 .server_side_encryption(config.server_side_encryption.clone())
-                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c))
+                .default_checksum_algorithm(config.upload_checksum_algorithm.clone())
                 .content_type_detection(config.content_type_detection),
         );
 

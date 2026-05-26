@@ -1,5 +1,6 @@
 ## Unreleased
 
+* Add support for CRC64NVME full-object checksums on uploads. The `--upload-checksums` argument now accepts `crc64nvme` in addition to the existing `crc32c` and `off` values. CRC32C continues to use S3's composite (checksum-of-checksums) format on multipart uploads; CRC64NVME uses S3's `FULL_OBJECT` mode (sent on `CompleteMultipartUpload` via the CRT's `full_object_checksum_callback`). Both algorithms work end-to-end on atomic and incremental upload paths.
 * Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
 * Add support for automatic content type detection on file uploads. When the `--infer-content-type` flag is specified, Mountpoint will infer the `Content-Type` of new objects based on their file extension instead of using the default `binary/octet-stream`. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
 * Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718))
