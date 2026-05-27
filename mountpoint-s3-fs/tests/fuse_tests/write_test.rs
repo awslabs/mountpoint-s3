@@ -1478,16 +1478,37 @@ fn write_checksums_test(
             // CRC64NVME on multipart must be a FULL_OBJECT checksum (S3 doesn't support
             // composite for CRC64NVME), so the value must end up on the object itself, not
             // just on the parts. Other algorithms can land on either.
+            //
+            // S3 distinguishes the two ChecksumType values on the wire by the value's shape:
+            // COMPOSITE objects carry a `<base64>-<part-count>` suffix on the object-level
+            // checksum, FULL_OBJECT carries a bare `<base64>`. Assert both shapes so a
+            // regression that flipped CRC64NVME back to composite (or quietly broke the CRC32C
+            // composite path) would fail loudly here.
             if matches!(algo, UploadChecksumAlgorithm::Crc64nvme) {
                 assert!(
                     object_has_checksum,
                     "CRC64NVME must be reported as a full-object checksum on the object"
+                );
+                let value = extract(object_checksum.as_ref().unwrap()).unwrap();
+                assert!(
+                    !value.contains('-'),
+                    "CRC64NVME object-level checksum must be FULL_OBJECT shape (no `-<part-count>` suffix), got {value:?}"
                 );
             } else {
                 assert!(
                     object_has_checksum || parts_have_checksum,
                     "{algo:?} should be present on the object or its parts"
                 );
+                if object_has_checksum {
+                    let value = extract(object_checksum.as_ref().unwrap()).unwrap();
+                    let (_, suffix) = value.rsplit_once('-').unwrap_or_else(|| {
+                        panic!("{algo:?} object-level checksum must be COMPOSITE shape (`<base64>-<part-count>`), got {value:?}")
+                    });
+                    assert!(
+                        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
+                        "{algo:?} composite suffix must be a positive part count, got {value:?}"
+                    );
+                }
             }
         }
         None => {
