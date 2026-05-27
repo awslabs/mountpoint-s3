@@ -143,7 +143,10 @@ fn mount_file_system(
     throughput_target_gbps: Option<f64>,
 ) -> FuseSession {
     let part_size = 8 * 1024 * 1024;
-    let pool = PagedPool::new_with_candidate_sizes_minimally_limited([part_size]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([part_size])
+        .with_minimum_memory_limit()
+        .build();
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));
     config = config
         .read_backpressure(true)

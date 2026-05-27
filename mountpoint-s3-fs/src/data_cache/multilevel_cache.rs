@@ -131,7 +131,10 @@ mod tests {
 
     fn create_disk_cache() -> (TempDir, Arc<DiskDataCache>) {
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes_unlimited([BLOCK_SIZE as usize, PART_SIZE]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([BLOCK_SIZE as usize, PART_SIZE])
+            .with_no_memory_limit()
+            .build();
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),

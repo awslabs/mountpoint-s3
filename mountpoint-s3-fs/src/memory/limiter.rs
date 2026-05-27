@@ -347,7 +347,10 @@ mod tests {
     use crate::sync::atomic::Ordering;
 
     fn new_pool() -> PagedPool {
-        PagedPool::new_with_candidate_sizes_minimally_limited([1024])
+        PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build()
     }
 
     #[test]
@@ -443,7 +446,10 @@ mod tests {
     fn test_on_pool_reserve_noop_after_release_cursor() {
         // Simulates the cancellation race: on_reserve fires after release_cursor
         // removed the entry. The callback should be a no-op.
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
 
@@ -463,7 +469,10 @@ mod tests {
 
     #[test]
     fn test_on_pool_reserve_saturates_on_over_decrement() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
 
@@ -484,7 +493,10 @@ mod tests {
 
     #[test]
     fn test_available_mem_accounts_for_pool_allocations() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
         let stats = pool.stats();
@@ -508,7 +520,10 @@ mod tests {
 
     #[test]
     fn test_upload_allocation_does_not_affect_mem_reserved() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let stats = pool.stats();
 
