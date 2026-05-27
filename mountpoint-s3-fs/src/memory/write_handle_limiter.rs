@@ -81,7 +81,7 @@ impl WriteHandleLimiter {
                 "no concurrent open-for-write file handles allowed: memory target leaves no \
                  budget for write buffers. All write opens will fail with ENOMEM. Increase \
                  --memory-target or decrease --write-part-size. See CONFIGURATION.md \
-                 (\"Maximum number of files open for write\") for details."
+                 (\"Maximum number of files open for writing\") for details."
             );
         } else {
             info!(

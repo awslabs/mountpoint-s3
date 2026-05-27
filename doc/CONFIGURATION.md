@@ -295,9 +295,9 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 * By default, Mountpoint can serve up to 16 concurrent file or directory operations, and automatically scales up to reach this limit. If your application makes more than this many concurrent reads and writes (including to the same or different files), you can improve performance by increasing this limit with the `--max-threads` command-line argument. Higher values of this flag might cause Mountpoint to use more of your instance's resources.
 * When reading or writing files to S3, Mountpoint divides them into parts and uses parallel requests to improve throughput. You can change the part size Mountpoint uses for these parallel requests using the `--read-part-size` and `--write-part-size` command-line arguments, providing a maximum number of bytes per part for reading or writing respectively. For Mountpoint v1.7.2 or earlier, use `--part-size` instead. The default value for these arguments is 8 MiB (8,306,688 bytes), which in our testing is the largest value that achieves maximum throughput. Larger values can reduce the number of billed requests Mountpoint makes, but also reduce the throughput of object reads and writes to S3.
 
-### Maximum number of files open for write
+### Maximum number of files open for writing
 
-Mountpoint enforces a cap on the number of files that may be open for write at the same time, to control memory usage. The cap is computed at startup from the configured memory target and write part size:
+Mountpoint enforces a cap on the number of files that may be open for writing at the same time, to control memory usage. The cap is computed at startup from the configured memory target and write part size:
 
 ```
 max_concurrent_writes = (memory_target − additional_mem_reserved) / write_part_size

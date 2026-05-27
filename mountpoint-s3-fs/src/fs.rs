@@ -1195,7 +1195,7 @@ mod tests {
         assert_eq!(err.errno, libc::ENOMEM);
         let msg = format!("{err}");
         assert!(
-            msg.contains("cannot open file for write"),
+            msg.contains("cannot open file for writing"),
             "unexpected error message: {msg}"
         );
         assert!(
