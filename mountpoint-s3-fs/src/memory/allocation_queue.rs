@@ -1,22 +1,24 @@
 //! Priority-ordered allocation queue for buffer requests under memory pressure.
 
 use std::collections::VecDeque;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::channel::oneshot;
 
 use crate::prefetch::CursorId;
+use crate::sync::Mutex;
+use crate::sync::atomic::{AtomicBool, Ordering};
 
 use super::buffers::PoolBuffer;
 use super::stats::BufferKind;
 
-/// Priority levels for allocation requests.
+/// Priority for an allocation request.
+///
+/// The queue serves all [`High`](Self::High) entries (FIFO) before any
+/// [`Low`](Self::Low) entries (FIFO). A [`Low`] request can be promoted to
+/// the back of [`High`] via [`AllocationQueue::upgrade`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllocationPriority {
-    /// Speculative prefetch — nobody is waiting on this data yet.
     Low,
-    /// Active read or upload — a syscall is blocked waiting for this buffer.
     High,
 }
 
@@ -31,7 +33,15 @@ pub struct PendingAllocation {
     pub kind: BufferKind,
     /// Channel sender used to deliver the allocated [PoolBuffer] to the waiter.
     /// When dropped, the receiver resolves with `Err(Canceled)`.
-    pub sender: oneshot::Sender<PoolBuffer>,
+    sender: oneshot::Sender<PoolBuffer>,
+}
+
+impl PendingAllocation {
+    /// Deliver the allocated buffer to the waiter.
+    /// Returns `Err(buffer)` if the receiver was dropped (caller cancelled).
+    pub fn fulfill(self, buffer: PoolBuffer) -> Result<(), PoolBuffer> {
+        self.sender.send(buffer)
+    }
 }
 
 /// A priority-ordered allocation queue with two lanes: high and low.
@@ -47,8 +57,8 @@ pub struct AllocationQueue {
     /// Queue state protected by a mutex.
     inner: Mutex<AllocationQueueInner>,
     /// `true` if either queue has pending entries. Allows a lock-free check
-    /// via [`is_memory_pressure`](Self::is_memory_pressure).
-    memory_pressure: AtomicBool,
+    /// via [`has_pending`](Self::has_pending).
+    has_pending: AtomicBool,
 }
 
 struct AllocationQueueInner {
@@ -72,7 +82,7 @@ impl AllocationQueue {
                 high: VecDeque::new(),
                 low: VecDeque::new(),
             }),
-            memory_pressure: AtomicBool::new(false),
+            has_pending: AtomicBool::new(false),
         }
     }
 
@@ -85,6 +95,10 @@ impl AllocationQueue {
         size: usize,
         kind: BufferKind,
     ) -> oneshot::Receiver<PoolBuffer> {
+        assert!(
+            priority == AllocationPriority::High || cursor_id.is_some(),
+            "Low priority requests must have a cursor_id"
+        );
         let (sender, receiver) = oneshot::channel();
         let entry = PendingAllocation {
             cursor_id,
@@ -94,11 +108,11 @@ impl AllocationQueue {
         };
 
         let mut inner = self.inner.lock().unwrap();
+        self.has_pending.store(true, Ordering::Release);
         match priority {
             AllocationPriority::High => inner.high.push_back(entry),
             AllocationPriority::Low => inner.low.push_back(entry),
         }
-        self.memory_pressure.store(true, Ordering::Release);
 
         receiver
     }
@@ -110,7 +124,7 @@ impl AllocationQueue {
     /// `can_allocate(size)`) without a race between peek and pop.
     ///
     /// Returns `None` if both queues are empty or the predicate returns `false`.
-    /// Sets `memory_pressure` to `false` if both queues become empty after removal.
+    /// Sets `has_pending` to `false` if both queues become empty after removal.
     pub fn pop_front_if(
         &self,
         predicate: impl FnOnce(usize, BufferKind, Option<CursorId>) -> bool,
@@ -122,7 +136,7 @@ impl AllocationQueue {
         }
         let entry = inner.high.pop_front().or_else(|| inner.low.pop_front());
         if inner.high.is_empty() && inner.low.is_empty() {
-            self.memory_pressure.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::Release);
         }
         entry
     }
@@ -134,18 +148,14 @@ impl AllocationQueue {
     /// allocations — those allocations are now urgent.
     pub fn upgrade(&self, cursor_id: CursorId) {
         let mut inner = self.inner.lock().unwrap();
-        let mut to_promote = Vec::new();
-        let mut remaining = VecDeque::with_capacity(inner.low.len());
-        for entry in inner.low.drain(..) {
+        let n = inner.low.len();
+        for _ in 0..n {
+            let entry = inner.low.pop_front().unwrap();
             if entry.cursor_id == Some(cursor_id) {
-                to_promote.push(entry);
+                inner.high.push_back(entry);
             } else {
-                remaining.push_back(entry);
+                inner.low.push_back(entry);
             }
-        }
-        inner.low = remaining;
-        for entry in to_promote {
-            inner.high.push_back(entry);
         }
     }
 
@@ -154,8 +164,8 @@ impl AllocationQueue {
     /// This is a lock-free check using an [`AtomicBool`]. Used by the pool to decide
     /// whether new requests must go through the queue (to respect priority ordering
     /// of existing waiters).
-    pub fn is_memory_pressure(&self) -> bool {
-        self.memory_pressure.load(Ordering::Acquire)
+    pub fn has_pending(&self) -> bool {
+        self.has_pending.load(Ordering::Acquire)
     }
 }
 
@@ -178,9 +188,9 @@ mod tests {
     }
 
     #[test]
-    fn test_push_sets_memory_pressure() {
+    fn test_push_sets_has_pending() {
         let queue = AllocationQueue::new();
-        assert!(!queue.is_memory_pressure());
+        assert!(!queue.has_pending());
 
         let _rx = queue.push(
             AllocationPriority::High,
@@ -188,7 +198,7 @@ mod tests {
             1024,
             BufferKind::GetObject,
         );
-        assert!(queue.is_memory_pressure());
+        assert!(queue.has_pending());
     }
 
     #[test]
@@ -202,10 +212,10 @@ mod tests {
         );
 
         let entry = queue.pop_front_if(always).unwrap();
-        assert!(!queue.is_memory_pressure());
+        assert!(!queue.has_pending());
 
         let buffer = make_buffer(entry.size);
-        let _ = entry.sender.send(buffer);
+        let _ = entry.fulfill(buffer);
 
         let result = block_on(rx);
         assert!(result.is_ok());
@@ -223,7 +233,7 @@ mod tests {
 
         let result = queue.pop_front_if(|_size, _kind, _cursor| false);
         assert!(result.is_none());
-        assert!(queue.is_memory_pressure()); // still there
+        assert!(queue.has_pending()); // still there
     }
 
     #[test]
@@ -307,10 +317,29 @@ mod tests {
     }
 
     #[test]
+    fn test_upgrade_does_not_affect_uploads() {
+        let queue = AllocationQueue::new();
+        let cursor = CursorId::new_from_raw(1);
+
+        // Upload (no cursor_id) in high queue, read in low queue
+        let _rx_upload = queue.push(AllocationPriority::High, None, 8192, BufferKind::PutObject);
+        let _rx_read = queue.push(AllocationPriority::Low, Some(cursor), 1024, BufferKind::GetObject);
+
+        queue.upgrade(cursor);
+
+        // Upload is still first (was already high), then promoted read
+        let e1 = queue.pop_front_if(always).unwrap();
+        assert_eq!(e1.cursor_id, None); // upload, still at front of high
+
+        let e2 = queue.pop_front_if(always).unwrap();
+        assert_eq!(e2.cursor_id, Some(cursor)); // promoted read, back of high
+    }
+
+    #[test]
     fn test_pop_front_if_empty_queue() {
         let queue = AllocationQueue::new();
         assert!(queue.pop_front_if(always).is_none());
-        assert!(!queue.is_memory_pressure());
+        assert!(!queue.has_pending());
     }
 
     #[test]
@@ -326,7 +355,7 @@ mod tests {
 
         let entry = queue.pop_front_if(always).unwrap();
         let buffer = make_buffer(entry.size);
-        let result = entry.sender.send(buffer);
+        let result = entry.fulfill(buffer);
         assert!(result.is_err()); // receiver gone, no panic
     }
 }

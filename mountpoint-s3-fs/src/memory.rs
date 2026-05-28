@@ -1,5 +1,6 @@
+// TODO(memory-limiter): remove once wired into PagedPool
 #[allow(unused)]
-pub(crate) mod allocation_queue;
+mod allocation_queue;
 mod buffers;
 mod limiter;
 mod pages;
