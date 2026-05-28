@@ -161,6 +161,16 @@ impl PagedPool {
             .sum()
     }
 
+    /// The configured memory limit in bytes.
+    pub fn mem_limit(&self) -> u64 {
+        self.inner.limiter.mem_limit()
+    }
+
+    /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
+    pub fn data_buffer_budget(&self) -> u64 {
+        self.inner.limiter.data_buffer_budget()
+    }
+
     /// Create a new cursor and return the shared state handle.
     pub fn create_cursor(&self) -> CursorHandle {
         self.inner.limiter.create_cursor(self)

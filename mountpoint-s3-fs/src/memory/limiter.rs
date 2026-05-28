@@ -83,6 +83,19 @@ impl MemoryLimiter {
         }
     }
 
+    /// The configured memory limit in bytes. Note this is the total memory target including
+    /// non-buffer overhead, not the budget available for data buffers — see [`Self::data_buffer_budget`].
+    pub fn mem_limit(&self) -> u64 {
+        self.mem_limit
+    }
+
+    /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
+    /// This is the upper bound on buffer-backed allocations and is used by
+    /// [`crate::memory::WriteHandleLimiter`] to derive its cap.
+    pub fn data_buffer_budget(&self) -> u64 {
+        self.mem_limit.saturating_sub(self.additional_mem_reserved)
+    }
+
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
     fn reserve(&self, area: BufferArea, size: u64) {

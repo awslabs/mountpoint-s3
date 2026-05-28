@@ -14,7 +14,7 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -77,6 +77,7 @@ pub struct TestSessionConfig {
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
     pub fail_on_non_aligned_read_window: bool,
+    pub mem_limit: u64,
 }
 
 impl Default for TestSessionConfig {
@@ -96,6 +97,7 @@ impl Default for TestSessionConfig {
             #[cfg(feature = "manifest")]
             manifest: None,
             fail_on_non_aligned_read_window: false,
+            mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
 }
@@ -314,7 +316,7 @@ pub mod mock_session {
         let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
         let pool = PagedPool::config()
             .with_candidate_sizes([test_config.part_size])
-            .with_minimum_memory_limit()
+            .with_memory_limit(test_config.mem_limit)
             .build();
         let client = Arc::new(
             MockClient::config()
@@ -358,8 +360,8 @@ pub mod mock_session {
 
             let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
             let pool = PagedPool::config()
-                .with_minimum_memory_limit()
                 .with_candidate_sizes([test_config.cache_block_size, test_config.part_size])
+                .with_memory_limit(test_config.mem_limit)
                 .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
 
@@ -515,7 +517,7 @@ pub mod s3_session {
 
         let pool = PagedPool::config()
             .with_candidate_sizes([test_config.part_size])
-            .with_minimum_memory_limit()
+            .with_memory_limit(test_config.mem_limit)
             .build();
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
@@ -557,8 +559,8 @@ pub mod s3_session {
             let region = get_test_region();
 
             let pool = PagedPool::config()
-                .with_minimum_memory_limit()
                 .with_candidate_sizes([test_config.cache_block_size, test_config.part_size])
+                .with_memory_limit(test_config.mem_limit)
                 .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
 
