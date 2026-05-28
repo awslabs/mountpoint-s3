@@ -17,7 +17,7 @@ use super::stats::BufferKind;
 /// [`Low`](Self::Low) entries (FIFO). A [`Low`] request can be promoted to
 /// the back of [`High`] via [`AllocationQueue::upgrade`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AllocationPriority {
+enum AllocationPriority {
     Low,
     High,
 }
@@ -86,19 +86,33 @@ impl AllocationQueue {
         }
     }
 
-    /// Enqueue a buffer allocation request. Returns a receiver that resolves to the
-    /// allocated [PoolBuffer] when fulfilled, or `Err(Canceled)` if the sender is dropped.
-    pub fn push(
+    /// Enqueue a high-priority buffer allocation request.
+    /// Returns a receiver that resolves to the allocated [PoolBuffer] when fulfilled,
+    /// or `Err(Canceled)` if the sender is dropped.
+    pub fn push_high(
+        &self,
+        cursor_id: Option<CursorId>,
+        size: usize,
+        kind: BufferKind,
+    ) -> oneshot::Receiver<PoolBuffer> {
+        self.push_inner(AllocationPriority::High, cursor_id, size, kind)
+    }
+
+    /// Enqueue a low-priority buffer allocation request.
+    /// Low-priority requests always have a cursor (speculative prefetch).
+    /// Returns a receiver that resolves to the allocated [PoolBuffer] when fulfilled,
+    /// or `Err(Canceled)` if the sender is dropped.
+    pub fn push_low(&self, cursor_id: CursorId, size: usize, kind: BufferKind) -> oneshot::Receiver<PoolBuffer> {
+        self.push_inner(AllocationPriority::Low, Some(cursor_id), size, kind)
+    }
+
+    fn push_inner(
         &self,
         priority: AllocationPriority,
         cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
     ) -> oneshot::Receiver<PoolBuffer> {
-        assert!(
-            priority == AllocationPriority::High || cursor_id.is_some(),
-            "Low priority requests must have a cursor_id"
-        );
         let (sender, receiver) = oneshot::channel();
         let entry = PendingAllocation {
             cursor_id,
@@ -119,9 +133,10 @@ impl AllocationQueue {
 
     /// Atomically peeks at the front entry and removes it if `predicate` returns `true`.
     ///
-    /// Checks the high-priority list first, then low. The predicate receives the
-    /// entry's size, kind, and cursor_id so the caller can decide (e.g., check
-    /// `can_allocate(size)`) without a race between peek and pop.
+    /// Checks the high-priority list first, then low. Cancelled entries (where the
+    /// receiver was dropped) are pruned from the front of each queue before checking
+    /// the predicate — this prevents a large cancelled entry from blocking smaller
+    /// live entries behind it.
     ///
     /// Returns `None` if both queues are empty or the predicate returns `false`.
     /// Sets `has_pending` to `false` if both queues become empty after removal.
@@ -130,7 +145,21 @@ impl AllocationQueue {
         predicate: impl FnOnce(usize, BufferKind, Option<CursorId>) -> bool,
     ) -> Option<PendingAllocation> {
         let mut inner = self.inner.lock().unwrap();
-        let front = inner.high.front().or_else(|| inner.low.front())?;
+
+        // Prune cancelled entries from the front of each queue.
+        while inner.high.front().is_some_and(|e| e.sender.is_canceled()) {
+            inner.high.pop_front();
+        }
+        while inner.low.front().is_some_and(|e| e.sender.is_canceled()) {
+            inner.low.pop_front();
+        }
+
+        let front = inner.high.front().or_else(|| inner.low.front());
+        let Some(front) = front else {
+            self.has_pending.store(false, Ordering::Release);
+            return None;
+        };
+
         if !predicate(front.size, front.kind, front.cursor_id) {
             return None;
         }
@@ -151,11 +180,17 @@ impl AllocationQueue {
         let n = inner.low.len();
         for _ in 0..n {
             let entry = inner.low.pop_front().unwrap();
+            if entry.sender.is_canceled() {
+                continue;
+            }
             if entry.cursor_id == Some(cursor_id) {
                 inner.high.push_back(entry);
             } else {
                 inner.low.push_back(entry);
             }
+        }
+        if inner.high.is_empty() && inner.low.is_empty() {
+            self.has_pending.store(false, Ordering::Release);
         }
     }
 
@@ -192,24 +227,14 @@ mod tests {
         let queue = AllocationQueue::new();
         assert!(!queue.has_pending());
 
-        let _rx = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(1)),
-            1024,
-            BufferKind::GetObject,
-        );
+        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
         assert!(queue.has_pending());
     }
 
     #[test]
     fn test_pop_front_if_fulfills_and_clears_pressure() {
         let queue = AllocationQueue::new();
-        let rx = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(1)),
-            1024,
-            BufferKind::GetObject,
-        );
+        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
 
         let entry = queue.pop_front_if(always).unwrap();
         assert!(!queue.has_pending());
@@ -224,12 +249,7 @@ mod tests {
     #[test]
     fn test_pop_front_if_predicate_false_does_not_remove() {
         let queue = AllocationQueue::new();
-        let _rx = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(1)),
-            1024,
-            BufferKind::GetObject,
-        );
+        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
 
         let result = queue.pop_front_if(|_size, _kind, _cursor| false);
         assert!(result.is_none());
@@ -240,18 +260,8 @@ mod tests {
     fn test_high_priority_served_before_low() {
         let queue = AllocationQueue::new();
 
-        let _rx_low = queue.push(
-            AllocationPriority::Low,
-            Some(CursorId::new_from_raw(1)),
-            1024,
-            BufferKind::GetObject,
-        );
-        let _rx_high = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(2)),
-            1024,
-            BufferKind::GetObject,
-        );
+        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject);
+        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
 
         let entry = queue.pop_front_if(always).unwrap();
         assert_eq!(entry.cursor_id, Some(CursorId::new_from_raw(2))); // high first
@@ -261,18 +271,8 @@ mod tests {
     fn test_fifo_within_same_priority() {
         let queue = AllocationQueue::new();
 
-        let _rx1 = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(1)),
-            1024,
-            BufferKind::GetObject,
-        );
-        let _rx2 = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(2)),
-            1024,
-            BufferKind::GetObject,
-        );
+        let _rx1 = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        let _rx2 = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
 
         let first = queue.pop_front_if(always).unwrap();
         let second = queue.pop_front_if(always).unwrap();
@@ -286,8 +286,8 @@ mod tests {
         let cursor_a = CursorId::new_from_raw(1);
         let cursor_b = CursorId::new_from_raw(2);
 
-        let _rx_a = queue.push(AllocationPriority::Low, Some(cursor_a), 1024, BufferKind::GetObject);
-        let _rx_b = queue.push(AllocationPriority::Low, Some(cursor_b), 1024, BufferKind::GetObject);
+        let _rx_a = queue.push_low(cursor_a, 1024, BufferKind::GetObject);
+        let _rx_b = queue.push_low(cursor_b, 1024, BufferKind::GetObject);
 
         queue.upgrade(cursor_a);
 
@@ -301,9 +301,9 @@ mod tests {
         let cursor = CursorId::new_from_raw(1);
         let other = CursorId::new_from_raw(2);
 
-        let _rx1 = queue.push(AllocationPriority::Low, Some(cursor), 1024, BufferKind::GetObject);
-        let _rx2 = queue.push(AllocationPriority::Low, Some(cursor), 2048, BufferKind::GetObject);
-        let _rx_other = queue.push(AllocationPriority::Low, Some(other), 1024, BufferKind::GetObject);
+        let _rx1 = queue.push_low(cursor, 1024, BufferKind::GetObject);
+        let _rx2 = queue.push_low(cursor, 2048, BufferKind::GetObject);
+        let _rx_other = queue.push_low(other, 1024, BufferKind::GetObject);
 
         queue.upgrade(cursor);
 
@@ -322,8 +322,8 @@ mod tests {
         let cursor = CursorId::new_from_raw(1);
 
         // Upload (no cursor_id) in high queue, read in low queue
-        let _rx_upload = queue.push(AllocationPriority::High, None, 8192, BufferKind::PutObject);
-        let _rx_read = queue.push(AllocationPriority::Low, Some(cursor), 1024, BufferKind::GetObject);
+        let _rx_upload = queue.push_high(None, 8192, BufferKind::PutObject);
+        let _rx_read = queue.push_low(cursor, 1024, BufferKind::GetObject);
 
         queue.upgrade(cursor);
 
@@ -336,6 +336,20 @@ mod tests {
     }
 
     #[test]
+    fn test_cancelled_large_entry_does_not_block_smaller_entry() {
+        let queue = AllocationQueue::new();
+
+        let rx_large = queue.push_high(Some(CursorId::new_from_raw(1)), 64 * 1024 * 1024, BufferKind::GetObject);
+        let _rx_small = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+
+        drop(rx_large);
+
+        let entry = queue.pop_front_if(|size, _, _| size <= 1024 * 1024);
+        assert!(entry.is_some());
+        assert_eq!(entry.unwrap().cursor_id, Some(CursorId::new_from_raw(2)));
+    }
+
+    #[test]
     fn test_pop_front_if_empty_queue() {
         let queue = AllocationQueue::new();
         assert!(queue.pop_front_if(always).is_none());
@@ -343,19 +357,13 @@ mod tests {
     }
 
     #[test]
-    fn test_dropped_receiver_does_not_block() {
+    fn test_cancelled_entry_pruned_on_pop() {
         let queue = AllocationQueue::new();
-        let rx = queue.push(
-            AllocationPriority::High,
-            Some(CursorId::new_from_raw(1)),
-            1024,
-            BufferKind::GetObject,
-        );
+        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
         drop(rx);
 
-        let entry = queue.pop_front_if(always).unwrap();
-        let buffer = make_buffer(entry.size);
-        let result = entry.fulfill(buffer);
-        assert!(result.is_err()); // receiver gone, no panic
+        let entry = queue.pop_front_if(always);
+        assert!(entry.is_none());
+        assert!(!queue.has_pending());
     }
 }
