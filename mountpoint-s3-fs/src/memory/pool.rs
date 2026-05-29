@@ -186,6 +186,16 @@ impl PagedPool {
         self.inner.limiter.has_active_read_in_range(cursor_id, offset, size)
     }
 
+    /// Whether the pool has budget to allocate `size` more bytes without breaching the limit.
+    /// Equivalent to `pool_total + size <= data_buffer_budget`, where `data_buffer_budget`
+    /// is `mem_limit - additional_mem_reserved` (the static metadata/bookkeeping headroom).
+    /// Note this checks the pool stats only — it intentionally ignores `mem_reserved`
+    /// (per-cursor read-window reservations) which gates prefetcher scaling, not allocation.
+    pub fn can_allocate(&self, size: usize) -> bool {
+        let total = self.inner.stats.total_reserved_bytes() as u64;
+        total.saturating_add(size as u64) <= self.inner.limiter.data_buffer_budget()
+    }
+
     // ─── Internal components exposed to the rest of the `memory` module. ──────────
 
     pub(super) fn stats(&self) -> &PoolStats {

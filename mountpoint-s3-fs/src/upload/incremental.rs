@@ -16,7 +16,7 @@ use tracing::{Instrument, debug_span, trace};
 use crate::ServerSideEncryption;
 use crate::async_util::Runtime;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
-use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
+use crate::memory::{AllocationPriority, BufferKind, PagedPool, PoolBufferMut};
 
 use super::hasher::ChecksumHasher;
 use super::{ChecksumHasherError, UploadError};
@@ -256,20 +256,33 @@ where
                 AppendUploadEvent::Error(upload_error) => return Err(upload_error),
             }
         };
-        while self.requests_in_queue > 0 {
-            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool)? {
-                Some(buffer) => return Ok(buffer),
-                None => {
-                    // wait for requests in the queue to complete before trying to reserve memory again
-                    trace!("wait for the next request to be processed");
-                    if !self.consume_next_response().await? {
-                        return Err(UploadError::UploadAlreadyTerminated);
-                    }
-                }
+        // Three-way decision per iteration:
+        //   1. No outstanding requests for this handle (nothing pushed-but-not-acked) →
+        //      force-allocate via `get_buffer_mut`. Forward-progress guarantee for the
+        //      write() FUSE thread: with nothing pending for this handle to wait on, the
+        //      next buffer is allocated unconditionally rather than blocking on memory held
+        //      by unrelated handles. Each admitted writer is guaranteed a buffer this way;
+        //      the resulting overshoot is bounded by `WriteHandleLimiter` admission control.
+        //   2. Budget available → allocate via `acquire_async`.
+        //   3. Budget exhausted (memory pressure) → drain one in-flight response from this
+        //      handle's own pipeline before retrying.
+        let hasher = ChecksumHasher::new(&checksum_algorithm)?;
+        loop {
+            if self.requests_in_queue == 0 {
+                let data = self.pool.get_buffer_mut(capacity, BufferKind::Append, None);
+                return Ok(UploadBuffer { data, hasher });
+            }
+            if self.pool.can_allocate(capacity) {
+                let data = self
+                    .pool
+                    .acquire_async(capacity, BufferKind::Append, AllocationPriority::High, None)
+                    .await;
+                return Ok(UploadBuffer { data, hasher });
+            }
+            if !self.consume_next_response().await? {
+                return Err(UploadError::UploadAlreadyTerminated);
             }
         }
-        // no more requests in the queue, so we force creating a new buffer
-        Ok(UploadBuffer::new(capacity, &checksum_algorithm, &self.pool)?)
     }
 
     /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
@@ -433,32 +446,6 @@ struct UploadBuffer {
 }
 
 impl UploadBuffer {
-    /// Force creating a new buffer regardless of available memory
-    fn new(
-        capacity: usize,
-        checksum_algorithm: &Option<ChecksumAlgorithm>,
-        pool: &PagedPool,
-    ) -> Result<Self, ChecksumHasherError> {
-        let hasher = ChecksumHasher::new(checksum_algorithm)?;
-        let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
-        Ok(Self { data, hasher })
-    }
-
-    /// Try creating a new buffer, return `None` if not enough available memory
-    fn try_new(
-        capacity: usize,
-        checksum_algorithm: &Option<ChecksumAlgorithm>,
-        pool: &PagedPool,
-    ) -> Result<Option<Self>, ChecksumHasherError> {
-        if pool.available_mem() >= capacity as u64 {
-            let hasher = ChecksumHasher::new(checksum_algorithm)?;
-            let data = pool.get_buffer_mut(capacity, BufferKind::Append, None);
-            Ok(Some(Self { data, hasher }))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Write a slice to the buffer. The slice will be trimmed to fit into the buffer,
     /// remaining slice is returned back to the caller.
     fn write<'a>(&mut self, mut slice: &'a [u8]) -> Result<&'a [u8], ChecksumHasherError> {
