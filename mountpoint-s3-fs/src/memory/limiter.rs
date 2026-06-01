@@ -175,6 +175,15 @@ impl MemoryLimiter {
             .unwrap_or(false)
     }
 
+    /// Check if the given cursor currently has an active FUSE read in progress.
+    pub fn has_active_read(&self, cursor_id: CursorId) -> bool {
+        self.cursors
+            .get(&cursor_id)
+            .and_then(|r| r.upgrade())
+            .map(|s| s.active_read.lock().unwrap().is_some())
+            .unwrap_or(false)
+    }
+
     /// Called by the pool on every buffer allocation. For download buffers with a known cursor,
     /// this converts reservation from "intent" (`mem_reserved`) to "actual allocation" (pool stats)
     /// by decrementing both the global and per-cursor counters.
@@ -300,6 +309,8 @@ impl Drop for CursorState {
         // The limiter holds a weak reference to `CursorState`, so this `Drop` runs when all strong
         // references are gone. `release_cursor` removes the reference and decrements the global reservation counter.
         self.pool.limiter().release_cursor(self.cursor_id, &self.mem_reserved);
+        // Releasing the cursor's reservation may have freed memory — wake any pending allocations.
+        self.pool.try_wake_pending();
     }
 }
 

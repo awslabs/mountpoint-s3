@@ -68,6 +68,14 @@ struct AllocationQueueInner {
     low: VecDeque<PendingAllocation>,
 }
 
+impl std::fmt::Debug for AllocationQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllocationQueue")
+            .field("has_pending", &self.has_pending.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for AllocationQueue {
     fn default() -> Self {
         Self::new()
@@ -175,6 +183,7 @@ impl AllocationQueue {
     ///
     /// Called when a FUSE read arrives for a cursor that has pending speculative
     /// allocations — those allocations are now urgent.
+    #[allow(dead_code)] // TODO(memory-limiter): wire into set_active_read
     pub fn upgrade(&self, cursor_id: CursorId) {
         let mut inner = self.inner.lock().unwrap();
         let n = inner.low.len();
@@ -210,10 +219,11 @@ mod tests {
     use futures::executor::block_on;
 
     use crate::memory::pages::Page;
+    use crate::sync::Weak;
 
     fn make_buffer(size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(size);
-        let ptr = page.try_reserve(BufferKind::Other).unwrap();
+        let ptr = page.try_reserve(BufferKind::Other, Weak::new()).unwrap();
         PoolBuffer::new_primary(ptr, size)
     }
 
