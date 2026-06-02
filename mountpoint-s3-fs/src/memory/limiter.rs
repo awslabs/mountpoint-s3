@@ -164,6 +164,18 @@ impl MemoryLimiter {
             .saturating_sub(self.additional_mem_reserved)
     }
 
+    /// Reset a cursor: invoke its registered reset callback.
+    pub fn request_reset(&self, cursor_id: CursorId) -> bool {
+        let Some(state) = self.cursors.get(&cursor_id).and_then(|r| r.upgrade()) else {
+            return false;
+        };
+        let reset_fn = state.reset_fn.lock().unwrap();
+        let Some(f) = reset_fn.as_ref() else {
+            return false;
+        };
+        f()
+    }
+
     /// Check if the given cursor has an active read overlapping the specified range.
     pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         // The weak reference fails to upgrade iff the cursor has already been dropped, which means
@@ -241,9 +253,10 @@ impl ActiveRead {
     }
 }
 
+type ResetFn = Box<dyn Fn() -> bool + Send + Sync>;
+
 /// Per-cursor state shared between the memory pool's limiter,
 /// the BackpressureController, and the Cursor.
-#[derive(Debug)]
 pub struct CursorState {
     /// The memory pool tracking this cursor.
     pool: PagedPool,
@@ -253,6 +266,9 @@ pub struct CursorState {
     mem_reserved: AtomicU64,
     /// Active FUSE read range. None when no read is in progress.
     active_read: Mutex<Option<ActiveRead>>,
+    /// Callback that drops the cursor's expensive inner resources.
+    /// `None` before registration.
+    reset_fn: Mutex<Option<ResetFn>>,
 }
 
 impl CursorState {
@@ -262,6 +278,7 @@ impl CursorState {
             cursor_id,
             mem_reserved: AtomicU64::new(0),
             active_read: Mutex::new(None),
+            reset_fn: Mutex::new(None),
         }
     }
 
@@ -295,6 +312,17 @@ impl CursorState {
     }
 }
 
+impl std::fmt::Debug for CursorState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CursorState")
+            .field("cursor_id", &self.cursor_id)
+            .field("mem_reserved", &self.mem_reserved)
+            .field("active_read", &self.active_read)
+            .field("has_reset_fn", &self.reset_fn.lock().unwrap().is_some())
+            .finish()
+    }
+}
+
 impl Drop for CursorState {
     fn drop(&mut self) {
         // The limiter holds a weak reference to `CursorState`, so this `Drop` runs when all strong
@@ -324,6 +352,12 @@ impl CursorHandle {
     pub fn set_active_read(&self, offset: u64, size: usize) -> ActiveReadGuard {
         *self.state.active_read.lock().unwrap() = Some(ActiveRead { offset, size });
         ActiveReadGuard { state: self.state() }
+    }
+
+    /// Register a callback that will be invoked to drop the cursor's expensive
+    /// inner resources (RequestTask + SeekWindow) on a limiter-initiated reset.
+    pub fn register_reset_fn(&self, f: ResetFn) {
+        *self.state.reset_fn.lock().unwrap() = Some(f);
     }
 }
 
@@ -632,5 +666,16 @@ mod tests {
             sys.total_memory(),
             "without a cgroup limit, effective_total_memory() should equal total physical memory",
         );
+    }
+
+    #[test]
+    fn reset_cursor_returns_false_after_drop() {
+        let pool = new_pool();
+        let cursor = pool.create_cursor();
+        let cursor_id = cursor.id();
+        drop(cursor);
+
+        // Cursor already dropped — weak upgrade fails
+        assert!(!pool.reset_cursor(cursor_id));
     }
 }

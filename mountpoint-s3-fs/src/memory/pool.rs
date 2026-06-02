@@ -176,6 +176,13 @@ impl PagedPool {
         self.inner.limiter.create_cursor(self)
     }
 
+    /// Reset a cursor: immediately drop its in-flight request and buffered data,
+    /// reclaiming all reserved memory. Returns `true` if the cursor was actually
+    /// reset, `false` if already dropped or already reset.
+    pub fn reset_cursor(&self, cursor_id: CursorId) -> bool {
+        self.inner.limiter.request_reset(cursor_id)
+    }
+
     /// Query available memory.
     pub fn available_mem(&self) -> u64 {
         self.inner.limiter.available_mem(&self.inner.stats)
