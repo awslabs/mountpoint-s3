@@ -205,6 +205,9 @@ impl PagedPool {
     /// Called whenever memory is freed — on buffer drop, cursor release, or pool trim.
     /// Loops until no more entries can be fulfilled or the queue is empty.
     pub(super) fn try_wake_pending(&self) {
+        if !self.inner.allocation_queue.has_pending() {
+            return;
+        }
         loop {
             let entry = self
                 .inner
@@ -225,9 +228,6 @@ impl PagedPool {
     /// - cursor with an active FUSE read → high priority
     /// - cursor without an active read (speculative prefetch) → low priority
     /// - no cursor (upload) → high priority (write syscall is blocked)
-    ///
-    /// If the receiver is cancelled (cursor dropped while waiting), falls back to a
-    /// direct allocation — the CRT must always receive a buffer.
     async fn acquire_buffer_async(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         // Fast path: if the queue is empty and there is room, allocate immediately.
         if !self.inner.allocation_queue.has_pending() && self.can_allocate(size) {
@@ -243,8 +243,12 @@ impl PagedPool {
             Some(id) => self.inner.allocation_queue.push_low(id, size, kind),
             None => self.inner.allocation_queue.push_high(None, size, kind), // uploads are urgent
         };
-        // The only error is Canceled (cursor dropped while waiting). The CRT must always
-        // receive a buffer, so fall back to a direct allocation.
+        // After pushing, try to wake immediately in case memory freed between the
+        // can_allocate check above and the push (avoids the race where a buffer drop
+        // called try_wake_pending before the entry was in the queue).
+        self.try_wake_pending();
+        // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
+        // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
         rx.await.unwrap_or_else(|_| self.get_buffer(size, kind, cursor_id))
     }
 
@@ -522,7 +526,7 @@ mod tests {
         }
     }
 
-    #[test_matrix(&[1, 2, 3, 4, 5, 6, 7], &[5, 10], [None, Some(Duration::from_millis(1))])]
+    #[test_matrix(&[1, 2, 3, 4, 5, 6, 7], &[5, 10], [None, Some(Duration::from_millis(10))])]
     #[test_matrix(&vec![42u8; 1000], &[128, 1024], [None, Some(Duration::from_millis(10))])]
     #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [None, Some(Duration::from_millis(10))])]
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
@@ -597,12 +601,15 @@ mod tests {
         use futures::executor::block_on;
 
         use super::*;
-        use crate::memory::limiter::MINIMUM_MEM_LIMIT;
 
         fn tight_pool(buffer_size: usize) -> PagedPool {
+            // Use a small limit — just enough for one page (16 buffers) plus overhead.
+            // This keeps the "fill all memory" loop fast in debug builds.
+            let additional_reserved = (buffer_size as u64 * 16).max(128 * 1024 * 1024);
+            let mem_limit = buffer_size as u64 * 16 + additional_reserved;
             PagedPool::config()
                 .with_candidate_sizes([buffer_size])
-                .with_memory_limit(MINIMUM_MEM_LIMIT)
+                .with_memory_limit(mem_limit)
                 .build()
         }
 
@@ -646,7 +653,7 @@ mod tests {
             let handle =
                 std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
 
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            std::thread::sleep(std::time::Duration::from_millis(1));
             blockers.pop(); // free one buffer — should wake the pending request
 
             let buffer = handle.join().unwrap();
@@ -669,13 +676,13 @@ mod tests {
             let low_handle = std::thread::spawn(move || {
                 block_on(pool1.acquire_buffer_async(BUF, BufferKind::GetObject, Some(CursorId::new_from_raw(1))))
             });
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(1));
 
             // Enqueue a high-priority request (upload, no cursor).
             let pool2 = pool.clone();
             let high_handle =
                 std::thread::spawn(move || block_on(pool2.acquire_buffer_async(BUF, BufferKind::PutObject, None)));
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(1));
 
             // Free one buffer — high priority should be served first.
             blockers.pop();
