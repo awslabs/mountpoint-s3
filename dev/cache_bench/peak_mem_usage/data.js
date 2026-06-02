@@ -1,117 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778673676759,
+  "lastUpdate": 1780426772971,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Cache Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7c41baaa3ca29d9f0215573fb3bb9e6303150e9d",
-          "message": "Update dev container to support local cache tests depending on loopback fs (#1788)\n\nBefore this change, running integration tests in the container would\nfail as it would not be able to run sudo, create the ext4 filesystem\netc. introduced by #1779.\n\nThis change updates the container to be able to invoke sudo, and adds\nmissing dependencies.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, dev container change only.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2026-03-17T14:37:38Z",
-          "tree_id": "807ed655a8ee90ed37491395f499f4f382f17ab6",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c41baaa3ca29d9f0215573fb3bb9e6303150e9d"
-        },
-        "date": 1773765863482,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "rand_read_4t_direct",
-            "value": 2524.8203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 32.5078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 2189.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 33.82421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 2411.7109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 26.48046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 2210.078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 33.2421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 2306.8828125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 34.67578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 2195.01171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 36.5078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2175.62890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 24.26953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2183.7578125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2163.32421875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 24.95703125,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -3269,6 +3160,115 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_read_small",
             "value": 22.3359375,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "kiron1@gmail.com",
+            "name": "kiron1",
+            "username": "kiron1"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c6a7779eec77dcab7493ffda7292433577524ed",
+          "message": "mountpoint-s3-fs: allow mounting on top of autofs (#1762)\n\nAllow mounting on a directory if it is already a mountpoint as long as\nit is of type `autofs`.\nThe fs_type autofs is used by autofs (and therefor SystemD automount\nunits) to enable the automatic mount functionallity.\n\n### Does this change impact existing behavior?\n\nOnly slightly, it enables now to use mount-s3 in combination with auto\nmount.\n\nuser @StarlightSyndrome mentions this problem already in #44, but no\nsolution was provided so far.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nShould be added: mount-s3 can now be used with autofs.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Kiron <kiron1@gmail.com>\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>\nCo-authored-by: Renan Magagnin <renanmag@amazon.co.uk>",
+          "timestamp": "2026-06-02T16:53:34Z",
+          "tree_id": "17510215aa930a3e166ce1180aefca7f65636758",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c6a7779eec77dcab7493ffda7292433577524ed"
+        },
+        "date": 1780426772903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "rand_read_4t_direct",
+            "value": 2487.453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 29.08203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 2564.12109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 28.3125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 2179.48046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 43.94921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 2443.84375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 44.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 2484.35546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 30.5703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 2395.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 38.40234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2268.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 32.59765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2259.69921875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2179.2734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 22.21484375,
             "unit": "MiB"
           }
         ]
