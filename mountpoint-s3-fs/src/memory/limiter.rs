@@ -8,7 +8,7 @@ use tracing::{debug, trace};
 use crate::prefetch::CursorId;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, Weak};
-use crate::wake_signal::WakeSignal;
+use crate::util::wake_signal::WakeSignal;
 
 use super::PagedPool;
 use super::stats::PoolStats;

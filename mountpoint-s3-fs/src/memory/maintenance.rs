@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::trace;
 
 use crate::sync::{Arc, Weak, thread};
-use crate::wake_signal::WakeSignal;
+use crate::util::wake_signal::WakeSignal;
 
 use super::pool::PagedPoolInner;
 

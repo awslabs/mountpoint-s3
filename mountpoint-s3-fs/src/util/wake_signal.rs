@@ -12,7 +12,7 @@
 //! ```ignore
 //! use std::sync::Arc;
 //! use std::time::Duration;
-//! use mountpoint_s3_fs::wake_signal::WakeSignal;
+//! use mountpoint_s3_fs::util::wake_signal::WakeSignal;
 //!
 //! let signal = Arc::new(WakeSignal::new());
 //! let consumer = std::thread::spawn({
