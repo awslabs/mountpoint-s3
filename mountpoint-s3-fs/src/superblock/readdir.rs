@@ -685,6 +685,7 @@ mod tests {
                 write_file_handle,
                 &Default::default(),
                 OpenFlags::O_WRONLY,
+                None,
             )
             .await
             .expect("Start writing failed");

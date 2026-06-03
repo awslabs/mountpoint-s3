@@ -222,7 +222,10 @@ struct CliArgs {
 }
 
 fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S3ClientConfig {
-    let pool = PagedPool::new_with_candidate_sizes_unlimited([args.part_size]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([args.part_size])
+        .with_no_memory_limit()
+        .build();
     let mut config = S3ClientConfig::new()
         .endpoint_config(EndpointConfig::new(region))
         .throughput_target_gbps(args.throughput_target_gbps)

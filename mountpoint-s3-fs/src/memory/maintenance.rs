@@ -163,7 +163,10 @@ mod tests {
     /// and exit. Otherwise the thread leaks until the idle interval elapses.
     #[test]
     fn maintenance_thread_exits_on_pool_drop() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let handle = spawn_pool_maintenance_thread(pool.inner(), TEST_IDLE_INTERVAL);
 
         drop(pool);
@@ -186,7 +189,10 @@ mod tests {
     /// pruner's job here is to observe and exit.
     #[test]
     fn run_pruning_round_returns_idle_on_empty_queue() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
 
         let outcome = run_pruning_round(pool.inner());
         assert_eq!(outcome, PruningOutcome::Idle);

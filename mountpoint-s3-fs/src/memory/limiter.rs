@@ -89,6 +89,19 @@ impl MemoryLimiter {
         }
     }
 
+    /// The configured memory limit in bytes. Note this is the total memory target including
+    /// non-buffer overhead, not the budget available for data buffers — see [`Self::data_buffer_budget`].
+    pub fn mem_limit(&self) -> u64 {
+        self.mem_limit
+    }
+
+    /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
+    /// This is the upper bound on buffer-backed allocations and is used by
+    /// [`crate::memory::WriteHandleLimiter`] to derive its cap.
+    pub fn data_buffer_budget(&self) -> u64 {
+        self.mem_limit.saturating_sub(self.additional_mem_reserved)
+    }
+
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
     /// the configured memory limit.
     fn reserve(&self, area: BufferArea, size: u64) {
@@ -155,6 +168,18 @@ impl MemoryLimiter {
             .saturating_sub(mem_reserved)
             .saturating_sub(pool_mem_reserved)
             .saturating_sub(self.additional_mem_reserved)
+    }
+
+    /// Reset a cursor: invoke its registered reset callback.
+    pub fn request_reset(&self, cursor_id: CursorId) -> bool {
+        let Some(state) = self.cursors.get(&cursor_id).and_then(|r| r.upgrade()) else {
+            return false;
+        };
+        let reset_fn = state.reset_fn.lock().unwrap();
+        let Some(f) = reset_fn.as_ref() else {
+            return false;
+        };
+        f()
     }
 
     /// Check if the given cursor has an active read overlapping the specified range.
@@ -296,9 +321,10 @@ impl ActiveRead {
     }
 }
 
+type ResetFn = Box<dyn Fn() -> bool + Send + Sync>;
+
 /// Per-cursor state shared between the memory pool's limiter,
 /// the BackpressureController, and the Cursor.
-#[derive(Debug)]
 pub struct CursorState {
     /// The memory pool tracking this cursor.
     pool: PagedPool,
@@ -308,6 +334,9 @@ pub struct CursorState {
     mem_reserved: AtomicU64,
     /// Active FUSE read range. None when no read is in progress.
     active_read: Mutex<Option<ActiveRead>>,
+    /// Callback that drops the cursor's expensive inner resources.
+    /// `None` before registration.
+    reset_fn: Mutex<Option<ResetFn>>,
 }
 
 impl CursorState {
@@ -317,6 +346,7 @@ impl CursorState {
             cursor_id,
             mem_reserved: AtomicU64::new(0),
             active_read: Mutex::new(None),
+            reset_fn: Mutex::new(None),
         }
     }
 
@@ -350,6 +380,17 @@ impl CursorState {
     }
 }
 
+impl std::fmt::Debug for CursorState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CursorState")
+            .field("cursor_id", &self.cursor_id)
+            .field("mem_reserved", &self.mem_reserved)
+            .field("active_read", &self.active_read)
+            .field("has_reset_fn", &self.reset_fn.lock().unwrap().is_some())
+            .finish()
+    }
+}
+
 impl Drop for CursorState {
     fn drop(&mut self) {
         // The limiter holds a weak reference to `CursorState`, so this `Drop` runs when all strong
@@ -380,6 +421,12 @@ impl CursorHandle {
         *self.state.active_read.lock().unwrap() = Some(ActiveRead { offset, size });
         ActiveReadGuard { state: self.state() }
     }
+
+    /// Register a callback that will be invoked to drop the cursor's expensive
+    /// inner resources (RequestTask + SeekWindow) on a limiter-initiated reset.
+    pub fn register_reset_fn(&self, f: ResetFn) {
+        *self.state.reset_fn.lock().unwrap() = Some(f);
+    }
 }
 
 /// RAII guard that clears the active read for a cursor when dropped.
@@ -402,7 +449,10 @@ mod tests {
     use crate::sync::atomic::Ordering;
 
     fn new_pool() -> PagedPool {
-        PagedPool::new_with_candidate_sizes_minimally_limited([1024])
+        PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build()
     }
 
     #[test]
@@ -498,7 +548,10 @@ mod tests {
     fn test_on_pool_reserve_noop_after_release_cursor() {
         // Simulates the cancellation race: on_reserve fires after release_cursor
         // removed the entry. The callback should be a no-op.
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
 
@@ -518,7 +571,10 @@ mod tests {
 
     #[test]
     fn test_on_pool_reserve_saturates_on_over_decrement() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
 
@@ -539,7 +595,10 @@ mod tests {
 
     #[test]
     fn test_available_mem_accounts_for_pool_allocations() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
         let stats = pool.stats();
@@ -563,7 +622,10 @@ mod tests {
 
     #[test]
     fn test_upload_allocation_does_not_affect_mem_reserved() {
-        let pool = PagedPool::new_with_candidate_sizes_minimally_limited([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([1024])
+            .with_minimum_memory_limit()
+            .build();
         let limiter = pool.limiter();
         let stats = pool.stats();
 
@@ -672,5 +734,16 @@ mod tests {
             sys.total_memory(),
             "without a cgroup limit, effective_total_memory() should equal total physical memory",
         );
+    }
+
+    #[test]
+    fn reset_cursor_returns_false_after_drop() {
+        let pool = new_pool();
+        let cursor = pool.create_cursor();
+        let cursor_id = cursor.id();
+        drop(cursor);
+
+        // Cursor already dropped — weak upgrade fails
+        assert!(!pool.reset_cursor(cursor_id));
     }
 }

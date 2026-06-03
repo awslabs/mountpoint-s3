@@ -266,12 +266,7 @@ where
         offset: u64,
         length: usize,
     ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
-        trace!(
-            offset,
-            length,
-            next_seq_offset = self.cursor.as_ref().map(|c| c.current_offset()),
-            "read"
-        );
+        trace!(offset, length, "read");
 
         let remaining = self.size.saturating_sub(offset);
         if remaining == 0 {
@@ -323,14 +318,20 @@ where
             Ok(result)
         } else {
             // Otherwise, create a new cursor at `offset` and read from it.
-            let cursor = self.cursor.insert(self.create_cursor(offset)?);
-            cursor.read(length).await
+            let (cursor, result) = self.read_from_new_cursor(offset, length).await?;
+            self.cursor = Some(cursor);
+            Ok(result)
         }
     }
 
-    /// Create a new Cursor and associated backpressure GetObject request which has a range from current offset
+    /// Create a new [`Cursor`] and start reading from it.
+    /// The new cursor starts a backpressure GetObject request with a range from current offset
     /// to the end of the file.
-    fn create_cursor(&self, offset: u64) -> Result<Cursor<Client>, PrefetchReadError<Client::ClientError>> {
+    async fn read_from_new_cursor(
+        &self,
+        offset: u64,
+        initial_read_length: usize,
+    ) -> Result<(Cursor<Client>, (ChecksummedBytes, bool)), PrefetchReadError<Client::ClientError>> {
         let object_size = self.size as usize;
         let client = self.part_stream.client();
 
@@ -355,13 +356,15 @@ where
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
         let request_task = self.part_stream.spawn_request_task(task_config);
-        Ok(Cursor::new(
+        Cursor::new_and_read(
             request_task,
             cursor_handle,
             &self.config,
             self.object_id.clone(),
             offset,
-        ))
+            initial_read_length,
+        )
+        .await
     }
 
     /// Reset this prefetch request, clearing any existing tasks queued.
@@ -377,7 +380,6 @@ mod tests {
 
     use crate::Runtime;
     use crate::data_cache::InMemoryDataCache;
-    use crate::memory::MINIMUM_MEM_LIMIT;
     use crate::memory::PagedPool;
     use crate::sync::Arc;
 
@@ -428,8 +430,10 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool =
-            PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([client.read_part_size(), client.write_part_size()])
+            .with_minimum_memory_limit()
+            .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {
             PrefetcherType::Default => Prefetcher::default_builder(client),
@@ -1135,6 +1139,62 @@ mod tests {
         assert_eq!(next_offset, object_size);
     }
 
+    /// Resetting a cursor mid-read reclaims memory, and the next read transparently
+    /// creates a new cursor and returns correct data.
+    #[test]
+    fn reset_cursor_mid_read_recovers() {
+        const PART_SIZE: usize = 256 * KB;
+        const OBJECT_SIZE: usize = 4 * MB;
+        const READ_SIZE: usize = 256 * KB;
+
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(PART_SIZE)
+                .enable_backpressure(true)
+                .initial_read_window_size(PART_SIZE)
+                .build(),
+        );
+        let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
+        let expected = object.read(0, READ_SIZE * 2);
+        let etag = object.etag();
+        client.add_object("hello", object);
+
+        let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
+        let object_id = ObjectId::new("hello".to_owned(), etag);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
+
+        block_on(async {
+            // Read the first chunk
+            let buf = request.read(0, READ_SIZE).await.unwrap();
+            assert_eq!(buf.into_bytes().unwrap()[..], expected[..READ_SIZE]);
+
+            // Reset the cursor via the pool
+            let cursor_id = request
+                .cursor
+                .as_ref()
+                .expect("cursor should still be populated")
+                .cursor_id();
+            let pool = request.part_stream.pool();
+            let available_before = pool.available_mem();
+            assert!(pool.reset_cursor(cursor_id));
+
+            // Memory should be reclaimed (reservation released)
+            let available_after = pool.available_mem();
+            assert!(
+                available_after > available_before,
+                "expected memory to be reclaimed: before={available_before}, after={available_after}"
+            );
+
+            // Second reset should return false
+            assert!(!pool.reset_cursor(cursor_id));
+
+            // Next read should succeed transparently (creates a new cursor)
+            let buf = request.read(READ_SIZE as u64, READ_SIZE).await.unwrap();
+            assert_eq!(buf.into_bytes().unwrap()[..], expected[READ_SIZE..]);
+        });
+    }
+
     #[cfg(feature = "shuttle")]
     mod shuttle_tests {
         use super::*;
@@ -1169,7 +1229,10 @@ mod tests {
                     .initial_read_window_size(part_size)
                     .build(),
             );
-            let pool = PagedPool::new_with_candidate_sizes([part_size], MINIMUM_MEM_LIMIT);
+            let pool = PagedPool::config()
+                .with_candidate_sizes([part_size])
+                .with_minimum_memory_limit()
+                .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1230,7 +1293,10 @@ mod tests {
                     .initial_read_window_size(part_size)
                     .build(),
             );
-            let pool = PagedPool::new_with_candidate_sizes([part_size], MINIMUM_MEM_LIMIT);
+            let pool = PagedPool::config()
+                .with_candidate_sizes([part_size])
+                .with_minimum_memory_limit()
+                .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 

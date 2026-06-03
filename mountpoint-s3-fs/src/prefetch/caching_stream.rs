@@ -418,17 +418,13 @@ mod tests {
     use std::{thread, time::Duration};
 
     use futures::executor::{ThreadPool, block_on};
-    use mountpoint_s3_client::{
-        mock_client::{MockClient, MockObject, Operation},
-        types::ETag,
-    };
+    use mountpoint_s3_client::mock_client::{MockClient, MockObject, Operation};
+    use mountpoint_s3_client::types::ETag;
     use test_case::test_case;
 
-    use crate::{
-        data_cache::InMemoryDataCache,
-        memory::{MINIMUM_MEM_LIMIT, PagedPool},
-        object::ObjectId,
-    };
+    use crate::data_cache::InMemoryDataCache;
+    use crate::memory::PagedPool;
+    use crate::object::ObjectId;
 
     use super::*;
 
@@ -470,7 +466,10 @@ mod tests {
                 .initial_read_window_size(client_part_size)
                 .build(),
         );
-        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([block_size, client_part_size])
+            .with_minimum_memory_limit()
+            .build();
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -554,7 +553,10 @@ mod tests {
                 .initial_read_window_size(client_part_size)
                 .build(),
         );
-        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size], MINIMUM_MEM_LIMIT);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([block_size, client_part_size])
+            .with_minimum_memory_limit()
+            .build();
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
