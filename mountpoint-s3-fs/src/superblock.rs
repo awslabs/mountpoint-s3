@@ -815,7 +815,12 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
         write_mode: &WriteMode,
         flags: OpenFlags,
     ) -> Result<NewHandle, InodeError> {
-        let force_revalidate_if_remote = !self.inner.config.cache_config.serve_lookup_from_cache || flags.direct_io();
+        // Always revalidate on read opens to get a fresh ETag and versionId.
+        let force_revalidate_if_remote = if flags.contains(OpenFlags::O_WRONLY) {
+            !self.inner.config.cache_config.serve_lookup_from_cache || flags.direct_io()
+        } else {
+            true
+        };
         let looked_up_inode = self.getattr_with_inode(ino, force_revalidate_if_remote).await?;
         match looked_up_inode.inode.kind() {
             InodeKind::Directory => return Err(InodeError::IsDirectory(looked_up_inode.inode.err())),
