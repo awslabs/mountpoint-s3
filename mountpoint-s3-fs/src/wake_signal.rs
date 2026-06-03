@@ -68,6 +68,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    use tokio::sync::oneshot;
+
     use super::WakeSignal;
 
     const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
@@ -77,27 +79,21 @@ mod tests {
     #[test]
     fn notify_wakes_waiter_before_timeout() {
         let signal = Arc::new(WakeSignal::new());
-        let signal_for_waiter = signal.clone();
-        let started = Arc::new(std::sync::Mutex::new(false));
-        let started_for_waiter = started.clone();
-        let waiter_started = Arc::new(std::sync::Condvar::new());
-        let waiter_started_clone = waiter_started.clone();
+        let (started_tx, started_rx) = oneshot::channel();
 
-        let waiter = std::thread::spawn(move || {
-            *started_for_waiter.lock().unwrap() = true;
-            waiter_started_clone.notify_one();
-            let start = Instant::now();
-            signal_for_waiter.wait_timeout(Duration::from_secs(60));
-            start.elapsed()
+        let waiter = std::thread::spawn({
+            let signal = signal.clone();
+            move || {
+                started_tx.send(()).unwrap();
+                let start = Instant::now();
+                signal.wait_timeout(Duration::from_secs(60));
+                start.elapsed()
+            }
         });
 
         // Make sure the waiter has reached its wait_timeout call so we
         // exercise the cvar wake path (rather than the pre-notify path).
-        let mut g = started.lock().unwrap();
-        while !*g {
-            g = waiter_started.wait(g).unwrap();
-        }
-        drop(g);
+        started_rx.blocking_recv().unwrap();
         std::thread::sleep(Duration::from_millis(10));
 
         signal.notify();
