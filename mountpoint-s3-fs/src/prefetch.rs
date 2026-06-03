@@ -311,22 +311,27 @@ where
         let max_preferred_part_size = 1024 * 1024;
         self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
-        loop {
-            // Try to use the current cursor, if present. Allows for limited non sequential reads.
-            if let Some(ref mut cursor) = self.cursor
-                && let Some(result) = cursor.try_read(offset, length).await?
-            {
-                return Ok(result);
-            } else {
-                // Otherwise, create a new cursor at `offset` and read from it.
-                self.cursor = Some(self.create_cursor(offset)?);
-            }
+        // Try to use the current cursor, if present. Allows for limited non sequential reads.
+        if let Some(ref mut cursor) = self.cursor
+            && let Some(result) = cursor.try_read(offset, length).await?
+        {
+            Ok(result)
+        } else {
+            // Otherwise, create a new cursor at `offset` and read from it.
+            let (cursor, result) = self.read_from_new_cursor(offset, length).await?;
+            self.cursor = Some(cursor);
+            Ok(result)
         }
     }
 
-    /// Create a new Cursor and associated backpressure GetObject request which has a range from current offset
+    /// Create a new [`Cursor`] and start reading from it.
+    /// The new cursor starts a backpressure GetObject request with a range from current offset
     /// to the end of the file.
-    fn create_cursor(&self, offset: u64) -> Result<Cursor<Client>, PrefetchReadError<Client::ClientError>> {
+    async fn read_from_new_cursor(
+        &self,
+        offset: u64,
+        initial_read_length: usize,
+    ) -> Result<(Cursor<Client>, (ChecksummedBytes, bool)), PrefetchReadError<Client::ClientError>> {
         let object_size = self.size as usize;
         let client = self.part_stream.client();
 
@@ -351,13 +356,15 @@ where
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
         let request_task = self.part_stream.spawn_request_task(task_config);
-        Ok(Cursor::new(
+        Cursor::new_and_read(
             request_task,
             cursor_handle,
             &self.config,
             self.object_id.clone(),
             offset,
-        ))
+            initial_read_length,
+        )
+        .await
     }
 
     /// Reset this prefetch request, clearing any existing tasks queued.

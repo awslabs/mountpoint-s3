@@ -177,8 +177,9 @@ impl PagedPool {
     }
 
     /// Reset a cursor: immediately drop its in-flight request and buffered data,
-    /// reclaiming all reserved memory. Returns `true` if the cursor was actually
-    /// reset, `false` if already dropped or already reset.
+    /// reclaiming all reserved memory.
+    ///
+    /// Returns whether the cursor was actually reset.
     pub fn reset_cursor(&self, cursor_id: CursorId) -> bool {
         self.inner.limiter.request_reset(cursor_id)
     }

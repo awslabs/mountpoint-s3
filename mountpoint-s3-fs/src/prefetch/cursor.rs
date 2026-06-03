@@ -22,13 +22,14 @@ where
 {
     /// Id of the object to download
     object_id: ObjectId,
+    /// Id of this cursor
+    cursor_id: CursorId,
     /// The expensive resettable resources (RequestTask + SeekWindow).
     /// `None` after a limiter-initiated reset.
     inner: Arc<AsyncMutex<Option<CursorInner<Client>>>>,
     /// The maximum amount of unavailable data the prefetcher will tolerate during a seek operation
     /// before resetting and starting a new S3 request.
     max_forward_seek_wait_distance: u64,
-    cursor_id: CursorId,
 }
 
 /// The resettable portion of a cursor: the request task and backward seek buffer.
@@ -50,14 +51,15 @@ impl<Client> Cursor<Client>
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    /// Create a new cursor at the given offset.
-    pub fn new(
+    /// Create a new cursor at the given offset and read from it.
+    pub async fn new_and_read(
         request_task: RequestTask<Client>,
         cursor_handle: CursorHandle,
         config: &PrefetcherConfig,
         object_id: ObjectId,
         offset: u64,
-    ) -> Self {
+        initial_read_length: usize,
+    ) -> Result<(Self, (ChecksummedBytes, bool)), PrefetchReadError<Client::ClientError>> {
         let cursor_id = cursor_handle.id();
         let cursor_inner = CursorInner {
             request_task,
@@ -66,35 +68,39 @@ where
             cursor_handle,
         };
 
-        // Create the mutex first so it can be shared in the reset callback.
-        let inner = Arc::new(AsyncMutex::new(None));
-        let inner_reset = Arc::downgrade(&inner);
-
-        // Populated the mutex and set up the reset callback.
-        {
-            let mut guard = inner.lock_blocking();
-            let cursor_inner = guard.insert(cursor_inner);
-            cursor_inner.cursor_handle.register_reset_fn(Box::new(move || {
-                if let Some(lock) = inner_reset.upgrade()
-                    && let Some(mut guard) = lock.try_lock()
-                {
-                    let Some(inner) = guard.take() else {
-                        return false;
-                    };
-                    drop(inner);
-                    true
-                } else {
-                    false
-                }
-            }));
-        }
-
-        Self {
+        let cursor = Self {
             object_id,
-            inner,
-            max_forward_seek_wait_distance: config.max_forward_seek_wait_distance,
             cursor_id,
-        }
+            inner: Arc::new(AsyncMutex::new(Some(cursor_inner))),
+            max_forward_seek_wait_distance: config.max_forward_seek_wait_distance,
+        };
+
+        let mut guard = cursor.inner.lock().await;
+        let inner = guard.as_mut().expect("internal cursor should be set");
+
+        // Register reset callback while holding the lock. A reset will not affect the initial read.
+        let inner_reset = Arc::downgrade(&cursor.inner);
+        inner.cursor_handle.register_reset_fn(Box::new(move || {
+            if let Some(lock) = inner_reset.upgrade()
+                && let Some(mut guard) = lock.try_lock()
+            {
+                let Some(inner) = guard.take() else {
+                    return false;
+                };
+                drop(inner);
+                true
+            } else {
+                false
+            }
+        }));
+
+        let _active_read_guard = inner
+            .cursor_handle
+            .set_active_read(inner.current_offset, initial_read_length);
+        let result = inner.do_read(&cursor, initial_read_length).await?;
+        drop(guard);
+
+        Ok((cursor, result))
     }
 
     /// Try reading at the given offset. Returns `None` if unable to seek to the offset
