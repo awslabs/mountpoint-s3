@@ -293,7 +293,11 @@ impl MemoryLimiter {
         };
 
         if self.request_reset(cursor_id) {
-            debug!(?cursor_id, last_read_tick = tick, "reset idle cursor under memory pressure");
+            debug!(
+                ?cursor_id,
+                last_read_tick = tick,
+                "reset idle cursor under memory pressure"
+            );
             return true;
         }
         false
@@ -780,9 +784,7 @@ mod tests {
     fn install_test_reset_fn(cursor: &CursorHandle) -> Arc<std::sync::atomic::AtomicBool> {
         let was_reset = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = was_reset.clone();
-        cursor.register_reset_fn(Box::new(move || {
-            !flag.swap(true, std::sync::atomic::Ordering::SeqCst)
-        }));
+        cursor.register_reset_fn(Box::new(move || !flag.swap(true, std::sync::atomic::Ordering::SeqCst)));
         was_reset
     }
 

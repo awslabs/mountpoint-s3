@@ -134,7 +134,10 @@ mod tests {
         // If notifies were *not* coalesced, four credits would remain and
         // this wait would return immediately. With coalescing it must time out.
         let second_timed_out = signal.wait_timeout(SHORT_TIMEOUT);
-        assert!(second_timed_out, "5 notifies were not coalesced; second wait returned without notify");
+        assert!(
+            second_timed_out,
+            "5 notifies were not coalesced; second wait returned without notify"
+        );
     }
 
     /// With no `notify`, `wait_timeout` must report a timeout after the
