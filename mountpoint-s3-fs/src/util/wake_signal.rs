@@ -56,28 +56,37 @@ impl WakeSignal {
     /// Wait up to `timeout` for a [`Self::notify`]. Returns once the pending
     /// flag is set (consuming it) or once the timeout elapses, whichever
     /// comes first. Spurious wakeups are handled by looping on the flag.
-    pub fn wait_timeout(&self, timeout: Duration) {
+    ///
+    /// Returns `true` if the timeout elapsed without a notify, `false` if a
+    /// notify was observed and consumed.
+    pub fn wait_timeout(&self, timeout: Duration) -> bool {
         let pending = self.pending.lock().unwrap();
-        let (mut pending, _) = self.cvar.wait_timeout_while(pending, timeout, |p| !*p).unwrap();
+        let (mut pending, result) = self.cvar.wait_timeout_while(pending, timeout, |p| !*p).unwrap();
         *pending = false;
+        result.timed_out()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use tokio::sync::oneshot;
 
     use super::WakeSignal;
 
-    const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
+    /// Generous upper bound for waits we expect to return via `notify`. If a
+    /// test is going to block, a real bug will block far longer than this.
+    const NOTIFY_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
+    /// Short timeout used when a test expects the wait to actually time out.
+    /// Kept small so the test suite stays fast.
+    const SHORT_TIMEOUT: Duration = Duration::from_millis(50);
 
-    /// `notify` must wake a waiter blocked in `wait_timeout` well before
-    /// the timeout elapses. This is the primitive's defining behavior.
+    /// `notify` must wake a waiter blocked in `wait_timeout`. This is the
+    /// primitive's defining behavior.
     #[test]
-    fn notify_wakes_waiter_before_timeout() {
+    fn notify_wakes_waiter() {
         let signal = Arc::new(WakeSignal::new());
         let (started_tx, started_rx) = oneshot::channel();
 
@@ -85,60 +94,55 @@ mod tests {
             let signal = signal.clone();
             move || {
                 started_tx.send(()).unwrap();
-                let start = Instant::now();
-                signal.wait_timeout(Duration::from_secs(60));
-                start.elapsed()
+                signal.wait_timeout(NOTIFY_WAIT_TIMEOUT)
             }
         });
 
-        // Make sure the waiter has reached its wait_timeout call so we
-        // exercise the cvar wake path (rather than the pre-notify path).
+        // Best-effort: confirm the waiter is alive before notifying. We can't
+        // portably observe that it has parked on the cvar, but `notify` sets
+        // the pending flag under the mutex either way, so this still verifies
+        // that notify wakes the waiter (via the cvar or the pre-park path).
         started_rx.blocking_recv().unwrap();
-        std::thread::sleep(Duration::from_millis(10));
 
         signal.notify();
-        let elapsed = waiter.join().expect("waiter panicked");
-        assert!(
-            elapsed < TEST_WAIT_TIMEOUT,
-            "wait_timeout returned in {elapsed:?}, expected < {TEST_WAIT_TIMEOUT:?}; \
-             notify did not wake the cvar",
-        );
+        let timed_out = waiter.join().expect("waiter panicked");
+        assert!(!timed_out, "wait_timeout reported timeout, expected notify");
     }
 
     /// `notify` called *before* `wait_timeout` must not be lost — the
-    /// pending flag is observed and the wait returns immediately.
+    /// pending flag is observed and the wait returns without timing out.
     #[test]
     fn notify_before_wait_is_not_lost() {
         let signal = WakeSignal::new();
         signal.notify();
-        let start = Instant::now();
-        signal.wait_timeout(Duration::from_secs(60));
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed < TEST_WAIT_TIMEOUT,
-            "wait_timeout did not return promptly after pre-notify (took {elapsed:?})",
-        );
+        let timed_out = signal.wait_timeout(NOTIFY_WAIT_TIMEOUT);
+        assert!(!timed_out, "pre-notify was lost; wait_timeout reported timeout");
     }
 
     /// Multiple `notify` calls before the next `wait_timeout` collapse
-    /// to a single wake (the flag is consumed once). The next
-    /// `wait_timeout` after that runs the full timeout.
-    ///
-    /// We don't run the second wait for its full timeout; we just verify
-    /// that the *first* wait returns promptly (consuming the flag), so a
-    /// follow-up notify is required to wake again.
+    /// to a single wake — the flag is consumed once, and a *subsequent*
+    /// `wait_timeout` with no further notify must time out.
     #[test]
     fn notify_coalesces() {
         let signal = WakeSignal::new();
         for _ in 0..5 {
             signal.notify();
         }
-        let start = Instant::now();
-        signal.wait_timeout(Duration::from_secs(60));
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed < TEST_WAIT_TIMEOUT,
-            "first wait_timeout did not consume any of 5 pre-notifies (took {elapsed:?})",
-        );
+        let first_timed_out = signal.wait_timeout(NOTIFY_WAIT_TIMEOUT);
+        assert!(!first_timed_out, "first wait did not consume any of 5 pre-notifies");
+
+        // If notifies were *not* coalesced, four credits would remain and
+        // this wait would return immediately. With coalescing it must time out.
+        let second_timed_out = signal.wait_timeout(SHORT_TIMEOUT);
+        assert!(second_timed_out, "5 notifies were not coalesced; second wait returned without notify");
+    }
+
+    /// With no `notify`, `wait_timeout` must report a timeout after the
+    /// duration elapses.
+    #[test]
+    fn wait_timeout_reports_timeout_when_no_notify() {
+        let signal = WakeSignal::new();
+        let timed_out = signal.wait_timeout(SHORT_TIMEOUT);
+        assert!(timed_out, "wait_timeout reported notify when none was sent");
     }
 }
