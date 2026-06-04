@@ -61,6 +61,10 @@ pub struct MemoryLimiter {
     cursors: Arc<DashMap<CursorId, Weak<CursorState>>>,
     /// Counter for generating unique [CursorId]s.
     next_cursor_id: AtomicU64,
+    /// Monotonic counter stamped onto a cursor's `last_read_at` whenever it
+    /// receives a new active read, so the pruner can pick the LRU one.
+    /// Pure ordering — does not represent wall-clock time.
+    next_read_tick: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
     /// Wakes the background pruning loop's outer wait when memory pressure starts.
@@ -84,6 +88,7 @@ impl MemoryLimiter {
             mem_reserved: Default::default(),
             cursors: Default::default(),
             next_cursor_id: AtomicU64::new(1),
+            next_read_tick: AtomicU64::new(1),
             additional_mem_reserved,
             pruning_signal: Arc::new(WakeSignal::new()),
         }
@@ -266,16 +271,31 @@ impl MemoryLimiter {
         })
     }
 
-    /// Drop the least-recently-read idle prefetch handle to free its read
-    /// window reservation and buffered parts.
+    /// Reset the least-recently-read idle cursor.
     ///
-    /// Returns `true` if a handle was dropped. Stub for now: requires
-    /// per-handle tracking of the current `RequestTask` so we can drop it
-    /// synchronously.
-    pub(crate) fn drop_one_idle_prefetch_handle(&self) -> bool {
-        // TODO: Iterate the handle registry, filter to entries that have an
-        // allocated request task but no active read, sort by last-read tick
-        // ascending, drop the oldest entry's task and signal a reset.
+    /// Returns `true` if a cursor was reset.
+    pub(crate) fn reset_one_idle_cursor(&self) -> bool {
+        let lru = self
+            .cursors
+            .iter()
+            .filter_map(|entry| {
+                let state = entry.value().upgrade()?;
+                if state.active_read.lock().unwrap().is_some() {
+                    return None;
+                }
+                Some((state.last_read_at.load(Ordering::Relaxed), state.cursor_id))
+            })
+            .min_by_key(|&(tick, _)| tick);
+
+        let Some((tick, cursor_id)) = lru else {
+            trace!("no idle cursor eligible for reset");
+            return false;
+        };
+
+        if self.request_reset(cursor_id) {
+            debug!(?cursor_id, last_read_tick = tick, "reset idle cursor under memory pressure");
+            return true;
+        }
         false
     }
 }
@@ -334,6 +354,9 @@ pub struct CursorState {
     mem_reserved: AtomicU64,
     /// Active FUSE read range. None when no read is in progress.
     active_read: Mutex<Option<ActiveRead>>,
+    /// Monotonic tick of the last `set_active_read`. `0` until the first read.
+    /// Used by the pruner to pick the least-recently-used idle cursor.
+    last_read_at: AtomicU64,
     /// Callback that drops the cursor's expensive inner resources.
     /// `None` before registration.
     reset_fn: Mutex<Option<ResetFn>>,
@@ -346,6 +369,7 @@ impl CursorState {
             cursor_id,
             mem_reserved: AtomicU64::new(0),
             active_read: Mutex::new(None),
+            last_read_at: AtomicU64::new(0),
             reset_fn: Mutex::new(None),
         }
     }
@@ -386,6 +410,7 @@ impl std::fmt::Debug for CursorState {
             .field("cursor_id", &self.cursor_id)
             .field("mem_reserved", &self.mem_reserved)
             .field("active_read", &self.active_read)
+            .field("last_read_at", &self.last_read_at)
             .field("has_reset_fn", &self.reset_fn.lock().unwrap().is_some())
             .finish()
     }
@@ -419,6 +444,8 @@ impl CursorHandle {
     /// Record an active FUSE read. Returns a guard that clears it on drop.
     pub fn set_active_read(&self, offset: u64, size: usize) -> ActiveReadGuard {
         *self.state.active_read.lock().unwrap() = Some(ActiveRead { offset, size });
+        let tick = self.state.pool.limiter().next_read_tick.fetch_add(1, Ordering::Relaxed);
+        self.state.last_read_at.store(tick, Ordering::Relaxed);
         ActiveReadGuard { state: self.state() }
     }
 
@@ -745,5 +772,101 @@ mod tests {
 
         // Cursor already dropped — weak upgrade fails
         assert!(!pool.reset_cursor(cursor_id));
+    }
+
+    /// Simple boolean-flag reset_fn for tests: flips the flag to true on first
+    /// call and returns true; subsequent calls return false (mirroring how the
+    /// real cursor reports "nothing left to reset").
+    fn install_test_reset_fn(cursor: &CursorHandle) -> Arc<std::sync::atomic::AtomicBool> {
+        let was_reset = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = was_reset.clone();
+        cursor.register_reset_fn(Box::new(move || {
+            !flag.swap(true, std::sync::atomic::Ordering::SeqCst)
+        }));
+        was_reset
+    }
+
+    #[test]
+    fn reset_one_idle_picks_least_recently_read() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let oldest = pool.create_cursor();
+        let middle = pool.create_cursor();
+        let newest = pool.create_cursor();
+
+        // Bump each cursor's tick in order: oldest first, newest last.
+        drop(oldest.set_active_read(0, 1));
+        drop(middle.set_active_read(0, 1));
+        drop(newest.set_active_read(0, 1));
+
+        let oldest_reset = install_test_reset_fn(&oldest);
+        let middle_reset = install_test_reset_fn(&middle);
+        let newest_reset = install_test_reset_fn(&newest);
+
+        assert!(limiter.reset_one_idle_cursor());
+        assert!(oldest_reset.load(Ordering::SeqCst));
+        assert!(!middle_reset.load(Ordering::SeqCst));
+        assert!(!newest_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn reset_one_idle_skips_active_cursors() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let active = pool.create_cursor();
+        let idle = pool.create_cursor();
+
+        // Active cursor was read first — it's the LRU candidate by tick alone,
+        // but its active_read guard makes it ineligible.
+        let _active_guard = active.set_active_read(0, 1);
+        drop(idle.set_active_read(0, 1));
+
+        let active_reset = install_test_reset_fn(&active);
+        let idle_reset = install_test_reset_fn(&idle);
+
+        assert!(limiter.reset_one_idle_cursor());
+        assert!(!active_reset.load(Ordering::SeqCst));
+        assert!(idle_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn reset_one_idle_returns_false_when_all_active() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let a = pool.create_cursor();
+        let b = pool.create_cursor();
+        let _ga = a.set_active_read(0, 1);
+        let _gb = b.set_active_read(0, 1);
+
+        install_test_reset_fn(&a);
+        install_test_reset_fn(&b);
+
+        assert!(!limiter.reset_one_idle_cursor());
+    }
+
+    /// If the LRU candidate's `request_reset` fails (e.g. its inner mutex is
+    /// momentarily held by a worker), `reset_one_idle_cursor` returns false
+    /// without trying any other candidates — the maintenance loop's next
+    /// round (after `PRUNING_TICK`) will see fresh state and try again.
+    #[test]
+    fn reset_one_idle_returns_false_when_lru_reset_fails() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let stale = pool.create_cursor(); // LRU
+        let live = pool.create_cursor();
+
+        drop(stale.set_active_read(0, 1));
+        drop(live.set_active_read(0, 1));
+
+        // LRU candidate's reset_fn always returns false (e.g., already reset).
+        stale.register_reset_fn(Box::new(|| false));
+        let live_reset = install_test_reset_fn(&live);
+
+        assert!(!limiter.reset_one_idle_cursor());
+        assert!(!live_reset.load(Ordering::SeqCst));
     }
 }

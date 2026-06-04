@@ -17,14 +17,14 @@ enum PruningOutcome {
     Idle,
     /// In-flight uploads or active reads will release buffers naturally; wait.
     WaitingForRelease,
-    /// One idle prefetch handle was dropped this round.
+    /// One idle cursor was reset this round.
     Acted,
 }
 
 /// Period of the pruning loop's inner tick while under memory pressure.
 pub(crate) const PRUNING_TICK: Duration = Duration::from_millis(1);
 /// If the head of the allocation queue has been waiting longer than this, the pruner
-/// will drop an idle prefetch handle even if uploads/active reads are in flight.
+/// will reset an idle cursor even if uploads/active reads are in flight.
 /// Acts as a starvation backstop.
 pub(crate) const PRUNING_STARVATION_THRESHOLD: Duration = Duration::from_millis(5);
 
@@ -94,7 +94,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///   3. If uploads are in flight or active reads hold buffers, let the
 ///      natural release path do the work — unless the head of the queue
 ///      has been waiting beyond [`PRUNING_STARVATION_THRESHOLD`].
-///   4. Otherwise drop one idle prefetch handle.
+///   4. Otherwise reset one idle cursor.
 fn run_pruning_round(pool_inner: &PagedPoolInner) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
     //    by a different SizePool after a future allocation.
@@ -119,13 +119,13 @@ fn run_pruning_round(pool_inner: &PagedPoolInner) -> PruningOutcome {
         return PruningOutcome::WaitingForRelease;
     }
 
-    // 4. Disruptive: drop one idle prefetch handle.
-    if pool_inner.limiter().drop_one_idle_prefetch_handle() {
-        metrics::counter!("mem.pruning_resets").increment(1);
+    // 4. Disruptive: reset one idle cursor.
+    if pool_inner.limiter().reset_one_idle_cursor() {
+        metrics::counter!("mem.cursor_resets").increment(1);
         return PruningOutcome::Acted;
     }
 
-    // We attempted to drop an idle prefetch handle but found nothing eligible.
+    // We attempted to reset an idle cursor but found nothing eligible.
     // Wait for the next tick; a release elsewhere may unstick us.
     PruningOutcome::WaitingForRelease
 }
