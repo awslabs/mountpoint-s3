@@ -2,7 +2,7 @@ use std::alloc::{self, Layout};
 
 use crate::sync::{Arc, Mutex, Weak};
 
-use super::pool::{PagedPool, PagedPoolInner};
+use super::pool::PagedPoolInner;
 use super::stats::{BufferKind, SizePoolStats};
 
 /// Page in a size pool.
@@ -30,6 +30,8 @@ struct PageInner {
     layout: Layout,
     /// Shared stats across pages with common `buffer_size`.
     stats: Arc<SizePoolStats>,
+    /// Weak reference back to the pool so buffer drops can wake pending allocations.
+    pool: Weak<PagedPoolInner>,
 }
 
 // SAFETY: access to mutable state in `PageInner` is synchonized internally.
@@ -51,7 +53,7 @@ impl Page {
     const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
 
     /// Create a new page and allocate the required memory.
-    pub fn new(stats: Arc<SizePoolStats>) -> Self {
+    pub fn new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>) -> Self {
         assert_ne!(stats.buffer_size, 0);
         let layout = Layout::array::<[u8; Self::BUFFERS_PER_PAGE]>(stats.buffer_size).unwrap();
 
@@ -72,6 +74,7 @@ impl Page {
             reserved_bitmask: Default::default(),
             layout,
             stats,
+            pool,
         };
         Page { inner: Arc::new(inner) }
     }
@@ -79,7 +82,7 @@ impl Page {
     /// Try to reserve a buffer from this page.
     ///
     /// Returns [None] if the page is already full.
-    pub fn try_reserve(&self, kind: BufferKind, pool: Weak<PagedPoolInner>) -> Option<PagedBufferPtr> {
+    pub fn try_reserve(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
         let (index, page_status) = consume(&mut self.inner.reserved_bitmask.lock().unwrap())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
@@ -94,7 +97,7 @@ impl Page {
             ptr,
             pool_page: self.clone(),
             kind,
-            pool,
+            pool: self.inner.pool.clone(),
         })
     }
 
@@ -145,7 +148,7 @@ impl Page {
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
         let pool_stats = super::stats::PoolStats::default();
         let stats = SizePoolStats::new(buffer_size, Arc::new(pool_stats));
-        Page::new(Arc::new(stats))
+        Page::new(Arc::new(stats), Weak::new())
     }
 }
 
@@ -196,7 +199,7 @@ impl Drop for PagedBufferPtr {
     fn drop(&mut self) {
         self.pool_page.release(self.ptr, self.kind);
         if let Some(pool) = self.pool.upgrade() {
-            PagedPool::from_inner(pool).try_wake_pending();
+            pool.try_wake_pending();
         }
     }
 }
@@ -221,24 +224,24 @@ mod tests {
         let mut buffers = Vec::new();
         for _ in 0..Page::BUFFERS_PER_PAGE {
             let buffer_ptr = page
-                .try_reserve(BufferKind::Other, Weak::new())
+                .try_reserve(BufferKind::Other)
                 .expect("reserving up to 16 buffers from a new page should succeed");
             buffers.push(buffer_ptr);
         }
 
         assert!(
-            page.try_reserve(BufferKind::Other, Weak::new()).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving the 17th buffer from a page should return None"
         );
 
         _ = buffers.pop().expect("drop one of the reserved buffers");
 
         buffers.push(
-            page.try_reserve(BufferKind::Other, Weak::new())
+            page.try_reserve(BufferKind::Other)
                 .expect("reserving after dropping 1 buffer should succeed"),
         );
         assert!(
-            page.try_reserve(BufferKind::Other, Weak::new()).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving when all 16 buffers are in use should return None"
         );
 
@@ -254,7 +257,7 @@ mod tests {
             "invalidation of a new, empty page should succeed"
         );
         assert!(
-            page.try_reserve(BufferKind::Other, Weak::new()).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving from an invalidated page should return None"
         );
     }
@@ -263,7 +266,7 @@ mod tests {
     fn test_invalidate_in_use() {
         let page = Page::new_for_tests(1024);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other, Weak::new())
+            .try_reserve(BufferKind::Other)
             .expect("reserving from a new page should succeed");
         assert!(!page.invalidate_if_empty(), "invalidation of a page in use should fail");
         drop(buffer_ptr);
@@ -272,7 +275,7 @@ mod tests {
             "invalidation of an empty page should succeed"
         );
         assert!(
-            page.try_reserve(BufferKind::Other, Weak::new()).is_none(),
+            page.try_reserve(BufferKind::Other).is_none(),
             "reserving from an invalidated page should return None"
         );
     }

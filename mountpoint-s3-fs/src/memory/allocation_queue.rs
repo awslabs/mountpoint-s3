@@ -219,11 +219,10 @@ mod tests {
     use futures::executor::block_on;
 
     use crate::memory::pages::Page;
-    use crate::sync::Weak;
 
     fn make_buffer(size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(size);
-        let ptr = page.try_reserve(BufferKind::Other, Weak::new()).unwrap();
+        let ptr = page.try_reserve(BufferKind::Other).unwrap();
         PoolBuffer::new_primary(ptr, size)
     }
 

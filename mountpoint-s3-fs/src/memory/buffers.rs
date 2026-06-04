@@ -6,7 +6,7 @@ use bytes::Bytes;
 use crate::sync::{Arc, Weak};
 
 use super::pages::PagedBufferPtr;
-use super::pool::{PagedPool, PagedPoolInner};
+use super::pool::PagedPoolInner;
 use super::stats::{BufferKind, PoolStats};
 
 /// A buffer backed by the pool.
@@ -198,7 +198,7 @@ impl Drop for FreeBuffer {
     fn drop(&mut self) {
         self.stats.release_bytes(self.data.len(), self.kind);
         if let Some(pool) = self.pool.upgrade() {
-            PagedPool::from_inner(pool).try_wake_pending();
+            pool.try_wake_pending();
         }
     }
 }
@@ -215,7 +215,7 @@ mod tests {
     fn primary(buffer_size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(buffer_size);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other, Weak::new())
+            .try_reserve(BufferKind::Other)
             .expect("should be able to reserve a buffer from a new page");
 
         PoolBuffer::new_primary(buffer_ptr, buffer_size)
