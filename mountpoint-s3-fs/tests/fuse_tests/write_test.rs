@@ -1499,15 +1499,30 @@ fn write_checksums_test(
                     object_has_checksum || parts_have_checksum,
                     "{algo:?} should be present on the object or its parts"
                 );
+                // The object-level checksum shape depends on how the object was uploaded.
+                // Multipart (atomic) uploads complete with CompleteMultipartUpload, which for
+                // CRC32C yields a COMPOSITE checksum-of-checksums carrying a `<base64>-<part-count>`
+                // suffix. Incremental uploads use the append API (PutObject with a write offset),
+                // which never completes a multipart upload, so the object carries a bare FULL_OBJECT
+                // checksum with no suffix. Assert the shape that matches the path so a regression
+                // (e.g. the composite path quietly breaking, or append emitting a composite value)
+                // would fail loudly.
                 if object_has_checksum {
                     let value = extract(object_checksum.as_ref().unwrap()).unwrap();
-                    let (_, suffix) = value.rsplit_once('-').unwrap_or_else(|| {
-                        panic!("{algo:?} object-level checksum must be COMPOSITE shape (`<base64>-<part-count>`), got {value:?}")
-                    });
-                    assert!(
-                        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
-                        "{algo:?} composite suffix must be a positive part count, got {value:?}"
-                    );
+                    if upload_mode.is_incremental() {
+                        assert!(
+                            !value.contains('-'),
+                            "{algo:?} append (incremental) object-level checksum must be FULL_OBJECT shape (no `-<part-count>` suffix), got {value:?}"
+                        );
+                    } else {
+                        let (_, suffix) = value.rsplit_once('-').unwrap_or_else(|| {
+                            panic!("{algo:?} multipart object-level checksum must be COMPOSITE shape (`<base64>-<part-count>`), got {value:?}")
+                        });
+                        assert!(
+                            !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
+                            "{algo:?} composite suffix must be a positive part count, got {value:?}"
+                        );
+                    }
                 }
             }
         }
