@@ -194,14 +194,7 @@ impl MemoryLimiter {
         let Some(state) = self.cursors.get(&cursor_id).and_then(|r| r.upgrade()) else {
             return false;
         };
-        match *state.read_state.lock().unwrap() {
-            ReadState::Active { offset: o, size: s } => {
-                let self_end = o + s as u64;
-                let other_end = offset + size as u64;
-                o < other_end && offset < self_end
-            }
-            ReadState::Last { .. } => false,
-        }
+        state.read_state.lock().unwrap().is_active(offset, size)
     }
 
     /// Called by the pool on every buffer allocation. For download buffers with a known cursor,
@@ -350,6 +343,22 @@ enum ReadState {
     /// No read is in flight. `tick` is the monotonic counter stamped when
     /// the last read ended, or `0` if the cursor has never been read from.
     Last { tick: u64 },
+}
+
+impl ReadState {
+    /// `true` iff there is an in-flight read whose range overlaps `[offset, offset + size)`.
+    fn is_active(&self, offset: u64, size: usize) -> bool {
+        let Self::Active {
+            offset: active_offset,
+            size: active_size,
+        } = *self
+        else {
+            return false;
+        };
+        let active_end = active_offset + active_size as u64;
+        let other_end = offset + size as u64;
+        active_offset < other_end && offset < active_end
+    }
 }
 
 type ResetFn = Box<dyn Fn() -> bool + Send + Sync>;
