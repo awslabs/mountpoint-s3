@@ -97,7 +97,6 @@ impl Page {
             ptr,
             pool_page: self.clone(),
             kind,
-            pool: self.inner.pool.clone(),
         })
     }
 
@@ -118,6 +117,14 @@ impl Page {
         self.inner.stats.remove_reserved_buffer(kind);
         if *bitmask == 0 {
             self.inner.stats.add_empty_page();
+        }
+        // Release the bitmask lock before waking pending allocations.
+        // try_wake_pending may try to allocate from this same page which would deadlock
+        // if we held the bitmask lock.
+        drop(bitmask);
+        // A primary buffer was freed — wake any pending allocation requests.
+        if let Some(pool) = self.inner.pool.upgrade() {
+            pool.try_wake_pending();
         }
     }
 
@@ -188,8 +195,6 @@ pub(super) struct PagedBufferPtr {
     ptr: *mut u8,
     pool_page: Page,
     kind: BufferKind,
-    /// Weak reference back to the pool so this buffer's drop can wake pending allocations.
-    pool: Weak<PagedPoolInner>,
 }
 
 // SAFETY: access to the buffer and release back to the pool page on drop can be performed from another thread.
@@ -198,9 +203,6 @@ unsafe impl Send for PagedBufferPtr {}
 impl Drop for PagedBufferPtr {
     fn drop(&mut self) {
         self.pool_page.release(self.ptr, self.kind);
-        if let Some(pool) = self.pool.upgrade() {
-            pool.try_wake_pending();
-        }
     }
 }
 

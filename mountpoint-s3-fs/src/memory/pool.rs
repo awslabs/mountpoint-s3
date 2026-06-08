@@ -3,7 +3,8 @@ use std::time::Duration;
 use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
 use crate::prefetch::CursorId;
-use crate::sync::{Arc, Mutex, RwLock, Weak};
+use crate::sync::atomic::{AtomicU64, Ordering};
+use crate::sync::{Arc, RwLock, Weak};
 
 use super::allocation_queue::AllocationQueue;
 use super::buffers::{PoolBuffer, PoolBufferMut};
@@ -89,7 +90,7 @@ impl PagedPool {
             stats,
             limiter,
             allocation_queue: AllocationQueue::new(),
-            alloc_gate: Mutex::new(()),
+            pending_allocations: AtomicU64::new(0),
         };
         Self { inner: Arc::new(inner) }
     }
@@ -196,20 +197,53 @@ impl PagedPool {
     }
 
     /// Returns `true` if the pool can accommodate an additional allocation of `size` bytes.
+    #[cfg(test)]
     fn can_allocate(&self, size: usize) -> bool {
-        self.available_mem() >= size as u64
+        let pending = self.inner.pending_allocations.load(Ordering::SeqCst);
+        self.available_mem().saturating_sub(pending) >= size as u64
     }
 
-    /// Check available memory and, if there is room, allocate and return a buffer. Returns `None`
-    /// if the pool cannot accommodate `size` bytes.
+    /// Check available memory and, if there is room, atomically claim the bytes and allocate.
+    /// Returns `None` if the pool cannot accommodate `size` bytes.
     ///
-    /// Both the check and the allocation are performed while holding `alloc_gate`, so this
-    /// check-and-allocate is atomic with respect to other gated allocations: a plain `can_allocate`
-    /// check followed by `get_buffer` would let concurrent callers both observe room for the same
-    /// bytes and overshoot the limit.
+    /// The limit check uses a compare-and-swap loop on `pending_allocations` — multiple threads
+    /// can claim bytes concurrently without a mutex. The actual allocation (`get_buffer`) runs
+    /// outside the CAS, so `SizePool::reserve` and secondary allocations proceed in parallel.
     fn try_allocate(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> Option<PoolBuffer> {
-        let _gate = self.inner.alloc_gate.lock().unwrap();
-        self.can_allocate(size).then(|| self.get_buffer(size, kind, cursor_id))
+        // Primary buffers round up to buffer_size; use the actual size for accounting.
+        let alloc_size = self
+            .inner
+            .get_pool_for_size(size)
+            .map(|pool| pool.buffer_size())
+            .unwrap_or(size) as u64;
+
+        // Atomically claim `alloc_size` bytes. Re-read pending on each retry because another
+        // thread may have claimed or freed bytes between iterations.
+        let mut pending = self.inner.pending_allocations.load(Ordering::SeqCst);
+        loop {
+            let available = self.available_mem().saturating_sub(pending);
+            if available < alloc_size {
+                return None;
+            }
+            match self.inner.pending_allocations.compare_exchange_weak(
+                pending,
+                pending + alloc_size,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(current) => pending = current,
+            }
+        }
+
+        // Bytes claimed — allocate without holding any lock.
+        // SizePool::reserve uses its own RwLock; secondary allocations are independent.
+        let buffer = self.get_buffer(size, kind, cursor_id);
+
+        // Buffer is now tracked by pool stats; release the pending claim.
+        self.inner.pending_allocations.fetch_sub(alloc_size, Ordering::SeqCst);
+
+        Some(buffer)
     }
 
     /// Attempt to fulfill pending allocation requests from the queue.
@@ -231,7 +265,7 @@ impl PagedPool {
     /// - no cursor (upload) → high priority (write syscall is blocked)
     async fn acquire_buffer_async(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         // Fast path: if the queue is empty, try to allocate immediately. The check-and-allocate in
-        // `try_allocate` is serialized by `alloc_gate`, so concurrent fast-path callers cannot both
+        // `try_allocate` uses CAS on `pending_allocations`, so concurrent fast-path callers cannot both
         // observe room for the same bytes and overshoot the limit.
         if !self.inner.allocation_queue.has_pending()
             && let Some(buffer) = self.try_allocate(size, kind, cursor_id)
@@ -302,14 +336,10 @@ pub(super) struct PagedPoolInner {
     stats: Arc<PoolStats>,
     limiter: MemoryLimiter,
     allocation_queue: AllocationQueue,
-    /// Serializes the check-and-allocate step for gated (async) allocations.
-    ///
-    /// Checking available memory and reserving a buffer are two separate operations; held across
-    /// both, this gate ensures only one gated allocation commits at a time, so concurrent callers
-    /// cannot both observe room for the same bytes and overshoot the memory limit. Synchronous
-    /// allocations ([`get_buffer`](PagedPool::get_buffer)) intentionally bypass the gate — they are
-    /// not memory-limited.
-    alloc_gate: Mutex<()>,
+    /// Tracks bytes that have been claimed (limit check passed) but not yet reflected in pool
+    /// stats. Used to prevent two concurrent callers both observing room for the same bytes.
+    /// Decremented once `get_buffer` completes and pool stats take over.
+    pending_allocations: AtomicU64,
 }
 
 impl PagedPoolInner {
@@ -360,18 +390,43 @@ impl PagedPoolInner {
         }
         let pool = PagedPool::from_inner(self.clone());
         let mut undelivered = Vec::new();
-        {
-            let _gate = self.alloc_gate.lock().unwrap();
-            loop {
-                let available = self.limiter.available_mem(&self.stats);
-                let entry = self
-                    .allocation_queue
-                    .pop_front_if(|size, _, _| available >= size as u64);
-                let Some(entry) = entry else { break };
-                let buffer = pool.get_buffer(entry.size, entry.kind, entry.cursor_id);
-                if let Err(buffer) = entry.fulfill(buffer) {
-                    undelivered.push(buffer);
+
+        loop {
+            // Atomically check and pop the front entry if we can afford it.
+            // The CAS inside pop_front_if re-reads pending after each retry,
+            // so a concurrent claim by another thread is always visible.
+            let entry = self.allocation_queue.pop_front_if(|size, _, _| {
+                let alloc_size = self.get_pool_for_size(size).map(|p| p.buffer_size()).unwrap_or(size) as u64;
+                let mut pending = self.pending_allocations.load(Ordering::SeqCst);
+                loop {
+                    let available = self.limiter.available_mem(&self.stats).saturating_sub(pending);
+                    if available < alloc_size {
+                        return false;
+                    }
+                    match self.pending_allocations.compare_exchange_weak(
+                        pending,
+                        pending + alloc_size,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    ) {
+                        Ok(_) => return true,
+                        Err(current) => pending = current,
+                    }
                 }
+            });
+            let Some(entry) = entry else { break };
+
+            let alloc_size = self
+                .get_pool_for_size(entry.size)
+                .map(|p| p.buffer_size())
+                .unwrap_or(entry.size) as u64;
+
+            // Allocate without any lock — SizePool handles concurrency with its own RwLock.
+            let buffer = pool.get_buffer(entry.size, entry.kind, entry.cursor_id);
+            self.pending_allocations.fetch_sub(alloc_size, Ordering::SeqCst);
+
+            if let Err(buffer) = entry.fulfill(buffer) {
+                undelivered.push(buffer);
             }
         }
         drop(undelivered);
@@ -755,7 +810,7 @@ mod tests {
         ///
         /// We fill memory leaving exactly one free buffer slot, then release many threads
         /// simultaneously (via a [Barrier]) into the fast path and poll each once. The
-        /// check-and-allocate is serialized by `alloc_gate`, so exactly one thread may allocate the
+        /// The CAS on `pending_allocations` ensures exactly one thread can claim the last slot;
         /// last slot; the rest must queue. Before the fix, several threads passed a plain
         /// `can_allocate` check concurrently and all allocated, reserving more buffers than the
         /// budget allows.
