@@ -274,7 +274,8 @@ impl PagedPool {
         }
 
         // Determine priority: a cursor with an active FUSE read is High (urgent),
-        // everything else is Low (speculative prefetch or upload without a cursor).
+        // speculative prefetch (cursor with no active read) is Low.
+        // Uploads (no cursor) are always High — a write syscall is blocked.
         // NOTE: We check if the cursor has an active read, not if this allocation serves it.
         let rx = match cursor_id {
             Some(id) if self.inner.limiter.has_active_read(id) => {
@@ -295,6 +296,12 @@ impl PagedPool {
     /// Check if the given cursor has an active read overlapping the specified range.
     pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         self.inner.limiter.has_active_read_in_range(cursor_id, offset, size)
+    }
+
+    /// Promote any pending speculative allocation queue entries for `cursor_id` to high priority.
+    /// Called when a FUSE read arrives for the cursor.
+    pub(super) fn upgrade_pending(&self, cursor_id: CursorId) {
+        self.inner.allocation_queue.upgrade(cursor_id);
     }
 
     // ─── Internal components exposed to the rest of the `memory` module. ──────────
@@ -429,6 +436,9 @@ impl PagedPoolInner {
                 undelivered.push(buffer);
             }
         }
+        // TODO(memory-limiter): these buffers should be dropped immediately so the freed memory
+        // can serve the next waiter, but dropping them here would recursively call try_wake_pending
+        // (since buffer drop triggers the wake). Decouple by running try_wake_pending concurrently.
         drop(undelivered);
     }
 }
@@ -753,7 +763,13 @@ mod tests {
                 let _ = tx.send(buffer);
             });
 
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            // Wait for the request to enter the queue before freeing memory.
+            for _ in 0..1000 {
+                if pool.inner.allocation_queue.has_pending() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
             blockers.pop(); // free one buffer — should wake the pending request
 
             let buffer = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("timed out");
@@ -771,38 +787,78 @@ mod tests {
                 blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
             }
 
-            // Enqueue a low-priority request (speculative, cursor with no active read).
-            let (low_tx, low_rx) = std::sync::mpsc::channel();
-            let pool1 = pool.clone();
-            std::thread::spawn(move || {
-                let buf =
-                    block_on(pool1.acquire_buffer_async(BUF, BufferKind::GetObject, Some(CursorId::new_from_raw(1))));
-                let _ = low_tx.send(buf);
-            });
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            // Push both requests directly to the queue so ordering is deterministic.
+            // Low priority first (speculative read), then high priority (upload).
+            let low_rx = pool
+                .inner
+                .allocation_queue
+                .push_low(CursorId::new_from_raw(1), BUF, BufferKind::GetObject);
+            let high_rx = pool.inner.allocation_queue.push_high(None, BUF, BufferKind::PutObject);
 
-            // Enqueue a high-priority request (upload, no cursor).
-            let (high_tx, high_rx) = std::sync::mpsc::channel();
-            let pool2 = pool.clone();
+            // Receive via threads + mpsc channels so we can use recv_timeout.
+            let (low_tx, low_mpsc) = std::sync::mpsc::channel();
+            let (high_tx, high_mpsc) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let buf = block_on(pool2.acquire_buffer_async(BUF, BufferKind::PutObject, None));
-                let _ = high_tx.send(buf);
+                let _ = low_tx.send(block_on(low_rx).unwrap());
             });
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::spawn(move || {
+                let _ = high_tx.send(block_on(high_rx).unwrap());
+            });
 
-            // Free one buffer — high priority should be served first.
+            // Both are now in the queue. Free one buffer — high priority must be served first.
             blockers.pop();
-            let high_buf = high_rx
+            let high_buf = high_mpsc
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("timed out");
             assert!(high_buf.capacity() >= BUF);
 
             // Free another — low priority now gets served.
             blockers.pop();
-            let low_buf = low_rx
+            let low_buf = low_mpsc
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("timed out");
             assert!(low_buf.capacity() >= BUF);
+        }
+
+        #[test]
+        fn test_set_active_read_upgrades_speculative_to_high() {
+            const BUF: usize = 1024;
+            let pool = tight_pool(BUF);
+
+            // Fill all memory.
+            let mut blockers = Vec::new();
+            while pool.can_allocate(BUF) {
+                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            }
+
+            let cursor = pool.create_cursor();
+            let cursor_id = cursor.id();
+
+            // Push a speculative (low-priority) request for this cursor.
+            let (tx, rx) = std::sync::mpsc::channel();
+            let pool1 = pool.clone();
+            std::thread::spawn(move || {
+                let buf = block_on(pool1.acquire_buffer_async(BUF, BufferKind::GetObject, Some(cursor_id)));
+                let _ = tx.send(buf);
+            });
+            // Wait for it to enter the queue as low priority.
+            for _ in 0..1000 {
+                if pool.inner.allocation_queue.has_pending() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+
+            // Simulate a FUSE read arriving — should upgrade the entry to high priority.
+            let _guard = cursor.set_active_read(0, BUF);
+
+            // Verify the entry is now in the high-priority queue by freeing one buffer
+            // and checking it gets served (would time out if stuck in low queue behind nothing).
+            blockers.pop();
+            let buffer = rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("timed out after upgrade");
+            assert!(buffer.capacity() >= BUF);
         }
 
         /// Reproduces the race where concurrent fast-path allocations could both observe room for

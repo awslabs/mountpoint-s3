@@ -183,7 +183,6 @@ impl AllocationQueue {
     ///
     /// Called when a FUSE read arrives for a cursor that has pending speculative
     /// allocations — those allocations are now urgent.
-    #[allow(dead_code)] // TODO(memory-limiter): wire into set_active_read
     pub fn upgrade(&self, cursor_id: CursorId) {
         let mut inner = self.inner.lock().unwrap();
         let n = inner.low.len();

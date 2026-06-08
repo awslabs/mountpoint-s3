@@ -332,8 +332,12 @@ impl CursorHandle {
     }
 
     /// Record an active FUSE read. Returns a guard that clears it on drop.
+    /// Also upgrades any pending speculative allocation queue entries for this cursor
+    /// to high priority, since a read is now actively waiting.
     pub fn set_active_read(&self, offset: u64, size: usize) -> ActiveReadGuard {
         *self.state.active_read.lock().unwrap() = Some(ActiveRead { offset, size });
+        // Promote any speculative queue entries to high priority.
+        self.state.pool.upgrade_pending(self.state.cursor_id);
         ActiveReadGuard { state: self.state() }
     }
 }
