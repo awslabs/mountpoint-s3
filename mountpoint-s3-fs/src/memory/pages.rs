@@ -48,11 +48,11 @@ impl Drop for PageInner {
 }
 
 impl Page {
-    const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
+    pub const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
 
     /// Create a new page and allocate the required memory.
-    pub fn new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>) -> Self {
-        let (bytes, layout) = stats.allocate_page(Self::BUFFERS_PER_PAGE);
+    pub fn try_new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>, forced: bool) -> Option<Self> {
+        let (bytes, layout) = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
         let last_buffer = unsafe { bytes.add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size) };
@@ -64,7 +64,7 @@ impl Page {
             stats,
             pool,
         };
-        Page { inner: Arc::new(inner) }
+        Some(Page { inner: Arc::new(inner) })
     }
 
     /// Try to acquire a buffer from this page.
@@ -144,9 +144,9 @@ impl Page {
 
     #[cfg(test)]
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
-        let pool_stats = super::stats::PoolStats::default();
-        let stats = SizePoolStats::new(buffer_size, Arc::new(pool_stats));
-        Page::new(Arc::new(stats), Weak::new())
+        let limiter = super::limiter::MemoryLimiter::new(u64::MAX);
+        let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
+        Page::try_new(Arc::new(stats), Weak::new(), true).unwrap()
     }
 }
 

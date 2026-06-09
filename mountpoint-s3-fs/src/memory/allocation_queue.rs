@@ -153,10 +153,7 @@ impl AllocationQueue {
     ///
     /// Returns `None` if both queues are empty or the predicate returns `false`.
     /// Sets `has_pending` to `false` if both queues become empty after removal.
-    pub fn pop_front_if(
-        &self,
-        predicate: impl FnOnce(usize, BufferKind, Option<CursorId>) -> bool,
-    ) -> Option<PendingAllocation> {
+    pub fn pop_front_if(&self, predicate: impl FnOnce(&PendingAllocation) -> bool) -> Option<PendingAllocation> {
         let mut inner = self.inner.lock().unwrap();
 
         // Prune cancelled entries from the front of each queue.
@@ -173,7 +170,7 @@ impl AllocationQueue {
             return None;
         };
 
-        if !predicate(front.size, front.kind, front.cursor_id) {
+        if !predicate(front) {
             return None;
         }
         let entry = inner.high.pop_front().or_else(|| inner.low.pop_front());
@@ -247,7 +244,7 @@ mod tests {
     }
 
     /// Helper: always-true predicate (unconditionally pop).
-    fn always(_size: usize, _kind: BufferKind, _cursor: Option<CursorId>) -> bool {
+    fn always(_pending: &PendingAllocation) -> bool {
         true
     }
 
@@ -280,7 +277,7 @@ mod tests {
         let queue = AllocationQueue::new();
         let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
 
-        let result = queue.pop_front_if(|_size, _kind, _cursor| false);
+        let result = queue.pop_front_if(|_pending| false);
         assert!(result.is_none());
         assert!(queue.has_pending()); // still there
     }
@@ -373,7 +370,7 @@ mod tests {
 
         drop(rx_large);
 
-        let entry = queue.pop_front_if(|size, _, _| size <= 1024 * 1024);
+        let entry = queue.pop_front_if(|pending| pending.size <= 1024 * 1024);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().cursor_id, Some(CursorId::new_from_raw(2)));
     }

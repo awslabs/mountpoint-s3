@@ -3,6 +3,7 @@ use std::ops::Index;
 
 use mountpoint_s3_client::config::MetaRequestType;
 
+use crate::memory::limiter::MemoryLimiter;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
@@ -10,7 +11,7 @@ use crate::sync::atomic::{AtomicUsize, Ordering};
 #[derive(Debug, Default)]
 pub struct PoolStats {
     acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
-    allocated_bytes: AtomicUsize,
+    pub(super) allocated_bytes: AtomicUsize,
 }
 
 impl PoolStats {
@@ -36,20 +37,6 @@ impl PoolStats {
         self.allocated_bytes.load(Ordering::SeqCst)
     }
 
-    pub(super) fn allocate(&self, size: usize) -> (*mut u8, Layout) {
-        let layout = Layout::array::<u8>(size).unwrap();
-
-        // SAFETY: layout has non-zero size.
-        let bytes = unsafe { alloc::alloc(layout) };
-        if bytes.is_null() {
-            alloc::handle_alloc_error(layout);
-        }
-
-        self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
-
-        (bytes, layout)
-    }
-
     pub(super) fn deallocate(&self, bytes: *mut u8, layout: Layout) {
         // SAFETY: `bytes` was allocated using `layout` in `allocate_page`.
         unsafe {
@@ -65,18 +52,18 @@ pub struct SizePoolStats {
     pub buffer_size: usize,
     empty_pages: AtomicUsize,
     acquired_buffers: [AtomicUsize; BUFFER_KIND_COUNT],
-    pool_stats: Arc<PoolStats>,
+    limiter: Arc<MemoryLimiter>,
 }
 
 impl SizePoolStats {
-    pub(super) fn new(buffer_size: usize, pool_stats: Arc<PoolStats>) -> Self {
+    pub(super) fn new(buffer_size: usize, limiter: Arc<MemoryLimiter>) -> Self {
         assert_ne!(buffer_size, 0);
 
         Self {
             buffer_size,
             empty_pages: Default::default(),
             acquired_buffers: Default::default(),
-            pool_stats,
+            limiter,
         }
     }
 
@@ -94,16 +81,16 @@ impl SizePoolStats {
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub(super) fn allocate_page(&self, buffer_count: usize) -> (*mut u8, Layout) {
+    pub(super) fn try_allocate_page(&self, buffer_count: usize, forced: bool) -> Option<(*mut u8, Layout)> {
         let size = self.buffer_size * buffer_count;
-        let result = self.pool_stats.allocate(size);
+        let result = self.limiter.try_allocate(size, forced)?;
         metrics::gauge!("pool.allocated_pages", "size" => format!("{}", self.buffer_size)).increment(1.0);
         self.add_empty_page();
-        result
+        Some(result)
     }
 
     pub(super) fn deallocate_page(&self, bytes: *mut u8, layout: Layout) {
-        self.pool_stats.deallocate(bytes, layout);
+        self.limiter.stats().deallocate(bytes, layout);
     }
 
     #[allow(unused)]
@@ -113,12 +100,12 @@ impl SizePoolStats {
 
     pub(super) fn acquire_buffer(&self, kind: BufferKind) {
         self.acquired_buffers[kind].fetch_add(1, Ordering::SeqCst);
-        self.pool_stats.acquire_bytes(self.buffer_size, kind);
+        self.limiter.stats().acquire_bytes(self.buffer_size, kind);
     }
 
     pub(super) fn release_buffer(&self, kind: BufferKind) {
         self.acquired_buffers[kind].fetch_sub(1, Ordering::SeqCst);
-        self.pool_stats.release_bytes(self.buffer_size, kind);
+        self.limiter.stats().release_bytes(self.buffer_size, kind);
     }
 }
 
