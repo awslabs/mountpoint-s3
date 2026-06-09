@@ -6,9 +6,10 @@ use bytes::Bytes;
 
 use crate::sync::{Arc, Weak};
 
+use super::limiter::MemoryLimiter;
 use super::pages::PagedBufferPtr;
 use super::pool::PagedPoolInner;
-use super::stats::{BufferKind, PoolStats};
+use super::stats::BufferKind;
 
 /// A buffer backed by the pool.
 ///
@@ -32,13 +33,16 @@ impl PoolBuffer {
         Self(PoolBufferInner::Primary { buffer_ptr, size })
     }
 
-    pub(super) fn new_secondary(
+    pub(super) fn try_new_secondary(
         size: usize,
         kind: BufferKind,
-        stats: Arc<PoolStats>,
+        limiter: Arc<MemoryLimiter>,
         pool: Weak<PagedPoolInner>,
-    ) -> Self {
-        Self(PoolBufferInner::Secondary(FreeBuffer::new(size, kind, stats, pool)))
+        forced: bool,
+    ) -> Option<Self> {
+        Some(Self(PoolBufferInner::Secondary(FreeBuffer::try_new(
+            size, kind, limiter, pool, forced,
+        )?)))
     }
 
     pub fn capacity(&self) -> usize {
@@ -184,22 +188,28 @@ struct FreeBuffer {
     bytes: *mut u8,
     layout: Layout,
     kind: BufferKind,
-    stats: Arc<PoolStats>,
+    limiter: Arc<MemoryLimiter>,
     /// Weak reference back to the pool so this buffer's drop can wake pending allocations.
     pool: Weak<PagedPoolInner>,
 }
 
 impl FreeBuffer {
-    fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>, pool: Weak<PagedPoolInner>) -> Self {
-        let (bytes, layout) = stats.allocate(size);
-        stats.acquire_bytes(layout.size(), kind);
-        Self {
+    fn try_new(
+        size: usize,
+        kind: BufferKind,
+        limiter: Arc<MemoryLimiter>,
+        pool: Weak<PagedPoolInner>,
+        forced: bool,
+    ) -> Option<Self> {
+        let (bytes, layout) = limiter.try_allocate(size, forced)?;
+        limiter.stats().acquire_bytes(layout.size(), kind);
+        Some(Self {
             bytes,
             layout,
             kind,
-            stats,
+            limiter,
             pool,
-        }
+        })
     }
 }
 
@@ -208,8 +218,8 @@ unsafe impl Send for FreeBuffer {}
 
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
-        self.stats.release_bytes(self.layout.size(), self.kind);
-        self.stats.deallocate(self.bytes, self.layout);
+        self.limiter.stats().release_bytes(self.layout.size(), self.kind);
+        self.limiter.stats().deallocate(self.bytes, self.layout);
         if let Some(pool) = self.pool.upgrade() {
             pool.try_wake_pending();
         }
@@ -235,12 +245,14 @@ mod tests {
     }
 
     fn secondary(buffer_size: usize) -> PoolBuffer {
-        PoolBuffer::new_secondary(
+        PoolBuffer::try_new_secondary(
             buffer_size,
             BufferKind::Other,
-            Arc::new(PoolStats::default()),
+            Arc::new(MemoryLimiter::new(u64::MAX)),
             Weak::new(),
+            true,
         )
+        .unwrap()
     }
 
     #[test_case(primary)]
