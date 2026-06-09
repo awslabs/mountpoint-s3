@@ -3,9 +3,10 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::Bytes;
 
-use crate::sync::Arc;
+use crate::sync::{Arc, Weak};
 
 use super::pages::PagedBufferPtr;
+use super::pool::PagedPoolInner;
 use super::stats::{BufferKind, PoolStats};
 
 /// A buffer backed by the pool.
@@ -30,8 +31,13 @@ impl PoolBuffer {
         Self(PoolBufferInner::Primary { buffer_ptr, size })
     }
 
-    pub(super) fn new_secondary(size: usize, kind: BufferKind, stats: Arc<PoolStats>) -> Self {
-        Self(PoolBufferInner::Secondary(FreeBuffer::new(size, kind, stats)))
+    pub(super) fn new_secondary(
+        size: usize,
+        kind: BufferKind,
+        stats: Arc<PoolStats>,
+        pool: Weak<PagedPoolInner>,
+    ) -> Self {
+        Self(PoolBufferInner::Secondary(FreeBuffer::new(size, kind, stats, pool)))
     }
 
     pub fn capacity(&self) -> usize {
@@ -171,19 +177,29 @@ struct FreeBuffer {
     data: Box<[u8]>,
     kind: BufferKind,
     stats: Arc<PoolStats>,
+    /// Weak reference back to the pool so this buffer's drop can wake pending allocations.
+    pool: Weak<PagedPoolInner>,
 }
 
 impl FreeBuffer {
-    fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>) -> Self {
+    fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>, pool: Weak<PagedPoolInner>) -> Self {
         let data = vec![0u8; size].into_boxed_slice();
         stats.reserve_bytes(data.len(), kind);
-        Self { data, kind, stats }
+        Self {
+            data,
+            kind,
+            stats,
+            pool,
+        }
     }
 }
 
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
         self.stats.release_bytes(self.data.len(), self.kind);
+        if let Some(pool) = self.pool.upgrade() {
+            pool.try_wake_pending();
+        }
     }
 }
 
@@ -192,6 +208,7 @@ mod tests {
     use super::super::pages::Page;
 
     use super::*;
+    use crate::sync::Weak;
 
     use test_case::{test_case, test_matrix};
 
@@ -205,7 +222,12 @@ mod tests {
     }
 
     fn secondary(buffer_size: usize) -> PoolBuffer {
-        PoolBuffer::new_secondary(buffer_size, BufferKind::Other, Arc::new(PoolStats::default()))
+        PoolBuffer::new_secondary(
+            buffer_size,
+            BufferKind::Other,
+            Arc::new(PoolStats::default()),
+            Weak::new(),
+        )
     }
 
     #[test_case(primary)]
