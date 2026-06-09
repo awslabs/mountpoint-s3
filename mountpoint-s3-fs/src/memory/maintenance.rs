@@ -114,8 +114,8 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
         .head_waited()
         .is_some_and(|d| d >= PRUNING_STARVATION_THRESHOLD);
 
-    // 3. Natural release path: in-flight uploads complete, or active reads
-    //    receive their S3 response, freeing buffers without our help.
+    // 3. Natural release path: in-flight uploads or active reads will free
+    //    buffers without our help — defer to that path.
     let in_flight = has_uploads_in_flight(pool_inner) || pool_inner.limiter().has_active_reads();
     if in_flight && !starving {
         return PruningOutcome::WaitingForRelease;
@@ -249,6 +249,45 @@ mod tests {
 
         let outcome = run_pruning_round(pool.inner());
         assert_eq!(outcome, PruningOutcome::WaitingForRelease);
+    }
+
+    /// `acquire_buffer_async` must call `trigger_pruning` after pushing a
+    /// waiter, so a maintenance thread parked on its long idle interval
+    /// notices pressure within `PRUNING_TICK` rather than waiting up to
+    /// `TEST_IDLE_INTERVAL` (60s). Observed via the idle cursor's
+    /// reset_fn firing once the starvation threshold elapses.
+    #[test]
+    fn acquire_buffer_async_wakes_parked_maintenance_thread() {
+        let pool = tight_pool();
+        let _maintenance = spawn_pool_maintenance_thread(pool.inner(), TEST_IDLE_INTERVAL);
+
+        // Idle cursor with a reset_fn — the maintenance thread will reset it
+        // once the queue's head exceeds the starvation threshold.
+        let idle = pool.create_cursor();
+        let idle_was_reset = Arc::new(AtomicBool::new(false));
+        let flag = idle_was_reset.clone();
+        idle.register_reset_fn(Box::new(move || !flag.swap(true, Ordering::SeqCst)));
+        drop(idle.set_active_read(0, 1));
+
+        // Hold an active read so the natural-release path would normally
+        // suppress eviction; the starvation threshold must override it.
+        let active = pool.create_cursor();
+        let _active_guard = active.set_active_read(0, BUF);
+
+        // Pushing a waiter notifies the parked pruner via `trigger_pruning`.
+        let _blockers = fill_and_enqueue_waiter(&pool);
+
+        // After the starvation threshold the maintenance thread should run
+        // a round that resets the idle cursor. Without `trigger_pruning`
+        // the pruner would still be parked, so this poll would time out.
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        while !idle_was_reset.load(Ordering::SeqCst) {
+            assert!(
+                Instant::now() < deadline,
+                "maintenance thread did not reset idle cursor — `trigger_pruning` may be missing",
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     /// Starvation backstop: when a waiter has been queued longer than

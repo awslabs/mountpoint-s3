@@ -244,7 +244,8 @@ impl MemoryLimiter {
     // -----------------------------------------------------------------------
 
     /// Wake the maintenance loop if it's currently parked between idle intervals.
-    #[allow(dead_code)]
+    /// Called when a new waiter joins the allocation queue so the pruner can
+    /// react without sleeping up to its full idle interval.
     pub fn trigger_pruning(&self) {
         self.pruning_signal.notify();
     }
@@ -254,13 +255,7 @@ impl MemoryLimiter {
         &self.pruning_signal
     }
 
-    /// Returns `true` if any cursor has an active read in progress. An active
-    /// read with an allocated buffer is waiting on an in-flight S3 GET, and
-    /// the response will free the buffer without our help.
-    ///
-    /// TODO: once we track per-handle in-flight state we can be more precise.
-    /// For now this returns `true` whenever any cursor has an active read in
-    /// progress, which over-conservatively prefers waiting over dropping a handle.
+    /// Returns `true` if any cursor is currently servicing a FUSE read.
     pub(crate) fn has_active_reads(&self) -> bool {
         self.cursors.iter().any(|entry| {
             entry

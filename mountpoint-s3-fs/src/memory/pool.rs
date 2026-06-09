@@ -305,6 +305,9 @@ impl PagedPool {
         // check above and the push (avoids the race where a buffer drop called try_wake_pending
         // before the entry was in the queue).
         self.try_wake_pending();
+        // Nudge the maintenance thread: it may be parked on its long idle interval, in which
+        // case it would otherwise sleep up to that interval before noticing the new waiter.
+        self.inner.limiter.trigger_pruning();
         // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
         // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
         rx.await.unwrap_or_else(|_| self.get_buffer(size, kind, cursor_id))
@@ -373,9 +376,6 @@ impl PagedPoolInner {
     }
 
     /// Returns `true` while there is at least one queued allocation request.
-    /// Pressure is defined as "the allocation queue is non-empty": new requests
-    /// were forced to wait because [`Self::try_allocate`] could not satisfy them
-    /// inline.
     pub(super) fn is_memory_pressure(&self) -> bool {
         self.allocation_queue.has_pending()
     }
