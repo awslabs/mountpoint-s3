@@ -259,7 +259,7 @@ impl DiskBlock {
     }
 
     /// Deserialize an instance from `reader`.
-    fn read(
+    async fn read(
         reader: &mut impl Read,
         block_size: u64,
         pool: &PagedPool,
@@ -272,7 +272,7 @@ impl DiskBlock {
         }
 
         let size = header.block_len as usize;
-        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache, cursor_id);
+        let mut buffer = pool.get_buffer_mut_async(size, BufferKind::DiskCache, cursor_id).await;
         buffer.fill_from_reader(reader)?;
         let data = buffer.into_bytes();
 
@@ -337,7 +337,7 @@ impl DiskDataCache {
         path
     }
 
-    fn read_block(
+    async fn read_block(
         &self,
         path: impl AsRef<Path>,
         cache_key: &ObjectId,
@@ -368,6 +368,7 @@ impl DiskDataCache {
         }
 
         let block = DiskBlock::read(&mut file, self.block_size(), &self.pool, cursor_id)
+            .await
             .inspect_err(|e| warn!(path = ?path.as_ref(), "block could not be deserialized: {:?}", e))?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
@@ -479,7 +480,10 @@ impl DataCache for DiskDataCache {
         let start = Instant::now();
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        let result = match self.read_block(&path, cache_key, block_idx, block_offset, cursor_id) {
+        let result = match self
+            .read_block(&path, cache_key, block_idx, block_offset, cursor_id)
+            .await
+        {
             Ok(None) => {
                 // Cache miss.
                 Ok(None)
@@ -1132,8 +1136,8 @@ mod tests {
             .with_candidate_sizes([MAX_LENGTH as usize])
             .with_no_memory_limit()
             .build();
-        let err =
-            DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None).expect_err("deserialization should fail");
+        let err = block_on(DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None))
+            .expect_err("deserialization should fail");
         match length_to_corrupt {
             "key" | "etag" => assert!(matches!(
                 err,
