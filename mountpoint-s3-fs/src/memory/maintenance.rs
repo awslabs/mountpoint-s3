@@ -11,7 +11,7 @@ use super::pool::PagedPoolInner;
 
 /// Outcome of a single pruning round. Used for metrics and tracing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PruningOutcome {
+enum PruningOutcome {
     /// Nothing to prune (queue empty). Pressure is defined as
     /// "queue non-empty", so an empty queue means pressure has already cleared.
     Idle,
@@ -95,7 +95,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///      natural release path do the work — unless the head of the queue
 ///      has been waiting beyond [`PRUNING_STARVATION_THRESHOLD`].
 ///   4. Otherwise reset one idle cursor.
-pub(super) fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
+fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
     //    by a different SizePool after a future allocation. If anything was
     //    freed, wake the allocation queue so pending requests can claim it.
@@ -150,15 +150,50 @@ fn has_uploads_in_flight(_pool_inner: &PagedPoolInner) -> bool {
 
 #[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
 
-    use super::{PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
-    use crate::memory::PagedPool;
+    use bytes::Bytes;
+    use futures::executor::block_on;
+
+    use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
+    use crate::memory::{BufferKind, PagedPool};
 
     const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
     /// Long idle interval used in tests where we want the loop to stay
     /// parked unless explicitly notified or the pool is dropped.
     const TEST_IDLE_INTERVAL: Duration = Duration::from_secs(60);
+    const BUF: usize = 1024;
+
+    /// Pool sized for one page of `BUF`-byte buffers — small enough that the
+    /// "fill all memory" loop in pressure tests is fast in debug builds.
+    fn tight_pool() -> PagedPool {
+        let additional_reserved = (BUF as u64 * 16).max(128 * 1024 * 1024);
+        let mem_limit = BUF as u64 * 16 + additional_reserved;
+        PagedPool::config()
+            .with_candidate_sizes([BUF])
+            .with_memory_limit(mem_limit)
+            .build()
+    }
+
+    /// Fill the pool, spawn a waiter on `acquire_buffer_async`, and block
+    /// until the request lands in the allocation queue. Returns the held
+    /// buffers so the caller can drop them when the test is done.
+    fn fill_and_enqueue_waiter(pool: &PagedPool) -> Vec<Bytes> {
+        let mut blockers = Vec::new();
+        while pool.available_mem() >= BUF as u64 {
+            blockers.push(pool.get_buffer_mut(BUF, BufferKind::Other, None).into_bytes());
+        }
+        let pool_clone = pool.clone();
+        std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        while !pool.inner().is_memory_pressure() {
+            assert!(Instant::now() < deadline, "request did not enter queue");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        blockers
+    }
 
     /// Dropping the pool while the maintenance thread is parked must wake it
     /// (via `MemoryLimiter::drop` notify) so it can observe the dead `Weak`
@@ -201,6 +236,56 @@ mod tests {
         assert!(
             !pool.inner().is_memory_pressure(),
             "empty allocation queue must report no memory pressure",
+        );
+    }
+
+    /// `run_pruning_round` must observe real allocation-queue pressure
+    /// and not return `Idle` while a waiter is enqueued. Without an
+    /// idle cursor to evict, the round defers to natural release.
+    #[test]
+    fn run_pruning_round_observes_real_queue_pressure() {
+        let pool = tight_pool();
+        let _blockers = fill_and_enqueue_waiter(&pool);
+
+        let outcome = run_pruning_round(pool.inner());
+        assert_eq!(outcome, PruningOutcome::WaitingForRelease);
+    }
+
+    /// Starvation backstop: when a waiter has been queued longer than
+    /// [`PRUNING_STARVATION_THRESHOLD`], the pruner must reset an idle
+    /// cursor *even though* an active read is still in flight (which
+    /// would normally defer to the natural release path).
+    #[test]
+    fn run_pruning_round_starvation_resets_idle_cursor_despite_active_read() {
+        let pool = tight_pool();
+
+        // Idle cursor with a registered reset_fn — eligible for eviction.
+        let idle = pool.create_cursor();
+        let idle_was_reset = Arc::new(AtomicBool::new(false));
+        let flag = idle_was_reset.clone();
+        idle.register_reset_fn(Box::new(move || !flag.swap(true, Ordering::SeqCst)));
+        // Bump its tick once so it's treated as having been read from.
+        drop(idle.set_active_read(0, 1));
+
+        // Active cursor: held with `_active_guard` so `has_active_reads`
+        // returns true and the natural-release path would normally fire.
+        let active = pool.create_cursor();
+        let _active_guard = active.set_active_read(0, BUF);
+
+        let _blockers = fill_and_enqueue_waiter(&pool);
+
+        // Wait past the starvation threshold, with margin.
+        std::thread::sleep(PRUNING_STARVATION_THRESHOLD + Duration::from_millis(2));
+
+        let outcome = run_pruning_round(pool.inner());
+        assert_eq!(
+            outcome,
+            PruningOutcome::Acted,
+            "starving waiter should force the pruner to reset an idle cursor",
+        );
+        assert!(
+            idle_was_reset.load(Ordering::SeqCst),
+            "the idle cursor's reset_fn should have been invoked",
         );
     }
 }
