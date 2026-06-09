@@ -16,7 +16,7 @@ use tracing::{Instrument, debug_span, trace};
 use crate::ServerSideEncryption;
 use crate::async_util::Runtime;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
-use crate::memory::{AllocationPriority, BufferKind, PagedPool, PoolBufferMut};
+use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
 
 use super::hasher::ChecksumHasher;
 use super::{ChecksumHasherError, UploadError};
@@ -263,9 +263,12 @@ where
         //      next buffer is allocated unconditionally rather than blocking on memory held
         //      by unrelated handles. Each admitted writer is guaranteed a buffer this way;
         //      the resulting overshoot is bounded by `WriteHandleLimiter` admission control.
-        //   2. Budget available → allocate via `acquire_async`.
+        //   2. Budget available → allocate via `get_buffer_mut_async`, which may route through
+        //      the pool's priority allocation queue (ensures fairness with other handles).
         //   3. Budget exhausted (memory pressure) → drain one in-flight response from this
-        //      handle's own pipeline before retrying.
+        //      handle's own pipeline before re-evaluating. We wait on our own uploads rather
+        //      than blocking on the shared queue; once a response frees a buffer, the next
+        //      iteration goes through branch 2.
         let hasher = ChecksumHasher::new(&checksum_algorithm)?;
         loop {
             if self.requests_in_queue == 0 {
@@ -273,12 +276,10 @@ where
                 return Ok(UploadBuffer { data, hasher });
             }
             if self.pool.can_allocate(capacity) {
-                let data = self
-                    .pool
-                    .acquire_async(capacity, BufferKind::Append, AllocationPriority::High, None)
-                    .await;
+                let data = self.pool.get_buffer_mut_async(capacity, BufferKind::Append, None).await;
                 return Ok(UploadBuffer { data, hasher });
             }
+            trace!("wait for the next request to be processed");
             if !self.consume_next_response().await? {
                 return Err(UploadError::UploadAlreadyTerminated);
             }
@@ -1156,21 +1157,31 @@ mod tests {
         assert_eq!(expected_content, *actual);
     }
 
-    #[test_case(8 * 1024, 128, 10)]
-    #[test_case(8 * 1024, 16 * 1024, 20)]
+    #[test_case(8 * 1024, 128,        10, 0; "no_headroom_small_writes")]
+    #[test_case(8 * 1024, 16 * 1024,  20, 0; "no_headroom_large_writes")]
+    #[test_case(8 * 1024, 8 * 1024,   10, 4; "with_headroom")] // Hits get_buffer_mut and get_buffer_mut_async branches
     #[tokio::test]
-    async fn test_append_on_low_memory(part_size: usize, write_size: usize, part_count: usize) {
+    async fn test_append_under_memory_pressure(
+        part_size: usize,
+        write_size: usize,
+        part_count: usize,
+        headroom_parts: usize,
+    ) {
         let bucket = "bucket";
         let key = "hello";
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
-        // Use a pool with 0 memory limit to simulate memory pressure.
+        const LIMITER_MIN_RESERVED: u64 = 128 * 1024 * 1024;
+        let mem_limit = if headroom_parts == 0 {
+            0
+        } else {
+            LIMITER_MIN_RESERVED + (headroom_parts * part_size) as u64
+        };
         let pool = PagedPool::config()
             .with_candidate_sizes([part_size])
-            .with_memory_limit(0)
+            .with_memory_limit(mem_limit)
             .build();
-
-        assert_eq!(pool.available_mem(), 0);
+        assert_eq!(pool.available_mem(), (headroom_parts * part_size) as u64);
 
         let uploader = Uploader::new(
             client.clone(),
