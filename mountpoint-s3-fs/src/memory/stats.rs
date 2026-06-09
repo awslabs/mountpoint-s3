@@ -1,3 +1,4 @@
+use std::alloc::{self, Layout};
 use std::ops::Index;
 
 use mountpoint_s3_client::config::MetaRequestType;
@@ -35,12 +36,26 @@ impl PoolStats {
         self.allocated_bytes.load(Ordering::SeqCst)
     }
 
-    pub(super) fn allocate_bytes(&self, size: usize) {
+    pub(super) fn allocate(&self, size: usize) -> (*mut u8, Layout) {
+        let layout = Layout::array::<u8>(size).unwrap();
+
+        // SAFETY: layout has non-zero size.
+        let bytes = unsafe { alloc::alloc(layout) };
+        if bytes.is_null() {
+            alloc::handle_alloc_error(layout);
+        }
+
         self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
+
+        (bytes, layout)
     }
 
-    pub(super) fn deallocate_bytes(&self, size: usize) {
-        self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
+    pub(super) fn deallocate(&self, bytes: *mut u8, layout: Layout) {
+        // SAFETY: `bytes` was allocated using `layout` in `allocate_page`.
+        unsafe {
+            alloc::dealloc(bytes, layout);
+        }
+        self.allocated_bytes.fetch_sub(layout.size(), Ordering::SeqCst);
     }
 }
 
@@ -55,6 +70,8 @@ pub struct SizePoolStats {
 
 impl SizePoolStats {
     pub(super) fn new(buffer_size: usize, pool_stats: Arc<PoolStats>) -> Self {
+        assert_ne!(buffer_size, 0);
+
         Self {
             buffer_size,
             empty_pages: Default::default(),
@@ -77,12 +94,16 @@ impl SizePoolStats {
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub(super) fn allocate_page(&self, buffer_count: usize) {
-        self.pool_stats.allocate_bytes(self.buffer_size * buffer_count);
+    pub(super) fn allocate_page(&self, buffer_count: usize) -> (*mut u8, Layout) {
+        let size = self.buffer_size * buffer_count;
+        let result = self.pool_stats.allocate(size);
+        metrics::gauge!("pool.allocated_pages", "size" => format!("{}", self.buffer_size)).increment(1.0);
+        self.add_empty_page();
+        result
     }
 
-    pub(super) fn deallocate_page(&self, buffer_count: usize) {
-        self.pool_stats.deallocate_bytes(self.buffer_size * buffer_count);
+    pub(super) fn deallocate_page(&self, bytes: *mut u8, layout: Layout) {
+        self.pool_stats.deallocate(bytes, layout);
     }
 
     #[allow(unused)]

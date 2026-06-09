@@ -1,4 +1,4 @@
-use std::alloc::{self, Layout};
+use std::alloc::Layout;
 
 use crate::sync::{Arc, Mutex, Weak};
 
@@ -18,6 +18,8 @@ pub struct Page {
 struct PageInner {
     /// Pointer to the memory for this page.
     bytes: *mut u8,
+    /// Memory layout.
+    layout: Layout,
     /// Pointer to the last buffer in the page.
     ///
     /// Equals to (BUFFERS_PER_PAGE - 1) * buffer_size. Stored for easy
@@ -27,7 +29,6 @@ struct PageInner {
     ///
     /// The size in bits needs to be enough to contain [BUFFERS_PER_PAGE](Page::BUFFERS_PER_PAGE).
     acquired_bitmask: Mutex<u16>,
-    layout: Layout,
     /// Shared stats across pages with common `buffer_size`.
     stats: Arc<SizePoolStats>,
     /// Weak reference back to the pool so buffer drops can wake pending allocations.
@@ -42,11 +43,7 @@ unsafe impl Sync for PageInner {}
 
 impl Drop for PageInner {
     fn drop(&mut self) {
-        // SAFETY: `self.bytes` was allocated using `self.layout` in `Page::new`.
-        unsafe {
-            alloc::dealloc(self.bytes, self.layout);
-        }
-        self.stats.deallocate_page(Page::BUFFERS_PER_PAGE);
+        self.stats.deallocate_page(self.bytes, self.layout);
     }
 }
 
@@ -55,18 +52,7 @@ impl Page {
 
     /// Create a new page and allocate the required memory.
     pub fn new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>) -> Self {
-        assert_ne!(stats.buffer_size, 0);
-        let layout = Layout::array::<[u8; Self::BUFFERS_PER_PAGE]>(stats.buffer_size).unwrap();
-
-        // SAFETY: layout has non-zero size.
-        let bytes = unsafe { alloc::alloc(layout) };
-        if bytes.is_null() {
-            alloc::handle_alloc_error(layout);
-        }
-
-        metrics::gauge!("pool.allocated_pages", "size" => format!("{}", stats.buffer_size)).increment(1.0);
-        stats.allocate_page(Self::BUFFERS_PER_PAGE);
-        stats.add_empty_page();
+        let (bytes, layout) = stats.allocate_page(Self::BUFFERS_PER_PAGE);
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
         let last_buffer = unsafe { bytes.add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size) };
