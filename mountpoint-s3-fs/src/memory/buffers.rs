@@ -1,3 +1,4 @@
+use std::alloc::Layout;
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
 
@@ -43,7 +44,7 @@ impl PoolBuffer {
     pub fn capacity(&self) -> usize {
         match &self.0 {
             PoolBufferInner::Primary { size, .. } => *size,
-            PoolBufferInner::Secondary(boxed) => boxed.data.len(),
+            PoolBufferInner::Secondary(boxed) => boxed.layout.size(),
         }
     }
 
@@ -61,7 +62,10 @@ impl Deref for PoolBuffer {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
                 unsafe { std::slice::from_raw_parts(buffer_ptr.as_raw_ptr(), *size) }
             }
-            PoolBufferInner::Secondary(boxed) => &boxed.data,
+            PoolBufferInner::Secondary(boxed) => {
+                // SAFETY: returned slice will be valid until this buffer is dropped.
+                unsafe { std::slice::from_raw_parts(boxed.bytes, boxed.layout.size()) }
+            }
         }
     }
 }
@@ -73,7 +77,10 @@ impl DerefMut for PoolBuffer {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
                 unsafe { std::slice::from_raw_parts_mut(buffer_ptr.as_raw_ptr(), *size) }
             }
-            PoolBufferInner::Secondary(boxed) => &mut boxed.data,
+            PoolBufferInner::Secondary(boxed) => {
+                // SAFETY: returned slice will be valid until this buffer is dropped.
+                unsafe { std::slice::from_raw_parts_mut(boxed.bytes, boxed.layout.size()) }
+            }
         }
     }
 }
@@ -174,7 +181,8 @@ impl AsMut<[u8]> for PoolBufferMut {
 
 #[derive(Debug)]
 struct FreeBuffer {
-    data: Box<[u8]>,
+    bytes: *mut u8,
+    layout: Layout,
     kind: BufferKind,
     stats: Arc<PoolStats>,
     /// Weak reference back to the pool so this buffer's drop can wake pending allocations.
@@ -183,11 +191,11 @@ struct FreeBuffer {
 
 impl FreeBuffer {
     fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>, pool: Weak<PagedPoolInner>) -> Self {
-        let data = vec![0u8; size].into_boxed_slice();
-        stats.allocate_bytes(data.len());
-        stats.acquire_bytes(data.len(), kind);
+        let (bytes, layout) = stats.allocate(size);
+        stats.acquire_bytes(layout.size(), kind);
         Self {
-            data,
+            bytes,
+            layout,
             kind,
             stats,
             pool,
@@ -195,10 +203,13 @@ impl FreeBuffer {
     }
 }
 
+// SAFETY: access to the buffer and release on drop can be performed from another thread.
+unsafe impl Send for FreeBuffer {}
+
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
-        self.stats.release_bytes(self.data.len(), self.kind);
-        self.stats.deallocate_bytes(self.data.len());
+        self.stats.release_bytes(self.layout.size(), self.kind);
+        self.stats.deallocate(self.bytes, self.layout);
         if let Some(pool) = self.pool.upgrade() {
             pool.try_wake_pending();
         }
