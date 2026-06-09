@@ -1,6 +1,7 @@
 //! Priority-ordered allocation queue for buffer requests under memory pressure.
 
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use futures::channel::oneshot;
 
@@ -31,6 +32,9 @@ pub struct PendingAllocation {
     pub size: usize,
     /// The kind of buffer to allocate (e.g. [BufferKind::GetObject], [BufferKind::PutObject]).
     pub kind: BufferKind,
+    /// When this entry was enqueued. Used by the pruner to detect waiters
+    /// that have been queued long enough to trip the starvation backstop.
+    queued_at: Instant,
     /// Channel sender used to deliver the allocated [PoolBuffer] to the waiter.
     /// When dropped, the receiver resolves with `Err(Canceled)`.
     sender: oneshot::Sender<PoolBuffer>,
@@ -126,6 +130,7 @@ impl AllocationQueue {
             cursor_id,
             size,
             kind,
+            queued_at: Instant::now(),
             sender,
         };
 
@@ -209,6 +214,22 @@ impl AllocationQueue {
     /// of existing waiters).
     pub fn has_pending(&self) -> bool {
         self.has_pending.load(Ordering::Acquire)
+    }
+
+    /// `Instant` at which the next-to-be-served live entry was queued.
+    ///
+    /// Walks high then low (matching [`Self::pop_front_if`]'s priority order)
+    /// and skips cancelled entries without removing them — pruning happens on
+    /// the next [`Self::pop_front_if`] call. Returns `None` if the queue is
+    /// empty or contains only cancelled entries.
+    pub fn head_queued_at(&self) -> Option<Instant> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .high
+            .iter()
+            .find(|e| !e.sender.is_canceled())
+            .or_else(|| inner.low.iter().find(|e| !e.sender.is_canceled()))
+            .map(|e| e.queued_at)
     }
 }
 
@@ -373,5 +394,52 @@ mod tests {
         let entry = queue.pop_front_if(always);
         assert!(entry.is_none());
         assert!(!queue.has_pending());
+    }
+
+    #[test]
+    fn test_head_queued_at_empty_queue() {
+        let queue = AllocationQueue::new();
+        assert!(queue.head_queued_at().is_none());
+    }
+
+    #[test]
+    fn test_head_queued_at_returns_oldest_high_priority_first() {
+        let queue = AllocationQueue::new();
+        // Push low first, then high. `head_queued_at` should report the high entry.
+        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+
+        let head = queue.head_queued_at().expect("queue not empty");
+        // The high entry was pushed last, so its elapsed time is shorter.
+        assert!(
+            head.elapsed() < std::time::Duration::from_millis(2),
+            "head_queued_at should track high-priority entry, not the older low one",
+        );
+    }
+
+    #[test]
+    fn test_head_queued_at_skips_cancelled_entries() {
+        let queue = AllocationQueue::new();
+        let rx_old = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+
+        drop(rx_old); // cancels the older entry without removing it
+
+        let head = queue.head_queued_at().expect("live entry remains");
+        assert!(
+            head.elapsed() < std::time::Duration::from_millis(2),
+            "head_queued_at should skip cancelled entries to the next live one",
+        );
+    }
+
+    #[test]
+    fn test_head_queued_at_falls_back_to_low_when_high_empty() {
+        let queue = AllocationQueue::new();
+        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject);
+
+        let head = queue.head_queued_at().expect("low queue not empty");
+        assert!(head.elapsed() < std::time::Duration::from_secs(1));
     }
 }

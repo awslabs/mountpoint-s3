@@ -375,6 +375,12 @@ impl PagedPoolInner {
         self.allocation_queue.has_pending()
     }
 
+    /// How long the next-to-be-served waiter has been queued, or `None` if
+    /// the queue is empty (or only contains cancelled entries).
+    pub(super) fn head_waited(&self) -> Option<Duration> {
+        self.allocation_queue.head_queued_at().map(|t| t.elapsed())
+    }
+
     fn get_pool_for_size(&self, size: usize) -> Option<&SizePool> {
         if size == 0 {
             return None;
@@ -1018,6 +1024,63 @@ mod tests {
             // should report it is waiting on a natural release path.
             let outcome = run_pruning_round(&pool.inner);
             assert_eq!(outcome, PruningOutcome::WaitingForRelease);
+        }
+
+        /// Starvation backstop: when a waiter has been queued longer than
+        /// [`PRUNING_STARVATION_THRESHOLD`], the pruner must reset an idle
+        /// cursor *even though* an active read is still in flight (which
+        /// would normally defer to the natural release path).
+        #[test]
+        fn test_run_pruning_round_starvation_resets_idle_cursor_despite_active_read() {
+            use crate::memory::maintenance::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round};
+
+            const BUF: usize = 1024;
+            let pool = tight_pool(BUF);
+
+            // Idle cursor with a registered reset_fn — eligible for eviction.
+            let idle = pool.create_cursor();
+            let idle_was_reset = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            {
+                let flag = idle_was_reset.clone();
+                idle.register_reset_fn(Box::new(move || !flag.swap(true, std::sync::atomic::Ordering::SeqCst)));
+            }
+            // Bump its tick once so it's treated as having been read from.
+            drop(idle.set_active_read(0, 1));
+
+            // Active cursor: held with `_active_guard` so `has_active_reads`
+            // returns true and the natural-release path would normally fire.
+            let active = pool.create_cursor();
+            let _active_guard = active.set_active_read(0, BUF);
+
+            // Fill memory and enqueue a waiter.
+            let mut blockers = Vec::new();
+            while pool.can_allocate(BUF) {
+                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            }
+            let pool_clone = pool.clone();
+            let _handle =
+                std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+            for _ in 0..100 {
+                if pool.inner.is_memory_pressure() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(pool.inner.is_memory_pressure(), "request did not enter queue");
+
+            // Wait past the starvation threshold, with margin.
+            std::thread::sleep(PRUNING_STARVATION_THRESHOLD + std::time::Duration::from_millis(2));
+
+            let outcome = run_pruning_round(&pool.inner);
+            assert_eq!(
+                outcome,
+                PruningOutcome::Acted,
+                "starving waiter should force the pruner to reset an idle cursor",
+            );
+            assert!(
+                idle_was_reset.load(std::sync::atomic::Ordering::SeqCst),
+                "the idle cursor's reset_fn should have been invoked",
+            );
         }
     }
 }

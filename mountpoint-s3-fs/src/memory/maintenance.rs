@@ -109,12 +109,10 @@ pub(super) fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutc
     if !pool_inner.is_memory_pressure() {
         return PruningOutcome::Idle;
     }
-    // TODO: track per-entry `queued_at` on the AllocationQueue so we can
-    // measure how long the head has been waiting and trip the starvation
-    // backstop. For now we never starve.
-    let head_waited = Duration::ZERO;
 
-    let starving = head_waited >= PRUNING_STARVATION_THRESHOLD;
+    let starving = pool_inner
+        .head_waited()
+        .is_some_and(|d| d >= PRUNING_STARVATION_THRESHOLD);
 
     // 3. Natural release path: in-flight uploads complete, or active reads
     //    receive their S3 response, freeing buffers without our help.
