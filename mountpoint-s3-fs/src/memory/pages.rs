@@ -46,6 +46,7 @@ impl Drop for PageInner {
         unsafe {
             alloc::dealloc(self.bytes, self.layout);
         }
+        self.stats.deallocate_page(Page::BUFFERS_PER_PAGE);
     }
 }
 
@@ -64,6 +65,7 @@ impl Page {
         }
 
         metrics::gauge!("pool.allocated_pages", "size" => format!("{}", stats.buffer_size)).increment(1.0);
+        stats.allocate_page(Self::BUFFERS_PER_PAGE);
         stats.add_empty_page();
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
@@ -134,14 +136,16 @@ impl Page {
     /// Returns whether the page was invalidated. If `true` the page is ready to be
     /// removed from the pool.
     pub fn invalidate_if_empty(&self) -> bool {
-        let mut bitmask = self.inner.reserved_bitmask.lock().unwrap();
-        if *bitmask != 0 {
-            return false;
+        {
+            let mut bitmask = self.inner.reserved_bitmask.lock().unwrap();
+            if *bitmask != 0 {
+                return false;
+            }
+            // Mark the page as full, even though no buffer is currently reserved. If a new request
+            // arrives before the page is removed from the pool, it will be denied.
+            *bitmask = FULL_MASK;
         }
         self.inner.stats.remove_empty_page();
-        // Mark the page as full, even though no buffer is currently reserved. If a new request
-        // arrives before the page is removed from the pool, it will be denied.
-        *bitmask = FULL_MASK;
         true
     }
 

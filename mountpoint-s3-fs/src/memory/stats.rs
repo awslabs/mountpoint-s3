@@ -9,6 +9,7 @@ use crate::sync::atomic::{AtomicUsize, Ordering};
 #[derive(Debug, Default)]
 pub struct PoolStats {
     reserved_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
+    allocated_bytes: AtomicUsize,
 }
 
 impl PoolStats {
@@ -28,6 +29,18 @@ impl PoolStats {
     pub(super) fn release_bytes(&self, bytes: usize, kind: BufferKind) {
         self.reserved_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
         metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).decrement(bytes as f64);
+    }
+
+    pub fn allocated_bytes(&self) -> usize {
+        self.allocated_bytes.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn allocate_bytes(&self, size: usize) {
+        self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
+    }
+
+    pub(super) fn deallocate_bytes(&self, size: usize) {
+        self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
     }
 }
 
@@ -62,6 +75,14 @@ impl SizePoolStats {
     pub(super) fn remove_empty_page(&self) {
         metrics::gauge!("pool.empty_pages", "size" => format!("{}", self.buffer_size)).decrement(1.0);
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    pub(super) fn allocate_page(&self, buffer_count: usize) {
+        self.pool_stats.allocate_bytes(self.buffer_size * buffer_count);
+    }
+
+    pub(super) fn deallocate_page(&self, buffer_count: usize) {
+        self.pool_stats.deallocate_bytes(self.buffer_size * buffer_count);
     }
 
     #[allow(unused)]

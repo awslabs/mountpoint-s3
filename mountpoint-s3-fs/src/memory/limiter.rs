@@ -120,7 +120,7 @@ impl MemoryLimiter {
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
             let new_mem_reserved = mem_reserved.saturating_add(size);
-            let pool_mem_reserved = self.pool_mem_reserved(stats);
+            let pool_mem_reserved = self.allocated_memory(stats);
             let new_total_mem_usage = new_mem_reserved
                 .saturating_add(pool_mem_reserved)
                 .saturating_add(self.additional_mem_reserved);
@@ -168,10 +168,10 @@ impl MemoryLimiter {
     /// Query available memory tracked by the memory limiter.
     pub fn available_mem(&self, stats: &PoolStats) -> u64 {
         let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
-        let pool_mem_reserved = self.pool_mem_reserved(stats);
+        let mem_allocated = self.allocated_memory(stats);
         self.mem_limit
             .saturating_sub(mem_reserved)
-            .saturating_sub(pool_mem_reserved)
+            .saturating_sub(mem_allocated)
             .saturating_sub(self.additional_mem_reserved)
     }
 
@@ -233,10 +233,9 @@ impl MemoryLimiter {
         self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
-    /// Get reserved memory from the memory pool for buffers not tracked via [Self::mem_reserved].
-    fn pool_mem_reserved(&self, stats: &PoolStats) -> u64 {
-        // All pool buffer kinds are accounted for here.
-        stats.total_reserved_bytes() as u64
+    /// Get allocated memory from the pool.
+    fn allocated_memory(&self, stats: &PoolStats) -> u64 {
+        stats.allocated_bytes() as u64
     }
 
     // -----------------------------------------------------------------------
