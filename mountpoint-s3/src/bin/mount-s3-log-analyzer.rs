@@ -3,7 +3,7 @@
 //! Extracts peak memory usage (RSS) from `process.memory_usage` log lines.
 //! Optionally, when both `--mem-limit-mib` and `--extra-metrics-out` are provided, also
 //! extracts peak values for labeled metrics `mem.bytes_reserved[area=...]` and
-//! `pool.reserved_bytes[kind=...]` and writes them to the given path.
+//! `pool.bytes_in_use[kind=...]` and writes them to the given path.
 //!
 //! The extra-metrics file is consumed only by the memory-limited CI jobs'
 //! `render-mem-summary.sh` step to populate the GitHub Actions step summary table and
@@ -66,11 +66,11 @@ fn mem_metric_patterns() -> [(&'static str, Regex); 4] {
         ),
         (
             "peak_pool_get_object_mib",
-            Regex::new(r"pool\.reserved_bytes\[kind=get_object\]:\s(\d+)$").unwrap(),
+            Regex::new(r"pool\.bytes_in_use\[kind=get_object\]:\s(\d+)$").unwrap(),
         ),
         (
             "peak_pool_put_object_mib",
-            Regex::new(r"pool\.reserved_bytes\[kind=put_object\]:\s(\d+)$").unwrap(),
+            Regex::new(r"pool\.bytes_in_use\[kind=put_object\]:\s(\d+)$").unwrap(),
         ),
     ]
 }

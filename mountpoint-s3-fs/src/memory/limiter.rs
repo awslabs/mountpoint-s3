@@ -206,13 +206,13 @@ impl MemoryLimiter {
             .unwrap_or(false)
     }
 
-    /// Called by the pool on every buffer allocation. For download buffers with a known cursor,
-    /// this converts reservation from "intent" (`mem_reserved`) to "actual allocation" (pool stats)
+    /// Called by the pool on every buffer acquisition. For download buffers with a known cursor,
+    /// this converts reservation from "intent" (`mem_reserved`) to "actual acquisition" (pool stats)
     /// by decrementing both the global and per-cursor counters.
     ///
     /// No-op when `cursor_id` is `None` (e.g. uploads) or the cursor has already been removed
     /// by `release_cursor`.
-    pub fn on_pool_reserve(&self, bytes: usize, cursor_id: Option<CursorId>) {
+    pub fn on_pool_acquire(&self, bytes: usize, cursor_id: Option<CursorId>) {
         let Some(state) = cursor_id
             .and_then(|id| self.cursors.get(&id))
             .and_then(|r| r.value().upgrade())
