@@ -184,6 +184,7 @@ struct FreeBuffer {
 impl FreeBuffer {
     fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>, pool: Weak<PagedPoolInner>) -> Self {
         let data = vec![0u8; size].into_boxed_slice();
+        stats.allocate_bytes(data.len());
         stats.reserve_bytes(data.len(), kind);
         Self {
             data,
@@ -197,6 +198,7 @@ impl FreeBuffer {
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
         self.stats.release_bytes(self.data.len(), self.kind);
+        self.stats.deallocate_bytes(self.data.len());
         if let Some(pool) = self.pool.upgrade() {
             pool.try_wake_pending();
         }
