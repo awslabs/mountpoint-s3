@@ -185,7 +185,7 @@ impl FreeBuffer {
     fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>, pool: Weak<PagedPoolInner>) -> Self {
         let data = vec![0u8; size].into_boxed_slice();
         stats.allocate_bytes(data.len());
-        stats.reserve_bytes(data.len(), kind);
+        stats.acquire_bytes(data.len(), kind);
         Self {
             data,
             kind,
@@ -217,7 +217,7 @@ mod tests {
     fn primary(buffer_size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(buffer_size);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other)
+            .try_acquire(BufferKind::Other)
             .expect("should be able to reserve a buffer from a new page");
 
         PoolBuffer::new_primary(buffer_ptr, buffer_size)

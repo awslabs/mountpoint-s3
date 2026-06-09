@@ -242,7 +242,7 @@ mod tests {
 
     fn make_buffer(size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(size);
-        let ptr = page.try_reserve(BufferKind::Other).unwrap();
+        let ptr = page.try_acquire(BufferKind::Other).unwrap();
         PoolBuffer::new_primary(ptr, size)
     }
 

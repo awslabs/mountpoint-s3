@@ -116,14 +116,14 @@ impl PagedPool {
         super::maintenance::spawn_pool_maintenance_thread(&self.inner, idle_interval);
     }
 
-    /// Return the reserved memory in bytes for the given kind of buffer.
-    pub fn reserved_bytes(&self, kind: BufferKind) -> usize {
-        self.inner.stats.reserved_bytes(kind)
+    /// Return the memory in use in bytes for the given kind of buffer.
+    pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
+        self.inner.stats.acquired_bytes(kind)
     }
 
-    /// Return the total reserved memory in bytes across all buffer kinds.
-    pub fn total_reserved_bytes(&self) -> usize {
-        self.inner.stats.total_reserved_bytes()
+    /// Return the total memory in use in bytes across all buffer kinds.
+    pub fn total_acquired_bytes(&self) -> usize {
+        self.inner.stats.total_acquired_bytes()
     }
 
     /// Get a new empty mutable buffer from the pool with the requested capacity.
@@ -148,18 +148,18 @@ impl PagedPool {
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         match self.inner.get_pool_for_size(size) {
             Some(pool) => {
-                let buffer_ptr = pool.reserve(kind, Arc::downgrade(&self.inner));
-                metrics::histogram!("pool.reserved_bytes", "type" => "primary", "kind" => kind.as_str())
+                let buffer_ptr = pool.acquire(kind, Arc::downgrade(&self.inner));
+                metrics::histogram!("pool.acquired_bytes", "type" => "primary", "kind" => kind.as_str())
                     .record(size as f64);
                 metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
                     .record((pool.buffer_size() - size) as f64);
-                self.inner.limiter.on_pool_reserve(pool.buffer_size(), cursor_id);
+                self.inner.limiter.on_pool_acquire(pool.buffer_size(), cursor_id);
                 PoolBuffer::new_primary(buffer_ptr, size)
             }
             None => {
-                metrics::histogram!("pool.reserved_bytes", "type" => "secondary", "kind" => kind.as_str())
+                metrics::histogram!("pool.acquired_bytes", "type" => "secondary", "kind" => kind.as_str())
                     .record(size as f64);
-                self.inner.limiter.on_pool_reserve(size, cursor_id);
+                self.inner.limiter.on_pool_acquire(size, cursor_id);
                 PoolBuffer::new_secondary(size, kind, self.inner.stats.clone(), Arc::downgrade(&self.inner))
             }
         }
@@ -175,11 +175,11 @@ impl PagedPool {
     }
 
     #[cfg(test)]
-    fn reserved_buffer_count(&self, kind: BufferKind) -> usize {
+    fn acquired_buffer_count(&self, kind: BufferKind) -> usize {
         self.inner
             .ordered_size_pools
             .iter()
-            .map(|pool| pool.stats.reserved_buffers(kind))
+            .map(|pool| pool.stats.acquired_buffers(kind))
             .sum()
     }
 
@@ -497,7 +497,7 @@ struct SizePool {
 }
 
 impl SizePool {
-    fn reserve(&self, kind: BufferKind, pool: Weak<PagedPoolInner>) -> PagedBufferPtr {
+    fn acquire(&self, kind: BufferKind, pool: Weak<PagedPoolInner>) -> PagedBufferPtr {
         {
             // Fast path: reserve a buffer from the existing pages (under a read lock).
             let read_pages = self.pages.read().unwrap();
@@ -517,7 +517,7 @@ impl SizePool {
 
         tracing::trace!(size = self.stats.buffer_size, "allocate new memory pool page");
         let page = Page::new(self.stats.clone(), pool);
-        let buffer_ptr = page.try_reserve(kind).unwrap();
+        let buffer_ptr = page.try_acquire(kind).unwrap();
         write_pages.push(page);
         buffer_ptr
     }
@@ -527,7 +527,7 @@ impl SizePool {
         mut pages: impl Iterator<Item = &'a Page>,
         kind: BufferKind,
     ) -> Option<PagedBufferPtr> {
-        pages.find_map(|page| page.try_reserve(kind))
+        pages.find_map(|page| page.try_acquire(kind))
     }
 
     fn buffer_size(&self) -> usize {
@@ -647,29 +647,29 @@ mod tests {
             let original = vec![1u8; size];
 
             assert_eq!(pool.page_count(), 0);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 0);
 
             let mut buffers = Vec::new();
             for _ in 0..16 {
                 buffers.push(copy_from_slice(&pool, &original));
             }
             assert_eq!(pool.page_count(), 1);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 16);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 16);
 
             buffers.push(copy_from_slice(&pool, &original));
             assert_eq!(pool.page_count(), 2);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 17);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 17);
 
             assert!(!pool.trim());
 
             drop(buffers);
 
             assert_eq!(pool.page_count(), 2);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 0);
 
             assert!(pool.trim());
             assert_eq!(pool.page_count(), 0);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 0);
         }
     }
 
@@ -711,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reserved_bytes() {
+    fn test_acquired_bytes() {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
         let pool = PagedPool::config()
@@ -726,7 +726,7 @@ mod tests {
         }
 
         for (&kind, &count) in &reservations {
-            let reserved = pool.reserved_bytes(kind);
+            let reserved = pool.acquired_bytes(kind);
             assert_eq!(reserved, count * buffer_size);
         }
     }
@@ -1002,7 +1002,7 @@ mod tests {
                 );
                 // And the pool must never have exceeded its buffer budget while the winner holds its buffer.
                 assert_eq!(
-                    pool.reserved_buffer_count(BufferKind::Other) + pool.reserved_buffer_count(BufferKind::GetObject),
+                    pool.acquired_buffer_count(BufferKind::Other) + pool.acquired_buffer_count(BufferKind::GetObject),
                     budget_buffers,
                     "total reserved buffers must not exceed the budget",
                 );

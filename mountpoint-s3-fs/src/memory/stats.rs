@@ -8,27 +8,27 @@ use crate::sync::atomic::{AtomicUsize, Ordering};
 /// Usage stats for a pool.
 #[derive(Debug, Default)]
 pub struct PoolStats {
-    reserved_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
+    acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
     allocated_bytes: AtomicUsize,
 }
 
 impl PoolStats {
-    pub fn reserved_bytes(&self, kind: BufferKind) -> usize {
-        self.reserved_bytes[kind].load(Ordering::SeqCst)
+    pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
+        self.acquired_bytes[kind].load(Ordering::SeqCst)
     }
 
-    pub fn total_reserved_bytes(&self) -> usize {
-        self.reserved_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
+    pub fn total_acquired_bytes(&self) -> usize {
+        self.acquired_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
     }
 
-    pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind) {
-        self.reserved_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
-        metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).increment(bytes as f64);
+    pub(super) fn acquire_bytes(&self, bytes: usize, kind: BufferKind) {
+        self.acquired_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
+        metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).increment(bytes as f64);
     }
 
     pub(super) fn release_bytes(&self, bytes: usize, kind: BufferKind) {
-        self.reserved_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
-        metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).decrement(bytes as f64);
+        self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
+        metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
     }
 
     pub fn allocated_bytes(&self) -> usize {
@@ -49,7 +49,7 @@ impl PoolStats {
 pub struct SizePoolStats {
     pub buffer_size: usize,
     empty_pages: AtomicUsize,
-    reserved_buffers: [AtomicUsize; BUFFER_KIND_COUNT],
+    acquired_buffers: [AtomicUsize; BUFFER_KIND_COUNT],
     pool_stats: Arc<PoolStats>,
 }
 
@@ -58,7 +58,7 @@ impl SizePoolStats {
         Self {
             buffer_size,
             empty_pages: Default::default(),
-            reserved_buffers: Default::default(),
+            acquired_buffers: Default::default(),
             pool_stats,
         }
     }
@@ -86,17 +86,17 @@ impl SizePoolStats {
     }
 
     #[allow(unused)]
-    pub fn reserved_buffers(&self, kind: BufferKind) -> usize {
-        self.reserved_buffers[kind].load(Ordering::SeqCst)
+    pub fn acquired_buffers(&self, kind: BufferKind) -> usize {
+        self.acquired_buffers[kind].load(Ordering::SeqCst)
     }
 
-    pub(super) fn add_reserved_buffer(&self, kind: BufferKind) {
-        self.reserved_buffers[kind].fetch_add(1, Ordering::SeqCst);
-        self.pool_stats.reserve_bytes(self.buffer_size, kind);
+    pub(super) fn acquire_buffer(&self, kind: BufferKind) {
+        self.acquired_buffers[kind].fetch_add(1, Ordering::SeqCst);
+        self.pool_stats.acquire_bytes(self.buffer_size, kind);
     }
 
-    pub(super) fn remove_reserved_buffer(&self, kind: BufferKind) {
-        self.reserved_buffers[kind].fetch_sub(1, Ordering::SeqCst);
+    pub(super) fn release_buffer(&self, kind: BufferKind) {
+        self.acquired_buffers[kind].fetch_sub(1, Ordering::SeqCst);
         self.pool_stats.release_bytes(self.buffer_size, kind);
     }
 }

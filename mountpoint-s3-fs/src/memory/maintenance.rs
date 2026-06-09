@@ -135,13 +135,13 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
 /// Returns `true` if any in-flight `UploadPart`/`PutObject` is currently
 /// holding a pool buffer that will be released when the request completes.
 ///
-/// TODO: Currently a stub returning `false`.
+/// TODO(memory-limiter): Currently a stub returning `false`.
 /// Tighten to "in-flight UploadPart/PutObject exists":
-///   `reserved_bytes(PutObject) + reserved_bytes(Append)
+///   `acquired_bytes(PutObject) + acquired_bytes(Append)
 ///       > upload_handles_holding_buffers * write_part_size`
 /// Each write handle holds at most one "filling" buffer (FUSE write data
 /// being staged) at any time without an in-flight request, so excess
-/// reserved bytes above that baseline indicate at least one part actually
+/// memory in use above that baseline indicate at least one part actually
 /// uploading. Requires tracking `upload_handles_holding_buffers` (likely
 /// the active-write-handles counter).
 fn has_uploads_in_flight(_pool_inner: &PagedPoolInner) -> bool {
