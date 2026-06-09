@@ -1,7 +1,8 @@
 use std::alloc::{self, Layout};
 
-use crate::sync::{Arc, Mutex};
+use crate::sync::{Arc, Mutex, Weak};
 
+use super::pool::PagedPoolInner;
 use super::stats::{BufferKind, SizePoolStats};
 
 /// Page in a size pool.
@@ -29,6 +30,8 @@ struct PageInner {
     layout: Layout,
     /// Shared stats across pages with common `buffer_size`.
     stats: Arc<SizePoolStats>,
+    /// Weak reference back to the pool so buffer drops can wake pending allocations.
+    pool: Weak<PagedPoolInner>,
 }
 
 // SAFETY: access to mutable state in `PageInner` is synchonized internally.
@@ -50,7 +53,7 @@ impl Page {
     const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
 
     /// Create a new page and allocate the required memory.
-    pub fn new(stats: Arc<SizePoolStats>) -> Self {
+    pub fn new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>) -> Self {
         assert_ne!(stats.buffer_size, 0);
         let layout = Layout::array::<[u8; Self::BUFFERS_PER_PAGE]>(stats.buffer_size).unwrap();
 
@@ -71,6 +74,7 @@ impl Page {
             reserved_bitmask: Default::default(),
             layout,
             stats,
+            pool,
         };
         Page { inner: Arc::new(inner) }
     }
@@ -114,6 +118,14 @@ impl Page {
         if *bitmask == 0 {
             self.inner.stats.add_empty_page();
         }
+        // Release the bitmask lock before waking pending allocations.
+        // try_wake_pending may try to allocate from this same page which would deadlock
+        // if we held the bitmask lock.
+        drop(bitmask);
+        // A primary buffer was freed — wake any pending allocation requests.
+        if let Some(pool) = self.inner.pool.upgrade() {
+            pool.try_wake_pending();
+        }
     }
 
     /// Invalidate this page if it is empty, i.e. none of its buffers are reserved,
@@ -143,7 +155,7 @@ impl Page {
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
         let pool_stats = super::stats::PoolStats::default();
         let stats = SizePoolStats::new(buffer_size, Arc::new(pool_stats));
-        Page::new(Arc::new(stats))
+        Page::new(Arc::new(stats), Weak::new())
     }
 }
 

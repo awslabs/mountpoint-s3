@@ -95,12 +95,15 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///      natural release path do the work — unless the head of the queue
 ///      has been waiting beyond [`PRUNING_STARVATION_THRESHOLD`].
 ///   4. Otherwise reset one idle cursor.
-fn run_pruning_round(pool_inner: &PagedPoolInner) -> PruningOutcome {
+fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
-    //    by a different SizePool after a future allocation.
+    //    by a different SizePool after a future allocation. If anything was
+    //    freed, wake the allocation queue so pending requests can claim it.
     //    TODO: Consider doing trim cooldown (i.e. invoke trim less often)
     //    if it's contending too much with reserve read lock.
-    let _trimmed = pool_inner.trim();
+    if pool_inner.trim() {
+        pool_inner.try_wake_pending();
+    }
 
     // 2. Allocation queue not yet implemented. For now we have no waiters,
     //    so any wakeup we receive is transient.

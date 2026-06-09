@@ -68,6 +68,14 @@ struct AllocationQueueInner {
     low: VecDeque<PendingAllocation>,
 }
 
+impl std::fmt::Debug for AllocationQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllocationQueue")
+            .field("has_pending", &self.has_pending.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for AllocationQueue {
     fn default() -> Self {
         Self::new()

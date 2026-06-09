@@ -197,6 +197,15 @@ impl MemoryLimiter {
         state.read_state.lock().unwrap().is_active(offset, size)
     }
 
+    /// Check if the given cursor currently has an active FUSE read in progress.
+    pub fn has_active_read(&self, cursor_id: CursorId) -> bool {
+        self.cursors
+            .get(&cursor_id)
+            .and_then(|r| r.upgrade())
+            .map(|s| matches!(*s.read_state.lock().unwrap(), ReadState::Active { .. }))
+            .unwrap_or(false)
+    }
+
     /// Called by the pool on every buffer allocation. For download buffers with a known cursor,
     /// this converts reservation from "intent" (`mem_reserved`) to "actual allocation" (pool stats)
     /// by decrementing both the global and per-cursor counters.
@@ -437,6 +446,8 @@ impl Drop for CursorState {
         // The limiter holds a weak reference to `CursorState`, so this `Drop` runs when all strong
         // references are gone. `release_cursor` removes the reference and decrements the global reservation counter.
         self.pool.limiter().release_cursor(self.cursor_id, &self.mem_reserved);
+        // Releasing the cursor's reservation may have freed memory — wake any pending allocations.
+        self.pool.try_wake_pending();
     }
 }
 
@@ -459,8 +470,13 @@ impl CursorHandle {
 
     /// Record an active FUSE read. Returns a guard that clears it on drop and
     /// stamps the cursor's LRU tick at that point.
+    ///
+    /// Also upgrades any pending speculative allocation queue entries for this
+    /// cursor to high priority, since a read is now actively waiting.
     pub fn set_active_read(&self, offset: u64, size: usize) -> ActiveReadGuard {
         *self.state.read_state.lock().unwrap() = ReadState::Active { offset, size };
+        // Promote any speculative queue entries to high priority.
+        self.state.pool.upgrade_pending(self.state.cursor_id);
         ActiveReadGuard { state: self.state() }
     }
 
