@@ -11,7 +11,7 @@ use super::pool::PagedPoolInner;
 
 /// Outcome of a single pruning round. Used for metrics and tracing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PruningOutcome {
+pub(super) enum PruningOutcome {
     /// Nothing to prune (queue empty). Pressure is defined as
     /// "queue non-empty", so an empty queue means pressure has already cleared.
     Idle,
@@ -95,7 +95,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///      natural release path do the work — unless the head of the queue
 ///      has been waiting beyond [`PRUNING_STARVATION_THRESHOLD`].
 ///   4. Otherwise reset one idle cursor.
-fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
+pub(super) fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
     //    by a different SizePool after a future allocation. If anything was
     //    freed, wake the allocation queue so pending requests can claim it.
@@ -105,13 +105,14 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
         pool_inner.try_wake_pending();
     }
 
-    // 2. Allocation queue not yet implemented. For now we have no waiters,
-    //    so any wakeup we receive is transient.
-    let queue_empty = true; // TODO: inspect allocation_queue
-    let head_waited = Duration::ZERO; // TODO: queue.front().queued_at.elapsed()
-    if queue_empty {
+    // 2. If no waiter is queued, there's no pressure — exit the inner tick.
+    if !pool_inner.is_memory_pressure() {
         return PruningOutcome::Idle;
     }
+    // TODO: track per-entry `queued_at` on the AllocationQueue so we can
+    // measure how long the head has been waiting and trip the starvation
+    // backstop. For now we never starve.
+    let head_waited = Duration::ZERO;
 
     let starving = head_waited >= PRUNING_STARVATION_THRESHOLD;
 
@@ -186,10 +187,10 @@ mod tests {
         handle.join().expect("maintenance thread panicked");
     }
 
-    /// Contract for `run_pruning_round` while the allocation queue stub
-    /// reports empty: returns [`PruningOutcome::Idle`]. Pressure is defined
-    /// as "queue non-empty", so an empty queue means no pressure — the
-    /// pruner's job here is to observe and exit.
+    /// Contract for `run_pruning_round` when the allocation queue is empty:
+    /// returns [`PruningOutcome::Idle`]. Pressure is defined as "queue
+    /// non-empty", so an empty queue means no pressure — the pruner's job
+    /// here is to observe and exit.
     #[test]
     fn run_pruning_round_returns_idle_on_empty_queue() {
         let pool = PagedPool::config()
@@ -200,7 +201,7 @@ mod tests {
         let outcome = run_pruning_round(pool.inner());
         assert_eq!(outcome, PruningOutcome::Idle);
         assert!(
-            !pool.inner().limiter().is_memory_pressure(),
+            !pool.inner().is_memory_pressure(),
             "empty allocation queue must report no memory pressure",
         );
     }

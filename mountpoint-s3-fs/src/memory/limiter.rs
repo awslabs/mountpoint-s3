@@ -243,15 +243,6 @@ impl MemoryLimiter {
     // Pruning hooks — see `maintenance.rs` for the loop, signal, and round logic.
     // -----------------------------------------------------------------------
 
-    /// Returns `true` while there is at least one queued allocation request.
-    /// Callers use this to decide whether new prefetch reservations should
-    /// scale down or wait.
-    #[allow(dead_code)]
-    pub(crate) fn is_memory_pressure(&self) -> bool {
-        // TODO: Change to something like `!self.allocation_queue.lock().is_empty()`.
-        false
-    }
-
     /// Wake the maintenance loop if it's currently parked between idle intervals.
     #[allow(dead_code)]
     pub fn trigger_pruning(&self) {

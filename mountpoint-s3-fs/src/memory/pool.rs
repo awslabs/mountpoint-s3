@@ -279,7 +279,7 @@ impl PagedPool {
         // Fast path: if the queue is empty, try to allocate immediately. The check-and-allocate in
         // `try_allocate` uses CAS on `pending_allocations`, so concurrent fast-path callers cannot both
         // observe room for the same bytes and overshoot the limit.
-        if !self.inner.allocation_queue.has_pending()
+        if !self.inner.is_memory_pressure()
             && let Some(buffer) = self.try_allocate(size, kind, cursor_id)
         {
             return buffer;
@@ -367,6 +367,14 @@ impl PagedPoolInner {
         &self.limiter
     }
 
+    /// Returns `true` while there is at least one queued allocation request.
+    /// Pressure is defined as "the allocation queue is non-empty": new requests
+    /// were forced to wait because [`Self::try_allocate`] could not satisfy them
+    /// inline.
+    pub(super) fn is_memory_pressure(&self) -> bool {
+        self.allocation_queue.has_pending()
+    }
+
     fn get_pool_for_size(&self, size: usize) -> Option<&SizePool> {
         if size == 0 {
             return None;
@@ -409,7 +417,7 @@ impl PagedPoolInner {
     }
 
     pub(super) fn try_wake_pending(self: &Arc<Self>) {
-        if !self.allocation_queue.has_pending() {
+        if !self.is_memory_pressure() {
             return;
         }
         let pool = PagedPool::from_inner(self.clone());
@@ -755,12 +763,47 @@ mod tests {
 
             // Wait for the request to enter the queue (retry for up to 100ms).
             for _ in 0..100 {
-                if pool.inner.allocation_queue.has_pending() {
+                if pool.inner.is_memory_pressure() {
                     return; // Success
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
             panic!("request did not enter queue within 100ms");
+        }
+
+        /// `is_memory_pressure` reflects the queue's emptiness.
+        /// This is the primitive the maintenance loop relies on.
+        #[test]
+        fn test_is_memory_pressure_tracks_queue() {
+            const BUF: usize = 1024;
+            let pool = tight_pool(BUF);
+            assert!(!pool.inner.is_memory_pressure());
+
+            // Fill memory and enqueue a waiter.
+            let mut blockers = Vec::new();
+            while pool.can_allocate(BUF) {
+                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            }
+            let pool_clone = pool.clone();
+            let _handle =
+                std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+            for _ in 0..100 {
+                if pool.inner.is_memory_pressure() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(pool.inner.is_memory_pressure(), "pressure should track queue");
+
+            // Drop a buffer — `try_wake_pending` will fulfill the waiter and clear pressure.
+            blockers.pop();
+            for _ in 0..100 {
+                if !pool.inner.is_memory_pressure() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            panic!("pressure did not clear after waiter was fulfilled");
         }
 
         #[test]
@@ -782,7 +825,7 @@ mod tests {
 
             // Wait for the request to enter the queue before freeing memory.
             for _ in 0..1000 {
-                if pool.inner.allocation_queue.has_pending() {
+                if pool.inner.is_memory_pressure() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));
@@ -860,7 +903,7 @@ mod tests {
             });
             // Wait for it to enter the queue as low priority.
             for _ in 0..1000 {
-                if pool.inner.allocation_queue.has_pending() {
+                if pool.inner.is_memory_pressure() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));
@@ -943,6 +986,38 @@ mod tests {
                 );
                 drop(granted);
             }
+        }
+
+        /// `run_pruning_round` must observe real allocation-queue pressure
+        /// and not return `Idle` while a waiter is enqueued. Without an
+        /// idle cursor to evict, the round defers to natural release.
+        #[test]
+        fn test_run_pruning_round_observes_real_queue_pressure() {
+            use crate::memory::maintenance::{PruningOutcome, run_pruning_round};
+
+            const BUF: usize = 1024;
+            let pool = tight_pool(BUF);
+
+            // Fill memory and enqueue a waiter.
+            let mut blockers = Vec::new();
+            while pool.can_allocate(BUF) {
+                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            }
+            let pool_clone = pool.clone();
+            let _handle =
+                std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+            for _ in 0..100 {
+                if pool.inner.is_memory_pressure() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(pool.inner.is_memory_pressure(), "request did not enter queue");
+
+            // No cursor with active read, no idle cursor to evict — round
+            // should report it is waiting on a natural release path.
+            let outcome = run_pruning_round(&pool.inner);
+            assert_eq!(outcome, PruningOutcome::WaitingForRelease);
         }
     }
 }
