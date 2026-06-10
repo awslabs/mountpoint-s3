@@ -134,6 +134,17 @@ impl PagedPool {
         PoolBufferMut::new(buffer)
     }
 
+    /// Async equivalent of [Self::get_buffer_mut]
+    pub async fn get_buffer_mut_async(
+        &self,
+        capacity: usize,
+        kind: BufferKind,
+        cursor_id: Option<CursorId>,
+    ) -> PoolBufferMut {
+        let buffer = self.acquire_buffer_async(capacity, kind, cursor_id).await;
+        PoolBufferMut::new(buffer)
+    }
+
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         match self.inner.get_pool_for_size(size) {
             Some(pool) => {
