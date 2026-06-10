@@ -22,11 +22,11 @@ enum PruningOutcome {
 }
 
 /// Period of the pruning loop's inner tick while under memory pressure.
-pub(crate) const PRUNING_TICK: Duration = Duration::from_millis(1);
+pub const PRUNING_TICK: Duration = Duration::from_millis(1);
 /// If the head of the allocation queue has been waiting longer than this, the pruner
 /// will reset an idle cursor even if uploads/active reads are in flight.
 /// Acts as a starvation backstop.
-pub(crate) const PRUNING_STARVATION_THRESHOLD: Duration = Duration::from_millis(5);
+const PRUNING_STARVATION_THRESHOLD: Duration = Duration::from_millis(5);
 
 /// Spawn the background maintenance thread. Must be called once after constructing
 /// the pool, at filesystem init. Holds a [`Weak`] to the pool so the thread
@@ -35,7 +35,7 @@ pub(crate) const PRUNING_STARVATION_THRESHOLD: Duration = Duration::from_millis(
 /// `idle_interval` controls how often a periodic [`PagedPoolInner::trim`] runs
 /// when there is no memory pressure. Production uses ~60s; tests use shorter
 /// values.
-pub(super) fn spawn_pool_maintenance_thread(
+pub fn spawn_pool_maintenance_thread(
     pool_inner: &Arc<PagedPoolInner>,
     idle_interval: Duration,
 ) -> thread::JoinHandle<()> {

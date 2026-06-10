@@ -205,9 +205,6 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
         ])
         .with_memory_limit(args.mem_limit())
         .build();
-    // Spawn the background pool maintenance thread. Performs periodic trim
-    // (every 60s) when idle, and runs pruning rounds on demand under memory
-    // pressure (woken by `MemoryLimiter::trigger_pruning`).
     pool.spawn_pool_maintenance_thread(Duration::from_secs(60));
 
     let s3_path = args.s3_path()?;
