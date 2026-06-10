@@ -202,7 +202,7 @@ impl FreeBuffer {
         forced: bool,
     ) -> Option<Self> {
         let (bytes, layout) = limiter.try_allocate(size, forced)?;
-        limiter.stats().acquire_bytes(layout.size(), kind);
+        limiter.acquire_bytes(layout.size(), kind);
         Some(Self {
             bytes,
             layout,
@@ -218,8 +218,8 @@ unsafe impl Send for FreeBuffer {}
 
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
-        self.limiter.stats().release_bytes(self.layout.size(), self.kind);
-        self.limiter.stats().deallocate(self.bytes, self.layout);
+        self.limiter.release_bytes(self.layout.size(), self.kind);
+        self.limiter.deallocate(self.bytes, self.layout);
         if let Some(pool) = self.pool.upgrade() {
             pool.try_wake_pending();
         }

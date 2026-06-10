@@ -7,12 +7,12 @@ use sysinfo::System;
 use tracing::{debug, trace};
 
 use crate::prefetch::CursorId;
-use crate::sync::atomic::{AtomicU64, Ordering};
+use crate::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Arc, Mutex, Weak};
 use crate::util::wake_signal::WakeSignal;
 
 use super::PagedPool;
-use super::stats::PoolStats;
+use super::stats::{BUFFER_KIND_COUNT, BufferKind};
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -72,7 +72,9 @@ pub struct MemoryLimiter {
     /// Once the inner tick is running it polls every [`PRUNING_TICK`](super::maintenance::PRUNING_TICK)
     /// regardless.
     pruning_signal: Arc<WakeSignal>,
-    stats: PoolStats,
+
+    acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
+    allocated_bytes: AtomicUsize,
 }
 
 impl MemoryLimiter {
@@ -93,7 +95,8 @@ impl MemoryLimiter {
             next_read_tick: AtomicU64::new(1),
             additional_mem_reserved,
             pruning_signal: Arc::new(WakeSignal::new()),
-            stats: Default::default(),
+            acquired_bytes: Default::default(),
+            allocated_bytes: Default::default(),
         }
     }
 
@@ -123,7 +126,7 @@ impl MemoryLimiter {
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
             let new_mem_reserved = mem_reserved.saturating_add(size);
-            let pool_mem_reserved = self.allocated_memory();
+            let pool_mem_reserved = self.allocated_bytes() as u64;
             let new_total_mem_usage = new_mem_reserved
                 .saturating_add(pool_mem_reserved)
                 .saturating_add(self.additional_mem_reserved);
@@ -170,11 +173,7 @@ impl MemoryLimiter {
 
     /// Query available memory tracked by the memory limiter.
     pub fn available_mem(&self) -> u64 {
-        let mem_allocated = self.allocated_memory();
-        self.available_mem_inner(mem_allocated)
-    }
-
-    fn available_mem_inner(&self, mem_allocated: u64) -> u64 {
+        let mem_allocated = self.allocated_bytes() as u64;
         let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         self.mem_limit
             .saturating_sub(mem_reserved)
@@ -240,16 +239,12 @@ impl MemoryLimiter {
         self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
-    pub(super) fn stats(&self) -> &PoolStats {
-        &self.stats
-    }
-
-    pub(super) fn try_allocate(&self, size: usize, forced: bool) -> Option<(*mut u8, Layout)> {
+    pub fn try_allocate(&self, size: usize, forced: bool) -> Option<(*mut u8, Layout)> {
         if forced {
-            self.stats.allocated_bytes.fetch_add(size, Ordering::SeqCst);
+            self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
         } else {
             let start = Instant::now();
-            let mut mem_allocated = self.stats.allocated_bytes.load(Ordering::SeqCst);
+            let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
             loop {
                 let new_mem_allocated = mem_allocated.saturating_add(size);
                 let new_total_mem_usage = new_mem_allocated.saturating_add(self.additional_mem_reserved as usize);
@@ -259,7 +254,7 @@ impl MemoryLimiter {
                     return None;
                 }
                 // Check that the value we have read is still the same before updating it
-                match self.stats.allocated_bytes.compare_exchange_weak(
+                match self.allocated_bytes.compare_exchange_weak(
                     mem_allocated,
                     new_mem_allocated,
                     Ordering::SeqCst,
@@ -285,9 +280,34 @@ impl MemoryLimiter {
         Some((bytes, layout))
     }
 
-    /// Get allocated memory from the pool.
-    fn allocated_memory(&self) -> u64 {
-        self.stats.allocated_bytes() as u64
+    pub fn deallocate(&self, bytes: *mut u8, layout: Layout) {
+        // SAFETY: `bytes` was allocated using `layout` in `allocate_page`.
+        unsafe {
+            alloc::dealloc(bytes, layout);
+        }
+        self.allocated_bytes.fetch_sub(layout.size(), Ordering::SeqCst);
+    }
+
+    pub fn allocated_bytes(&self) -> usize {
+        self.allocated_bytes.load(Ordering::SeqCst)
+    }
+
+    pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
+        self.acquired_bytes[kind].load(Ordering::SeqCst)
+    }
+
+    pub fn total_acquired_bytes(&self) -> usize {
+        self.acquired_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
+    }
+
+    pub fn acquire_bytes(&self, bytes: usize, kind: BufferKind) {
+        self.acquired_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
+        metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).increment(bytes as f64);
+    }
+
+    pub fn release_bytes(&self, bytes: usize, kind: BufferKind) {
+        self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
+        metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
     }
 
     // -----------------------------------------------------------------------
@@ -703,17 +723,17 @@ mod tests {
         // Reserve intent — available decreases
         cursor.reserve(buffer_size as u64);
         assert_eq!(limiter.available_mem(), initial_available - buffer_size as u64);
-        assert_eq!(limiter.stats.acquired_bytes(BufferKind::GetObject), 0);
+        assert_eq!(limiter.acquired_bytes(BufferKind::GetObject), 0);
 
         // Pool allocates (on_pool_acquire converts intent to pool stats)
         let buffer = pool.get_buffer_mut(buffer_size, BufferKind::GetObject, Some(cursor.id()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
-        assert_eq!(limiter.stats.acquired_bytes(BufferKind::GetObject), buffer_size);
+        assert_eq!(limiter.acquired_bytes(BufferKind::GetObject), buffer_size);
         assert_eq!(limiter.available_mem(), initial_available - page_size as u64);
 
         // Drop the buffer — pool stats decrease
         drop(buffer);
-        assert_eq!(limiter.stats.acquired_bytes(BufferKind::GetObject), 0);
+        assert_eq!(limiter.acquired_bytes(BufferKind::GetObject), 0);
         assert_eq!(limiter.available_mem(), initial_available - page_size as u64);
 
         // Trim the pool - available goes back up
