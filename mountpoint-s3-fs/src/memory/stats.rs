@@ -1,11 +1,12 @@
-use std::alloc::Layout;
 use std::ops::Index;
 
 use mountpoint_s3_client::config::MetaRequestType;
 
-use crate::memory::limiter::MemoryLimiter;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
+
+use super::buffers::BufferPtr;
+use super::limiter::MemoryLimiter;
 
 /// Usage stats for a specific size pool.
 #[derive(Debug)]
@@ -42,7 +43,7 @@ impl SizePoolStats {
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub(super) fn try_allocate_page(&self, buffer_count: usize, forced: bool) -> Option<(*mut u8, Layout)> {
+    pub(super) fn try_allocate_page(&self, buffer_count: usize, forced: bool) -> Option<BufferPtr> {
         let size = self.buffer_size * buffer_count;
         let result = self.limiter.try_allocate(size, forced)?;
         metrics::gauge!("pool.allocated_pages", "size" => format!("{}", self.buffer_size)).increment(1.0);
@@ -50,8 +51,8 @@ impl SizePoolStats {
         Some(result)
     }
 
-    pub(super) fn deallocate_page(&self, bytes: *mut u8, layout: Layout) {
-        self.limiter.deallocate(bytes, layout);
+    pub(super) fn deallocate_page(&self, ptr: &mut BufferPtr) {
+        self.limiter.deallocate(ptr);
     }
 
     #[allow(unused)]
