@@ -1,4 +1,3 @@
-use std::alloc::{self, Layout};
 use std::time::Instant;
 
 use dashmap::DashMap;
@@ -12,6 +11,7 @@ use crate::sync::{Arc, Mutex, Weak};
 use crate::util::wake_signal::WakeSignal;
 
 use super::PagedPool;
+use super::buffers::BufferPtr;
 use super::stats::{BUFFER_KIND_COUNT, BufferKind};
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
@@ -239,7 +239,7 @@ impl MemoryLimiter {
         self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
-    pub fn try_allocate(&self, size: usize, forced: bool) -> Option<(*mut u8, Layout)> {
+    pub fn try_allocate(&self, size: usize, forced: bool) -> Option<BufferPtr> {
         if forced {
             self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
         } else {
@@ -269,23 +269,13 @@ impl MemoryLimiter {
             }
         }
 
-        let layout = Layout::array::<u8>(size).unwrap();
-
-        // SAFETY: layout has non-zero size.
-        let bytes = unsafe { alloc::alloc(layout) };
-        if bytes.is_null() {
-            alloc::handle_alloc_error(layout);
-        }
-
-        Some((bytes, layout))
+        Some(BufferPtr::allocate(size))
     }
 
-    pub fn deallocate(&self, bytes: *mut u8, layout: Layout) {
-        // SAFETY: `bytes` was allocated using `layout` in `allocate_page`.
-        unsafe {
-            alloc::dealloc(bytes, layout);
-        }
-        self.allocated_bytes.fetch_sub(layout.size(), Ordering::SeqCst);
+    pub fn deallocate(&self, ptr: &mut BufferPtr) {
+        let size = ptr.size();
+        ptr.deallocate();
+        self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
     }
 
     pub fn allocated_bytes(&self) -> usize {

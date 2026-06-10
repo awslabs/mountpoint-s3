@@ -1,7 +1,6 @@
-use std::alloc::Layout;
-
 use crate::sync::{Arc, Mutex, Weak};
 
+use super::buffers::BufferPtr;
 use super::pool::PagedPoolInner;
 use super::stats::{BufferKind, SizePoolStats};
 
@@ -17,9 +16,7 @@ pub struct Page {
 #[derive(Debug)]
 struct PageInner {
     /// Pointer to the memory for this page.
-    bytes: *mut u8,
-    /// Memory layout.
-    layout: Layout,
+    ptr: BufferPtr,
     /// Pointer to the last buffer in the page.
     ///
     /// Equals to (BUFFERS_PER_PAGE - 1) * buffer_size. Stored for easy
@@ -43,7 +40,7 @@ unsafe impl Sync for PageInner {}
 
 impl Drop for PageInner {
     fn drop(&mut self) {
-        self.stats.deallocate_page(self.bytes, self.layout);
+        self.stats.deallocate_page(&mut self.ptr);
     }
 }
 
@@ -52,15 +49,14 @@ impl Page {
 
     /// Create a new page and allocate the required memory.
     pub fn try_new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>, forced: bool) -> Option<Self> {
-        let (bytes, layout) = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
+        let ptr = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
-        let last_buffer = unsafe { bytes.add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size) };
+        let last_buffer = unsafe { ptr.as_raw_ptr().add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size) };
         let inner = PageInner {
-            bytes,
+            ptr,
             last_buffer,
             acquired_bitmask: Default::default(),
-            layout,
             stats,
             pool,
         };
@@ -81,7 +77,7 @@ impl Page {
         self.inner.stats.acquire_buffer(kind);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
-        let ptr = unsafe { self.inner.bytes.add(offset) };
+        let ptr = unsafe { self.inner.ptr.as_raw_ptr().add(offset) };
         Some(PagedBufferPtr {
             ptr,
             pool_page: self.clone(),
@@ -92,12 +88,12 @@ impl Page {
     /// Release a buffer back to this page.
     fn release(&self, ptr: *mut u8, kind: BufferKind) {
         assert!(
-            ptr >= self.inner.bytes && ptr <= self.inner.last_buffer,
+            ptr >= self.inner.ptr.as_raw_ptr() && ptr <= self.inner.last_buffer,
             "the pointer does not belong to this page"
         );
 
-        // SAFETY: ptr points to the same allocated object as self.inner.bytes.
-        let offset = unsafe { ptr.offset_from(self.inner.bytes) };
+        // SAFETY: ptr points to the same allocated object as self.inner.ptr.
+        let offset = unsafe { ptr.offset_from(self.inner.ptr.as_raw_ptr()) };
         let index = offset as usize / self.inner.stats.buffer_size;
         let mask = !(1u16 << index);
         let mut bitmask = self.inner.acquired_bitmask.lock().unwrap();
