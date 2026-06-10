@@ -148,7 +148,7 @@ fn has_uploads_in_flight(_pool_inner: &PagedPoolInner) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "shuttle")))]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
