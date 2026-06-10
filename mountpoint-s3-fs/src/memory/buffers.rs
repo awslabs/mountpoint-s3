@@ -4,11 +4,10 @@ use std::ops::{Deref, DerefMut};
 
 use bytes::Bytes;
 
-use crate::sync::{Arc, Weak};
+use crate::sync::Arc;
 
 use super::limiter::MemoryLimiter;
 use super::pages::PagedBufferPtr;
-use super::pool::PagedPoolInner;
 use super::stats::BufferKind;
 
 /// A buffer backed by the pool.
@@ -37,11 +36,10 @@ impl PoolBuffer {
         size: usize,
         kind: BufferKind,
         limiter: Arc<MemoryLimiter>,
-        pool: Weak<PagedPoolInner>,
         forced: bool,
     ) -> Option<Self> {
         Some(Self(PoolBufferInner::Secondary(FreeBuffer::try_new(
-            size, kind, limiter, pool, forced,
+            size, kind, limiter, forced,
         )?)))
     }
 
@@ -182,26 +180,13 @@ struct FreeBuffer {
     ptr: BufferPtr,
     kind: BufferKind,
     limiter: Arc<MemoryLimiter>,
-    /// Weak reference back to the pool so this buffer's drop can wake pending allocations.
-    pool: Weak<PagedPoolInner>,
 }
 
 impl FreeBuffer {
-    fn try_new(
-        size: usize,
-        kind: BufferKind,
-        limiter: Arc<MemoryLimiter>,
-        pool: Weak<PagedPoolInner>,
-        forced: bool,
-    ) -> Option<Self> {
+    fn try_new(size: usize, kind: BufferKind, limiter: Arc<MemoryLimiter>, forced: bool) -> Option<Self> {
         let ptr = limiter.try_allocate(size, forced)?;
         limiter.acquire_bytes(ptr.size(), kind);
-        Some(Self {
-            ptr,
-            kind,
-            limiter,
-            pool,
-        })
+        Some(Self { ptr, kind, limiter })
     }
 }
 
@@ -210,11 +195,8 @@ unsafe impl Send for FreeBuffer {}
 
 impl Drop for FreeBuffer {
     fn drop(&mut self) {
-        self.limiter.release_bytes(self.ptr.size(), self.kind);
         self.limiter.deallocate(&mut self.ptr);
-        if let Some(pool) = self.pool.upgrade() {
-            pool.try_wake_pending();
-        }
+        self.limiter.release_bytes(self.ptr.size(), self.kind);
     }
 }
 
@@ -299,7 +281,6 @@ mod tests {
     use super::super::pages::Page;
 
     use super::*;
-    use crate::sync::Weak;
 
     use test_case::{test_case, test_matrix};
 
@@ -316,8 +297,7 @@ mod tests {
         PoolBuffer::try_new_secondary(
             buffer_size,
             BufferKind::Other,
-            Arc::new(MemoryLimiter::new(u64::MAX)),
-            Weak::new(),
+            Arc::new(MemoryLimiter::new(u64::MAX, Default::default())),
             true,
         )
         .unwrap()
