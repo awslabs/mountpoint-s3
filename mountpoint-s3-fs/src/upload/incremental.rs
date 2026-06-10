@@ -162,8 +162,6 @@ struct AppendUploadQueue<Client: ObjectClient> {
     checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
     /// Stores the last successful result to return in [join].
     last_known_result: Option<PutObjectResult>,
-    /// Tracks the requests pushed to the queue but still pending a response.
-    requests_in_queue: usize,
 }
 
 impl<Client> AppendUploadQueue<Client>
@@ -198,7 +196,6 @@ where
             buffer_sender,
             event_receiver,
             last_known_result: None,
-            requests_in_queue: 0,
             checksum_algorithm: None,
             pool,
             _task_handle: task_handle,
@@ -213,7 +210,6 @@ where
             while self.consume_next_response().await? {}
             return Err(UploadError::UploadAlreadyTerminated);
         }
-        self.requests_in_queue += 1;
         Ok(())
     }
 
@@ -256,34 +252,9 @@ where
                 AppendUploadEvent::Error(upload_error) => return Err(upload_error),
             }
         };
-        // Three-way decision per iteration:
-        //   1. No outstanding requests for this handle (nothing pushed-but-not-acked) →
-        //      force-allocate via `get_buffer_mut`. Forward-progress guarantee for the
-        //      write() FUSE thread: with nothing pending for this handle to wait on, the
-        //      next buffer is allocated unconditionally rather than blocking on memory held
-        //      by unrelated handles. Each admitted writer is guaranteed a buffer this way;
-        //      the resulting overshoot is bounded by `WriteHandleLimiter` admission control.
-        //   2. Budget available → allocate via `get_buffer_mut_async`, which may route through
-        //      the pool's priority allocation queue (ensures fairness with other handles).
-        //   3. Budget exhausted (memory pressure) → drain one in-flight response from this
-        //      handle's own pipeline before re-evaluating. We wait on our own uploads rather
-        //      than blocking on the shared queue; once a response frees a buffer, the next
-        //      iteration goes through branch 2.
         let hasher = ChecksumHasher::new(&checksum_algorithm)?;
-        loop {
-            if self.requests_in_queue == 0 {
-                let data = self.pool.get_buffer_mut(capacity, BufferKind::Append, None);
-                return Ok(UploadBuffer { data, hasher });
-            }
-            if self.pool.can_allocate(capacity) {
-                let data = self.pool.get_buffer_mut_async(capacity, BufferKind::Append, None).await;
-                return Ok(UploadBuffer { data, hasher });
-            }
-            trace!("wait for the next request to be processed");
-            if !self.consume_next_response().await? {
-                return Err(UploadError::UploadAlreadyTerminated);
-            }
-        }
+        let data = self.pool.get_buffer_mut_async(capacity, BufferKind::Append, None).await;
+        Ok(UploadBuffer { data, hasher })
     }
 
     /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
@@ -307,7 +278,6 @@ where
                 }
                 AppendUploadEvent::PutResponse(result) => {
                     trace!(?result, "received result");
-                    self.requests_in_queue -= 1;
                     self.last_known_result = Some(result);
                     return Ok(true);
                 }
@@ -1157,31 +1127,25 @@ mod tests {
         assert_eq!(expected_content, *actual);
     }
 
-    #[test_case(8 * 1024, 128,        10, 0; "no_headroom_small_writes")]
-    #[test_case(8 * 1024, 16 * 1024,  20, 0; "no_headroom_large_writes")]
-    #[test_case(8 * 1024, 8 * 1024,   10, 4; "with_headroom")] // Hits get_buffer_mut and get_buffer_mut_async branches
+    #[test_case(8 * 1024, 128, 10)]
+    #[test_case(8 * 1024, 16 * 1024, 20)]
     #[tokio::test]
-    async fn test_append_under_memory_pressure(
-        part_size: usize,
-        write_size: usize,
-        part_count: usize,
-        headroom_parts: usize,
-    ) {
+    async fn test_append_on_low_memory(part_size: usize, write_size: usize, part_count: usize) {
         let bucket = "bucket";
         let key = "hello";
 
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
-        const LIMITER_MIN_RESERVED: u64 = 128 * 1024 * 1024;
-        let mem_limit = if headroom_parts == 0 {
-            0
-        } else {
-            LIMITER_MIN_RESERVED + (headroom_parts * part_size) as u64
-        };
+        // `MemoryLimiter::new` reserves max(mem_limit/8, 128 MiB) for non-buffer use,
+        // so set `mem_limit` just above that floor to leave room for exactly one part.
+        // This serializes writes through the allocation queue, exercising the wait-then-wake
+        // path on every part.
+        const NON_BUFFER_FLOOR: u64 = 128 * 1024 * 1024;
         let pool = PagedPool::config()
             .with_candidate_sizes([part_size])
-            .with_memory_limit(mem_limit)
+            .with_memory_limit(NON_BUFFER_FLOOR + part_size as u64)
             .build();
-        assert_eq!(pool.available_mem(), (headroom_parts * part_size) as u64);
+
+        assert_eq!(pool.available_mem(), part_size as u64);
 
         let uploader = Uploader::new(
             client.clone(),
@@ -1217,5 +1181,69 @@ mod tests {
             .expect("get_object failed");
         let actual = get_request.collect().await.expect("failed to collect body");
         assert_eq!(expected_content, *actual);
+    }
+
+    /// Two concurrent handles sharing a pool that fits exactly one part at a time.
+    /// Each handle's PUT completion must free a buffer that the other handle is waiting
+    /// on through the pool's allocation queue.
+    #[tokio::test]
+    async fn test_append_two_handles_share_one_part() {
+        let bucket = "bucket";
+        let part_size = 8 * 1024;
+        let part_count = 4;
+
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
+        // `MemoryLimiter::new` reserves max(mem_limit/8, 128 MiB) for non-buffer use,
+        // so set `mem_limit` just above that floor to leave room for exactly one part.
+        const LIMITER_MIN_RESERVED: u64 = 128 * 1024 * 1024;
+        let pool = PagedPool::config()
+            .with_candidate_sizes([part_size])
+            .with_memory_limit(LIMITER_MIN_RESERVED + part_size as u64)
+            .build();
+        assert_eq!(pool.available_mem(), part_size as u64);
+
+        let uploader = Uploader::new(
+            client.clone(),
+            Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
+            pool.clone(),
+            UploaderConfig::new(part_size),
+        );
+
+        async fn drive_handle<Client>(
+            mut request: AppendUploadRequest<Client>,
+            part_size: usize,
+            part_count: usize,
+        ) -> Vec<u8>
+        where
+            Client: ObjectClient + Send + Sync + 'static,
+        {
+            let mut written = Vec::new();
+            let mut offset = 0u64;
+            for i in 0..part_count {
+                let data = vec![i as u8; part_size];
+                written.extend_from_slice(&data);
+                offset += request.write(offset, &data).await.expect("write should succeed") as u64;
+            }
+            request.complete().await.expect("upload should complete");
+            written
+        }
+
+        let request_a = uploader.start_incremental_upload(bucket.to_owned(), "key_a".to_owned(), 0, None);
+        let request_b = uploader.start_incremental_upload(bucket.to_owned(), "key_b".to_owned(), 0, None);
+        let (expected_a, expected_b) = tokio::join!(
+            drive_handle(request_a, part_size, part_count),
+            drive_handle(request_b, part_size, part_count),
+        );
+
+        for (key, expected) in [("key_a", expected_a), ("key_b", expected_b)] {
+            let get_request = client
+                .get_object(bucket, key, &GetObjectParams::default())
+                .await
+                .expect("get_object failed");
+            let actual = get_request.collect().await.expect("failed to collect body");
+            assert_eq!(expected, *actual, "content mismatch for {key}");
+        }
+
+        assert_eq!(pool.available_mem(), part_size as u64);
     }
 }

@@ -216,7 +216,8 @@ impl PagedPool {
     }
 
     /// Returns `true` if the pool can accommodate an additional allocation of `size` bytes.
-    pub(crate) fn can_allocate(&self, size: usize) -> bool {
+    #[cfg(test)]
+    fn can_allocate(&self, size: usize) -> bool {
         let pending = self.inner.pending_allocations.load(Ordering::SeqCst);
         self.available_mem().saturating_sub(pending) >= size as u64
     }
