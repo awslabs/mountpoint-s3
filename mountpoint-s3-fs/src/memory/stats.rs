@@ -1,4 +1,4 @@
-use std::alloc::{self, Layout};
+use std::alloc::Layout;
 use std::ops::Index;
 
 use mountpoint_s3_client::config::MetaRequestType;
@@ -6,45 +6,6 @@ use mountpoint_s3_client::config::MetaRequestType;
 use crate::memory::limiter::MemoryLimiter;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
-
-/// Usage stats for a pool.
-#[derive(Debug, Default)]
-pub struct PoolStats {
-    acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
-    pub(super) allocated_bytes: AtomicUsize,
-}
-
-impl PoolStats {
-    pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
-        self.acquired_bytes[kind].load(Ordering::SeqCst)
-    }
-
-    pub fn total_acquired_bytes(&self) -> usize {
-        self.acquired_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
-    }
-
-    pub(super) fn acquire_bytes(&self, bytes: usize, kind: BufferKind) {
-        self.acquired_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
-        metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).increment(bytes as f64);
-    }
-
-    pub(super) fn release_bytes(&self, bytes: usize, kind: BufferKind) {
-        self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
-        metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
-    }
-
-    pub fn allocated_bytes(&self) -> usize {
-        self.allocated_bytes.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn deallocate(&self, bytes: *mut u8, layout: Layout) {
-        // SAFETY: `bytes` was allocated using `layout` in `allocate_page`.
-        unsafe {
-            alloc::dealloc(bytes, layout);
-        }
-        self.allocated_bytes.fetch_sub(layout.size(), Ordering::SeqCst);
-    }
-}
 
 /// Usage stats for a specific size pool.
 #[derive(Debug)]
@@ -90,7 +51,7 @@ impl SizePoolStats {
     }
 
     pub(super) fn deallocate_page(&self, bytes: *mut u8, layout: Layout) {
-        self.limiter.stats().deallocate(bytes, layout);
+        self.limiter.deallocate(bytes, layout);
     }
 
     #[allow(unused)]
@@ -100,12 +61,12 @@ impl SizePoolStats {
 
     pub(super) fn acquire_buffer(&self, kind: BufferKind) {
         self.acquired_buffers[kind].fetch_add(1, Ordering::SeqCst);
-        self.limiter.stats().acquire_bytes(self.buffer_size, kind);
+        self.limiter.acquire_bytes(self.buffer_size, kind);
     }
 
     pub(super) fn release_buffer(&self, kind: BufferKind) {
         self.acquired_buffers[kind].fetch_sub(1, Ordering::SeqCst);
-        self.limiter.stats().release_bytes(self.buffer_size, kind);
+        self.limiter.release_bytes(self.buffer_size, kind);
     }
 }
 
@@ -118,7 +79,7 @@ pub enum BufferKind {
     Append,
     Other,
 }
-const BUFFER_KIND_COUNT: usize = BufferKind::Other as usize + 1;
+pub const BUFFER_KIND_COUNT: usize = BufferKind::Other as usize + 1;
 
 impl<T> Index<BufferKind> for [T; BUFFER_KIND_COUNT] {
     type Output = T;

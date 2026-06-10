@@ -114,12 +114,12 @@ impl PagedPool {
 
     /// Return the memory in use in bytes for the given kind of buffer.
     pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
-        self.inner.limiter.stats().acquired_bytes(kind)
+        self.inner.limiter.acquired_bytes(kind)
     }
 
     /// Return the total memory in use in bytes across all buffer kinds.
     pub fn total_acquired_bytes(&self) -> usize {
-        self.inner.limiter.stats().total_acquired_bytes()
+        self.inner.limiter.total_acquired_bytes()
     }
 
     /// Get a new empty mutable buffer from the pool with the requested capacity.
