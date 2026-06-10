@@ -97,13 +97,10 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///   4. Otherwise reset one idle cursor.
 fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
-    //    by a different SizePool after a future allocation. If anything was
-    //    freed, wake the allocation queue so pending requests can claim it.
+    //    by a different SizePool after a future allocation.
     //    TODO: Consider doing trim cooldown (i.e. invoke trim less often)
     //    if it's contending too much with reserve read lock.
-    if pool_inner.trim() {
-        pool_inner.try_wake_pending();
-    }
+    pool_inner.trim();
 
     // 2. If no waiter is queued, there's no pressure — exit the inner tick.
     if !pool_inner.is_memory_pressure() {
@@ -182,11 +179,11 @@ mod tests {
     /// buffers so the caller can drop them when the test is done.
     fn fill_and_enqueue_waiter(pool: &PagedPool) -> Vec<Bytes> {
         let mut blockers = Vec::new();
-        while pool.available_mem() >= BUF as u64 {
-            blockers.push(pool.get_buffer_mut(BUF, BufferKind::Other, None).into_bytes());
+        while let Some(buffer) = pool.inner().try_get_buffer(BUF, BufferKind::Other, None, false) {
+            blockers.push(buffer.into_bytes());
         }
         let pool_clone = pool.clone();
-        std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+        std::thread::spawn(move || block_on(pool_clone.get_buffer_mut_async(BUF, BufferKind::GetObject, None)));
         let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
         while !pool.inner().is_memory_pressure() {
             assert!(Instant::now() < deadline, "request did not enter queue");

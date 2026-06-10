@@ -1,7 +1,6 @@
-use crate::sync::{Arc, Mutex, Weak};
+use crate::sync::{Arc, Mutex};
 
 use super::buffers::BufferPtr;
-use super::pool::PagedPoolInner;
 use super::stats::{BufferKind, SizePoolStats};
 
 /// Page in a size pool.
@@ -28,8 +27,6 @@ struct PageInner {
     acquired_bitmask: Mutex<u16>,
     /// Shared stats across pages with common `buffer_size`.
     stats: Arc<SizePoolStats>,
-    /// Weak reference back to the pool so buffer drops can wake pending allocations.
-    pool: Weak<PagedPoolInner>,
 }
 
 // SAFETY: access to mutable state in `PageInner` is synchonized internally.
@@ -48,7 +45,7 @@ impl Page {
     pub const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
 
     /// Create a new page and allocate the required memory.
-    pub fn try_new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>, forced: bool) -> Option<Self> {
+    pub fn try_new(stats: Arc<SizePoolStats>, forced: bool) -> Option<Self> {
         let ptr = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
@@ -58,7 +55,6 @@ impl Page {
             last_buffer,
             acquired_bitmask: Default::default(),
             stats,
-            pool,
         };
         Some(Page { inner: Arc::new(inner) })
     }
@@ -99,18 +95,12 @@ impl Page {
         let mut bitmask = self.inner.acquired_bitmask.lock().unwrap();
         *bitmask &= mask;
 
-        self.inner.stats.release_buffer(kind);
         if *bitmask == 0 {
             self.inner.stats.add_empty_page();
         }
-        // Release the bitmask lock before waking pending allocations.
-        // try_wake_pending may try to allocate from this same page which would deadlock
-        // if we held the bitmask lock.
         drop(bitmask);
-        // A primary buffer was freed — wake any pending allocation requests.
-        if let Some(pool) = self.inner.pool.upgrade() {
-            pool.try_wake_pending();
-        }
+
+        self.inner.stats.release_buffer(kind);
     }
 
     /// Invalidate this page if it is empty, i.e. none of its buffers are in use,
@@ -140,9 +130,9 @@ impl Page {
 
     #[cfg(test)]
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
-        let limiter = super::limiter::MemoryLimiter::new(u64::MAX);
+        let limiter = super::limiter::MemoryLimiter::new(u64::MAX, Default::default());
         let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
-        Page::try_new(Arc::new(stats), Weak::new(), true).unwrap()
+        Page::try_new(Arc::new(stats), true).unwrap()
     }
 }
 

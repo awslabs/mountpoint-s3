@@ -75,10 +75,12 @@ pub struct MemoryLimiter {
 
     acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
     allocated_bytes: AtomicUsize,
+
+    wake_signal: Arc<WakeSignal>,
 }
 
 impl MemoryLimiter {
-    pub fn new(mem_limit: u64) -> Self {
+    pub fn new(mem_limit: u64, wake_signal: Arc<WakeSignal>) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -97,6 +99,7 @@ impl MemoryLimiter {
             pruning_signal: Arc::new(WakeSignal::new()),
             acquired_bytes: Default::default(),
             allocated_bytes: Default::default(),
+            wake_signal,
         }
     }
 
@@ -161,6 +164,7 @@ impl MemoryLimiter {
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
             metrics::gauge!("mem.bytes_reserved", "area" => BufferArea::Prefetch.as_str()).decrement(remaining as f64);
         }
+        self.trigger_wake_pending();
     }
 
     /// Create a new cursor, insert its state into the map, and return the shared state handle.
@@ -276,6 +280,7 @@ impl MemoryLimiter {
         let size = ptr.size();
         ptr.deallocate();
         self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
+        self.trigger_wake_pending();
     }
 
     pub fn allocated_bytes(&self) -> usize {
@@ -298,6 +303,11 @@ impl MemoryLimiter {
     pub fn release_bytes(&self, bytes: usize, kind: BufferKind) {
         self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
         metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
+        self.trigger_wake_pending();
+    }
+
+    pub fn trigger_wake_pending(&self) {
+        self.wake_signal.notify();
     }
 
     // -----------------------------------------------------------------------
@@ -362,6 +372,7 @@ impl MemoryLimiter {
 
 impl Drop for MemoryLimiter {
     fn drop(&mut self) {
+        self.trigger_wake_pending();
         // Wake the pruning thread so it observes its `Weak` failing to upgrade
         // and exits. Without this, a pruner parked in the outer wait at drop
         // time would never wake.
@@ -489,8 +500,6 @@ impl Drop for CursorState {
         // The limiter holds a weak reference to `CursorState`, so this `Drop` runs when all strong
         // references are gone. `release_cursor` removes the reference and decrements the global reservation counter.
         self.pool.limiter().release_cursor(self.cursor_id, &self.mem_reserved);
-        // Releasing the cursor's reservation may have freed memory — wake any pending allocations.
-        self.pool.try_wake_pending();
     }
 }
 
