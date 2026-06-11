@@ -48,7 +48,7 @@ impl PoolBuffer {
     pub fn capacity(&self) -> usize {
         match &self.0 {
             PoolBufferInner::Primary { size, .. } => *size,
-            PoolBufferInner::Secondary(boxed) => boxed.ptr.size(),
+            PoolBufferInner::Secondary(boxed) => boxed.size(),
         }
     }
 
@@ -192,6 +192,10 @@ impl ManagedBuffer {
 
     pub fn as_raw_ptr(&self) -> *mut u8 {
         self.ptr.raw
+    }
+
+    fn size(&self) -> usize {
+        self.ptr.size()
     }
 }
 
