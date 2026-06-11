@@ -11,7 +11,7 @@ use crate::sync::{Arc, Mutex, Weak};
 use crate::util::wake_signal::WakeSignal;
 
 use super::PagedPool;
-use super::buffers::BufferPtr;
+use super::buffers::{BufferPtr, ManagedBuffer};
 use super::stats::{BUFFER_KIND_COUNT, BufferKind};
 
 pub const MINIMUM_MEM_LIMIT: u64 = 512 * 1024 * 1024;
@@ -243,7 +243,12 @@ impl MemoryLimiter {
         self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
     }
 
-    pub fn try_allocate(&self, size: usize, forced: bool) -> Option<BufferPtr> {
+    pub fn try_allocate(
+        self: &Arc<Self>,
+        size: usize,
+        kind: Option<BufferKind>,
+        forced: bool,
+    ) -> Option<ManagedBuffer> {
         if forced {
             self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
         } else {
@@ -273,14 +278,22 @@ impl MemoryLimiter {
             }
         }
 
-        Some(BufferPtr::allocate(size))
+        if let Some(kind) = kind {
+            self.acquire_bytes(size, kind);
+        }
+
+        Some(ManagedBuffer::new(size, kind, self.clone()))
     }
 
-    pub fn deallocate(&self, ptr: &mut BufferPtr) {
+    pub fn deallocate(&self, ptr: BufferPtr, kind: Option<BufferKind>) {
         let size = ptr.size();
-        ptr.deallocate();
+        drop(ptr);
         self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
-        self.trigger_wake_pending();
+        if let Some(kind) = kind {
+            self.release_bytes(size, kind);
+        } else {
+            self.trigger_wake_pending();
+        }
     }
 
     pub fn allocated_bytes(&self) -> usize {
