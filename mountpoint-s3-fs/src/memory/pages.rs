@@ -39,8 +39,10 @@ impl Page {
     pub const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
 
     /// Create a new page and allocate the required memory.
-    pub fn try_new(stats: Arc<SizePoolStats>, forced: bool) -> Option<Self> {
-        let page_buffer = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
+    ///
+    /// Returns `None` if the allocation would hit the memory limit.
+    pub fn try_new(stats: Arc<SizePoolStats>) -> Option<Self> {
+        let page_buffer = stats.try_allocate_page(Self::BUFFERS_PER_PAGE)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
         let last_buffer = unsafe {
@@ -130,7 +132,7 @@ impl Page {
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
         let limiter = super::limiter::MemoryLimiter::new(usize::MAX, Default::default());
         let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
-        Page::try_new(Arc::new(stats), true).unwrap()
+        Page::try_new(Arc::new(stats)).expect("allocation should succeed with usize::MAX limit")
     }
 }
 

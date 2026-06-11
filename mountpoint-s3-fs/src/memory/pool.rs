@@ -328,28 +328,39 @@ impl PagedPoolInner {
         })
     }
 
+    /// Get a buffer from the pool if available or allocates new memory if allowed.
+    ///
+    /// Steps:
+    /// - If the requested size is compatible with the pool configuration:
+    ///   - Return an unused buffer from an existing page if available.
+    ///   - Otherwise, try to allocate a new page within the memory limit:
+    ///     - Return a buffer from the new page if successful.
+    /// - In all other cases:
+    ///   - Try to allocate and return a single buffer.
+    ///     
+    /// Returns `None` if allocating the required memory would exceed the memory limit.
+    ///
+    /// **NOTE:** guarantees to return `Some` if invoked with `ignore_limit == true`.
     pub(super) fn try_get_buffer(
         &self,
         size: usize,
         kind: BufferKind,
         cursor_id: Option<CursorId>,
-        forced: bool,
+        ignore_limit: bool,
     ) -> Option<PoolBuffer> {
-        let buffer = match self.get_pool_for_size(size) {
-            Some(pool) => {
-                let buffer_ptr = pool.try_acquire(kind, forced)?;
-                metrics::histogram!("pool.acquired_bytes", "type" => "primary", "kind" => kind.as_str())
-                    .record(size as f64);
-                metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
+        let buffer = if let Some(pool) = self.get_pool_for_size(size)
+            && let Some(buffer_ptr) = pool.try_acquire(kind)
+        {
+            metrics::histogram!("pool.acquired_bytes", "type" => "primary", "kind" => kind.as_str())
+                .record(size as f64);
+            metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
                     .record((pool.buffer_size() - size) as f64);
 
-                PoolBuffer::new_primary(buffer_ptr, size)
-            }
-            None => {
-                metrics::histogram!("pool.acquired_bytes", "type" => "secondary", "kind" => kind.as_str())
-                    .record(size as f64);
-                PoolBuffer::try_new_secondary(size, kind, self.limiter.clone(), forced)?
-            }
+            PoolBuffer::new_primary(buffer_ptr, size)
+        } else {
+            metrics::histogram!("pool.acquired_bytes", "type" => "secondary", "kind" => kind.as_str())
+                .record(size as f64);
+            PoolBuffer::try_new_secondary(size, kind, self.limiter.clone(), ignore_limit)?
         };
         self.limiter.on_pool_acquire(size, cursor_id);
         Some(buffer)
@@ -405,7 +416,11 @@ struct SizePool {
 }
 
 impl SizePool {
-    fn try_acquire(&self, kind: BufferKind, forced: bool) -> Option<PagedBufferPtr> {
+    /// Acquire an unused buffer from an existing page if available, or
+    /// from a newly allocated new page.
+    ///
+    /// Returns `None` if allocating a new page would hit the memory limit.
+    fn try_acquire(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
         {
             // Fast path: reserve a buffer from the existing pages (under a read lock).
             let read_pages = self.pages.read().unwrap();
@@ -424,7 +439,7 @@ impl SizePool {
         }
 
         tracing::trace!(size = self.stats.buffer_size, "allocate new memory pool page");
-        let page = Page::try_new(self.stats.clone(), forced)?;
+        let page = Page::try_new(self.stats.clone())?;
         let buffer_ptr = page.try_acquire(kind).unwrap();
         write_pages.push(page);
         Some(buffer_ptr)
