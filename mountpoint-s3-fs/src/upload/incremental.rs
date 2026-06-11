@@ -1139,13 +1139,13 @@ mod tests {
         // so set `mem_limit` just above that floor to leave room for exactly one part.
         // This serializes writes through the allocation queue, exercising the wait-then-wake
         // path on every part.
-        const NON_BUFFER_FLOOR: u64 = 128 * 1024 * 1024;
+        const NON_BUFFER_FLOOR: usize = 128 * 1024 * 1024;
         let pool = PagedPool::config()
             .with_candidate_sizes([part_size])
-            .with_memory_limit(NON_BUFFER_FLOOR + part_size as u64)
+            .with_memory_limit(NON_BUFFER_FLOOR + part_size)
             .build();
 
-        assert_eq!(pool.available_mem(), part_size as u64);
+        assert_eq!(pool.available_mem(), part_size);
 
         let uploader = Uploader::new(
             client.clone(),
@@ -1195,12 +1195,12 @@ mod tests {
         let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
         // `MemoryLimiter::new` reserves max(mem_limit/8, 128 MiB) for non-buffer use,
         // so set `mem_limit` just above that floor to leave room for exactly one part.
-        const LIMITER_MIN_RESERVED: u64 = 128 * 1024 * 1024;
+        const LIMITER_MIN_RESERVED: usize = 128 * 1024 * 1024;
         let pool = PagedPool::config()
             .with_candidate_sizes([part_size])
-            .with_memory_limit(LIMITER_MIN_RESERVED + part_size as u64)
+            .with_memory_limit(LIMITER_MIN_RESERVED + part_size)
             .build();
-        assert_eq!(pool.available_mem(), part_size as u64);
+        assert_eq!(pool.available_mem(), part_size);
 
         let uploader = Uploader::new(
             client.clone(),
@@ -1244,6 +1244,6 @@ mod tests {
             assert_eq!(expected, *actual, "content mismatch for {key}");
         }
 
-        assert_eq!(pool.available_mem(), part_size as u64);
+        assert_eq!(pool.available_mem(), part_size);
     }
 }

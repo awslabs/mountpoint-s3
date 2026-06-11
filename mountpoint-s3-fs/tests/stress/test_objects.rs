@@ -87,10 +87,10 @@ const TEST_OBJECT_FILL_BYTE: u8 = 0xA5;
 
 /// Memory budget for the test object uploader: 95% of total system memory, floored at
 /// `MINIMUM_MEM_LIMIT`. Matches the pattern used by Mountpoint.
-fn compute_test_object_mem_budget() -> u64 {
+fn compute_test_object_mem_budget() -> usize {
     use sysinfo::{RefreshKind, System};
     let sys = System::new_with_specifics(RefreshKind::everything());
-    let ninety_five_pct = ((sys.total_memory() as f64) * 0.95) as u64;
+    let ninety_five_pct = ((sys.total_memory() as f64) * 0.95) as usize;
     ninety_five_pct.max(MINIMUM_MEM_LIMIT)
 }
 

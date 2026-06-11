@@ -122,12 +122,12 @@ fn parse_duration(arg: &str) -> Result<Duration, String> {
 }
 
 impl CliArgs {
-    fn memory_target_in_bytes(&self) -> u64 {
+    fn memory_target_in_bytes(&self) -> usize {
         if let Some(target) = self.max_memory_target {
-            target * 1024 * 1024
+            target as usize * 1024 * 1024
         } else {
             // Default to 95% of total system memory (cgroup-aware)
-            (effective_total_memory() as f64 * 0.95) as u64
+            (effective_total_memory() as f64 * 0.95) as usize
         }
     }
 

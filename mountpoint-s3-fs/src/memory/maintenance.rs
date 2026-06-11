@@ -166,8 +166,8 @@ mod tests {
     /// Pool sized for one page of `BUF`-byte buffers — small enough that the
     /// "fill all memory" loop in pressure tests is fast in debug builds.
     fn tight_pool() -> PagedPool {
-        let additional_reserved = (BUF as u64 * 16).max(128 * 1024 * 1024);
-        let mem_limit = BUF as u64 * 16 + additional_reserved;
+        let additional_reserved = (BUF * 16).max(128 * 1024 * 1024);
+        let mem_limit = BUF * 16 + additional_reserved;
         PagedPool::config()
             .with_candidate_sizes([BUF])
             .with_memory_limit(mem_limit)

@@ -128,7 +128,7 @@ impl Page {
 
     #[cfg(test)]
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
-        let limiter = super::limiter::MemoryLimiter::new(u64::MAX, Default::default());
+        let limiter = super::limiter::MemoryLimiter::new(usize::MAX, Default::default());
         let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
         Page::try_new(Arc::new(stats), true).unwrap()
     }

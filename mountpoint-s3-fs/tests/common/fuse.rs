@@ -77,7 +77,7 @@ pub struct TestSessionConfig {
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
     pub fail_on_non_aligned_read_window: bool,
-    pub mem_limit: u64,
+    pub mem_limit: usize,
 }
 
 impl Default for TestSessionConfig {
@@ -122,7 +122,7 @@ impl TestSessionConfig {
     }
 
     /// Override the memory limit for this test session.
-    pub fn with_mem_limit(mut self, mem_limit: u64) -> Self {
+    pub fn with_mem_limit(mut self, mem_limit: usize) -> Self {
         self.mem_limit = mem_limit;
         self
     }

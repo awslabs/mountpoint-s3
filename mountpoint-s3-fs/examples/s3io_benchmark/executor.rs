@@ -64,7 +64,7 @@ impl Executor {
             ChecksumAlgorithm::Off => None,
         };
 
-        let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
+        let memory_target_bytes = max_memory_target * 1024 * 1024;
         let pool = PagedPool::config()
             .with_candidate_sizes([read_part_size, write_part_size])
             .with_memory_limit(memory_target_bytes)

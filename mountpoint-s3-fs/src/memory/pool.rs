@@ -183,12 +183,12 @@ impl PagedPool {
     }
 
     /// The configured memory limit in bytes.
-    pub fn mem_limit(&self) -> u64 {
+    pub fn mem_limit(&self) -> usize {
         self.inner.limiter.mem_limit()
     }
 
     /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
-    pub fn data_buffer_budget(&self) -> u64 {
+    pub fn data_buffer_budget(&self) -> usize {
         self.inner.limiter.data_buffer_budget()
     }
 
@@ -206,7 +206,7 @@ impl PagedPool {
     }
 
     /// Query available memory.
-    pub fn available_mem(&self) -> u64 {
+    pub fn available_mem(&self) -> usize {
         self.inner.limiter.available_mem()
     }
 
@@ -451,7 +451,7 @@ impl SizePool {
 #[derive(Debug, Clone)]
 pub struct PagedPoolConfig {
     ordered_sizes: Vec<usize>,
-    mem_limit: u64,
+    mem_limit: usize,
 }
 
 impl Default for PagedPoolConfig {
@@ -478,7 +478,7 @@ impl PagedPoolConfig {
     }
 
     /// Configure the pool with the specified memory limit.
-    pub fn with_memory_limit(&mut self, mem_limit: u64) -> &mut Self {
+    pub fn with_memory_limit(&mut self, mem_limit: usize) -> &mut Self {
         self.mem_limit = mem_limit;
         self
     }
@@ -488,7 +488,7 @@ impl PagedPoolConfig {
     /// This is a convenience for tests and examples that don't need memory budgeting.
     /// The internal limiter uses `u64::MAX` as its limit, so it never rejects reservations.
     pub fn with_no_memory_limit(&mut self) -> &mut Self {
-        self.with_memory_limit(u64::MAX)
+        self.with_memory_limit(usize::MAX)
     }
 
     /// Configure the pool with [MINIMUM_MEM_LIMIT] as the memory limit.
@@ -509,7 +509,7 @@ impl PagedPoolConfig {
         }
     }
 
-    fn memory_limit(&self) -> u64 {
+    fn memory_limit(&self) -> usize {
         self.mem_limit
     }
 }
@@ -660,8 +660,8 @@ mod tests {
         fn tight_pool(buffer_size: usize) -> PagedPool {
             // Use a small limit — just enough for one page (16 buffers) plus overhead.
             // This keeps the "fill all memory" loop fast in debug builds.
-            let additional_reserved = (buffer_size as u64 * 16).max(128 * 1024 * 1024);
-            let mem_limit = buffer_size as u64 * 16 + additional_reserved;
+            let additional_reserved = (buffer_size * 16).max(128 * 1024 * 1024);
+            let mem_limit = buffer_size * 16 + additional_reserved;
             PagedPool::config()
                 .with_candidate_sizes([buffer_size])
                 .with_memory_limit(mem_limit)

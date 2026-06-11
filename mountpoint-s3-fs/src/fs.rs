@@ -1120,7 +1120,7 @@ mod tests {
         // `additional_mem_reserved = max(mem_limit/8, 128 MiB) = 128 MiB`, and `part_size = 32 MiB`,
         // the formula `(mem_limit - additional_mem_reserved) / part_size` gives
         // `(256 - 128) / 32 = 4` concurrent writers.
-        const MEM_LIMIT: u64 = 256 * 1024 * 1024;
+        const MEM_LIMIT: usize = 256 * 1024 * 1024;
         const PART_SIZE: usize = 32 * 1024 * 1024;
         const EXPECTED_CAP: usize = 4;
 

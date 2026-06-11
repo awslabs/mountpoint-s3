@@ -139,7 +139,7 @@ pub fn new_backpressure_controller(
     // Minimum window size multiplier as the scaling up and down won't work if the multiplier is 1.
     const MIN_WINDOW_SIZE_MULTIPLIER: usize = 2;
     let read_window_end_offset = config.request_range.start + config.initial_read_window_size as u64;
-    cursor_state.reserve(config.initial_read_window_size as u64);
+    cursor_state.reserve(config.initial_read_window_size);
 
     let cursor_id = cursor_state.id();
     let (read_window_updater, read_window_increment_queue) = unbounded();
@@ -211,14 +211,14 @@ impl BackpressureController {
                     // read window size.
                     if self.preferred_read_window_size <= self.min_read_window_size {
                         trace!(new_read_window_end_offset, "sending a read window increment");
-                        self.cursor_state.reserve(to_increase as u64);
+                        self.cursor_state.reserve(to_increase);
                         self.increment_read_window(to_increase).await;
                         break;
                     }
 
                     // Try to reserve the memory for the length we want to increase before sending the request,
                     // scale down the read window if it fails.
-                    if self.cursor_state.try_reserve(to_increase as u64) {
+                    if self.cursor_state.try_reserve(to_increase) {
                         trace!(new_read_window_end_offset, "sending a read window increment");
                         self.increment_read_window(to_increase).await;
                         break;
@@ -261,7 +261,7 @@ impl BackpressureController {
             // Only scale up when there is enough memory. We don't have to reserve the memory here
             // because only `preferred_read_window_size` is increased but the actual read window will
             // be updated later on `DataRead` event (where we do reserve memory).
-            let to_increase = (new_read_window_size - self.preferred_read_window_size) as u64;
+            let to_increase = new_read_window_size - self.preferred_read_window_size;
             let available_mem = self.cursor_state.available_mem();
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
@@ -508,7 +508,7 @@ mod tests {
     ) -> (BackpressureController, BackpressureLimiter) {
         let pool = PagedPool::config()
             .with_candidate_sizes([8 * 1024 * 1024])
-            .with_memory_limit(backpressure_config.max_read_window_size as u64)
+            .with_memory_limit(backpressure_config.max_read_window_size)
             .build();
         let cursor_state = pool.create_cursor().state();
         new_backpressure_controller(backpressure_config, cursor_state)
