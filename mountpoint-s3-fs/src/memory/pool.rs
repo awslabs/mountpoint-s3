@@ -381,24 +381,11 @@ impl PagedPoolInner {
     ///
     /// Called whenever memory is freed — on buffer drop, cursor release, or pool trim.
     /// Loops until no more entries can be fulfilled or the queue is empty.
-    fn try_wake_pending(self: &Arc<Self>) {
-        if !self.is_memory_pressure() {
-            return;
-        }
-
-        loop {
-            let mut buffer = None;
-            let entry = self.allocation_queue.pop_front_if(|pending| {
-                buffer = self.try_get_buffer(pending.size, pending.kind, pending.cursor_id, false);
-                buffer.is_some()
-            });
-            let Some(entry) = entry else { break };
-            let Some(buffer) = buffer else { break };
-
-            if let Err(buffer) = entry.fulfill(buffer) {
-                // We couldn't deliver the buffer, just drop it and continue.
-                drop(buffer);
-            }
+    fn try_wake_pending(&self) {
+        while self
+            .allocation_queue
+            .try_fulfill_front(|pending| self.try_get_buffer(pending.size, pending.kind, pending.cursor_id, false))
+        {
         }
     }
 }

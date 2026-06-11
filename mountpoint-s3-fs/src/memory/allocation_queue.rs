@@ -144,6 +144,32 @@ impl AllocationQueue {
         receiver
     }
 
+    /// Fullfil the pending allocation at the front of the queue using the result of `try_get_buffer`.
+    ///
+    /// Returns `false` if the queue was empty or `try_get_buffer` returned `None`.
+    ///
+    /// Skips (and removes) cancelled entries in the queue.
+    pub fn try_fulfill_front(&self, try_get_buffer: impl FnOnce(&PendingAllocation) -> Option<PoolBuffer>) -> bool {
+        if !self.has_pending() {
+            return false;
+        }
+
+        // TODO(memory-limiter): consider refactoring try_front_if or even inlining.
+        let mut buffer = None;
+        let entry = self.pop_front_if(|pending| {
+            buffer = try_get_buffer(pending);
+            buffer.is_some()
+        });
+        if let Some(entry) = entry
+            && let Some(buffer) = buffer
+            && entry.fulfill(buffer).is_ok()
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     /// Atomically peeks at the front entry and removes it if `predicate` returns `true`.
     ///
     /// Checks the high-priority list first, then low. Cancelled entries (where the
@@ -153,7 +179,7 @@ impl AllocationQueue {
     ///
     /// Returns `None` if both queues are empty or the predicate returns `false`.
     /// Sets `has_pending` to `false` if both queues become empty after removal.
-    pub fn pop_front_if(&self, predicate: impl FnOnce(&PendingAllocation) -> bool) -> Option<PendingAllocation> {
+    fn pop_front_if(&self, predicate: impl FnOnce(&PendingAllocation) -> bool) -> Option<PendingAllocation> {
         let mut inner = self.inner.lock().unwrap();
 
         // Prune cancelled entries from the front of each queue.
