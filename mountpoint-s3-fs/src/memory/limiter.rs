@@ -243,6 +243,7 @@ impl MemoryLimiter {
             }
         };
         self.mem_reserved.fetch_sub(decremented, Ordering::SeqCst);
+        metrics::gauge!("mem.bytes_reserved", "area" => BufferArea::Prefetch.as_str()).decrement(decremented as f64);
     }
 
     pub fn try_allocate(
