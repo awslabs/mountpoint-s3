@@ -387,11 +387,11 @@ impl MemoryLimiter {
 
 impl Drop for MemoryLimiter {
     fn drop(&mut self) {
-        self.trigger_process_pending();
         // Wake the pruning thread so it observes its `Weak` failing to upgrade
         // and exits. Without this, a pruner parked in the outer wait at drop
         // time would never wake.
-        self.pruning_signal.notify();
+        self.trigger_pruning();
+        self.trigger_process_pending();
     }
 }
 

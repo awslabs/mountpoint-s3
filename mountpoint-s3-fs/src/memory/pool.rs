@@ -68,9 +68,9 @@ impl PagedPool {
 
     /// Create a new [PagedPool] with the given configuration.
     pub fn new(config: &PagedPoolConfig) -> Self {
-        let wake_signal = Arc::new(WakeSignal::new());
+        let pending_signal = Arc::new(WakeSignal::new());
 
-        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit(), wake_signal.clone()));
+        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit(), pending_signal.clone()));
 
         let ordered_size_pools = config
             .ordered_sizes()
@@ -88,14 +88,18 @@ impl PagedPool {
         });
 
         let weak = Arc::downgrade(&inner);
-        thread::spawn(move || {
-            loop {
-                wake_signal.wait_timeout(Duration::from_secs(1));
-                if let Some(pool) = weak.upgrade() {
+        thread::Builder::new()
+            .name("mem-pool-pending".to_string())
+            .spawn(move || {
+                loop {
+                    pending_signal.wait_timeout(Duration::from_secs(1));
+                    let Some(pool) = weak.upgrade() else {
+                        break;
+                    };
                     pool.process_pending();
                 }
-            }
-        });
+            })
+            .expect("failed to spawn pool process pending thread");
 
         Self { inner }
     }
@@ -147,7 +151,9 @@ impl PagedPool {
     }
 
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
-        self.inner.try_get_buffer(size, kind, cursor_id, true).unwrap()
+        self.inner
+            .try_get_buffer(size, kind, cursor_id, true)
+            .expect("forced allocations cannot fail")
     }
 
     #[cfg(test)]
@@ -316,8 +322,10 @@ impl PagedPoolInner {
         self.limiter.trigger_pruning();
         // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
         // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
-        rx.await
-            .unwrap_or_else(|_| self.try_get_buffer(size, kind, cursor_id, true).unwrap())
+        rx.await.unwrap_or_else(|_| {
+            self.try_get_buffer(size, kind, cursor_id, true)
+                .expect("forced allocations cannot fail")
+        })
     }
 
     pub(super) fn try_get_buffer(
@@ -692,8 +700,6 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
             panic!("request did not enter queue within 100ms");
-
-            // TODO(memory-limiter): review test
         }
 
         /// `is_memory_pressure` reflects the queue's emptiness.
