@@ -1,6 +1,6 @@
 use crate::sync::{Arc, Mutex};
 
-use super::buffers::BufferPtr;
+use super::buffers::ManagedBuffer;
 use super::stats::{BufferKind, SizePoolStats};
 
 /// Page in a size pool.
@@ -15,7 +15,7 @@ pub struct Page {
 #[derive(Debug)]
 struct PageInner {
     /// Pointer to the memory for this page.
-    ptr: BufferPtr,
+    ptr: ManagedBuffer,
     /// Pointer to the last buffer in the page.
     ///
     /// Equals to (BUFFERS_PER_PAGE - 1) * buffer_size. Stored for easy
@@ -34,12 +34,6 @@ unsafe impl Send for PageInner {}
 
 // SAFETY: access to mutable state in `PageInner` is synchonized internally.
 unsafe impl Sync for PageInner {}
-
-impl Drop for PageInner {
-    fn drop(&mut self) {
-        self.stats.deallocate_page(&mut self.ptr);
-    }
-}
 
 impl Page {
     pub const BUFFERS_PER_PAGE: usize = u16::BITS as usize;

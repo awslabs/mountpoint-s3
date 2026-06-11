@@ -23,7 +23,7 @@ enum PoolBufferInner {
     /// Buffer from the paged pool.
     Primary { buffer_ptr: PagedBufferPtr, size: usize },
     /// Buffer allocated independently.
-    Secondary(FreeBuffer),
+    Secondary(ManagedBuffer),
 }
 
 impl PoolBuffer {
@@ -38,8 +38,10 @@ impl PoolBuffer {
         limiter: Arc<MemoryLimiter>,
         forced: bool,
     ) -> Option<Self> {
-        Some(Self(PoolBufferInner::Secondary(FreeBuffer::try_new(
-            size, kind, limiter, forced,
+        Some(Self(PoolBufferInner::Secondary(limiter.try_allocate(
+            size,
+            Some(kind),
+            forced,
         )?)))
     }
 
@@ -64,7 +66,7 @@ impl Deref for PoolBuffer {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
                 unsafe { std::slice::from_raw_parts(buffer_ptr.as_raw_ptr(), *size) }
             }
-            PoolBufferInner::Secondary(boxed) => boxed.ptr.as_ref(),
+            PoolBufferInner::Secondary(boxed) => boxed.as_ref(),
         }
     }
 }
@@ -76,7 +78,7 @@ impl DerefMut for PoolBuffer {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
                 unsafe { std::slice::from_raw_parts_mut(buffer_ptr.as_raw_ptr(), *size) }
             }
-            PoolBufferInner::Secondary(boxed) => boxed.ptr.as_mut(),
+            PoolBufferInner::Secondary(boxed) => boxed.as_mut(),
         }
     }
 }
@@ -176,33 +178,54 @@ impl AsMut<[u8]> for PoolBufferMut {
 }
 
 #[derive(Debug)]
-struct FreeBuffer {
+pub struct ManagedBuffer {
     ptr: BufferPtr,
-    kind: BufferKind,
+    kind: Option<BufferKind>,
     limiter: Arc<MemoryLimiter>,
 }
 
-impl FreeBuffer {
-    fn try_new(size: usize, kind: BufferKind, limiter: Arc<MemoryLimiter>, forced: bool) -> Option<Self> {
-        let ptr = limiter.try_allocate(size, forced)?;
-        limiter.acquire_bytes(ptr.size(), kind);
-        Some(Self { ptr, kind, limiter })
+impl ManagedBuffer {
+    pub fn new(size: usize, kind: Option<BufferKind>, limiter: Arc<MemoryLimiter>) -> Self {
+        let ptr = BufferPtr::allocate(size);
+        Self { ptr, kind, limiter }
+    }
+
+    pub fn as_raw_ptr(&self) -> *mut u8 {
+        self.ptr.raw
     }
 }
 
-// SAFETY: access to the buffer and release on drop can be performed from another thread.
-unsafe impl Send for FreeBuffer {}
-
-impl Drop for FreeBuffer {
+impl Drop for ManagedBuffer {
     fn drop(&mut self) {
-        self.limiter.deallocate(&mut self.ptr);
-        self.limiter.release_bytes(self.ptr.size(), self.kind);
+        self.limiter.deallocate(self.ptr.take(), self.kind);
+    }
+}
+
+impl AsMut<[u8]> for ManagedBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        if self.ptr.raw.is_null() {
+            return &mut [];
+        }
+
+        // SAFETY: returned slice will be valid until this buffer is deallocated.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.raw, self.ptr.layout.size()) }
+    }
+}
+
+impl AsRef<[u8]> for ManagedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        if self.ptr.raw.is_null() {
+            return &[];
+        }
+
+        // SAFETY: returned slice will be valid until this buffer is deallocated.
+        unsafe { std::slice::from_raw_parts(self.ptr.raw, self.ptr.layout.size()) }
     }
 }
 
 #[derive(Debug)]
 pub struct BufferPtr {
-    bytes: *mut u8,
+    raw: *mut u8,
     layout: Layout,
 }
 
@@ -210,10 +233,10 @@ pub struct BufferPtr {
 unsafe impl Send for BufferPtr {}
 
 impl BufferPtr {
-    pub fn allocate(size: usize) -> Self {
+    fn allocate(size: usize) -> Self {
         let layout = Layout::array::<u8>(size).unwrap();
 
-        let bytes = if layout.size() == 0 {
+        let raw = if layout.size() == 0 {
             std::ptr::null_mut()
         } else {
             // SAFETY: layout has non-zero size.
@@ -224,23 +247,15 @@ impl BufferPtr {
             bytes
         };
 
-        Self { bytes, layout }
+        Self { raw, layout }
     }
 
-    pub fn deallocate(&mut self) {
-        if self.bytes.is_null() {
-            return;
+    fn take(&mut self) -> Self {
+        let raw = std::mem::take(&mut self.raw);
+        Self {
+            raw,
+            layout: self.layout,
         }
-
-        // SAFETY: `bytes` was allocated using `layout` in `allocate`.
-        unsafe {
-            alloc::dealloc(self.bytes, self.layout);
-        }
-        self.bytes = std::ptr::null_mut();
-    }
-
-    pub fn as_raw_ptr(&self) -> *mut u8 {
-        self.bytes
     }
 
     pub fn size(&self) -> usize {
@@ -250,29 +265,15 @@ impl BufferPtr {
 
 impl Drop for BufferPtr {
     fn drop(&mut self) {
-        self.deallocate();
-    }
-}
-
-impl AsMut<[u8]> for BufferPtr {
-    fn as_mut(&mut self) -> &mut [u8] {
-        if self.bytes.is_null() {
-            return &mut [];
+        let raw = std::mem::take(&mut self.raw);
+        if raw.is_null() {
+            return;
         }
 
-        // SAFETY: returned slice will be valid until this buffer is deallocated.
-        unsafe { std::slice::from_raw_parts_mut(self.bytes, self.layout.size()) }
-    }
-}
-
-impl AsRef<[u8]> for BufferPtr {
-    fn as_ref(&self) -> &[u8] {
-        if self.bytes.is_null() {
-            return &[];
+        // SAFETY: `raw` was allocated using `layout` in `allocate`.
+        unsafe {
+            alloc::dealloc(raw, self.layout);
         }
-
-        // SAFETY: returned slice will be valid until this buffer is deallocated.
-        unsafe { std::slice::from_raw_parts(self.bytes, self.layout.size()) }
     }
 }
 
