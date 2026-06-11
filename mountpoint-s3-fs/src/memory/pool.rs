@@ -104,20 +104,16 @@ impl PagedPool {
         trimmed
     }
 
-    /// Schedule recurring calls to [trim](Self::trim).
-    pub fn schedule_trim(&self, recurring_time: Duration) {
-        let weak = Arc::downgrade(&self.inner);
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(recurring_time);
-                let Some(inner) = weak.upgrade() else {
-                    return;
-                };
-                if inner.trim() {
-                    inner.try_wake_pending();
-                }
-            }
-        });
+    /// Spawn the background pool maintenance thread. Must be called once after
+    /// construction, at filesystem init.
+    ///
+    /// The thread serves two responsibilities on a single OS thread:
+    ///   - **Periodic trim**: every `idle_interval`, run [`Self::trim`] to release
+    ///     empty pages back to the system allocator.
+    ///   - **Pressure pruning**: on [`MemoryLimiter::trigger_pruning`], wake
+    ///     immediately and run pruning rounds until the allocation queue drains.
+    pub fn spawn_pool_maintenance_thread(&self, idle_interval: Duration) {
+        super::maintenance::spawn_pool_maintenance_thread(&self.inner, idle_interval);
     }
 
     /// Return the reserved memory in bytes for the given kind of buffer.
@@ -185,6 +181,14 @@ impl PagedPool {
             .iter()
             .map(|pool| pool.stats.reserved_buffers(kind))
             .sum()
+    }
+
+    /// Internal access for the maintenance module (sibling), used by maintenance tests
+    /// (which are gated `not(feature = "shuttle")`).
+    #[cfg(test)]
+    #[cfg_attr(feature = "shuttle", allow(dead_code))]
+    pub(super) fn inner(&self) -> &Arc<PagedPoolInner> {
+        &self.inner
     }
 
     /// The configured memory limit in bytes.
@@ -282,11 +286,16 @@ impl PagedPool {
     /// - cursor with an active FUSE read → high priority
     /// - cursor without an active read (speculative prefetch) → low priority
     /// - no cursor (upload) → high priority (write syscall is blocked)
-    async fn acquire_buffer_async(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
+    pub(super) async fn acquire_buffer_async(
+        &self,
+        size: usize,
+        kind: BufferKind,
+        cursor_id: Option<CursorId>,
+    ) -> PoolBuffer {
         // Fast path: if the queue is empty, try to allocate immediately. The check-and-allocate in
         // `try_allocate` uses CAS on `pending_allocations`, so concurrent fast-path callers cannot both
         // observe room for the same bytes and overshoot the limit.
-        if !self.inner.allocation_queue.has_pending()
+        if !self.inner.is_memory_pressure()
             && let Some(buffer) = self.try_allocate(size, kind, cursor_id)
         {
             return buffer;
@@ -307,6 +316,9 @@ impl PagedPool {
         // check above and the push (avoids the race where a buffer drop called try_wake_pending
         // before the entry was in the queue).
         self.try_wake_pending();
+        // Nudge the maintenance thread: it may be parked on its long idle interval, in which
+        // case it would otherwise sleep up to that interval before noticing the new waiter.
+        self.inner.limiter.trigger_pruning();
         // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
         // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
         rx.await.unwrap_or_else(|_| self.get_buffer(size, kind, cursor_id))
@@ -369,6 +381,22 @@ pub(super) struct PagedPoolInner {
 }
 
 impl PagedPoolInner {
+    /// Reference to the inner [`MemoryLimiter`] for sibling modules (e.g. the maintenance thread).
+    pub(super) fn limiter(&self) -> &MemoryLimiter {
+        &self.limiter
+    }
+
+    /// Returns `true` while there is at least one queued allocation request.
+    pub(super) fn is_memory_pressure(&self) -> bool {
+        self.allocation_queue.has_pending()
+    }
+
+    /// How long the next-to-be-served waiter has been queued, or `None` if
+    /// the queue is empty (or only contains cancelled entries).
+    pub(super) fn head_waited(&self) -> Option<Duration> {
+        self.allocation_queue.head_queued_at().map(|t| t.elapsed())
+    }
+
     fn get_pool_for_size(&self, size: usize) -> Option<&SizePool> {
         if size == 0 {
             return None;
@@ -382,7 +410,7 @@ impl PagedPoolInner {
         Some(&self.ordered_size_pools[index])
     }
 
-    fn trim(&self) -> bool {
+    pub(super) fn trim(&self) -> bool {
         let mut removed = false;
         for pool in &self.ordered_size_pools {
             if pool.stats.empty_pages() == 0 {
@@ -411,7 +439,7 @@ impl PagedPoolInner {
     }
 
     pub(super) fn try_wake_pending(self: &Arc<Self>) {
-        if !self.allocation_queue.has_pending() {
+        if !self.is_memory_pressure() {
             return;
         }
         let pool = PagedPool::from_inner(self.clone());
@@ -654,7 +682,7 @@ mod tests {
             .with_no_memory_limit()
             .build();
         if let Some(duration) = schedule {
-            pool.schedule_trim(duration);
+            pool.spawn_pool_maintenance_thread(duration);
         }
 
         let num_threads = 10000;
@@ -757,12 +785,47 @@ mod tests {
 
             // Wait for the request to enter the queue (retry for up to 100ms).
             for _ in 0..100 {
-                if pool.inner.allocation_queue.has_pending() {
+                if pool.inner.is_memory_pressure() {
                     return; // Success
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
             panic!("request did not enter queue within 100ms");
+        }
+
+        /// `is_memory_pressure` reflects the queue's emptiness.
+        /// This is the primitive the maintenance loop relies on.
+        #[test]
+        fn test_is_memory_pressure_tracks_queue() {
+            const BUF: usize = 1024;
+            let pool = tight_pool(BUF);
+            assert!(!pool.inner.is_memory_pressure());
+
+            // Fill memory and enqueue a waiter.
+            let mut blockers = Vec::new();
+            while pool.can_allocate(BUF) {
+                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            }
+            let pool_clone = pool.clone();
+            let _handle =
+                std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+            for _ in 0..100 {
+                if pool.inner.is_memory_pressure() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(pool.inner.is_memory_pressure(), "pressure should track queue");
+
+            // Drop a buffer — `try_wake_pending` will fulfill the waiter and clear pressure.
+            blockers.pop();
+            for _ in 0..100 {
+                if !pool.inner.is_memory_pressure() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            panic!("pressure did not clear after waiter was fulfilled");
         }
 
         #[test]
@@ -784,7 +847,7 @@ mod tests {
 
             // Wait for the request to enter the queue before freeing memory.
             for _ in 0..1000 {
-                if pool.inner.allocation_queue.has_pending() {
+                if pool.inner.is_memory_pressure() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));
@@ -862,7 +925,7 @@ mod tests {
             });
             // Wait for it to enter the queue as low priority.
             for _ in 0..1000 {
-                if pool.inner.allocation_queue.has_pending() {
+                if pool.inner.is_memory_pressure() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(1));

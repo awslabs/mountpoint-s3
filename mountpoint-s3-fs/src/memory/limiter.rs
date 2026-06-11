@@ -8,6 +8,7 @@ use tracing::{debug, trace};
 use crate::prefetch::CursorId;
 use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, Mutex, Weak};
+use crate::util::wake_signal::WakeSignal;
 
 use super::PagedPool;
 use super::stats::PoolStats;
@@ -60,8 +61,16 @@ pub struct MemoryLimiter {
     cursors: Arc<DashMap<CursorId, Weak<CursorState>>>,
     /// Counter for generating unique [CursorId]s.
     next_cursor_id: AtomicU64,
+    /// Monotonic counter stamped onto a cursor's [`ReadState::Last`] whenever
+    /// an active read ends, so the pruner can pick the LRU idle cursor.
+    /// Pure ordering — does not represent wall-clock time.
+    next_read_tick: AtomicU64,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: u64,
+    /// Wakes the background pruning loop's outer wait when memory pressure starts.
+    /// Once the inner tick is running it polls every [`PRUNING_TICK`](super::maintenance::PRUNING_TICK)
+    /// regardless.
+    pruning_signal: Arc<WakeSignal>,
 }
 
 impl MemoryLimiter {
@@ -79,7 +88,9 @@ impl MemoryLimiter {
             mem_reserved: Default::default(),
             cursors: Default::default(),
             next_cursor_id: AtomicU64::new(1),
+            next_read_tick: AtomicU64::new(1),
             additional_mem_reserved,
+            pruning_signal: Arc::new(WakeSignal::new()),
         }
     }
 
@@ -180,11 +191,10 @@ impl MemoryLimiter {
     pub fn has_active_read_in_range(&self, cursor_id: CursorId, offset: u64, size: usize) -> bool {
         // The weak reference fails to upgrade iff the cursor has already been dropped, which means
         // it has no active read.
-        self.cursors
-            .get(&cursor_id)
-            .and_then(|r| r.upgrade())
-            .and_then(|s| s.active_read.lock().unwrap().map(|r| r.overlaps(offset, size)))
-            .unwrap_or(false)
+        let Some(state) = self.cursors.get(&cursor_id).and_then(|r| r.upgrade()) else {
+            return false;
+        };
+        state.read_state.lock().unwrap().is_active(offset, size)
     }
 
     /// Check if the given cursor currently has an active FUSE read in progress.
@@ -192,7 +202,7 @@ impl MemoryLimiter {
         self.cursors
             .get(&cursor_id)
             .and_then(|r| r.upgrade())
-            .map(|s| s.active_read.lock().unwrap().is_some())
+            .map(|s| matches!(*s.read_state.lock().unwrap(), ReadState::Active { .. }))
             .unwrap_or(false)
     }
 
@@ -228,6 +238,74 @@ impl MemoryLimiter {
         // All pool buffer kinds are accounted for here.
         stats.total_reserved_bytes() as u64
     }
+
+    // -----------------------------------------------------------------------
+    // Pruning hooks — see `maintenance.rs` for the loop, signal, and round logic.
+    // -----------------------------------------------------------------------
+
+    /// Wake the maintenance loop if it's currently parked between idle intervals.
+    /// Called when a new waiter joins the allocation queue so the pruner can
+    /// react without sleeping up to its full idle interval.
+    pub fn trigger_pruning(&self) {
+        self.pruning_signal.notify();
+    }
+
+    /// Shared notify handle. The pruner needs its own clone to park on.
+    pub(crate) fn pruning_signal(&self) -> &Arc<WakeSignal> {
+        &self.pruning_signal
+    }
+
+    /// Returns `true` if any cursor is currently servicing a FUSE read.
+    pub(crate) fn has_active_reads(&self) -> bool {
+        self.cursors.iter().any(|entry| {
+            entry
+                .value()
+                .upgrade()
+                .is_some_and(|state| matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }))
+        })
+    }
+
+    /// Reset the least-recently-read idle cursor.
+    ///
+    /// Returns `true` if a cursor was reset.
+    pub(crate) fn reset_one_idle_cursor(&self) -> bool {
+        let lru = self
+            .cursors
+            .iter()
+            .filter_map(|entry| {
+                let state = entry.value().upgrade()?;
+                let tick = match *state.read_state.lock().unwrap() {
+                    ReadState::Active { .. } => return None,
+                    ReadState::Last { tick } => tick,
+                };
+                Some((tick, state.cursor_id))
+            })
+            .min_by_key(|&(tick, _)| tick);
+
+        let Some((tick, cursor_id)) = lru else {
+            trace!("no idle cursor eligible for reset");
+            return false;
+        };
+
+        if self.request_reset(cursor_id) {
+            debug!(
+                ?cursor_id,
+                last_read_tick = tick,
+                "reset idle cursor under memory pressure"
+            );
+            return true;
+        }
+        false
+    }
+}
+
+impl Drop for MemoryLimiter {
+    fn drop(&mut self) {
+        // Wake the pruning thread so it observes its `Weak` failing to upgrade
+        // and exits. Without this, a pruner parked in the outer wait at drop
+        // time would never wake.
+        self.pruning_signal.notify();
+    }
 }
 
 /// Returns the effective total memory available to this process in bytes.
@@ -242,23 +320,39 @@ pub fn effective_total_memory() -> u64 {
         .unwrap_or_else(|| sys.total_memory())
 }
 
-/// Describes an active FUSE read request for a specific cursor.
-/// Used by the pruning logic to determine which buffers are high priority
-/// (actively being waited on by a user) vs. speculative (prefetched ahead).
+/// State machine describing whether a cursor is currently inside an active
+/// FUSE read or, if not, when its most recent read ended.
+///
+/// The pruner uses this to decide which buffers are high priority (`Active`,
+/// being waited on by a user) vs. speculative (`Last`, prefetched ahead and
+/// candidate for LRU eviction).
 #[derive(Debug, Clone, Copy)]
-pub struct ActiveRead {
-    /// Start offset of the read in the file.
-    pub offset: u64,
-    /// Size of the read in bytes.
-    pub size: usize,
+enum ReadState {
+    /// A FUSE read is in flight for this cursor.
+    Active {
+        /// Start offset of the read in the file.
+        offset: u64,
+        /// Size of the read in bytes.
+        size: usize,
+    },
+    /// No read is in flight. `tick` is the monotonic counter stamped when
+    /// the last read ended, or `0` if the cursor has never been read from.
+    Last { tick: u64 },
 }
 
-impl ActiveRead {
-    /// Check if this active read overlaps with the given range.
-    pub fn overlaps(&self, offset: u64, size: usize) -> bool {
-        let self_end = self.offset + self.size as u64;
+impl ReadState {
+    /// `true` iff there is an in-flight read whose range overlaps `[offset, offset + size)`.
+    fn is_active(&self, offset: u64, size: usize) -> bool {
+        let Self::Active {
+            offset: active_offset,
+            size: active_size,
+        } = *self
+        else {
+            return false;
+        };
+        let active_end = active_offset + active_size as u64;
         let other_end = offset + size as u64;
-        self.offset < other_end && offset < self_end
+        active_offset < other_end && offset < active_end
     }
 }
 
@@ -273,8 +367,9 @@ pub struct CursorState {
     cursor_id: CursorId,
     /// Reservation balance (bytes of intent not yet converted to pool allocations).
     mem_reserved: AtomicU64,
-    /// Active FUSE read range. None when no read is in progress.
-    active_read: Mutex<Option<ActiveRead>>,
+    /// Whether this cursor is currently servicing a FUSE read, plus the tick
+    /// at which its last read ended (`0` before the first read).
+    read_state: Mutex<ReadState>,
     /// Callback that drops the cursor's expensive inner resources.
     /// `None` before registration.
     reset_fn: Mutex<Option<ResetFn>>,
@@ -286,7 +381,7 @@ impl CursorState {
             pool,
             cursor_id,
             mem_reserved: AtomicU64::new(0),
-            active_read: Mutex::new(None),
+            read_state: Mutex::new(ReadState::Last { tick: 0 }),
             reset_fn: Mutex::new(None),
         }
     }
@@ -326,7 +421,7 @@ impl std::fmt::Debug for CursorState {
         f.debug_struct("CursorState")
             .field("cursor_id", &self.cursor_id)
             .field("mem_reserved", &self.mem_reserved)
-            .field("active_read", &self.active_read)
+            .field("read_state", &self.read_state)
             .field("has_reset_fn", &self.reset_fn.lock().unwrap().is_some())
             .finish()
     }
@@ -359,11 +454,13 @@ impl CursorHandle {
         self.state.clone()
     }
 
-    /// Record an active FUSE read. Returns a guard that clears it on drop.
-    /// Also upgrades any pending speculative allocation queue entries for this cursor
-    /// to high priority, since a read is now actively waiting.
+    /// Record an active FUSE read. Returns a guard that clears it on drop and
+    /// stamps the cursor's LRU tick at that point.
+    ///
+    /// Also upgrades any pending speculative allocation queue entries for this
+    /// cursor to high priority, since a read is now actively waiting.
     pub fn set_active_read(&self, offset: u64, size: usize) -> ActiveReadGuard {
-        *self.state.active_read.lock().unwrap() = Some(ActiveRead { offset, size });
+        *self.state.read_state.lock().unwrap() = ReadState::Active { offset, size };
         // Promote any speculative queue entries to high priority.
         self.state.pool.upgrade_pending(self.state.cursor_id);
         ActiveReadGuard { state: self.state() }
@@ -376,14 +473,16 @@ impl CursorHandle {
     }
 }
 
-/// RAII guard that clears the active read for a cursor when dropped.
+/// RAII guard that clears the active read for a cursor when dropped and
+/// records the LRU tick for the now-idle cursor.
 pub struct ActiveReadGuard {
     state: Arc<CursorState>,
 }
 
 impl Drop for ActiveReadGuard {
     fn drop(&mut self) {
-        *self.state.active_read.lock().unwrap() = None;
+        let tick = self.state.pool.limiter().next_read_tick.fetch_add(1, Ordering::Relaxed);
+        *self.state.read_state.lock().unwrap() = ReadState::Last { tick };
     }
 }
 
@@ -692,5 +791,99 @@ mod tests {
 
         // Cursor already dropped — weak upgrade fails
         assert!(!pool.reset_cursor(cursor_id));
+    }
+
+    /// Simple boolean-flag reset_fn for tests: flips the flag to true on first
+    /// call and returns true; subsequent calls return false (mirroring how the
+    /// real cursor reports "nothing left to reset").
+    fn install_test_reset_fn(cursor: &CursorHandle) -> Arc<std::sync::atomic::AtomicBool> {
+        let was_reset = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = was_reset.clone();
+        cursor.register_reset_fn(Box::new(move || !flag.swap(true, std::sync::atomic::Ordering::SeqCst)));
+        was_reset
+    }
+
+    #[test]
+    fn reset_one_idle_picks_least_recently_read() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let oldest = pool.create_cursor();
+        let middle = pool.create_cursor();
+        let newest = pool.create_cursor();
+
+        // Bump each cursor's tick in order: oldest first, newest last.
+        drop(oldest.set_active_read(0, 1));
+        drop(middle.set_active_read(0, 1));
+        drop(newest.set_active_read(0, 1));
+
+        let oldest_reset = install_test_reset_fn(&oldest);
+        let middle_reset = install_test_reset_fn(&middle);
+        let newest_reset = install_test_reset_fn(&newest);
+
+        assert!(limiter.reset_one_idle_cursor());
+        assert!(oldest_reset.load(Ordering::SeqCst));
+        assert!(!middle_reset.load(Ordering::SeqCst));
+        assert!(!newest_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn reset_one_idle_skips_active_cursors() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let active = pool.create_cursor();
+        let idle = pool.create_cursor();
+
+        // Active cursor was read first — it's the LRU candidate by tick alone,
+        // but its active_read guard makes it ineligible.
+        let _active_guard = active.set_active_read(0, 1);
+        drop(idle.set_active_read(0, 1));
+
+        let active_reset = install_test_reset_fn(&active);
+        let idle_reset = install_test_reset_fn(&idle);
+
+        assert!(limiter.reset_one_idle_cursor());
+        assert!(!active_reset.load(Ordering::SeqCst));
+        assert!(idle_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn reset_one_idle_returns_false_when_all_active() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let a = pool.create_cursor();
+        let b = pool.create_cursor();
+        let _ga = a.set_active_read(0, 1);
+        let _gb = b.set_active_read(0, 1);
+
+        install_test_reset_fn(&a);
+        install_test_reset_fn(&b);
+
+        assert!(!limiter.reset_one_idle_cursor());
+    }
+
+    /// If the LRU candidate's `request_reset` fails (e.g. its inner mutex is
+    /// momentarily held by a worker), `reset_one_idle_cursor` returns false
+    /// without trying any other candidates — the maintenance loop's next
+    /// round (after `PRUNING_TICK`) will see fresh state and try again.
+    #[test]
+    fn reset_one_idle_returns_false_when_lru_reset_fails() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let stale = pool.create_cursor(); // LRU
+        let live = pool.create_cursor();
+
+        drop(stale.set_active_read(0, 1));
+        drop(live.set_active_read(0, 1));
+
+        // LRU candidate's reset_fn always returns false (e.g., already reset).
+        stale.register_reset_fn(Box::new(|| false));
+        let live_reset = install_test_reset_fn(&live);
+
+        assert!(!limiter.reset_one_idle_cursor());
+        assert!(!live_reset.load(Ordering::SeqCst));
     }
 }

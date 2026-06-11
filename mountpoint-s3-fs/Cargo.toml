@@ -83,7 +83,7 @@ sha2 = "0.11.0"
 shuttle = { version = "0.8.1" }
 syscalls = { version = "0.8.1", default-features = false }
 test-case = "3.3.1"
-tokio = { version = "1.52.1", features = ["rt", "macros", "rt-multi-thread"] }
+tokio = { version = "1.52.1", features = ["rt", "macros", "rt-multi-thread", "sync"] }
 toml = "1.1.2"
 walkdir = "2.5.0"
 wiremock = "0.6.5"
