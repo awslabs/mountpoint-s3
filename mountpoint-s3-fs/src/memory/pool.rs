@@ -92,7 +92,7 @@ impl PagedPool {
             loop {
                 wake_signal.wait_timeout(Duration::from_secs(1));
                 if let Some(pool) = weak.upgrade() {
-                    pool.try_wake_pending();
+                    pool.process_pending();
                 }
             }
         });
@@ -308,9 +308,9 @@ impl PagedPoolInner {
             None => self.allocation_queue.push_high(None, size, kind), // uploads are urgent
         };
         // After pushing, try to wake immediately in case memory freed between the fast-path
-        // check above and the push (avoids the race where a buffer drop called try_wake_pending
+        // check above and the push (avoids the race where a buffer drop called trigger_process_pending
         // before the entry was in the queue).
-        self.limiter.trigger_wake_pending();
+        self.limiter.trigger_process_pending();
         // Nudge the maintenance thread: it may be parked on its long idle interval, in which
         // case it would otherwise sleep up to that interval before noticing the new waiter.
         self.limiter.trigger_pruning();
@@ -372,7 +372,7 @@ impl PagedPoolInner {
                 .record(pages_freed as f64);
         }
 
-        self.limiter.trigger_wake_pending();
+        self.limiter.trigger_process_pending();
 
         removed
     }
@@ -381,7 +381,7 @@ impl PagedPoolInner {
     ///
     /// Called whenever memory is freed — on buffer drop, cursor release, or pool trim.
     /// Loops until no more entries can be fulfilled or the queue is empty.
-    fn try_wake_pending(&self) {
+    fn process_pending(&self) {
         while self
             .allocation_queue
             .try_fulfill_front(|pending| self.try_get_buffer(pending.size, pending.kind, pending.cursor_id, false))

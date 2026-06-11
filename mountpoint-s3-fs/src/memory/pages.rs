@@ -14,8 +14,8 @@ pub struct Page {
 
 #[derive(Debug)]
 struct PageInner {
-    /// Pointer to the memory for this page.
-    ptr: ManagedBuffer,
+    /// Memory buffer for the whole page.
+    page_buffer: ManagedBuffer,
     /// Pointer to the last buffer in the page.
     ///
     /// Equals to (BUFFERS_PER_PAGE - 1) * buffer_size. Stored for easy
@@ -40,12 +40,16 @@ impl Page {
 
     /// Create a new page and allocate the required memory.
     pub fn try_new(stats: Arc<SizePoolStats>, forced: bool) -> Option<Self> {
-        let ptr = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
+        let page_buffer = stats.try_allocate_page(Self::BUFFERS_PER_PAGE, forced)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
-        let last_buffer = unsafe { ptr.as_raw_ptr().add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size) };
+        let last_buffer = unsafe {
+            page_buffer
+                .as_raw_ptr()
+                .add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size)
+        };
         let inner = PageInner {
-            ptr,
+            page_buffer,
             last_buffer,
             acquired_bitmask: Default::default(),
             stats,
@@ -67,7 +71,7 @@ impl Page {
         self.inner.stats.acquire_buffer(kind);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
-        let ptr = unsafe { self.inner.ptr.as_raw_ptr().add(offset) };
+        let ptr = unsafe { self.inner.page_buffer.as_raw_ptr().add(offset) };
         Some(PagedBufferPtr {
             ptr,
             pool_page: self.clone(),
@@ -78,12 +82,12 @@ impl Page {
     /// Release a buffer back to this page.
     fn release(&self, ptr: *mut u8, kind: BufferKind) {
         assert!(
-            ptr >= self.inner.ptr.as_raw_ptr() && ptr <= self.inner.last_buffer,
+            ptr >= self.inner.page_buffer.as_raw_ptr() && ptr <= self.inner.last_buffer,
             "the pointer does not belong to this page"
         );
 
         // SAFETY: ptr points to the same allocated object as self.inner.ptr.
-        let offset = unsafe { ptr.offset_from(self.inner.ptr.as_raw_ptr()) };
+        let offset = unsafe { ptr.offset_from(self.inner.page_buffer.as_raw_ptr()) };
         let index = offset as usize / self.inner.stats.buffer_size;
         let mask = !(1u16 << index);
         let mut bitmask = self.inner.acquired_bitmask.lock().unwrap();

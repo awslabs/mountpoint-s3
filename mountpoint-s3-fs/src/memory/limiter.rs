@@ -46,7 +46,7 @@ impl BufferArea {
 /// rejected if there is no available memory.
 ///
 /// Release of the reserved memory happens on one of the following events:
-/// 1) the memory pool allocates a buffer: `on_pool_reserve` decrements `mem_reserved` by the
+/// 1) the memory pool allocates a buffer: `on_pool_acquire` decrements `mem_reserved` by the
 ///    allocated size, converting the reservation from "intent" to "actual allocation" tracked by the pool.
 /// 2) the cursor is destroyed (`BackpressureController` will be dropped and `release_cursor` will
 ///    release any remaining unallocated reservation for that cursor).
@@ -55,8 +55,15 @@ impl BufferArea {
 /// requests. Under memory pressure, each instance will limit to a single buffer.
 #[derive(Debug)]
 pub struct MemoryLimiter {
+    /// Target memory limit.
     mem_limit: u64,
-    /// Global total of reserved memory (lock-free). Used in budget checks.
+    /// Additional reserved memory for other non-buffer usage like storing metadata
+    additional_mem_reserved: u64,
+    /// Memory allocated by the pool.
+    allocated_bytes: AtomicUsize,
+    /// Memory in use by [`BufferKind`].
+    acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
+    /// Total reserved memory. Used in budget checks.
     mem_reserved: Arc<AtomicU64>,
     /// Unified per-cursor state. Cursors own a strong reference to their state.
     cursors: Arc<DashMap<CursorId, Weak<CursorState>>>,
@@ -66,21 +73,16 @@ pub struct MemoryLimiter {
     /// an active read ends, so the pruner can pick the LRU idle cursor.
     /// Pure ordering — does not represent wall-clock time.
     next_read_tick: AtomicU64,
-    /// Additional reserved memory for other non-buffer usage like storing metadata
-    additional_mem_reserved: u64,
     /// Wakes the background pruning loop's outer wait when memory pressure starts.
     /// Once the inner tick is running it polls every [`PRUNING_TICK`](super::maintenance::PRUNING_TICK)
     /// regardless.
     pruning_signal: Arc<WakeSignal>,
-
-    acquired_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
-    allocated_bytes: AtomicUsize,
-
-    wake_signal: Arc<WakeSignal>,
+    /// Signal to process pending allocations.
+    pending_signal: Arc<WakeSignal>,
 }
 
 impl MemoryLimiter {
-    pub fn new(mem_limit: u64, wake_signal: Arc<WakeSignal>) -> Self {
+    pub fn new(mem_limit: u64, pending_signal: Arc<WakeSignal>) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -91,15 +93,15 @@ impl MemoryLimiter {
         );
         Self {
             mem_limit,
+            additional_mem_reserved,
+            allocated_bytes: Default::default(),
+            acquired_bytes: Default::default(),
             mem_reserved: Default::default(),
             cursors: Default::default(),
             next_cursor_id: AtomicU64::new(1),
             next_read_tick: AtomicU64::new(1),
-            additional_mem_reserved,
             pruning_signal: Arc::new(WakeSignal::new()),
-            acquired_bytes: Default::default(),
-            allocated_bytes: Default::default(),
-            wake_signal,
+            pending_signal,
         }
     }
 
@@ -164,7 +166,7 @@ impl MemoryLimiter {
             self.mem_reserved.fetch_sub(remaining, Ordering::SeqCst);
             metrics::gauge!("mem.bytes_reserved", "area" => BufferArea::Prefetch.as_str()).decrement(remaining as f64);
         }
-        self.trigger_wake_pending();
+        self.trigger_process_pending();
     }
 
     /// Create a new cursor, insert its state into the map, and return the shared state handle.
@@ -292,7 +294,7 @@ impl MemoryLimiter {
         if let Some(kind) = kind {
             self.release_bytes(size, kind);
         } else {
-            self.trigger_wake_pending();
+            self.trigger_process_pending();
         }
     }
 
@@ -316,11 +318,11 @@ impl MemoryLimiter {
     pub fn release_bytes(&self, bytes: usize, kind: BufferKind) {
         self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
         metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
-        self.trigger_wake_pending();
+        self.trigger_process_pending();
     }
 
-    pub fn trigger_wake_pending(&self) {
-        self.wake_signal.notify();
+    pub fn trigger_process_pending(&self) {
+        self.pending_signal.notify();
     }
 
     // -----------------------------------------------------------------------
@@ -385,7 +387,7 @@ impl MemoryLimiter {
 
 impl Drop for MemoryLimiter {
     fn drop(&mut self) {
-        self.trigger_wake_pending();
+        self.trigger_process_pending();
         // Wake the pruning thread so it observes its `Weak` failing to upgrade
         // and exits. Without this, a pruner parked in the outer wait at drop
         // time would never wake.
