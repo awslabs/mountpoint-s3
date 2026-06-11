@@ -171,7 +171,7 @@ impl MemoryLimiter {
 
     /// Create a new cursor, insert its state into the map, and return the shared state handle.
     pub fn create_cursor(&self, pool: &PagedPool) -> CursorHandle {
-        let id = CursorId::new_from_raw(self.next_cursor_id.fetch_add(1, Ordering::Relaxed));
+        let id = CursorId::new_from_raw(self.next_cursor_id.fetch_add(1, Ordering::SeqCst));
         let state = Arc::new(CursorState::new(pool.clone(), id));
         self.cursors.insert(id, Arc::downgrade(&state));
         CursorHandle { state }

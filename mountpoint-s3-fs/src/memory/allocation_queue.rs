@@ -75,7 +75,7 @@ struct AllocationQueueInner {
 impl std::fmt::Debug for AllocationQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AllocationQueue")
-            .field("has_pending", &self.has_pending.load(Ordering::Relaxed))
+            .field("has_pending", &self.has_pending.load(Ordering::SeqCst))
             .finish_non_exhaustive()
     }
 }
@@ -135,7 +135,7 @@ impl AllocationQueue {
         };
 
         let mut inner = self.inner.lock().unwrap();
-        self.has_pending.store(true, Ordering::Release);
+        self.has_pending.store(true, Ordering::SeqCst);
         match priority {
             AllocationPriority::High => inner.high.push_back(entry),
             AllocationPriority::Low => inner.low.push_back(entry),
@@ -192,7 +192,7 @@ impl AllocationQueue {
 
         let front = inner.high.front().or_else(|| inner.low.front());
         let Some(front) = front else {
-            self.has_pending.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::SeqCst);
             return None;
         };
 
@@ -201,7 +201,7 @@ impl AllocationQueue {
         }
         let entry = inner.high.pop_front().or_else(|| inner.low.pop_front());
         if inner.high.is_empty() && inner.low.is_empty() {
-            self.has_pending.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::SeqCst);
         }
         entry
     }
@@ -226,7 +226,7 @@ impl AllocationQueue {
             }
         }
         if inner.high.is_empty() && inner.low.is_empty() {
-            self.has_pending.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::SeqCst);
         }
     }
 
@@ -236,7 +236,7 @@ impl AllocationQueue {
     /// whether new requests must go through the queue (to respect priority ordering
     /// of existing waiters).
     pub fn has_pending(&self) -> bool {
-        self.has_pending.load(Ordering::Acquire)
+        self.has_pending.load(Ordering::SeqCst)
     }
 
     /// `Instant` at which the next-to-be-served live entry was queued.
