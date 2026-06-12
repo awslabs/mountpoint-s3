@@ -1145,7 +1145,7 @@ mod tests {
             .with_memory_limit(NON_BUFFER_FLOOR + part_size)
             .build();
 
-        assert_eq!(pool.available_mem(), part_size);
+        assert_eq!(pool.memory_available_for_reservation(), part_size);
 
         let uploader = Uploader::new(
             client.clone(),
@@ -1200,7 +1200,7 @@ mod tests {
             .with_candidate_sizes([part_size])
             .with_memory_limit(LIMITER_MIN_RESERVED + part_size)
             .build();
-        assert_eq!(pool.available_mem(), part_size);
+        assert_eq!(pool.memory_available_for_reservation(), part_size);
 
         let uploader = Uploader::new(
             client.clone(),
@@ -1244,6 +1244,6 @@ mod tests {
             assert_eq!(expected, *actual, "content mismatch for {key}");
         }
 
-        assert_eq!(pool.available_mem(), part_size);
+        assert_eq!(pool.memory_available_for_reservation(), part_size);
     }
 }

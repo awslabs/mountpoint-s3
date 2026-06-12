@@ -205,9 +205,9 @@ impl PagedPool {
         self.inner.limiter.request_reset(cursor_id)
     }
 
-    /// Query available memory.
-    pub fn available_mem(&self) -> usize {
-        self.inner.limiter.available_mem()
+    /// Memory that can be reserved while respecting the memory limit.
+    pub fn memory_available_for_reservation(&self) -> usize {
+        self.inner.limiter.memory_available_for_reservation()
     }
 
     /// Check if the given cursor has an active read overlapping the specified range.

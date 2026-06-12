@@ -131,9 +131,9 @@ impl MemoryLimiter {
         let mut mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         loop {
             let new_mem_reserved = mem_reserved.saturating_add(size);
-            let mem_allocated = self.allocated_bytes();
+            let mem_in_use = self.total_acquired_bytes();
             let new_total_mem_usage = new_mem_reserved
-                .saturating_add(mem_allocated)
+                .saturating_add(mem_in_use)
                 .saturating_add(self.additional_mem_reserved);
             if new_total_mem_usage > self.mem_limit {
                 trace!(new_total_mem_usage, "not enough memory to reserve");
@@ -177,13 +177,13 @@ impl MemoryLimiter {
         CursorHandle { state }
     }
 
-    /// Query available memory tracked by the memory limiter.
-    pub fn available_mem(&self) -> usize {
-        let mem_allocated = self.allocated_bytes();
+    /// Memory that can be reserved while respecting the memory limit.
+    pub fn memory_available_for_reservation(&self) -> usize {
+        let mem_in_use = self.total_acquired_bytes();
         let mem_reserved = self.mem_reserved.load(Ordering::SeqCst);
         self.mem_limit
             .saturating_sub(mem_reserved)
-            .saturating_sub(mem_allocated)
+            .saturating_sub(mem_in_use)
             .saturating_sub(self.additional_mem_reserved)
     }
 
@@ -297,10 +297,6 @@ impl MemoryLimiter {
         } else {
             self.trigger_process_pending();
         }
-    }
-
-    pub fn allocated_bytes(&self) -> usize {
-        self.allocated_bytes.load(Ordering::SeqCst)
     }
 
     pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
@@ -494,9 +490,9 @@ impl CursorState {
         true
     }
 
-    /// Query available memory tracked by the associated memory limiter.
-    pub fn available_mem(&self) -> usize {
-        self.pool.available_mem()
+    /// Memory that can be reserved while respecting the memory limit.
+    pub fn memory_available_for_reservation(&self) -> usize {
+        self.pool.limiter().memory_available_for_reservation()
     }
 }
 
@@ -640,7 +636,7 @@ mod tests {
         let cursor = pool.create_cursor().state();
 
         // Fill up to the limit (minus additional_mem_reserved)
-        let available = pool.available_mem();
+        let available = pool.limiter().memory_available_for_reservation();
         cursor.reserve(available);
 
         // Should fail — no room left
@@ -722,9 +718,8 @@ mod tests {
     }
 
     #[test]
-    fn test_available_mem_accounts_for_pool_allocations() {
+    fn test_memory_available_for_reservation() {
         let buffer_size = 1024;
-        let page_size = buffer_size * super::super::pages::Page::BUFFERS_PER_PAGE;
 
         let pool = PagedPool::config()
             .with_candidate_sizes([buffer_size])
@@ -733,33 +728,34 @@ mod tests {
         let limiter = pool.limiter();
         let cursor = pool.create_cursor().state();
 
-        let initial_available = limiter.available_mem();
+        let initial_available = limiter.memory_available_for_reservation();
 
         // Reserve intent — available decreases
         cursor.reserve(buffer_size);
-        assert_eq!(limiter.available_mem(), initial_available - buffer_size);
+        assert_eq!(
+            limiter.memory_available_for_reservation(),
+            initial_available - buffer_size
+        );
         assert_eq!(limiter.acquired_bytes(BufferKind::GetObject), 0);
 
-        // Pool allocates (on_pool_acquire converts intent to pool stats)
+        // Acquire buffer from the pool (on_pool_acquire converts intent to pool stats)
         let buffer = pool.get_buffer_mut(buffer_size, BufferKind::GetObject, Some(cursor.id()));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
         assert_eq!(limiter.acquired_bytes(BufferKind::GetObject), buffer_size);
-        assert_eq!(limiter.available_mem(), initial_available - page_size);
+        assert_eq!(
+            limiter.memory_available_for_reservation(),
+            initial_available - buffer_size
+        );
 
-        // Drop the buffer — pool stats decrease
+        // Drop the buffer — pool stats decrease and available goes back up
         drop(buffer);
         assert_eq!(limiter.acquired_bytes(BufferKind::GetObject), 0);
-        assert_eq!(limiter.available_mem(), initial_available - page_size);
-
-        // Trim the pool - available goes back up
-        assert!(pool.trim());
-        assert_eq!(limiter.available_mem(), initial_available);
+        assert_eq!(limiter.memory_available_for_reservation(), initial_available);
     }
 
     #[test]
     fn test_upload_allocation_does_not_affect_mem_reserved() {
         let buffer_size = 1024;
-        let page_size = buffer_size * super::super::pages::Page::BUFFERS_PER_PAGE;
 
         let pool = PagedPool::config()
             .with_candidate_sizes([buffer_size])
@@ -767,7 +763,7 @@ mod tests {
             .build();
         let limiter = pool.limiter();
 
-        let initial_available = limiter.available_mem();
+        let initial_available = limiter.memory_available_for_reservation();
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // Upload allocates without cursor_id — should not touch mem_reserved
@@ -775,12 +771,14 @@ mod tests {
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
 
         // But available_mem should decrease (pool stats increased)
-        assert_eq!(limiter.available_mem(), initial_available - page_size);
+        assert_eq!(
+            limiter.memory_available_for_reservation(),
+            initial_available - buffer_size
+        );
 
-        // Drop the buffer and trim — available goes back up
+        // Drop the buffer — available goes back up
         drop(buffer);
-        assert!(pool.trim());
-        assert_eq!(limiter.available_mem(), initial_available);
+        assert_eq!(limiter.memory_available_for_reservation(), initial_available);
     }
 
     #[test]

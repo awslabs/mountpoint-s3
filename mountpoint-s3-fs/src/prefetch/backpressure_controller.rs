@@ -262,7 +262,7 @@ impl BackpressureController {
             // because only `preferred_read_window_size` is increased but the actual read window will
             // be updated later on `DataRead` event (where we do reserve memory).
             let to_increase = new_read_window_size - self.preferred_read_window_size;
-            let available_mem = self.cursor_state.available_mem();
+            let available_mem = self.cursor_state.memory_available_for_reservation();
             if available_mem >= to_increase {
                 let formatter = make_format(humansize::BINARY);
                 trace!(
