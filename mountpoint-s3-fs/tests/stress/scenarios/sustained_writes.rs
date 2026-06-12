@@ -4,7 +4,7 @@
 use std::iter::repeat_n;
 use std::sync::Arc;
 
-use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
+use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
 use crate::stress::harness::{self, Scenario, Worker, default_max_latency};

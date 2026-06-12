@@ -52,7 +52,7 @@ pub fn run(scenario: Scenario) {
         max_latency,
     } = scenario;
 
-    let mem_limit = session_config.filesystem_config.mem_limit as f64;
+    let mem_limit = session_config.mem_limit as f64;
     let num_workers = workers.len();
     assert!(
         num_workers > 0,

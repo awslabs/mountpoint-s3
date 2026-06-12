@@ -123,7 +123,7 @@ impl TestSessionConfig {
 
     /// Override the memory limit for this test session.
     pub fn with_mem_limit(mut self, mem_limit: u64) -> Self {
-        self.filesystem_config.mem_limit = mem_limit;
+        self.mem_limit = mem_limit;
         self
     }
 }
