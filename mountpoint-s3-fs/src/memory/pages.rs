@@ -3,9 +3,12 @@ use crate::sync::{Arc, Mutex};
 use super::buffers::ManagedBuffer;
 use super::stats::{BufferKind, SizePoolStats};
 
+/// Maximum number of buffers allowed on a page.
+pub const MAX_BUFFERS_PER_PAGE: usize = u16::BITS as usize;
+
 /// Page in a size pool.
 ///
-/// Each page contains [BUFFERS_PER_PAGE](super::pages::Page::BUFFERS_PER_PAGE) (16)
+/// Each page contains at most 16 ([`MAX_BUFFERS_PER_PAGE`])
 /// buffers of a fixed size.
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -16,6 +19,8 @@ pub struct Page {
 struct PageInner {
     /// Memory buffer for the whole page.
     page_buffer: ManagedBuffer,
+    /// Number of buffers on this page.
+    buffer_count: usize,
     /// Pointer to the last buffer in the page.
     ///
     /// Equals to (BUFFERS_PER_PAGE - 1) * buffer_size. Stored for easy
@@ -36,25 +41,26 @@ unsafe impl Send for PageInner {}
 unsafe impl Sync for PageInner {}
 
 impl Page {
-    pub const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
-
     /// Create a new page and allocate the required memory.
     ///
     /// Returns `None` if the allocation would hit the memory limit.
-    pub fn try_new(stats: Arc<SizePoolStats>) -> Option<Self> {
-        let page_buffer = stats.try_allocate_page(Self::BUFFERS_PER_PAGE)?;
+    pub fn try_new(stats: &Arc<SizePoolStats>, buffer_count: usize) -> Option<Self> {
+        assert!(
+            buffer_count > 0 && buffer_count <= MAX_BUFFERS_PER_PAGE,
+            "buffer_count must be positive and less than {}, but was {}.",
+            MAX_BUFFERS_PER_PAGE,
+            buffer_count
+        );
+        let page_buffer = stats.try_allocate_page(buffer_count)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
-        let last_buffer = unsafe {
-            page_buffer
-                .as_raw_ptr()
-                .add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size)
-        };
+        let last_buffer = unsafe { page_buffer.as_raw_ptr().add((buffer_count - 1) * stats.buffer_size) };
         let inner = PageInner {
             page_buffer,
+            buffer_count,
             last_buffer,
             acquired_bitmask: Default::default(),
-            stats,
+            stats: stats.clone(),
         };
         Some(Page { inner: Arc::new(inner) })
     }
@@ -64,7 +70,7 @@ impl Page {
     /// If this page has an available buffer, it is marked as in use and returned.
     /// Otherwise, returns [None].
     pub fn try_acquire(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
-        let (index, page_status) = consume(&mut self.inner.acquired_bitmask.lock().unwrap())?;
+        let (index, page_status) = consume(&mut self.inner.acquired_bitmask.lock().unwrap(), self.buffer_count())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
             self.inner.stats.remove_empty_page();
@@ -79,6 +85,11 @@ impl Page {
             pool_page: self.clone(),
             kind,
         })
+    }
+
+    /// The total number of buffers on this page.
+    pub fn buffer_count(&self) -> usize {
+        self.inner.buffer_count
     }
 
     /// Release a buffer back to this page.
@@ -132,7 +143,7 @@ impl Page {
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
         let limiter = super::limiter::MemoryLimiter::new(usize::MAX, Default::default());
         let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
-        Page::try_new(Arc::new(stats)).expect("allocation should succeed with usize::MAX limit")
+        Page::try_new(&Arc::new(stats), MAX_BUFFERS_PER_PAGE).expect("allocation should succeed with usize::MAX limit")
     }
 }
 
@@ -142,14 +153,14 @@ const FULL_MASK: u16 = u16::MAX;
 ///
 /// Returns the index of the consumed buffer and the previous status of the page,
 /// or `None` if no buffers are available.
-fn consume(bitmask: &mut u16) -> Option<(usize, PageStatus)> {
+fn consume(bitmask: &mut u16, buffer_count: usize) -> Option<(usize, PageStatus)> {
     if *bitmask != FULL_MASK {
         let page_status = if *bitmask == 0 {
             PageStatus::Empty
         } else {
             PageStatus::NonEmpty
         };
-        for index in 0usize..16 {
+        for index in 0..buffer_count {
             let mask = 1u16 << index;
             if *bitmask & mask == 0 {
                 *bitmask |= mask;
@@ -201,7 +212,7 @@ mod tests {
     fn test_reserve_buffers() {
         let page = Page::new_for_tests(1024);
         let mut buffers = Vec::new();
-        for _ in 0..Page::BUFFERS_PER_PAGE {
+        for _ in 0..page.buffer_count() {
             let buffer_ptr = page
                 .try_acquire(BufferKind::Other)
                 .expect("reserving up to 16 buffers from a new page should succeed");

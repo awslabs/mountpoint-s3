@@ -9,7 +9,7 @@ use crate::util::wake_signal::WakeSignal;
 use super::allocation_queue::AllocationQueue;
 use super::buffers::{PoolBuffer, PoolBufferMut};
 use super::limiter::{CursorHandle, MemoryLimiter};
-use super::pages::{Page, PagedBufferPtr};
+use super::pages::{MAX_BUFFERS_PER_PAGE, Page, PagedBufferPtr};
 use super::stats::{BufferKind, SizePoolStats};
 
 pub use super::limiter::MINIMUM_MEM_LIMIT;
@@ -417,7 +417,7 @@ struct SizePool {
 
 impl SizePool {
     /// Acquire an unused buffer from an existing page if available, or
-    /// from a newly allocated new page.
+    /// from a newly allocated page.
     ///
     /// Returns `None` if allocating a new page would hit the memory limit.
     fn try_acquire(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
@@ -439,10 +439,20 @@ impl SizePool {
         }
 
         tracing::trace!(size = self.stats.buffer_size, "allocate new memory pool page");
-        let page = Page::try_new(self.stats.clone())?;
-        let buffer_ptr = page.try_acquire(kind).unwrap();
-        write_pages.push(page);
-        Some(buffer_ptr)
+        // Try to allocate a new page with the maximum buffer count first. If there is not enough
+        // memory, keep retrying by halving the count.
+        let mut buffer_count = MAX_BUFFERS_PER_PAGE;
+        while buffer_count > 0 {
+            let Some(page) = Page::try_new(&self.stats, buffer_count) else {
+                buffer_count /= 2;
+                continue;
+            };
+
+            let buffer_ptr = page.try_acquire(kind).expect("acquire should succeed on a new page");
+            write_pages.push(page);
+            return Some(buffer_ptr);
+        }
+        None
     }
 
     fn try_get_buffer_ptr<'a>(
