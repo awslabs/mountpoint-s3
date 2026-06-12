@@ -132,7 +132,7 @@ impl PagedPool {
     }
 
     /// Get a new empty mutable buffer from the pool with the requested capacity.
-    /// If `cursor_id` is provided, `on_pool_reserve` will decrement the limiter's
+    /// If `cursor_id` is provided, `on_pool_acquire` will decrement the limiter's
     /// reservation counters for per-cursor memory tracking.
     pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBufferMut {
         let buffer = self.get_buffer(capacity, kind, cursor_id);

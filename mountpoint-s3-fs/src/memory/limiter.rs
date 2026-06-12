@@ -673,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn test_on_pool_reserve_noop_after_release_cursor() {
+    fn test_on_pool_acquire_noop_after_release_cursor() {
         // Simulates the cancellation race: on_reserve fires after release_cursor
         // removed the entry. The callback should be a no-op.
         let pool = PagedPool::config()
@@ -698,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn test_on_pool_reserve_saturates_on_over_decrement() {
+    fn test_on_pool_acquire_saturates_on_over_decrement() {
         let pool = PagedPool::config()
             .with_candidate_sizes([1024])
             .with_minimum_memory_limit()
@@ -710,7 +710,7 @@ mod tests {
         cursor.reserve(512);
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 512);
 
-        // Pool allocates 1024 — on_pool_reserve should saturate at 512 (not underflow)
+        // Pool allocates 1024 — on_pool_acquire should saturate at 512 (not underflow)
         let cursor_id = cursor.id();
         let _buffer = pool.get_buffer_mut(1024, BufferKind::GetObject, Some(cursor_id));
         assert_eq!(limiter.mem_reserved.load(Ordering::SeqCst), 0);
