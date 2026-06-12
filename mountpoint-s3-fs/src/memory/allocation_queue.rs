@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use futures::channel::oneshot;
+use tracing::trace;
 
 use crate::prefetch::CursorId;
 use crate::sync::Mutex;
@@ -154,7 +155,7 @@ impl AllocationQueue {
             return false;
         }
 
-        // TODO(memory-limiter): consider refactoring try_front_if or even inlining.
+        // TODO(memory-limiter): consider refactoring or inlining try_front_if.
         let mut buffer = None;
         let entry = self.pop_front_if(|pending| {
             buffer = try_get_buffer(pending);
@@ -162,8 +163,12 @@ impl AllocationQueue {
         });
         if let Some(entry) = entry
             && let Some(buffer) = buffer
-            && entry.fulfill(buffer).is_ok()
         {
+            if let Err(cancelled) = entry.fulfill(buffer) {
+                // Drop buffer, but still succeed.
+                trace!(size = cancelled.len(), "request cancelled after acquiring buffer");
+                drop(cancelled);
+            }
             true
         } else {
             false
