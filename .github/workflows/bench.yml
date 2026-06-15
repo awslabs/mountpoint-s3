@@ -24,7 +24,6 @@ env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   S3_BUCKET_NAME: ${{ vars.S3_BENCH_BUCKET_NAME }}
-  S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
   S3_BUCKET_BENCH_FILE: ${{ vars.BENCH_FILE_NAME || 'bench100GB.bin' }}
   S3_BUCKET_SMALL_BENCH_FILE: ${{ vars.SMALL_BENCH_FILE_NAME || 'bench5MB.bin' }}
   # Optional endpoint url, can be empty
@@ -94,6 +93,7 @@ jobs:
     - name: Run Benchmark
       env:
         S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
+        S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
       if: matrix.variant == 'mem-limited'
@@ -181,6 +181,8 @@ jobs:
     - name: Build
       run: cargo build --release
     - name: Run Benchmark
+      env:
+        S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}latency-bench/
       run: mountpoint-s3/scripts/fs_latency_bench.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix
@@ -267,6 +269,7 @@ jobs:
       env:
         S3_MOUNT_LOCAL_STORAGE: yes
         S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
+        S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}cache-bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Render memory summary
       if: matrix.variant == 'mem-limited'

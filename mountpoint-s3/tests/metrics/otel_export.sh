@@ -5,9 +5,10 @@ set -e
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
 OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
-MOUNT_DIR="/tmp/mount-dir"
-MOUNTPOINT_LOGS="/tmp/mountpoint-logs"
-MOUNTPOINT_CACHE="/tmp/mountpoint-cache"
+TMP_DIR=$(mktemp -d /tmp/mountpoint-XXXXXXXXXXXX)
+MOUNT_DIR="$TMP_DIR/mnt"
+MOUNTPOINT_LOGS="$TMP_DIR/logs"
+MOUNTPOINT_CACHE="$TMP_DIR/cache"
 EXPECTED_METRICS=(
   "experimental.cache.evict_latency"
   "experimental.cache.get_latency"
@@ -48,7 +49,7 @@ fi
 
 cleanup() {
   ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
-  rm -rf "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
+  rm -rf "${TMP_DIR}"
 
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
@@ -93,16 +94,20 @@ trigger_metrics() {
   test_file="${MOUNT_DIR}/test_file.txt"
   dd if=/dev/urandom of="${test_file}" bs=128k count=500 2>/dev/null
   sync
+
+  # Read from the file. Ensure that:
+  # - Some data is cached to disk for the next step
+  # - At least one "skip" is large enough to reset the internal prefetcher
   {
-    for skip in 0 10 100 500; do
-      dd bs=128k skip=$skip count=1 iflag=direct 2>/dev/null || true
+    for skip in {0..5} 300; do
+      dd bs=128k skip=$skip count=1 iflag=direct 2>/dev/null
     done
   } < "${test_file}" > /dev/null
 
   # Re-read some data to trigger cache hits
   {
     for skip in {1..5}; do
-      dd bs=128k skip=$skip count=1 2>/dev/null || true
+      dd bs=128k skip=$skip count=1 2>/dev/null
     done
   } < "${test_file}" > /dev/null
 
@@ -124,7 +129,7 @@ setup_mount() {
   local mode=$1
   
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
-  mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}"
+  mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
 
   local args=(
     "${S3_BUCKET_NAME}" "${MOUNT_DIR}"
@@ -147,15 +152,13 @@ setup_mount() {
       ;;
   esac
 
-  mkdir -p "${MOUNTPOINT_CACHE}"
-
   cargo run --quiet --release -- "${args[@]}"
   if [ $? -ne 0 ]; then
     echo "Failed to mount file system"
     exit 1
   fi
 
-  echo "Mounted ${MOUNT_DIR}."
+  echo "Mounted ${MOUNT_DIR} (logs: ${MOUNTPOINT_LOGS}, cache: ${MOUNTPOINT_CACHE})."
 }
 
 verify_otel_metrics() {
