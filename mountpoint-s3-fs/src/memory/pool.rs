@@ -87,6 +87,7 @@ impl PagedPool {
             allocation_queue: AllocationQueue::new(),
         });
 
+        // Spawn a background thread to process pending allocation requests.
         let weak = Arc::downgrade(&inner);
         thread::Builder::new()
             .name("mem-pool-pending".to_string())
@@ -101,24 +102,20 @@ impl PagedPool {
             })
             .expect("failed to spawn pool process pending thread");
 
+        // Spawn the background pool maintenance thread.
+        // The thread serves two responsibilities on a single OS thread:
+        //   - **Periodic trim**: every `maintenance_interval`, run [`Self::trim`] to release
+        //     empty pages back to the system allocator.
+        //   - **Pressure pruning**: on [`MemoryLimiter::trigger_pruning`], wake
+        //     immediately and run pruning rounds until the allocation queue drains.
+        super::maintenance::spawn_pool_maintenance_thread(&inner, config.maintenance_interval);
+
         Self { inner }
     }
 
     /// Trim empty pages in the pool.
     pub fn trim(&self) -> bool {
         self.inner.trim()
-    }
-
-    /// Spawn the background pool maintenance thread. Must be called once after
-    /// construction, at filesystem init.
-    ///
-    /// The thread serves two responsibilities on a single OS thread:
-    ///   - **Periodic trim**: every `idle_interval`, run [`Self::trim`] to release
-    ///     empty pages back to the system allocator.
-    ///   - **Pressure pruning**: on [`MemoryLimiter::trigger_pruning`], wake
-    ///     immediately and run pruning rounds until the allocation queue drains.
-    pub fn spawn_pool_maintenance_thread(&self, idle_interval: Duration) {
-        super::maintenance::spawn_pool_maintenance_thread(&self.inner, idle_interval);
     }
 
     /// Return the memory in use in bytes for the given kind of buffer.
@@ -472,11 +469,13 @@ impl SizePool {
 ///
 /// Defaults:
 /// - memory limit: [MINIMUM_MEM_LIMIT],
-/// - buffer size: [DEFAULT_BUFFER_SIZE].
+/// - buffer size: [DEFAULT_BUFFER_SIZE],
+/// - maintenance interval: 60s.
 #[derive(Debug, Clone)]
 pub struct PagedPoolConfig {
     ordered_sizes: Vec<usize>,
     mem_limit: usize,
+    maintenance_interval: Duration,
 }
 
 impl Default for PagedPoolConfig {
@@ -484,6 +483,7 @@ impl Default for PagedPoolConfig {
         Self {
             ordered_sizes: Default::default(),
             mem_limit: MINIMUM_MEM_LIMIT,
+            maintenance_interval: Duration::from_secs(60),
         }
     }
 }
@@ -519,6 +519,12 @@ impl PagedPoolConfig {
     /// Configure the pool with [MINIMUM_MEM_LIMIT] as the memory limit.
     pub fn with_minimum_memory_limit(&mut self) -> &mut Self {
         self.with_memory_limit(MINIMUM_MEM_LIMIT)
+    }
+
+    /// Configure the interval between runs of background maintenance tasks.
+    pub fn with_maintenance_interval(&mut self, interval: Duration) -> &mut Self {
+        self.maintenance_interval = interval;
+        self
     }
 
     /// Build a [PagedPool] with this configuration.
@@ -606,17 +612,15 @@ mod tests {
         }
     }
 
-    #[test_matrix(&[1, 2, 3, 4, 5, 6, 7], &[5, 10], [None, Some(Duration::from_millis(10))])]
-    #[test_matrix(&vec![42u8; 1000], &[128, 1024], [None, Some(Duration::from_millis(10))])]
-    #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [None, Some(Duration::from_millis(10))])]
-    fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
+    #[test_matrix(&[1, 2, 3, 4, 5, 6, 7], &[5, 10], [Duration::MAX, Duration::from_millis(10)])]
+    #[test_matrix(&vec![42u8; 1000], &[128, 1024], [Duration::MAX, Duration::from_millis(10)])]
+    #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [Duration::MAX, Duration::from_millis(10)])]
+    fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Duration) {
         let pool = PagedPool::config()
             .with_candidate_sizes(buffer_sizes)
             .with_no_memory_limit()
+            .with_maintenance_interval(schedule)
             .build();
-        if let Some(duration) = schedule {
-            pool.spawn_pool_maintenance_thread(duration);
-        }
 
         let num_threads = 10000;
         thread::scope(|scope| {
