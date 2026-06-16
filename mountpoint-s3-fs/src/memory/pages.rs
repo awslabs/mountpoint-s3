@@ -1,13 +1,14 @@
-use std::alloc::{self, Layout};
+use crate::sync::{Arc, Mutex};
 
-use crate::sync::{Arc, Mutex, Weak};
-
-use super::pool::PagedPoolInner;
+use super::buffers::ManagedBuffer;
 use super::stats::{BufferKind, SizePoolStats};
+
+/// Maximum number of buffers allowed on a page.
+pub const MAX_BUFFERS_PER_PAGE: usize = u16::BITS as usize;
 
 /// Page in a size pool.
 ///
-/// Each page contains [BUFFERS_PER_PAGE](super::pages::Page::BUFFERS_PER_PAGE) (16)
+/// Each page contains at most 16 ([`MAX_BUFFERS_PER_PAGE`])
 /// buffers of a fixed size.
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -16,8 +17,10 @@ pub struct Page {
 
 #[derive(Debug)]
 struct PageInner {
-    /// Pointer to the memory for this page.
-    bytes: *mut u8,
+    /// Memory buffer for the whole page.
+    page_buffer: ManagedBuffer,
+    /// Number of buffers on this page.
+    buffer_count: usize,
     /// Pointer to the last buffer in the page.
     ///
     /// Equals to (BUFFERS_PER_PAGE - 1) * buffer_size. Stored for easy
@@ -26,12 +29,9 @@ struct PageInner {
     /// Track the indices of the buffers in use.
     ///
     /// The size in bits needs to be enough to contain [BUFFERS_PER_PAGE](Page::BUFFERS_PER_PAGE).
-    reserved_bitmask: Mutex<u16>,
-    layout: Layout,
+    acquired_bitmask: Mutex<u16>,
     /// Shared stats across pages with common `buffer_size`.
     stats: Arc<SizePoolStats>,
-    /// Weak reference back to the pool so buffer drops can wake pending allocations.
-    pool: Weak<PagedPoolInner>,
 }
 
 // SAFETY: access to mutable state in `PageInner` is synchonized internally.
@@ -40,59 +40,46 @@ unsafe impl Send for PageInner {}
 // SAFETY: access to mutable state in `PageInner` is synchonized internally.
 unsafe impl Sync for PageInner {}
 
-impl Drop for PageInner {
-    fn drop(&mut self) {
-        // SAFETY: `self.bytes` was allocated using `self.layout` in `Page::new`.
-        unsafe {
-            alloc::dealloc(self.bytes, self.layout);
-        }
-    }
-}
-
 impl Page {
-    const BUFFERS_PER_PAGE: usize = u16::BITS as usize;
-
     /// Create a new page and allocate the required memory.
-    pub fn new(stats: Arc<SizePoolStats>, pool: Weak<PagedPoolInner>) -> Self {
-        assert_ne!(stats.buffer_size, 0);
-        let layout = Layout::array::<[u8; Self::BUFFERS_PER_PAGE]>(stats.buffer_size).unwrap();
-
-        // SAFETY: layout has non-zero size.
-        let bytes = unsafe { alloc::alloc(layout) };
-        if bytes.is_null() {
-            alloc::handle_alloc_error(layout);
-        }
-
-        metrics::gauge!("pool.allocated_pages", "size" => format!("{}", stats.buffer_size)).increment(1.0);
-        stats.add_empty_page();
+    ///
+    /// Returns `None` if the allocation would hit the memory limit.
+    pub fn try_new(stats: &Arc<SizePoolStats>, buffer_count: usize) -> Option<Self> {
+        assert!(
+            buffer_count > 0 && buffer_count <= MAX_BUFFERS_PER_PAGE,
+            "buffer_count must be positive and less than {}, but was {}.",
+            MAX_BUFFERS_PER_PAGE,
+            buffer_count
+        );
+        let page_buffer = stats.try_allocate_page(buffer_count)?;
 
         // SAFETY: last_buffer is guaranteed to belong to the allocated object.
-        let last_buffer = unsafe { bytes.add((Self::BUFFERS_PER_PAGE - 1) * stats.buffer_size) };
+        let last_buffer = unsafe { page_buffer.as_raw_ptr().add((buffer_count - 1) * stats.buffer_size) };
         let inner = PageInner {
-            bytes,
+            page_buffer,
+            buffer_count,
             last_buffer,
-            reserved_bitmask: Default::default(),
-            layout,
-            stats,
-            pool,
+            acquired_bitmask: Default::default(),
+            stats: stats.clone(),
         };
-        Page { inner: Arc::new(inner) }
+        Some(Page { inner: Arc::new(inner) })
     }
 
-    /// Try to reserve a buffer from this page.
+    /// Try to acquire a buffer from this page.
     ///
-    /// Returns [None] if the page is already full.
-    pub fn try_reserve(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
-        let (index, page_status) = consume(&mut self.inner.reserved_bitmask.lock().unwrap())?;
+    /// If this page has an available buffer, it is marked as in use and returned.
+    /// Otherwise, returns [None].
+    pub fn try_acquire(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
+        let (index, page_status) = consume(&mut self.inner.acquired_bitmask.lock().unwrap(), self.buffer_count())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
             self.inner.stats.remove_empty_page();
         };
 
-        self.inner.stats.add_reserved_buffer(kind);
+        self.inner.stats.acquire_buffer(kind);
 
         // SAFETY: ptr is in bounds of the allocated object, since offset < page_size.
-        let ptr = unsafe { self.inner.bytes.add(offset) };
+        let ptr = unsafe { self.inner.page_buffer.as_raw_ptr().add(offset) };
         Some(PagedBufferPtr {
             ptr,
             pool_page: self.clone(),
@@ -100,62 +87,63 @@ impl Page {
         })
     }
 
+    /// The total number of buffers on this page.
+    pub fn buffer_count(&self) -> usize {
+        self.inner.buffer_count
+    }
+
     /// Release a buffer back to this page.
     fn release(&self, ptr: *mut u8, kind: BufferKind) {
         assert!(
-            ptr >= self.inner.bytes && ptr <= self.inner.last_buffer,
+            ptr >= self.inner.page_buffer.as_raw_ptr() && ptr <= self.inner.last_buffer,
             "the pointer does not belong to this page"
         );
 
-        // SAFETY: ptr points to the same allocated object as self.inner.bytes.
-        let offset = unsafe { ptr.offset_from(self.inner.bytes) };
+        // SAFETY: ptr points to the same allocated object as self.inner.ptr.
+        let offset = unsafe { ptr.offset_from(self.inner.page_buffer.as_raw_ptr()) };
         let index = offset as usize / self.inner.stats.buffer_size;
         let mask = !(1u16 << index);
-        let mut bitmask = self.inner.reserved_bitmask.lock().unwrap();
+        let mut bitmask = self.inner.acquired_bitmask.lock().unwrap();
         *bitmask &= mask;
 
-        self.inner.stats.remove_reserved_buffer(kind);
         if *bitmask == 0 {
             self.inner.stats.add_empty_page();
         }
-        // Release the bitmask lock before waking pending allocations.
-        // try_wake_pending may try to allocate from this same page which would deadlock
-        // if we held the bitmask lock.
         drop(bitmask);
-        // A primary buffer was freed — wake any pending allocation requests.
-        if let Some(pool) = self.inner.pool.upgrade() {
-            pool.try_wake_pending();
-        }
+
+        self.inner.stats.release_buffer(kind);
     }
 
-    /// Invalidate this page if it is empty, i.e. none of its buffers are reserved,
+    /// Invalidate this page if it is empty, i.e. none of its buffers are in use,
     /// preventing any further use.
     ///
     /// Returns whether the page was invalidated. If `true` the page is ready to be
     /// removed from the pool.
     pub fn invalidate_if_empty(&self) -> bool {
-        let mut bitmask = self.inner.reserved_bitmask.lock().unwrap();
-        if *bitmask != 0 {
-            return false;
+        {
+            let mut bitmask = self.inner.acquired_bitmask.lock().unwrap();
+            if *bitmask != 0 {
+                return false;
+            }
+            // Mark the page as full, even though no buffer is currently reserved. If a new request
+            // arrives before the page is removed from the pool, it will be denied.
+            *bitmask = FULL_MASK;
         }
         self.inner.stats.remove_empty_page();
-        // Mark the page as full, even though no buffer is currently reserved. If a new request
-        // arrives before the page is removed from the pool, it will be denied.
-        *bitmask = FULL_MASK;
         true
     }
 
     #[cfg(test)]
     fn is_empty(&self) -> bool {
-        let bitmask = self.inner.reserved_bitmask.lock().unwrap();
+        let bitmask = self.inner.acquired_bitmask.lock().unwrap();
         *bitmask == 0
     }
 
     #[cfg(test)]
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
-        let pool_stats = super::stats::PoolStats::default();
-        let stats = SizePoolStats::new(buffer_size, Arc::new(pool_stats));
-        Page::new(Arc::new(stats), Weak::new())
+        let limiter = super::limiter::MemoryLimiter::new(usize::MAX);
+        let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
+        Page::try_new(&Arc::new(stats), MAX_BUFFERS_PER_PAGE).expect("allocation should succeed with usize::MAX limit")
     }
 }
 
@@ -165,14 +153,14 @@ const FULL_MASK: u16 = u16::MAX;
 ///
 /// Returns the index of the consumed buffer and the previous status of the page,
 /// or `None` if no buffers are available.
-fn consume(bitmask: &mut u16) -> Option<(usize, PageStatus)> {
+fn consume(bitmask: &mut u16, buffer_count: usize) -> Option<(usize, PageStatus)> {
     if *bitmask != FULL_MASK {
         let page_status = if *bitmask == 0 {
             PageStatus::Empty
         } else {
             PageStatus::NonEmpty
         };
-        for index in 0usize..16 {
+        for index in 0..buffer_count {
             let mask = 1u16 << index;
             if *bitmask & mask == 0 {
                 *bitmask |= mask;
@@ -224,26 +212,26 @@ mod tests {
     fn test_reserve_buffers() {
         let page = Page::new_for_tests(1024);
         let mut buffers = Vec::new();
-        for _ in 0..Page::BUFFERS_PER_PAGE {
+        for _ in 0..page.buffer_count() {
             let buffer_ptr = page
-                .try_reserve(BufferKind::Other)
+                .try_acquire(BufferKind::Other)
                 .expect("reserving up to 16 buffers from a new page should succeed");
             buffers.push(buffer_ptr);
         }
 
         assert!(
-            page.try_reserve(BufferKind::Other).is_none(),
+            page.try_acquire(BufferKind::Other).is_none(),
             "reserving the 17th buffer from a page should return None"
         );
 
         _ = buffers.pop().expect("drop one of the reserved buffers");
 
         buffers.push(
-            page.try_reserve(BufferKind::Other)
+            page.try_acquire(BufferKind::Other)
                 .expect("reserving after dropping 1 buffer should succeed"),
         );
         assert!(
-            page.try_reserve(BufferKind::Other).is_none(),
+            page.try_acquire(BufferKind::Other).is_none(),
             "reserving when all 16 buffers are in use should return None"
         );
 
@@ -259,7 +247,7 @@ mod tests {
             "invalidation of a new, empty page should succeed"
         );
         assert!(
-            page.try_reserve(BufferKind::Other).is_none(),
+            page.try_acquire(BufferKind::Other).is_none(),
             "reserving from an invalidated page should return None"
         );
     }
@@ -268,7 +256,7 @@ mod tests {
     fn test_invalidate_in_use() {
         let page = Page::new_for_tests(1024);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other)
+            .try_acquire(BufferKind::Other)
             .expect("reserving from a new page should succeed");
         assert!(!page.invalidate_if_empty(), "invalidation of a page in use should fail");
         drop(buffer_ptr);
@@ -277,7 +265,7 @@ mod tests {
             "invalidation of an empty page should succeed"
         );
         assert!(
-            page.try_reserve(BufferKind::Other).is_none(),
+            page.try_acquire(BufferKind::Other).is_none(),
             "reserving from an invalidated page should return None"
         );
     }

@@ -1176,11 +1176,11 @@ mod tests {
                 .expect("cursor should still be populated")
                 .cursor_id();
             let pool = request.part_stream.pool();
-            let available_before = pool.available_mem();
+            let available_before = pool.memory_available_for_reservation();
             assert!(pool.reset_cursor(cursor_id));
 
             // Memory should be reclaimed (reservation released)
-            let available_after = pool.available_mem();
+            let available_after = pool.memory_available_for_reservation();
             assert!(
                 available_after > available_before,
                 "expected memory to be reclaimed: before={available_before}, after={available_after}"

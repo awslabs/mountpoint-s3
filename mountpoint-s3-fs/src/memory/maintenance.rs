@@ -97,13 +97,10 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///   4. Otherwise reset one idle cursor.
 fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
-    //    by a different SizePool after a future allocation. If anything was
-    //    freed, wake the allocation queue so pending requests can claim it.
+    //    by a different SizePool after a future allocation.
     //    TODO: Consider doing trim cooldown (i.e. invoke trim less often)
     //    if it's contending too much with reserve read lock.
-    if pool_inner.trim() {
-        pool_inner.try_wake_pending();
-    }
+    pool_inner.trim();
 
     // 2. If no waiter is queued, there's no pressure — exit the inner tick.
     if !pool_inner.is_memory_pressure() {
@@ -135,13 +132,13 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
 /// Returns `true` if any in-flight `UploadPart`/`PutObject` is currently
 /// holding a pool buffer that will be released when the request completes.
 ///
-/// TODO: Currently a stub returning `false`.
+/// TODO(memory-limiter): Currently a stub returning `false`.
 /// Tighten to "in-flight UploadPart/PutObject exists":
-///   `reserved_bytes(PutObject) + reserved_bytes(Append)
+///   `acquired_bytes(PutObject) + acquired_bytes(Append)
 ///       > upload_handles_holding_buffers * write_part_size`
 /// Each write handle holds at most one "filling" buffer (FUSE write data
 /// being staged) at any time without an in-flight request, so excess
-/// reserved bytes above that baseline indicate at least one part actually
+/// memory in use above that baseline indicate at least one part actually
 /// uploading. Requires tracking `upload_handles_holding_buffers` (likely
 /// the active-write-handles counter).
 fn has_uploads_in_flight(_pool_inner: &PagedPoolInner) -> bool {
@@ -157,8 +154,11 @@ mod tests {
     use bytes::Bytes;
     use futures::executor::block_on;
 
-    use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
+    use crate::memory::limiter::MemoryLimiter;
+    use crate::memory::pool::PagedPoolInner;
     use crate::memory::{BufferKind, PagedPool};
+
+    use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
 
     const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
     /// Long idle interval used in tests where we want the loop to stay
@@ -168,13 +168,17 @@ mod tests {
 
     /// Pool sized for one page of `BUF`-byte buffers — small enough that the
     /// "fill all memory" loop in pressure tests is fast in debug builds.
-    fn tight_pool() -> PagedPool {
-        let additional_reserved = (BUF as u64 * 16).max(128 * 1024 * 1024);
-        let mem_limit = BUF as u64 * 16 + additional_reserved;
-        PagedPool::config()
-            .with_candidate_sizes([BUF])
-            .with_memory_limit(mem_limit)
-            .build()
+    ///
+    /// **NOTE:** does not spawn background threads.
+    fn tight_pool_no_spawn() -> PagedPool {
+        let additional_reserved = (BUF * 16).max(128 * 1024 * 1024);
+        let mem_limit = BUF * 16 + additional_reserved;
+
+        let limiter = MemoryLimiter::new(mem_limit);
+        let inner_pool = PagedPoolInner::new(&[BUF], Arc::new(limiter));
+        PagedPool {
+            inner: Arc::new(inner_pool),
+        }
     }
 
     /// Fill the pool, spawn a waiter on `acquire_buffer_async`, and block
@@ -182,11 +186,11 @@ mod tests {
     /// buffers so the caller can drop them when the test is done.
     fn fill_and_enqueue_waiter(pool: &PagedPool) -> Vec<Bytes> {
         let mut blockers = Vec::new();
-        while pool.available_mem() >= BUF as u64 {
-            blockers.push(pool.get_buffer_mut(BUF, BufferKind::Other, None).into_bytes());
+        while let Some(buffer) = pool.inner().try_get_buffer(BUF, BufferKind::Other, None, false) {
+            blockers.push(buffer.into_bytes());
         }
         let pool_clone = pool.clone();
-        std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+        std::thread::spawn(move || block_on(pool_clone.get_buffer_mut_async(BUF, BufferKind::GetObject, None)));
         let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
         while !pool.inner().is_memory_pressure() {
             assert!(Instant::now() < deadline, "request did not enter queue");
@@ -200,10 +204,7 @@ mod tests {
     /// and exit. Otherwise the thread leaks until the idle interval elapses.
     #[test]
     fn maintenance_thread_exits_on_pool_drop() {
-        let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
-            .with_minimum_memory_limit()
-            .build();
+        let pool = tight_pool_no_spawn();
         let handle = spawn_pool_maintenance_thread(pool.inner(), TEST_IDLE_INTERVAL);
 
         drop(pool);
@@ -244,7 +245,7 @@ mod tests {
     /// idle cursor to evict, the round defers to natural release.
     #[test]
     fn run_pruning_round_observes_real_queue_pressure() {
-        let pool = tight_pool();
+        let pool = tight_pool_no_spawn();
         let _blockers = fill_and_enqueue_waiter(&pool);
 
         let outcome = run_pruning_round(pool.inner());
@@ -258,7 +259,7 @@ mod tests {
     /// reset_fn firing once the starvation threshold elapses.
     #[test]
     fn acquire_buffer_async_wakes_parked_maintenance_thread() {
-        let pool = tight_pool();
+        let pool = tight_pool_no_spawn();
         let _maintenance = spawn_pool_maintenance_thread(pool.inner(), TEST_IDLE_INTERVAL);
 
         // Idle cursor with a reset_fn — the maintenance thread will reset it
@@ -296,7 +297,7 @@ mod tests {
     /// would normally defer to the natural release path).
     #[test]
     fn run_pruning_round_starvation_resets_idle_cursor_despite_active_read() {
-        let pool = tight_pool();
+        let pool = tight_pool_no_spawn();
 
         // Idle cursor with a registered reset_fn — eligible for eviction.
         let idle = pool.create_cursor();

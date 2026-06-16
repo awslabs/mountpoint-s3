@@ -75,7 +75,7 @@ struct ConfigOptions {
     user_agent_prefix: Option<String>,
     part_size: Option<usize>,
     /// Target memory limit (in bytes) that Mountpoint will try to enforce
-    memory_limit_bytes: Option<u64>,
+    memory_limit_bytes: Option<usize>,
 
     // File system options
     dir_mode: Option<u16>,

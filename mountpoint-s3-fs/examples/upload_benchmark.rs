@@ -61,7 +61,7 @@ struct UploadBenchmarkArgs {
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
         value_name = "MiB"
     )]
-    pub max_memory_target: Option<u64>,
+    pub max_memory_target: Option<usize>,
 
     #[clap(long, help = "Write part size for the upload", default_value = "8388608")]
     pub write_part_size: usize,
@@ -100,7 +100,7 @@ fn main() {
         target * 1024 * 1024
     } else {
         // Default to 95% of total system memory (cgroup-aware)
-        (effective_total_memory() as f64 * 0.95) as u64
+        (effective_total_memory() as f64 * 0.95) as usize
     };
     let pool = PagedPool::config()
         .with_candidate_sizes([args.write_part_size])

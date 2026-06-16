@@ -3,14 +3,14 @@ use std::time::Duration;
 use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
 use crate::prefetch::CursorId;
-use crate::sync::atomic::{AtomicU64, Ordering};
-use crate::sync::{Arc, RwLock, Weak};
+use crate::sync::thread::{self, JoinHandle};
+use crate::sync::{Arc, RwLock};
 
 use super::allocation_queue::AllocationQueue;
 use super::buffers::{PoolBuffer, PoolBufferMut};
 use super::limiter::{CursorHandle, MemoryLimiter};
-use super::pages::{Page, PagedBufferPtr};
-use super::stats::{BufferKind, PoolStats, SizePoolStats};
+use super::pages::{MAX_BUFFERS_PER_PAGE, Page, PagedBufferPtr};
+use super::stats::{BufferKind, SizePoolStats};
 
 pub use super::limiter::MINIMUM_MEM_LIMIT;
 
@@ -57,15 +57,10 @@ pub const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024;
 /// [MetaRequestType] to [BufferKind].
 #[derive(Debug, Clone)]
 pub struct PagedPool {
-    inner: Arc<PagedPoolInner>,
+    pub(super) inner: Arc<PagedPoolInner>,
 }
 
 impl PagedPool {
-    /// Creates a [PagedPool] from an [Arc<PagedPoolInner>]. Used by buffer drop impls.
-    pub(super) fn from_inner(inner: Arc<PagedPoolInner>) -> Self {
-        Self { inner }
-    }
-
     /// Configuration for a [PagedPool].
     pub fn config() -> PagedPoolConfig {
         Default::default()
@@ -73,61 +68,41 @@ impl PagedPool {
 
     /// Create a new [PagedPool] with the given configuration.
     pub fn new(config: &PagedPoolConfig) -> Self {
-        let stats = Arc::new(PoolStats::default());
-        let ordered_size_pools = config
-            .ordered_sizes()
-            .iter()
-            .map(|&buffer_size| SizePool {
-                pages: Default::default(),
-                stats: Arc::new(SizePoolStats::new(buffer_size, stats.clone())),
-            })
-            .collect();
+        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit()));
 
-        let limiter = MemoryLimiter::new(config.memory_limit());
+        let inner = Arc::new(PagedPoolInner::new(config.ordered_sizes(), limiter));
 
-        let inner = PagedPoolInner {
-            ordered_size_pools,
-            stats,
-            limiter,
-            allocation_queue: AllocationQueue::new(),
-            pending_allocations: AtomicU64::new(0),
-        };
-        Self { inner: Arc::new(inner) }
+        // Spawn a background thread to process pending allocation requests.
+        inner.spawn_process_pending_thread();
+
+        // Spawn the background pool maintenance thread.
+        // The thread serves two responsibilities on a single OS thread:
+        //   - **Periodic trim**: every `maintenance_interval`, run [`Self::trim`] to release
+        //     empty pages back to the system allocator.
+        //   - **Pressure pruning**: on [`MemoryLimiter::trigger_pruning`], wake
+        //     immediately and run pruning rounds until the allocation queue drains.
+        super::maintenance::spawn_pool_maintenance_thread(&inner, config.maintenance_interval);
+
+        Self { inner }
     }
 
     /// Trim empty pages in the pool.
     pub fn trim(&self) -> bool {
-        let trimmed = self.inner.trim();
-        if trimmed {
-            self.try_wake_pending();
-        }
-        trimmed
+        self.inner.trim()
     }
 
-    /// Spawn the background pool maintenance thread. Must be called once after
-    /// construction, at filesystem init.
-    ///
-    /// The thread serves two responsibilities on a single OS thread:
-    ///   - **Periodic trim**: every `idle_interval`, run [`Self::trim`] to release
-    ///     empty pages back to the system allocator.
-    ///   - **Pressure pruning**: on [`MemoryLimiter::trigger_pruning`], wake
-    ///     immediately and run pruning rounds until the allocation queue drains.
-    pub fn spawn_pool_maintenance_thread(&self, idle_interval: Duration) {
-        super::maintenance::spawn_pool_maintenance_thread(&self.inner, idle_interval);
+    /// Return the memory in use in bytes for the given kind of buffer.
+    pub fn acquired_bytes(&self, kind: BufferKind) -> usize {
+        self.inner.limiter.acquired_bytes(kind)
     }
 
-    /// Return the reserved memory in bytes for the given kind of buffer.
-    pub fn reserved_bytes(&self, kind: BufferKind) -> usize {
-        self.inner.stats.reserved_bytes(kind)
-    }
-
-    /// Return the total reserved memory in bytes across all buffer kinds.
-    pub fn total_reserved_bytes(&self) -> usize {
-        self.inner.stats.total_reserved_bytes()
+    /// Return the total memory in use in bytes across all buffer kinds.
+    pub fn total_acquired_bytes(&self) -> usize {
+        self.inner.limiter.total_acquired_bytes()
     }
 
     /// Get a new empty mutable buffer from the pool with the requested capacity.
-    /// If `cursor_id` is provided, `on_pool_reserve` will decrement the limiter's
+    /// If `cursor_id` is provided, `on_pool_acquire` will decrement the limiter's
     /// reservation counters for per-cursor memory tracking.
     pub fn get_buffer_mut(&self, capacity: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBufferMut {
         let buffer = self.get_buffer(capacity, kind, cursor_id);
@@ -141,28 +116,14 @@ impl PagedPool {
         kind: BufferKind,
         cursor_id: Option<CursorId>,
     ) -> PoolBufferMut {
-        let buffer = self.acquire_buffer_async(capacity, kind, cursor_id).await;
+        let buffer = self.inner.get_buffer_async(capacity, kind, cursor_id).await;
         PoolBufferMut::new(buffer)
     }
 
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
-        match self.inner.get_pool_for_size(size) {
-            Some(pool) => {
-                let buffer_ptr = pool.reserve(kind, Arc::downgrade(&self.inner));
-                metrics::histogram!("pool.reserved_bytes", "type" => "primary", "kind" => kind.as_str())
-                    .record(size as f64);
-                metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
-                    .record((pool.buffer_size() - size) as f64);
-                self.inner.limiter.on_pool_reserve(pool.buffer_size(), cursor_id);
-                PoolBuffer::new_primary(buffer_ptr, size)
-            }
-            None => {
-                metrics::histogram!("pool.reserved_bytes", "type" => "secondary", "kind" => kind.as_str())
-                    .record(size as f64);
-                self.inner.limiter.on_pool_reserve(size, cursor_id);
-                PoolBuffer::new_secondary(size, kind, self.inner.stats.clone(), Arc::downgrade(&self.inner))
-            }
-        }
+        self.inner
+            .try_get_buffer(size, kind, cursor_id, true)
+            .expect("forced allocations cannot fail")
     }
 
     #[cfg(test)]
@@ -175,11 +136,11 @@ impl PagedPool {
     }
 
     #[cfg(test)]
-    fn reserved_buffer_count(&self, kind: BufferKind) -> usize {
+    fn acquired_buffer_count(&self, kind: BufferKind) -> usize {
         self.inner
             .ordered_size_pools
             .iter()
-            .map(|pool| pool.stats.reserved_buffers(kind))
+            .map(|pool| pool.stats.acquired_buffers(kind))
             .sum()
     }
 
@@ -192,12 +153,12 @@ impl PagedPool {
     }
 
     /// The configured memory limit in bytes.
-    pub fn mem_limit(&self) -> u64 {
+    pub fn mem_limit(&self) -> usize {
         self.inner.limiter.mem_limit()
     }
 
     /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
-    pub fn data_buffer_budget(&self) -> u64 {
+    pub fn data_buffer_budget(&self) -> usize {
         self.inner.limiter.data_buffer_budget()
     }
 
@@ -214,114 +175,9 @@ impl PagedPool {
         self.inner.limiter.request_reset(cursor_id)
     }
 
-    /// Query available memory.
-    pub fn available_mem(&self) -> u64 {
-        self.inner.limiter.available_mem(&self.inner.stats)
-    }
-
-    /// Returns `true` if the pool can accommodate an additional allocation of `size` bytes.
-    #[cfg(test)]
-    fn can_allocate(&self, size: usize) -> bool {
-        let pending = self.inner.pending_allocations.load(Ordering::SeqCst);
-        self.available_mem().saturating_sub(pending) >= size as u64
-    }
-
-    /// Check available memory and, if there is room, atomically claim the bytes and allocate.
-    /// Returns `None` if the pool cannot accommodate `size` bytes.
-    ///
-    /// The limit check uses a compare-and-swap loop on `pending_allocations` — multiple threads
-    /// can claim bytes concurrently without a mutex. The actual allocation (`get_buffer`) runs
-    /// outside the CAS, so `SizePool::reserve` and secondary allocations proceed in parallel.
-    fn try_allocate(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> Option<PoolBuffer> {
-        // Primary buffers round up to buffer_size; use the actual size for accounting.
-        let alloc_size = self
-            .inner
-            .get_pool_for_size(size)
-            .map(|pool| pool.buffer_size())
-            .unwrap_or(size) as u64;
-
-        // Atomically claim `alloc_size` bytes. Re-read pending on each retry because another
-        // thread may have claimed or freed bytes between iterations.
-        let mut pending = self.inner.pending_allocations.load(Ordering::SeqCst);
-        loop {
-            let available = self.available_mem().saturating_sub(pending);
-            if available < alloc_size {
-                return None;
-            }
-            match self.inner.pending_allocations.compare_exchange_weak(
-                pending,
-                pending + alloc_size,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => break,
-                Err(current) => pending = current,
-            }
-        }
-
-        // Bytes claimed — allocate without holding any lock.
-        // SizePool::reserve uses its own RwLock; secondary allocations are independent.
-        let buffer = self.get_buffer(size, kind, cursor_id);
-
-        // Buffer is now tracked by pool stats; release the pending claim.
-        self.inner.pending_allocations.fetch_sub(alloc_size, Ordering::SeqCst);
-
-        Some(buffer)
-    }
-
-    /// Attempt to fulfill pending allocation requests from the queue.
-    ///
-    /// Called whenever memory is freed — on buffer drop, cursor release, or pool trim.
-    /// Loops until no more entries can be fulfilled or the queue is empty.
-    pub(super) fn try_wake_pending(&self) {
-        self.inner.try_wake_pending();
-    }
-
-    /// Async buffer allocation through the priority queue.
-    ///
-    /// **Fast path:** if the queue is empty and memory is available, allocates and returns immediately.
-    ///
-    /// **Slow path:** pushes the request into the allocation queue and awaits a buffer.
-    /// Priority is determined from the cursor's active-read state:
-    /// - cursor with an active FUSE read → high priority
-    /// - cursor without an active read (speculative prefetch) → low priority
-    /// - no cursor (upload) → high priority (write syscall is blocked)
-    pub(super) async fn acquire_buffer_async(
-        &self,
-        size: usize,
-        kind: BufferKind,
-        cursor_id: Option<CursorId>,
-    ) -> PoolBuffer {
-        // Fast path: if the queue is empty, try to allocate immediately. The check-and-allocate in
-        // `try_allocate` uses CAS on `pending_allocations`, so concurrent fast-path callers cannot both
-        // observe room for the same bytes and overshoot the limit.
-        if !self.inner.is_memory_pressure()
-            && let Some(buffer) = self.try_allocate(size, kind, cursor_id)
-        {
-            return buffer;
-        }
-
-        // Determine priority: a cursor with an active FUSE read is High (urgent),
-        // speculative prefetch (cursor with no active read) is Low.
-        // Uploads (no cursor) are always High — a write syscall is blocked.
-        // NOTE: We check if the cursor has an active read, not if this allocation serves it.
-        let rx = match cursor_id {
-            Some(id) if self.inner.limiter.has_active_read(id) => {
-                self.inner.allocation_queue.push_high(cursor_id, size, kind)
-            }
-            Some(id) => self.inner.allocation_queue.push_low(id, size, kind),
-            None => self.inner.allocation_queue.push_high(None, size, kind), // uploads are urgent
-        };
-        // After pushing, try to wake immediately in case memory freed between the fast-path
-        // check above and the push (avoids the race where a buffer drop called try_wake_pending
-        // before the entry was in the queue).
-        self.try_wake_pending();
-        // Nudge the maintenance thread: it may be parked on its long idle interval, in which
-        // case it would otherwise sleep up to that interval before noticing the new waiter.
-        self.inner.limiter.trigger_pruning();
-        // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
-        // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
-        rx.await.unwrap_or_else(|_| self.get_buffer(size, kind, cursor_id))
+    /// Memory that can be reserved while respecting the memory limit.
+    pub fn memory_available_for_reservation(&self) -> usize {
+        self.inner.limiter.memory_available_for_reservation()
     }
 
     /// Check if the given cursor has an active read overlapping the specified range.
@@ -336,10 +192,6 @@ impl PagedPool {
     }
 
     // ─── Internal components exposed to the rest of the `memory` module. ──────────
-
-    pub(super) fn stats(&self) -> &PoolStats {
-        &self.inner.stats
-    }
 
     pub(super) fn limiter(&self) -> &MemoryLimiter {
         &self.inner.limiter
@@ -360,7 +212,7 @@ impl MemoryPool for PagedPool {
     async fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
         let kind = meta_request.meta_request_type().into();
         let cursor_id = meta_request.custom_id().map(CursorId::new_from_raw);
-        self.acquire_buffer_async(size, kind, cursor_id).await
+        self.inner.get_buffer_async(size, kind, cursor_id).await
     }
 
     fn trim(&self) -> bool {
@@ -371,16 +223,27 @@ impl MemoryPool for PagedPool {
 #[derive(Debug)]
 pub(super) struct PagedPoolInner {
     ordered_size_pools: Vec<SizePool>,
-    stats: Arc<PoolStats>,
-    limiter: MemoryLimiter,
+    limiter: Arc<MemoryLimiter>,
     allocation_queue: AllocationQueue,
-    /// Tracks bytes that have been claimed (limit check passed) but not yet reflected in pool
-    /// stats. Used to prevent two concurrent callers both observing room for the same bytes.
-    /// Decremented once `get_buffer` completes and pool stats take over.
-    pending_allocations: AtomicU64,
 }
 
 impl PagedPoolInner {
+    pub(super) fn new(ordered_sizes: &[usize], limiter: Arc<MemoryLimiter>) -> Self {
+        let ordered_size_pools = ordered_sizes
+            .iter()
+            .map(|&buffer_size| SizePool {
+                pages: Default::default(),
+                stats: Arc::new(SizePoolStats::new(buffer_size, limiter.clone())),
+            })
+            .collect();
+
+        Self {
+            ordered_size_pools,
+            limiter,
+            allocation_queue: AllocationQueue::new(),
+        }
+    }
+
     /// Reference to the inner [`MemoryLimiter`] for sibling modules (e.g. the maintenance thread).
     pub(super) fn limiter(&self) -> &MemoryLimiter {
         &self.limiter
@@ -410,6 +273,85 @@ impl PagedPoolInner {
         Some(&self.ordered_size_pools[index])
     }
 
+    /// Get a buffer asynchronously through the priority queue.
+    ///
+    /// **Fast path:** if the queue is empty and memory is available, acquire the buffer and returns immediately.
+    ///
+    /// **Slow path:** pushes the request into the allocation queue and awaits a buffer.
+    /// Priority is determined from the cursor's active-read state:
+    /// - cursor with an active FUSE read → high priority
+    /// - cursor without an active read (speculative prefetch) → low priority
+    /// - no cursor (upload) → high priority (write syscall is blocked)
+    async fn get_buffer_async(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
+        // Fast path: if the queue is empty, try to acquire immediately.
+        if !self.allocation_queue.has_pending()
+            && let Some(buffer) = self.try_get_buffer(size, kind, cursor_id, false)
+        {
+            return buffer;
+        }
+
+        // Determine priority: a cursor with an active FUSE read is High (urgent),
+        // speculative prefetch (cursor with no active read) is Low.
+        // Uploads (no cursor) are always High — a write syscall is blocked.
+        // NOTE: We check if the cursor has an active read, not if this allocation serves it.
+        let rx = match cursor_id {
+            Some(id) if self.limiter.has_active_read(id) => self.allocation_queue.push_high(cursor_id, size, kind),
+            Some(id) => self.allocation_queue.push_low(id, size, kind),
+            None => self.allocation_queue.push_high(None, size, kind), // uploads are urgent
+        };
+        // After pushing, try to wake immediately in case memory freed between the fast-path
+        // check above and the push (avoids the race where a buffer drop called trigger_process_pending
+        // before the entry was in the queue).
+        self.limiter.trigger_process_pending();
+        // Nudge the maintenance thread: it may be parked on its long idle interval, in which
+        // case it would otherwise sleep up to that interval before noticing the new waiter.
+        self.limiter.trigger_pruning();
+        // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
+        // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
+        rx.await.unwrap_or_else(|_| {
+            self.try_get_buffer(size, kind, cursor_id, true)
+                .expect("forced allocations cannot fail")
+        })
+    }
+
+    /// Get a buffer from the pool if available or allocates new memory if allowed.
+    ///
+    /// Steps:
+    /// - If the requested size is compatible with the pool configuration:
+    ///   - Return an unused buffer from an existing page if available.
+    ///   - Otherwise, try to allocate a new page within the memory limit:
+    ///     - Return a buffer from the new page if successful.
+    /// - In all other cases:
+    ///   - Try to allocate and return a single buffer.
+    ///     
+    /// Returns `None` if allocating the required memory would exceed the memory limit.
+    ///
+    /// **NOTE:** guarantees to return `Some` if invoked with `ignore_limit == true`.
+    pub(super) fn try_get_buffer(
+        &self,
+        size: usize,
+        kind: BufferKind,
+        cursor_id: Option<CursorId>,
+        ignore_limit: bool,
+    ) -> Option<PoolBuffer> {
+        let buffer = if let Some(pool) = self.get_pool_for_size(size)
+            && let Some(buffer_ptr) = pool.try_acquire(kind)
+        {
+            metrics::histogram!("pool.acquired_bytes", "type" => "primary", "kind" => kind.as_str())
+                .record(size as f64);
+            metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
+                    .record((pool.buffer_size() - size) as f64);
+
+            PoolBuffer::new_primary(buffer_ptr, size)
+        } else {
+            metrics::histogram!("pool.acquired_bytes", "type" => "secondary", "kind" => kind.as_str())
+                .record(size as f64);
+            PoolBuffer::try_new_secondary(size, kind, self.limiter.clone(), ignore_limit)?
+        };
+        self.limiter.on_pool_acquire(size, cursor_id);
+        Some(buffer)
+    }
+
     pub(super) fn trim(&self) -> bool {
         let mut removed = false;
         for pool in &self.ordered_size_pools {
@@ -435,58 +377,39 @@ impl PagedPoolInner {
                 .record(pages_freed as f64);
         }
 
+        self.limiter.trigger_process_pending();
+
         removed
     }
 
-    pub(super) fn try_wake_pending(self: &Arc<Self>) {
-        if !self.is_memory_pressure() {
-            return;
+    /// Attempt to fulfill pending allocation requests from the queue.
+    ///
+    /// Called whenever memory is freed — on buffer drop, cursor release, or pool trim.
+    /// Loops until no more entries can be fulfilled or the queue is empty.
+    fn process_pending(&self) {
+        while self
+            .allocation_queue
+            .try_fulfill_front(|pending| self.try_get_buffer(pending.size, pending.kind, pending.cursor_id, false))
+        {
         }
-        let pool = PagedPool::from_inner(self.clone());
-        let mut undelivered = Vec::new();
+    }
 
-        loop {
-            // Atomically check and pop the front entry if we can afford it.
-            // The CAS inside pop_front_if re-reads pending after each retry,
-            // so a concurrent claim by another thread is always visible.
-            let entry = self.allocation_queue.pop_front_if(|size, _, _| {
-                let alloc_size = self.get_pool_for_size(size).map(|p| p.buffer_size()).unwrap_or(size) as u64;
-                let mut pending = self.pending_allocations.load(Ordering::SeqCst);
+    /// Spawn a background thread to process pending allocation requests.
+    fn spawn_process_pending_thread(self: &Arc<Self>) -> JoinHandle<()> {
+        let weak = Arc::downgrade(self);
+        let pending_signal = self.limiter.pending_signal().clone();
+        thread::Builder::new()
+            .name("mem-pool-pending".to_string())
+            .spawn(move || {
                 loop {
-                    let available = self.limiter.available_mem(&self.stats).saturating_sub(pending);
-                    if available < alloc_size {
-                        return false;
-                    }
-                    match self.pending_allocations.compare_exchange_weak(
-                        pending,
-                        pending + alloc_size,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    ) {
-                        Ok(_) => return true,
-                        Err(current) => pending = current,
-                    }
+                    pending_signal.wait_timeout(Duration::from_secs(1));
+                    let Some(pool) = weak.upgrade() else {
+                        break;
+                    };
+                    pool.process_pending();
                 }
-            });
-            let Some(entry) = entry else { break };
-
-            let alloc_size = self
-                .get_pool_for_size(entry.size)
-                .map(|p| p.buffer_size())
-                .unwrap_or(entry.size) as u64;
-
-            // Allocate without any lock — SizePool handles concurrency with its own RwLock.
-            let buffer = pool.get_buffer(entry.size, entry.kind, entry.cursor_id);
-            self.pending_allocations.fetch_sub(alloc_size, Ordering::SeqCst);
-
-            if let Err(buffer) = entry.fulfill(buffer) {
-                undelivered.push(buffer);
-            }
-        }
-        // TODO(memory-limiter): these buffers should be dropped immediately so the freed memory
-        // can serve the next waiter, but dropping them here would recursively call try_wake_pending
-        // (since buffer drop triggers the wake). Decouple by running try_wake_pending concurrently.
-        drop(undelivered);
+            })
+            .expect("failed to spawn pool process pending thread")
     }
 }
 
@@ -497,12 +420,16 @@ struct SizePool {
 }
 
 impl SizePool {
-    fn reserve(&self, kind: BufferKind, pool: Weak<PagedPoolInner>) -> PagedBufferPtr {
+    /// Acquire an unused buffer from an existing page if available, or
+    /// from a newly allocated page.
+    ///
+    /// Returns `None` if allocating a new page would hit the memory limit.
+    fn try_acquire(&self, kind: BufferKind) -> Option<PagedBufferPtr> {
         {
             // Fast path: reserve a buffer from the existing pages (under a read lock).
             let read_pages = self.pages.read().unwrap();
             if let Some(buffer_ptr) = self.try_get_buffer_ptr(read_pages.iter(), kind) {
-                return buffer_ptr;
+                return Some(buffer_ptr);
             }
         }
 
@@ -512,14 +439,24 @@ impl SizePool {
         // reserve already added a new page.
         let mut write_pages = self.pages.write().unwrap();
         if let Some(buffer_ptr) = self.try_get_buffer_ptr(write_pages.iter(), kind) {
-            return buffer_ptr;
+            return Some(buffer_ptr);
         }
 
         tracing::trace!(size = self.stats.buffer_size, "allocate new memory pool page");
-        let page = Page::new(self.stats.clone(), pool);
-        let buffer_ptr = page.try_reserve(kind).unwrap();
-        write_pages.push(page);
-        buffer_ptr
+        // Try to allocate a new page with the maximum buffer count first. If there is not enough
+        // memory, keep retrying by halving the count.
+        let mut buffer_count = MAX_BUFFERS_PER_PAGE;
+        while buffer_count > 0 {
+            let Some(page) = Page::try_new(&self.stats, buffer_count) else {
+                buffer_count /= 2;
+                continue;
+            };
+
+            let buffer_ptr = page.try_acquire(kind).expect("acquire should succeed on a new page");
+            write_pages.push(page);
+            return Some(buffer_ptr);
+        }
+        None
     }
 
     fn try_get_buffer_ptr<'a>(
@@ -527,7 +464,7 @@ impl SizePool {
         mut pages: impl Iterator<Item = &'a Page>,
         kind: BufferKind,
     ) -> Option<PagedBufferPtr> {
-        pages.find_map(|page| page.try_reserve(kind))
+        pages.find_map(|page| page.try_acquire(kind))
     }
 
     fn buffer_size(&self) -> usize {
@@ -539,11 +476,13 @@ impl SizePool {
 ///
 /// Defaults:
 /// - memory limit: [MINIMUM_MEM_LIMIT],
-/// - buffer size: [DEFAULT_BUFFER_SIZE].
+/// - buffer size: [DEFAULT_BUFFER_SIZE],
+/// - maintenance interval: 60s.
 #[derive(Debug, Clone)]
 pub struct PagedPoolConfig {
     ordered_sizes: Vec<usize>,
-    mem_limit: u64,
+    mem_limit: usize,
+    maintenance_interval: Duration,
 }
 
 impl Default for PagedPoolConfig {
@@ -551,6 +490,7 @@ impl Default for PagedPoolConfig {
         Self {
             ordered_sizes: Default::default(),
             mem_limit: MINIMUM_MEM_LIMIT,
+            maintenance_interval: Duration::from_secs(60),
         }
     }
 }
@@ -570,7 +510,7 @@ impl PagedPoolConfig {
     }
 
     /// Configure the pool with the specified memory limit.
-    pub fn with_memory_limit(&mut self, mem_limit: u64) -> &mut Self {
+    pub fn with_memory_limit(&mut self, mem_limit: usize) -> &mut Self {
         self.mem_limit = mem_limit;
         self
     }
@@ -580,12 +520,18 @@ impl PagedPoolConfig {
     /// This is a convenience for tests and examples that don't need memory budgeting.
     /// The internal limiter uses `u64::MAX` as its limit, so it never rejects reservations.
     pub fn with_no_memory_limit(&mut self) -> &mut Self {
-        self.with_memory_limit(u64::MAX)
+        self.with_memory_limit(usize::MAX)
     }
 
     /// Configure the pool with [MINIMUM_MEM_LIMIT] as the memory limit.
     pub fn with_minimum_memory_limit(&mut self) -> &mut Self {
         self.with_memory_limit(MINIMUM_MEM_LIMIT)
+    }
+
+    /// Configure the interval between runs of background maintenance tasks.
+    pub fn with_maintenance_interval(&mut self, interval: Duration) -> &mut Self {
+        self.maintenance_interval = interval;
+        self
     }
 
     /// Build a [PagedPool] with this configuration.
@@ -601,7 +547,7 @@ impl PagedPoolConfig {
         }
     }
 
-    fn memory_limit(&self) -> u64 {
+    fn memory_limit(&self) -> usize {
         self.mem_limit
     }
 }
@@ -647,43 +593,41 @@ mod tests {
             let original = vec![1u8; size];
 
             assert_eq!(pool.page_count(), 0);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 0);
 
             let mut buffers = Vec::new();
             for _ in 0..16 {
                 buffers.push(copy_from_slice(&pool, &original));
             }
             assert_eq!(pool.page_count(), 1);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 16);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 16);
 
             buffers.push(copy_from_slice(&pool, &original));
             assert_eq!(pool.page_count(), 2);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 17);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 17);
 
             assert!(!pool.trim());
 
             drop(buffers);
 
             assert_eq!(pool.page_count(), 2);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 0);
 
             assert!(pool.trim());
             assert_eq!(pool.page_count(), 0);
-            assert_eq!(pool.reserved_buffer_count(BufferKind::Other), 0);
+            assert_eq!(pool.acquired_buffer_count(BufferKind::Other), 0);
         }
     }
 
-    #[test_matrix(&[1, 2, 3, 4, 5, 6, 7], &[5, 10], [None, Some(Duration::from_millis(10))])]
-    #[test_matrix(&vec![42u8; 1000], &[128, 1024], [None, Some(Duration::from_millis(10))])]
-    #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [None, Some(Duration::from_millis(10))])]
-    fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Option<Duration>) {
+    #[test_matrix(&[1, 2, 3, 4, 5, 6, 7], &[5, 10], [Duration::MAX, Duration::from_millis(10)])]
+    #[test_matrix(&vec![42u8; 1000], &[128, 1024], [Duration::MAX, Duration::from_millis(10)])]
+    #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [Duration::MAX, Duration::from_millis(10)])]
+    fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Duration) {
         let pool = PagedPool::config()
             .with_candidate_sizes(buffer_sizes)
             .with_no_memory_limit()
+            .with_maintenance_interval(schedule)
             .build();
-        if let Some(duration) = schedule {
-            pool.spawn_pool_maintenance_thread(duration);
-        }
 
         let num_threads = 10000;
         thread::scope(|scope| {
@@ -711,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reserved_bytes() {
+    fn test_acquired_bytes() {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
         let pool = PagedPool::config()
@@ -726,7 +670,7 @@ mod tests {
         }
 
         for (&kind, &count) in &reservations {
-            let reserved = pool.reserved_bytes(kind);
+            let reserved = pool.acquired_bytes(kind);
             assert_eq!(reserved, count * buffer_size);
         }
     }
@@ -752,8 +696,8 @@ mod tests {
         fn tight_pool(buffer_size: usize) -> PagedPool {
             // Use a small limit — just enough for one page (16 buffers) plus overhead.
             // This keeps the "fill all memory" loop fast in debug builds.
-            let additional_reserved = (buffer_size as u64 * 16).max(128 * 1024 * 1024);
-            let mem_limit = buffer_size as u64 * 16 + additional_reserved;
+            let additional_reserved = (buffer_size * 16).max(128 * 1024 * 1024);
+            let mem_limit = buffer_size * 16 + additional_reserved;
             PagedPool::config()
                 .with_candidate_sizes([buffer_size])
                 .with_memory_limit(mem_limit)
@@ -763,7 +707,7 @@ mod tests {
         #[test]
         fn test_fast_path_when_room_available() {
             let pool = tight_pool(1024);
-            let buffer = block_on(pool.acquire_buffer_async(256, BufferKind::GetObject, None));
+            let buffer = block_on(pool.inner.get_buffer_async(256, BufferKind::GetObject, None));
             assert!(buffer.capacity() >= 256);
         }
 
@@ -774,14 +718,15 @@ mod tests {
 
             // Fill all available memory.
             let mut blockers = Vec::new();
-            while pool.can_allocate(BUF) {
-                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                blockers.push(buffer);
             }
 
             // Spawn a request — it should enqueue since there's no room.
             let pool_clone = pool.clone();
-            let _handle =
-                std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+            let _handle = std::thread::spawn(move || {
+                block_on(pool_clone.inner.get_buffer_async(BUF, BufferKind::GetObject, None))
+            });
 
             // Wait for the request to enter the queue (retry for up to 100ms).
             for _ in 0..100 {
@@ -803,12 +748,13 @@ mod tests {
 
             // Fill memory and enqueue a waiter.
             let mut blockers = Vec::new();
-            while pool.can_allocate(BUF) {
-                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                blockers.push(buffer);
             }
             let pool_clone = pool.clone();
-            let _handle =
-                std::thread::spawn(move || block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None)));
+            let _handle = std::thread::spawn(move || {
+                block_on(pool_clone.inner.get_buffer_async(BUF, BufferKind::GetObject, None))
+            });
             for _ in 0..100 {
                 if pool.inner.is_memory_pressure() {
                     break;
@@ -834,14 +780,14 @@ mod tests {
             let pool = tight_pool(BUF);
 
             let mut blockers = Vec::new();
-            while pool.can_allocate(BUF) {
-                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                blockers.push(buffer);
             }
 
             let (tx, rx) = std::sync::mpsc::channel();
             let pool_clone = pool.clone();
             std::thread::spawn(move || {
-                let buffer = block_on(pool_clone.acquire_buffer_async(BUF, BufferKind::GetObject, None));
+                let buffer = block_on(pool_clone.inner.get_buffer_async(BUF, BufferKind::GetObject, None));
                 let _ = tx.send(buffer);
             });
 
@@ -865,8 +811,8 @@ mod tests {
 
             // Fill all memory.
             let mut blockers = Vec::new();
-            while pool.can_allocate(BUF) {
-                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                blockers.push(buffer);
             }
 
             // Push both requests directly to the queue so ordering is deterministic.
@@ -909,8 +855,8 @@ mod tests {
 
             // Fill all memory.
             let mut blockers = Vec::new();
-            while pool.can_allocate(BUF) {
-                blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                blockers.push(buffer);
             }
 
             let cursor = pool.create_cursor();
@@ -920,7 +866,11 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             let pool1 = pool.clone();
             std::thread::spawn(move || {
-                let buf = block_on(pool1.acquire_buffer_async(BUF, BufferKind::GetObject, Some(cursor_id)));
+                let buf = block_on(
+                    pool1
+                        .inner
+                        .get_buffer_async(BUF, BufferKind::GetObject, Some(cursor_id)),
+                );
                 let _ = tx.send(buf);
             });
             // Wait for it to enter the queue as low priority.
@@ -963,12 +913,11 @@ mod tests {
 
                 // Fill memory leaving exactly one free buffer slot.
                 let mut blockers = Vec::new();
-                while pool.can_allocate(BUF) {
-                    blockers.push(pool.get_buffer(BUF, BufferKind::Other, None));
+                while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                    blockers.push(buffer);
                 }
                 let budget_buffers = blockers.len();
                 blockers.pop(); // free exactly one slot
-                assert!(pool.can_allocate(BUF));
 
                 const RACERS: usize = 16;
                 let barrier = Arc::new(Barrier::new(RACERS));
@@ -978,7 +927,7 @@ mod tests {
                             let pool = pool.clone();
                             let barrier = barrier.clone();
                             scope.spawn(move || {
-                                let mut fut = Box::pin(pool.acquire_buffer_async(BUF, BufferKind::GetObject, None));
+                                let mut fut = Box::pin(pool.inner.get_buffer_async(BUF, BufferKind::GetObject, None));
                                 // Release all racers into the fast path at once for maximum contention.
                                 barrier.wait();
                                 let waker = futures::task::noop_waker();
@@ -1002,7 +951,7 @@ mod tests {
                 );
                 // And the pool must never have exceeded its buffer budget while the winner holds its buffer.
                 assert_eq!(
-                    pool.reserved_buffer_count(BufferKind::Other) + pool.reserved_buffer_count(BufferKind::GetObject),
+                    pool.acquired_buffer_count(BufferKind::Other) + pool.acquired_buffer_count(BufferKind::GetObject),
                     budget_buffers,
                     "total reserved buffers must not exceed the budget",
                 );

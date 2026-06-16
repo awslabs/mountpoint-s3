@@ -5,48 +5,27 @@ use mountpoint_s3_client::config::MetaRequestType;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
-/// Usage stats for a pool.
-#[derive(Debug, Default)]
-pub struct PoolStats {
-    reserved_bytes: [AtomicUsize; BUFFER_KIND_COUNT],
-}
-
-impl PoolStats {
-    pub fn reserved_bytes(&self, kind: BufferKind) -> usize {
-        self.reserved_bytes[kind].load(Ordering::SeqCst)
-    }
-
-    pub fn total_reserved_bytes(&self) -> usize {
-        self.reserved_bytes.iter().map(|a| a.load(Ordering::SeqCst)).sum()
-    }
-
-    pub(super) fn reserve_bytes(&self, bytes: usize, kind: BufferKind) {
-        self.reserved_bytes[kind].fetch_add(bytes, Ordering::SeqCst);
-        metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).increment(bytes as f64);
-    }
-
-    pub(super) fn release_bytes(&self, bytes: usize, kind: BufferKind) {
-        self.reserved_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
-        metrics::gauge!("pool.reserved_bytes", "kind" => kind.as_str()).decrement(bytes as f64);
-    }
-}
+use super::buffers::ManagedBuffer;
+use super::limiter::MemoryLimiter;
 
 /// Usage stats for a specific size pool.
 #[derive(Debug)]
 pub struct SizePoolStats {
     pub buffer_size: usize,
     empty_pages: AtomicUsize,
-    reserved_buffers: [AtomicUsize; BUFFER_KIND_COUNT],
-    pool_stats: Arc<PoolStats>,
+    acquired_buffers: [AtomicUsize; BUFFER_KIND_COUNT],
+    limiter: Arc<MemoryLimiter>,
 }
 
 impl SizePoolStats {
-    pub(super) fn new(buffer_size: usize, pool_stats: Arc<PoolStats>) -> Self {
+    pub(super) fn new(buffer_size: usize, limiter: Arc<MemoryLimiter>) -> Self {
+        assert_ne!(buffer_size, 0);
+
         Self {
             buffer_size,
             empty_pages: Default::default(),
-            reserved_buffers: Default::default(),
-            pool_stats,
+            acquired_buffers: Default::default(),
+            limiter,
         }
     }
 
@@ -64,19 +43,27 @@ impl SizePoolStats {
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
+    pub(super) fn try_allocate_page(&self, buffer_count: usize) -> Option<ManagedBuffer> {
+        let size = self.buffer_size * buffer_count;
+        let result = self.limiter.try_allocate(size, None, false)?;
+        metrics::gauge!("pool.allocated_pages", "size" => format!("{}", self.buffer_size)).increment(1.0);
+        self.add_empty_page();
+        Some(result)
+    }
+
     #[allow(unused)]
-    pub fn reserved_buffers(&self, kind: BufferKind) -> usize {
-        self.reserved_buffers[kind].load(Ordering::SeqCst)
+    pub fn acquired_buffers(&self, kind: BufferKind) -> usize {
+        self.acquired_buffers[kind].load(Ordering::SeqCst)
     }
 
-    pub(super) fn add_reserved_buffer(&self, kind: BufferKind) {
-        self.reserved_buffers[kind].fetch_add(1, Ordering::SeqCst);
-        self.pool_stats.reserve_bytes(self.buffer_size, kind);
+    pub(super) fn acquire_buffer(&self, kind: BufferKind) {
+        self.acquired_buffers[kind].fetch_add(1, Ordering::SeqCst);
+        self.limiter.acquire_bytes(self.buffer_size, kind);
     }
 
-    pub(super) fn remove_reserved_buffer(&self, kind: BufferKind) {
-        self.reserved_buffers[kind].fetch_sub(1, Ordering::SeqCst);
-        self.pool_stats.release_bytes(self.buffer_size, kind);
+    pub(super) fn release_buffer(&self, kind: BufferKind) {
+        self.acquired_buffers[kind].fetch_sub(1, Ordering::SeqCst);
+        self.limiter.release_bytes(self.buffer_size, kind);
     }
 }
 
@@ -89,7 +76,7 @@ pub enum BufferKind {
     Append,
     Other,
 }
-const BUFFER_KIND_COUNT: usize = BufferKind::Other as usize + 1;
+pub const BUFFER_KIND_COUNT: usize = BufferKind::Other as usize + 1;
 
 impl<T> Index<BufferKind> for [T; BUFFER_KIND_COUNT] {
     type Output = T;

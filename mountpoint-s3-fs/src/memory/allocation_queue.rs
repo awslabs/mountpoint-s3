@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use futures::channel::oneshot;
+use tracing::trace;
 
 use crate::prefetch::CursorId;
 use crate::sync::Mutex;
@@ -75,7 +76,7 @@ struct AllocationQueueInner {
 impl std::fmt::Debug for AllocationQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AllocationQueue")
-            .field("has_pending", &self.has_pending.load(Ordering::Relaxed))
+            .field("has_pending", &self.has_pending.load(Ordering::SeqCst))
             .finish_non_exhaustive()
     }
 }
@@ -135,13 +136,43 @@ impl AllocationQueue {
         };
 
         let mut inner = self.inner.lock().unwrap();
-        self.has_pending.store(true, Ordering::Release);
+        self.has_pending.store(true, Ordering::SeqCst);
         match priority {
             AllocationPriority::High => inner.high.push_back(entry),
             AllocationPriority::Low => inner.low.push_back(entry),
         }
 
         receiver
+    }
+
+    /// Fullfil the pending allocation at the front of the queue using the result of `try_get_buffer`.
+    ///
+    /// Returns `false` if the queue was empty or `try_get_buffer` returned `None`.
+    ///
+    /// Skips (and removes) cancelled entries in the queue.
+    pub fn try_fulfill_front(&self, try_get_buffer: impl FnOnce(&PendingAllocation) -> Option<PoolBuffer>) -> bool {
+        if !self.has_pending() {
+            return false;
+        }
+
+        // TODO(memory-limiter): consider refactoring or inlining try_front_if.
+        let mut buffer = None;
+        let entry = self.pop_front_if(|pending| {
+            buffer = try_get_buffer(pending);
+            buffer.is_some()
+        });
+        if let Some(entry) = entry
+            && let Some(buffer) = buffer
+        {
+            if let Err(cancelled) = entry.fulfill(buffer) {
+                // Drop buffer, but still succeed.
+                trace!(size = cancelled.len(), "request cancelled after acquiring buffer");
+                drop(cancelled);
+            }
+            true
+        } else {
+            false
+        }
     }
 
     /// Atomically peeks at the front entry and removes it if `predicate` returns `true`.
@@ -153,10 +184,7 @@ impl AllocationQueue {
     ///
     /// Returns `None` if both queues are empty or the predicate returns `false`.
     /// Sets `has_pending` to `false` if both queues become empty after removal.
-    pub fn pop_front_if(
-        &self,
-        predicate: impl FnOnce(usize, BufferKind, Option<CursorId>) -> bool,
-    ) -> Option<PendingAllocation> {
+    fn pop_front_if(&self, predicate: impl FnOnce(&PendingAllocation) -> bool) -> Option<PendingAllocation> {
         let mut inner = self.inner.lock().unwrap();
 
         // Prune cancelled entries from the front of each queue.
@@ -169,16 +197,16 @@ impl AllocationQueue {
 
         let front = inner.high.front().or_else(|| inner.low.front());
         let Some(front) = front else {
-            self.has_pending.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::SeqCst);
             return None;
         };
 
-        if !predicate(front.size, front.kind, front.cursor_id) {
+        if !predicate(front) {
             return None;
         }
         let entry = inner.high.pop_front().or_else(|| inner.low.pop_front());
         if inner.high.is_empty() && inner.low.is_empty() {
-            self.has_pending.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::SeqCst);
         }
         entry
     }
@@ -203,7 +231,7 @@ impl AllocationQueue {
             }
         }
         if inner.high.is_empty() && inner.low.is_empty() {
-            self.has_pending.store(false, Ordering::Release);
+            self.has_pending.store(false, Ordering::SeqCst);
         }
     }
 
@@ -213,7 +241,7 @@ impl AllocationQueue {
     /// whether new requests must go through the queue (to respect priority ordering
     /// of existing waiters).
     pub fn has_pending(&self) -> bool {
-        self.has_pending.load(Ordering::Acquire)
+        self.has_pending.load(Ordering::SeqCst)
     }
 
     /// `Instant` at which the next-to-be-served live entry was queued.
@@ -242,12 +270,12 @@ mod tests {
 
     fn make_buffer(size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(size);
-        let ptr = page.try_reserve(BufferKind::Other).unwrap();
+        let ptr = page.try_acquire(BufferKind::Other).unwrap();
         PoolBuffer::new_primary(ptr, size)
     }
 
     /// Helper: always-true predicate (unconditionally pop).
-    fn always(_size: usize, _kind: BufferKind, _cursor: Option<CursorId>) -> bool {
+    fn always(_pending: &PendingAllocation) -> bool {
         true
     }
 
@@ -280,7 +308,7 @@ mod tests {
         let queue = AllocationQueue::new();
         let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
 
-        let result = queue.pop_front_if(|_size, _kind, _cursor| false);
+        let result = queue.pop_front_if(|_pending| false);
         assert!(result.is_none());
         assert!(queue.has_pending()); // still there
     }
@@ -373,7 +401,7 @@ mod tests {
 
         drop(rx_large);
 
-        let entry = queue.pop_front_if(|size, _, _| size <= 1024 * 1024);
+        let entry = queue.pop_front_if(|pending| pending.size <= 1024 * 1024);
         assert!(entry.is_some());
         assert_eq!(entry.unwrap().cursor_id, Some(CursorId::new_from_raw(2)));
     }

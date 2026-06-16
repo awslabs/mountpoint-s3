@@ -1388,7 +1388,7 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 //   exercising the concurrent-write path without bumping into the cap).
 #[test_case(512 * 1024 * 1024, 48; "minimum_mem_limit_48_writers")]
 #[test_case(2 * 1024 * 1024 * 1024, 224; "2gib_mem_limit_224_writers")]
-fn concurrent_open_for_write_test(mem_limit: u64, max_files: usize) {
+fn concurrent_open_for_write_test(mem_limit: usize, max_files: usize) {
     let test_config = TestSessionConfig {
         mem_limit,
         ..Default::default()
@@ -1433,7 +1433,7 @@ fn concurrent_open_for_write_test(mem_limit: u64, max_files: usize) {
 fn open_for_write_returns_enomem_when_cap_exhausted() {
     // With `mem_limit = 512 MiB`, `additional_mem_reserved = max(mem_limit/8, 128 MiB) = 128 MiB`,
     // and the default `write_part_size = 8 MiB`, the cap is `(512 - 128) / 8 = 48` writers.
-    const MEM_LIMIT: u64 = 512 * 1024 * 1024;
+    const MEM_LIMIT: usize = 512 * 1024 * 1024;
     const CAP: usize = 48;
 
     let test_config = TestSessionConfig {

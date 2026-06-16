@@ -9,6 +9,9 @@ use crate::common::test_recorder::stress::{HdrMetric, HdrRecorder};
 use super::latency::{FileOp, FileOpLatencies};
 use super::report::{format_mib, us_to_ms_str};
 
+const RESERVED_MEMORY_METRIC: &str = "mem.bytes_reserved";
+const IN_USE_MEMORY_METRIC: &str = "pool.bytes_in_use";
+
 /// Collect `(label_value, Arc<HdrMetric>)` for every registered gauge whose name matches
 /// `metric_name` and that carries a label keyed on `label_key`. Lets invariant checks
 /// auto-discover new `area=` / `kind=` values instead of hardcoding the allowlist.
@@ -22,8 +25,7 @@ fn collect_gauges_by_label(
         if key.name() != metric_name {
             return;
         }
-        // Skip non-gauges as same name can be registered as both Gauge and Histogram
-        // (e.g. `pool.reserved_bytes`).
+        // Skip non-gauges as same name can be registered as both Gauge and Histogram.
         if !matches!(metric.as_ref(), HdrMetric::Gauge(_)) {
             return;
         }
@@ -55,7 +57,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     let effective_budget = mem_limit_u64.saturating_sub(additional_mem_reserved);
 
     let mut mem_overshoots: Vec<String> = Vec::new();
-    for (area, metric) in collect_gauges_by_label(recorder, "mem.bytes_reserved", "area") {
+    for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
         let peak = metric.gauge_history().max();
         tracing::info!(
             scenario = scenario_name,
@@ -65,7 +67,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             "stress: peak mem.bytes_reserved"
         );
         check_peak_violation(
-            "mem.bytes_reserved",
+            RESERVED_MEMORY_METRIC,
             "area",
             &area,
             peak,
@@ -77,23 +79,25 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         tracing::warn!(
             scenario = scenario_name,
             overshoots = ?mem_overshoots,
-            "stress: mem.bytes_reserved peak exceeded effective budget {} (informational — reservations may transiently exceed the limit)",
+            "stress: {} peak exceeded effective budget {} (informational — reservations may transiently exceed the limit)",
+            RESERVED_MEMORY_METRIC,
             format_mib(effective_budget),
         );
     }
 
     let mut pool_violations: Vec<String> = Vec::new();
-    for (kind, metric) in collect_gauges_by_label(recorder, "pool.reserved_bytes", "kind") {
+    for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
         let peak = metric.gauge_history().max();
         tracing::info!(
             scenario = scenario_name,
             kind = %kind,
             peak = %format_mib(peak),
             ceiling = %format_mib(effective_budget),
-            "stress: peak pool.reserved_bytes"
+            "stress: peak {}",
+            IN_USE_MEMORY_METRIC,
         );
         check_peak_violation(
-            "pool.reserved_bytes",
+            IN_USE_MEMORY_METRIC,
             "kind",
             &kind,
             peak,
@@ -107,13 +111,15 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         tracing::error!(
             scenario = scenario_name,
             violations = ?pool_violations,
-            "stress: assertion FAILED — peak pool.reserved_bytes invariant (ceiling {})",
+            "stress: assertion FAILED — peak {} invariant (ceiling {})",
+            IN_USE_MEMORY_METRIC,
             format_mib(effective_budget),
         );
     } else {
         tracing::info!(
             scenario = scenario_name,
-            "stress: assertion PASSED — peak pool.reserved_bytes invariant (ceiling {})",
+            "stress: assertion PASSED — peak {} invariant (ceiling {})",
+            IN_USE_MEMORY_METRIC,
             format_mib(effective_budget),
         );
     }
@@ -199,15 +205,15 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
         return;
     };
     let mut leaks: Vec<String> = Vec::new();
-    for (area, metric) in collect_gauges_by_label(recorder, "mem.bytes_reserved", "area") {
+    for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
         let v = metric.gauge();
-        tracing::info!(scenario = scenario_name, area = %area, value = v, "stress: teardown mem.bytes_reserved");
-        check_teardown_leak("mem.bytes_reserved", "area", &area, v, &mut leaks);
+        tracing::info!(scenario = scenario_name, area = %area, value = v, "stress: teardown {}", RESERVED_MEMORY_METRIC);
+        check_teardown_leak(RESERVED_MEMORY_METRIC, "area", &area, v, &mut leaks);
     }
-    for (kind, metric) in collect_gauges_by_label(recorder, "pool.reserved_bytes", "kind") {
+    for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
         let v = metric.gauge();
-        tracing::info!(scenario = scenario_name, kind = %kind, value = v, "stress: teardown pool.reserved_bytes");
-        check_teardown_leak("pool.reserved_bytes", "kind", &kind, v, &mut leaks);
+        tracing::info!(scenario = scenario_name, kind = %kind, value = v, "stress: teardown {}", IN_USE_MEMORY_METRIC);
+        check_teardown_leak(IN_USE_MEMORY_METRIC, "kind", &kind, v, &mut leaks);
     }
     if leaks.is_empty() {
         tracing::info!(

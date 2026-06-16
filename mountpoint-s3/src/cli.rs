@@ -490,15 +490,15 @@ impl CliArgs {
         Ok(s3path)
     }
 
-    pub fn mem_limit(&self) -> u64 {
+    pub fn mem_limit(&self) -> usize {
         let mut mem_limit = MINIMUM_MEM_LIMIT;
 
-        let default_mem_target = (effective_total_memory() as f64 * 0.95) as u64;
+        let default_mem_target = (effective_total_memory() as f64 * 0.95) as usize;
         mem_limit = mem_limit.max(default_mem_target);
 
         #[cfg(feature = "mem_limiter")]
         if let Some(max_mem_target) = self.max_memory_target {
-            mem_limit = max_mem_target * 1024 * 1024;
+            mem_limit = max_mem_target as usize * 1024 * 1024;
         }
 
         mem_limit

@@ -1,13 +1,14 @@
+use std::alloc::{self, Layout};
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
 
 use bytes::Bytes;
 
-use crate::sync::{Arc, Weak};
+use crate::sync::Arc;
 
+use super::limiter::MemoryLimiter;
 use super::pages::PagedBufferPtr;
-use super::pool::PagedPoolInner;
-use super::stats::{BufferKind, PoolStats};
+use super::stats::BufferKind;
 
 /// A buffer backed by the pool.
 ///
@@ -22,7 +23,7 @@ enum PoolBufferInner {
     /// Buffer from the paged pool.
     Primary { buffer_ptr: PagedBufferPtr, size: usize },
     /// Buffer allocated independently.
-    Secondary(FreeBuffer),
+    Secondary(ManagedBuffer),
 }
 
 impl PoolBuffer {
@@ -31,19 +32,23 @@ impl PoolBuffer {
         Self(PoolBufferInner::Primary { buffer_ptr, size })
     }
 
-    pub(super) fn new_secondary(
+    pub(super) fn try_new_secondary(
         size: usize,
         kind: BufferKind,
-        stats: Arc<PoolStats>,
-        pool: Weak<PagedPoolInner>,
-    ) -> Self {
-        Self(PoolBufferInner::Secondary(FreeBuffer::new(size, kind, stats, pool)))
+        limiter: Arc<MemoryLimiter>,
+        forced: bool,
+    ) -> Option<Self> {
+        Some(Self(PoolBufferInner::Secondary(limiter.try_allocate(
+            size,
+            Some(kind),
+            forced,
+        )?)))
     }
 
     pub fn capacity(&self) -> usize {
         match &self.0 {
             PoolBufferInner::Primary { size, .. } => *size,
-            PoolBufferInner::Secondary(boxed) => boxed.data.len(),
+            PoolBufferInner::Secondary(boxed) => boxed.size(),
         }
     }
 
@@ -61,7 +66,7 @@ impl Deref for PoolBuffer {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
                 unsafe { std::slice::from_raw_parts(buffer_ptr.as_raw_ptr(), *size) }
             }
-            PoolBufferInner::Secondary(boxed) => &boxed.data,
+            PoolBufferInner::Secondary(boxed) => boxed.as_ref(),
         }
     }
 }
@@ -73,7 +78,7 @@ impl DerefMut for PoolBuffer {
                 // SAFETY: returned slice will be valid until this buffer is dropped.
                 unsafe { std::slice::from_raw_parts_mut(buffer_ptr.as_raw_ptr(), *size) }
             }
-            PoolBufferInner::Secondary(boxed) => &mut boxed.data,
+            PoolBufferInner::Secondary(boxed) => boxed.as_mut(),
         }
     }
 }
@@ -173,32 +178,105 @@ impl AsMut<[u8]> for PoolBufferMut {
 }
 
 #[derive(Debug)]
-struct FreeBuffer {
-    data: Box<[u8]>,
-    kind: BufferKind,
-    stats: Arc<PoolStats>,
-    /// Weak reference back to the pool so this buffer's drop can wake pending allocations.
-    pool: Weak<PagedPoolInner>,
+pub struct ManagedBuffer {
+    ptr: BufferPtr,
+    kind: Option<BufferKind>,
+    limiter: Arc<MemoryLimiter>,
 }
 
-impl FreeBuffer {
-    fn new(size: usize, kind: BufferKind, stats: Arc<PoolStats>, pool: Weak<PagedPoolInner>) -> Self {
-        let data = vec![0u8; size].into_boxed_slice();
-        stats.reserve_bytes(data.len(), kind);
-        Self {
-            data,
-            kind,
-            stats,
-            pool,
-        }
+impl ManagedBuffer {
+    pub fn new(size: usize, kind: Option<BufferKind>, limiter: Arc<MemoryLimiter>) -> Self {
+        let ptr = BufferPtr::allocate(size);
+        Self { ptr, kind, limiter }
+    }
+
+    pub fn as_raw_ptr(&self) -> *mut u8 {
+        self.ptr.raw
+    }
+
+    fn size(&self) -> usize {
+        self.ptr.size()
     }
 }
 
-impl Drop for FreeBuffer {
+impl Drop for ManagedBuffer {
     fn drop(&mut self) {
-        self.stats.release_bytes(self.data.len(), self.kind);
-        if let Some(pool) = self.pool.upgrade() {
-            pool.try_wake_pending();
+        self.limiter.deallocate(self.ptr.take(), self.kind);
+    }
+}
+
+impl AsMut<[u8]> for ManagedBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        if self.ptr.raw.is_null() {
+            return &mut [];
+        }
+
+        // SAFETY: returned slice will be valid until this buffer is deallocated.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.raw, self.ptr.layout.size()) }
+    }
+}
+
+impl AsRef<[u8]> for ManagedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        if self.ptr.raw.is_null() {
+            return &[];
+        }
+
+        // SAFETY: returned slice will be valid until this buffer is deallocated.
+        unsafe { std::slice::from_raw_parts(self.ptr.raw, self.ptr.layout.size()) }
+    }
+}
+
+#[derive(Debug)]
+pub struct BufferPtr {
+    raw: *mut u8,
+    layout: Layout,
+}
+
+// SAFETY: access to the buffer and release on drop can be performed from another thread.
+unsafe impl Send for BufferPtr {}
+
+impl BufferPtr {
+    fn allocate(size: usize) -> Self {
+        let layout = Layout::array::<u8>(size).unwrap();
+
+        let raw = if layout.size() == 0 {
+            std::ptr::null_mut()
+        } else {
+            // SAFETY: layout has non-zero size.
+            let bytes = unsafe { alloc::alloc(layout) };
+            if bytes.is_null() {
+                alloc::handle_alloc_error(layout);
+            }
+            bytes
+        };
+
+        Self { raw, layout }
+    }
+
+    fn take(&mut self) -> Self {
+        let raw = std::mem::take(&mut self.raw);
+        Self {
+            raw,
+            layout: self.layout,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        self.layout.size()
+    }
+}
+
+impl Drop for BufferPtr {
+    fn drop(&mut self) {
+        let raw = std::mem::take(&mut self.raw);
+        if raw.is_null() {
+            return;
+        }
+
+        // SAFETY: `raw` was allocated using `layout` in `allocate`.
+        unsafe {
+            alloc::dealloc(raw, self.layout);
         }
     }
 }
@@ -208,26 +286,26 @@ mod tests {
     use super::super::pages::Page;
 
     use super::*;
-    use crate::sync::Weak;
 
     use test_case::{test_case, test_matrix};
 
     fn primary(buffer_size: usize) -> PoolBuffer {
         let page = Page::new_for_tests(buffer_size);
         let buffer_ptr = page
-            .try_reserve(BufferKind::Other)
+            .try_acquire(BufferKind::Other)
             .expect("should be able to reserve a buffer from a new page");
 
         PoolBuffer::new_primary(buffer_ptr, buffer_size)
     }
 
     fn secondary(buffer_size: usize) -> PoolBuffer {
-        PoolBuffer::new_secondary(
+        PoolBuffer::try_new_secondary(
             buffer_size,
             BufferKind::Other,
-            Arc::new(PoolStats::default()),
-            Weak::new(),
+            Arc::new(MemoryLimiter::new(usize::MAX)),
+            true,
         )
+        .unwrap()
     }
 
     #[test_case(primary)]

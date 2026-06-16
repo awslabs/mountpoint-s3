@@ -204,8 +204,8 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
             client_config.part_config.write_size_bytes,
         ])
         .with_memory_limit(args.mem_limit())
+        .with_maintenance_interval(Duration::from_secs(60))
         .build();
-    pool.spawn_pool_maintenance_thread(Duration::from_secs(60));
 
     let s3_path = args.s3_path()?;
     let (client, runtime, s3_personality) =

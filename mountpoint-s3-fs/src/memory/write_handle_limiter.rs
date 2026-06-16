@@ -45,8 +45,8 @@ use crate::sync::atomic::{AtomicUsize, Ordering};
 #[error("write handle limit reached (max {max})")]
 pub struct WriteHandleLimitError {
     pub max: usize,
-    pub mem_limit_mib: u64,
-    pub write_part_size_mib: u64,
+    pub mem_limit_mib: usize,
+    pub write_part_size_mib: usize,
 }
 
 /// Enforces a hard cap on the number of concurrently open-for-write file handles.
@@ -60,9 +60,9 @@ pub struct WriteHandleLimiter {
     active: Arc<AtomicUsize>,
     /// Memory target in MiB. Cached for the rejection error message — reported using the
     /// `--memory-target` CLI flag's units so the diagnostic is directly actionable.
-    mem_limit_mib: u64,
+    mem_limit_mib: usize,
     /// Write part size in MiB. Cached for the rejection error message.
-    write_part_size_mib: u64,
+    write_part_size_mib: usize,
 }
 
 impl WriteHandleLimiter {
@@ -70,10 +70,10 @@ impl WriteHandleLimiter {
     /// `data_buffer_budget` is the static memory budget available for data buffers, i.e.
     /// `mem_limit - additional_mem_reserved`. `mem_limit` is retained for diagnostics so that
     /// rejection errors quote the same value as the user-facing `--memory-target` flag.
-    pub fn new(mem_limit: u64, data_buffer_budget: u64, write_part_size: usize) -> Self {
-        let max_concurrent_writes = (data_buffer_budget / write_part_size as u64) as usize;
+    pub fn new(mem_limit: usize, data_buffer_budget: usize, write_part_size: usize) -> Self {
+        let max_concurrent_writes = data_buffer_budget / write_part_size;
         let mem_limit_mib = mem_limit / (1024 * 1024);
-        let write_part_size_mib = (write_part_size as u64) / (1024 * 1024);
+        let write_part_size_mib = write_part_size / (1024 * 1024);
         if max_concurrent_writes == 0 {
             warn!(
                 mem_limit_mib,
@@ -150,17 +150,22 @@ mod tests {
 
     use super::*;
 
-    const MIN_LIMIT: u64 = 512 * 1024 * 1024;
-    const MIN_BUDGET: u64 = MIN_LIMIT - 128 * 1024 * 1024;
-    const LARGE_LIMIT: u64 = 4 * 1024 * 1024 * 1024;
-    const LARGE_BUDGET: u64 = LARGE_LIMIT - 512 * 1024 * 1024;
+    const MIN_LIMIT: usize = 512 * 1024 * 1024;
+    const MIN_BUDGET: usize = MIN_LIMIT - 128 * 1024 * 1024;
+    const LARGE_LIMIT: usize = 4 * 1024 * 1024 * 1024;
+    const LARGE_BUDGET: usize = LARGE_LIMIT - 512 * 1024 * 1024;
     const PART_SIZE_8MIB: usize = 8 * 1024 * 1024;
     const PART_SIZE_1GIB: usize = 1024 * 1024 * 1024;
 
     #[test_case(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB, 48; "512MiB_limit_8MiB_part")]
     #[test_case(LARGE_LIMIT, LARGE_BUDGET, PART_SIZE_8MIB, 448; "4GiB_limit_8MiB_part")]
     #[test_case(MIN_LIMIT, MIN_BUDGET, PART_SIZE_1GIB, 0; "part_larger_than_budget_saturates_to_zero")]
-    fn test_max_concurrent_writes(mem_limit: u64, data_buffer_budget: u64, write_part_size: usize, expected: usize) {
+    fn test_max_concurrent_writes(
+        mem_limit: usize,
+        data_buffer_budget: usize,
+        write_part_size: usize,
+        expected: usize,
+    ) {
         let limiter = WriteHandleLimiter::new(mem_limit, data_buffer_budget, write_part_size);
         assert_eq!(limiter.max_concurrent_writes(), expected);
         if expected == 0 {
