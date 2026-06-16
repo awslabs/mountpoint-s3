@@ -82,7 +82,7 @@ pub struct MemoryLimiter {
 }
 
 impl MemoryLimiter {
-    pub fn new(mem_limit: usize, pending_signal: Arc<WakeSignal>) -> Self {
+    pub fn new(mem_limit: usize) -> Self {
         let min_reserved = 128 * 1024 * 1024;
         let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
         let formatter = make_format(humansize::BINARY);
@@ -101,7 +101,7 @@ impl MemoryLimiter {
             next_cursor_id: AtomicU64::new(1),
             next_read_tick: AtomicU64::new(1),
             pruning_signal: Arc::new(WakeSignal::new()),
-            pending_signal,
+            pending_signal: Arc::new(WakeSignal::new()),
         }
     }
 
@@ -322,6 +322,11 @@ impl MemoryLimiter {
         self.pending_signal.notify();
     }
 
+    /// Signal to process pending allocations.
+    pub(super) fn pending_signal(&self) -> &Arc<WakeSignal> {
+        &self.pending_signal
+    }
+
     // -----------------------------------------------------------------------
     // Pruning hooks — see `maintenance.rs` for the loop, signal, and round logic.
     // -----------------------------------------------------------------------
@@ -334,12 +339,12 @@ impl MemoryLimiter {
     }
 
     /// Shared notify handle. The pruner needs its own clone to park on.
-    pub(crate) fn pruning_signal(&self) -> &Arc<WakeSignal> {
+    pub(super) fn pruning_signal(&self) -> &Arc<WakeSignal> {
         &self.pruning_signal
     }
 
     /// Returns `true` if any cursor is currently servicing a FUSE read.
-    pub(crate) fn has_active_reads(&self) -> bool {
+    pub(super) fn has_active_reads(&self) -> bool {
         self.cursors.iter().any(|entry| {
             entry
                 .value()
@@ -351,7 +356,7 @@ impl MemoryLimiter {
     /// Reset the least-recently-read idle cursor.
     ///
     /// Returns `true` if a cursor was reset.
-    pub(crate) fn reset_one_idle_cursor(&self) -> bool {
+    pub(super) fn reset_one_idle_cursor(&self) -> bool {
         let lru = self
             .cursors
             .iter()

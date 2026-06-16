@@ -154,8 +154,11 @@ mod tests {
     use bytes::Bytes;
     use futures::executor::block_on;
 
-    use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
+    use crate::memory::limiter::MemoryLimiter;
+    use crate::memory::pool::PagedPoolInner;
     use crate::memory::{BufferKind, PagedPool};
+
+    use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
 
     const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
     /// Long idle interval used in tests where we want the loop to stay
@@ -165,13 +168,17 @@ mod tests {
 
     /// Pool sized for one page of `BUF`-byte buffers — small enough that the
     /// "fill all memory" loop in pressure tests is fast in debug builds.
-    fn tight_pool() -> PagedPool {
+    ///
+    /// **NOTE:** does not spawn background threads.
+    fn tight_pool_no_spawn() -> PagedPool {
         let additional_reserved = (BUF * 16).max(128 * 1024 * 1024);
         let mem_limit = BUF * 16 + additional_reserved;
-        PagedPool::config()
-            .with_candidate_sizes([BUF])
-            .with_memory_limit(mem_limit)
-            .build()
+
+        let limiter = MemoryLimiter::new(mem_limit);
+        let inner_pool = PagedPoolInner::new(&[BUF], Arc::new(limiter));
+        PagedPool {
+            inner: Arc::new(inner_pool),
+        }
     }
 
     /// Fill the pool, spawn a waiter on `acquire_buffer_async`, and block
@@ -197,10 +204,7 @@ mod tests {
     /// and exit. Otherwise the thread leaks until the idle interval elapses.
     #[test]
     fn maintenance_thread_exits_on_pool_drop() {
-        let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
-            .with_minimum_memory_limit()
-            .build();
+        let pool = tight_pool_no_spawn();
         let handle = spawn_pool_maintenance_thread(pool.inner(), TEST_IDLE_INTERVAL);
 
         drop(pool);
@@ -241,7 +245,7 @@ mod tests {
     /// idle cursor to evict, the round defers to natural release.
     #[test]
     fn run_pruning_round_observes_real_queue_pressure() {
-        let pool = tight_pool();
+        let pool = tight_pool_no_spawn();
         let _blockers = fill_and_enqueue_waiter(&pool);
 
         let outcome = run_pruning_round(pool.inner());
@@ -255,7 +259,7 @@ mod tests {
     /// reset_fn firing once the starvation threshold elapses.
     #[test]
     fn acquire_buffer_async_wakes_parked_maintenance_thread() {
-        let pool = tight_pool();
+        let pool = tight_pool_no_spawn();
         let _maintenance = spawn_pool_maintenance_thread(pool.inner(), TEST_IDLE_INTERVAL);
 
         // Idle cursor with a reset_fn — the maintenance thread will reset it
@@ -293,7 +297,7 @@ mod tests {
     /// would normally defer to the natural release path).
     #[test]
     fn run_pruning_round_starvation_resets_idle_cursor_despite_active_read() {
-        let pool = tight_pool();
+        let pool = tight_pool_no_spawn();
 
         // Idle cursor with a registered reset_fn — eligible for eviction.
         let idle = pool.create_cursor();

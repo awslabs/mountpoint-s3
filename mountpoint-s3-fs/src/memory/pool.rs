@@ -3,8 +3,8 @@ use std::time::Duration;
 use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
 
 use crate::prefetch::CursorId;
-use crate::sync::{Arc, RwLock, thread};
-use crate::util::wake_signal::WakeSignal;
+use crate::sync::thread::{self, JoinHandle};
+use crate::sync::{Arc, RwLock};
 
 use super::allocation_queue::AllocationQueue;
 use super::buffers::{PoolBuffer, PoolBufferMut};
@@ -57,7 +57,7 @@ pub const DEFAULT_BUFFER_SIZE: usize = 8 * 1024 * 1024;
 /// [MetaRequestType] to [BufferKind].
 #[derive(Debug, Clone)]
 pub struct PagedPool {
-    inner: Arc<PagedPoolInner>,
+    pub(super) inner: Arc<PagedPoolInner>,
 }
 
 impl PagedPool {
@@ -68,39 +68,12 @@ impl PagedPool {
 
     /// Create a new [PagedPool] with the given configuration.
     pub fn new(config: &PagedPoolConfig) -> Self {
-        let pending_signal = Arc::new(WakeSignal::new());
+        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit()));
 
-        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit(), pending_signal.clone()));
-
-        let ordered_size_pools = config
-            .ordered_sizes()
-            .iter()
-            .map(|&buffer_size| SizePool {
-                pages: Default::default(),
-                stats: Arc::new(SizePoolStats::new(buffer_size, limiter.clone())),
-            })
-            .collect();
-
-        let inner = Arc::new(PagedPoolInner {
-            ordered_size_pools,
-            limiter,
-            allocation_queue: AllocationQueue::new(),
-        });
+        let inner = Arc::new(PagedPoolInner::new(config.ordered_sizes(), limiter));
 
         // Spawn a background thread to process pending allocation requests.
-        let weak = Arc::downgrade(&inner);
-        thread::Builder::new()
-            .name("mem-pool-pending".to_string())
-            .spawn(move || {
-                loop {
-                    pending_signal.wait_timeout(Duration::from_secs(1));
-                    let Some(pool) = weak.upgrade() else {
-                        break;
-                    };
-                    pool.process_pending();
-                }
-            })
-            .expect("failed to spawn pool process pending thread");
+        inner.spawn_process_pending_thread();
 
         // Spawn the background pool maintenance thread.
         // The thread serves two responsibilities on a single OS thread:
@@ -255,6 +228,22 @@ pub(super) struct PagedPoolInner {
 }
 
 impl PagedPoolInner {
+    pub(super) fn new(ordered_sizes: &[usize], limiter: Arc<MemoryLimiter>) -> Self {
+        let ordered_size_pools = ordered_sizes
+            .iter()
+            .map(|&buffer_size| SizePool {
+                pages: Default::default(),
+                stats: Arc::new(SizePoolStats::new(buffer_size, limiter.clone())),
+            })
+            .collect();
+
+        Self {
+            ordered_size_pools,
+            limiter,
+            allocation_queue: AllocationQueue::new(),
+        }
+    }
+
     /// Reference to the inner [`MemoryLimiter`] for sibling modules (e.g. the maintenance thread).
     pub(super) fn limiter(&self) -> &MemoryLimiter {
         &self.limiter
@@ -403,6 +392,24 @@ impl PagedPoolInner {
             .try_fulfill_front(|pending| self.try_get_buffer(pending.size, pending.kind, pending.cursor_id, false))
         {
         }
+    }
+
+    /// Spawn a background thread to process pending allocation requests.
+    fn spawn_process_pending_thread(self: &Arc<Self>) -> JoinHandle<()> {
+        let weak = Arc::downgrade(self);
+        let pending_signal = self.limiter.pending_signal().clone();
+        thread::Builder::new()
+            .name("mem-pool-pending".to_string())
+            .spawn(move || {
+                loop {
+                    pending_signal.wait_timeout(Duration::from_secs(1));
+                    let Some(pool) = weak.upgrade() else {
+                        break;
+                    };
+                    pool.process_pending();
+                }
+            })
+            .expect("failed to spawn pool process pending thread")
     }
 }
 
