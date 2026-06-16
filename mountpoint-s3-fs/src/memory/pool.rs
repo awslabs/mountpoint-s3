@@ -201,14 +201,6 @@ impl PagedPool {
 impl MemoryPool for PagedPool {
     type Buffer = PoolBuffer;
 
-    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
-        self.get_buffer(
-            size,
-            meta_request.meta_request_type().into(),
-            meta_request.custom_id().map(CursorId::new_from_raw),
-        )
-    }
-
     async fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
         let kind = meta_request.meta_request_type().into();
         let cursor_id = meta_request.custom_id().map(CursorId::new_from_raw);

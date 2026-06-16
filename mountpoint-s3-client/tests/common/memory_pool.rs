@@ -17,7 +17,7 @@ struct NoReusePool();
 impl MemoryPool for NoReusePool {
     type Buffer = Box<[u8]>;
 
-    fn get_buffer(&self, size: usize, _meta_request: &MetaRequest) -> Self::Buffer {
+    async fn get_buffer_async(&self, size: usize, _meta_request: &MetaRequest) -> Self::Buffer {
         vec![0u8; size].into_boxed_slice()
     }
 
@@ -41,7 +41,7 @@ impl RecordingMemoryPool {
 impl MemoryPool for RecordingMemoryPool {
     type Buffer = Box<[u8]>;
 
-    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
+    async fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
         self.observed_custom_ids.lock().unwrap().push(meta_request.custom_id());
         vec![0u8; size].into_boxed_slice()
     }

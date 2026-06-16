@@ -1,6 +1,6 @@
 //! Bridge custom memory pool implementations to the CRT S3 Client interface.
 
-use std::future::{Future, ready};
+use std::future::Future;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -28,21 +28,13 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     /// Associated buffer type.
     type Buffer: AsMut<[u8]> + Send;
 
-    /// Get a buffer of at least `size` bytes for the given meta request.
-    fn get_buffer(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer;
-
     /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
     /// Returns a future that resolves to the buffer.
     ///
     /// Implementations must always eventually resolve. If memory is not immediately
     /// available, the implementation should block/await until it is — not panic or
     /// deadlock.
-    ///
-    /// The default implementation wraps [`get_buffer`](Self::get_buffer) in a
-    /// ready future. Override this when the pool needs to wait for memory to free up.
-    fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> impl Future<Output = Self::Buffer> + Send {
-        ready(self.get_buffer(size, meta_request))
-    }
+    fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> impl Future<Output = Self::Buffer> + Send;
 
     /// Trim the pool.
     ///
@@ -320,34 +312,24 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         self.pool.trim();
     }
 
-    fn reserve(&self, size: usize, meta_request: MetaRequest, can_block: bool) -> CrtTicketFuture {
+    fn reserve(&self, size: usize, meta_request: MetaRequest, _can_block: bool) -> CrtTicketFuture {
         let future = CrtTicketFuture::new(&self.allocator);
         let ticket_vtable = self.ticket_vtable;
-
-        if can_block {
-            // The write path in s3_meta_request.c expects the ticket to be fulfilled
-            // synchronously — it treats an unfulfilled future as error.
-            let buffer = self.pool.get_buffer(size, &meta_request);
+        let pool = self.pool.clone();
+        let future_clone = future.clone();
+        // Dropping the handle is intentional: if the CRT cancels the meta request
+        // while the task is in flight, the buffer will be allocated (eventually) and
+        // set on an already-done future — the CRT handles this safely by destroying
+        // the ticket via `s_future_impl_result_dtor`. This results in a wasted
+        // allocation that is immediately freed, but no leak or error.
+        // TODO: The CRT does not currently provide a cancellation mechanism for
+        // in-flight ticket futures. If one is added, we could propagate it to
+        // `get_buffer_async` to avoid the wasteful buffer allocation.
+        let _handle = self.event_loop_group.spawn_future(async move {
+            let buffer = pool.get_buffer_async(size, &meta_request).await;
             let ticket = CrtTicket::new(buffer, ticket_vtable);
-            future.set(ticket);
-        } else {
-            // Read path: spawn on background thread, return unfulfilled future.
-            let pool = self.pool.clone();
-            let future_clone = future.clone();
-            // Dropping the handle is intentional: if the CRT cancels the meta request
-            // while the task is in flight, the buffer will be allocated (eventually) and
-            // set on an already-done future — the CRT handles this safely by destroying
-            // the ticket via `s_future_impl_result_dtor`. This results in a wasted
-            // allocation that is immediately freed, but no leak or error.
-            // TODO: The CRT does not currently provide a cancellation mechanism for
-            // in-flight ticket futures. If one is added, we could propagate it to
-            // `get_buffer_async` to avoid the wasteful buffer allocation.
-            let _handle = self.event_loop_group.spawn_future(async move {
-                let buffer = pool.get_buffer_async(size, &meta_request).await;
-                let ticket = CrtTicket::new(buffer, ticket_vtable);
-                future_clone.set(ticket);
-            });
-        }
+            future_clone.set(ticket);
+        });
 
         future
     }
