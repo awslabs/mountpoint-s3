@@ -64,14 +64,26 @@ impl ManagedCacheDir {
             should_cleanup,
         };
 
-        if should_cleanup {
-            managed_cache_dir.remove()?;
-        }
         Self::create_dir(&managed_cache_dir.mountpoint_cache_path)?;
         if cache_key.is_some() {
             Self::create_dir(&managed_cache_dir.managed_cache_path)?;
         }
         Ok(managed_cache_dir)
+    }
+
+    /// Remove the `mountpoint-cache` sub-directory and all its contents if it exists.
+    ///
+    /// Intended to be called early (e.g. in the parent process before fork) so that
+    /// cleanup is not bounded by the child process readiness timeout.
+    pub fn cleanup(parent_path: impl AsRef<Path>) -> Result<(), ManagedCacheDirError> {
+        let mountpoint_cache_path = parent_path.as_ref().join("mountpoint-cache");
+        if let Err(e) = fs::remove_dir_all(&mountpoint_cache_path) {
+            match e.kind() {
+                io::ErrorKind::NotFound => (),
+                _ => return Err(ManagedCacheDirError::CleanupFailure(e)),
+            }
+        }
+        Ok(())
     }
 
     /// Remove the cache sub-directory, along with its contents if any
@@ -279,6 +291,9 @@ mod tests {
             .unwrap();
         fs::File::create(expected_path.join("dir/file.txt")).unwrap();
 
+        if should_cleanup {
+            ManagedCacheDir::cleanup(temp_dir.path()).expect("cleanup should succeed");
+        }
         let managed_dir = ManagedCacheDir::new_from_parent_with_cache_key(temp_dir.path(), None, should_cleanup)
             .expect("creating managed dir should succeed");
 
