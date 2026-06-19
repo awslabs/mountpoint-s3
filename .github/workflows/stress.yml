@@ -9,7 +9,7 @@ on:
         required: true
         type: string
   push:
-    branches: [main]
+    branches: [main, feature/memory-limit]
   workflow_dispatch:
 
 permissions:
@@ -51,6 +51,7 @@ jobs:
           - sustained_writes
           - mixed_rw
           - idle_and_churn
+          - held_writes_vs_reads
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
