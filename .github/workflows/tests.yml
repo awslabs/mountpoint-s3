@@ -27,7 +27,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install operating system dependencies
@@ -65,7 +65,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install operating system dependencies
@@ -99,7 +99,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install dependencies
@@ -143,7 +143,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install operating system dependencies
@@ -175,7 +175,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install operating system dependencies
@@ -207,7 +207,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Set up Rust toolchain
@@ -243,7 +243,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -260,7 +260,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Install operating system dependencies
@@ -293,7 +293,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: true
       - name: Set up Rust toolchain
@@ -322,7 +322,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Run cargo deny
         uses: EmbarkStudios/cargo-deny-action@v2
 
@@ -336,7 +336,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Set up Python
@@ -358,7 +358,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: Install uv
         uses: astral-sh/setup-uv@v7
       - name: Set up Python
@@ -400,7 +400,7 @@ jobs:
         apt-get update
         apt-get install -y git curl g++
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Install operating system dependencies

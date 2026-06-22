@@ -91,7 +91,7 @@ jobs:
         aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -182,7 +182,7 @@ jobs:
         aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         ref: ${{ inputs.ref }}
         submodules: true
