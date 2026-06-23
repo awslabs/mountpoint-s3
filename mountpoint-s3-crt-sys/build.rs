@@ -7,12 +7,10 @@ use rustflags::Flag;
 /// Path to the CRT repos, relative to the crate root.
 const CRT_PATH: &str = "crt";
 
-/// On Linux, the CRT gets its TLS stack from AWS libcrypto and s2n. On Darwin it uses the
-/// platform's TLS stack instead.
-const CRT_CRYPTO_LIBRARIES: &[&str] = &["aws-lc", "s2n-tls"];
-
 /// The CRT libraries we use, in order of their dependencies.
 const CRT_LIBRARIES: &[&str] = &[
+    "aws-lc",
+    "s2n-tls",
     "aws-c-common",
     "aws-c-cal",
     "aws-c-io",
@@ -95,11 +93,10 @@ struct CrtLibrary {
     library_name: String,
 }
 
-/// Get a list of required CRT libraries for the given target OS.
-fn get_required_libraries(target_os: &str) -> Vec<CrtLibrary> {
-    let additional_libraries = (target_os == "linux").then_some(CRT_CRYPTO_LIBRARIES);
-    let libraries = additional_libraries.into_iter().flatten().chain(CRT_LIBRARIES.iter());
-    libraries
+/// Get a list of required CRT libraries.
+fn get_required_libraries() -> Vec<CrtLibrary> {
+    CRT_LIBRARIES
+        .iter()
         .map(|pkg| {
             // aws-lc and s2n-tls have different lib names to their package name
             let lib_name = match *pkg {
@@ -225,7 +222,7 @@ fn compile_crt(output_dir: &Path) -> PathBuf {
     fs::create_dir_all(&build_dir).expect("failed to create build directory");
     fs::create_dir_all(&target_dir).expect("failed to create target directory");
 
-    let libraries = get_required_libraries(&target_os);
+    let libraries = get_required_libraries();
 
     for lib in libraries.iter() {
         let lib_source_dir = source_dir.join(&lib.package_name);
@@ -368,7 +365,7 @@ fn main() {
     let include_dir = if let Some(path) = get_env("MOUNTPOINT_CRT_LIB_DIR") {
         println!("cargo:rustc-link-search=native={path}");
 
-        let libraries = get_required_libraries(&target_os());
+        let libraries = get_required_libraries();
         for lib in libraries {
             let link_type = match get_env("MOUNTPOINT_CRT_LIB_LINK_STATIC") {
                 Some(_) => static_link_modifiers_for_lib(&lib.library_name),
