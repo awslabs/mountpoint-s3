@@ -4,7 +4,6 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::fmt::Write;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1352,17 +1351,15 @@ fn compute_whole_object_checksum(algorithm: &ChecksumAlgorithm, parts: &[MockObj
     checksum
 }
 
-/// Compute a checksum of checksums, mirroring how S3 computes object checksums for MPUs.
+/// Compute a checksum of checksums, mirroring how S3 computes the composite object checksum for an
+/// MPU. GetObjectAttributes returns this as a bare `<base64>` (the `-<part-count>` suffix only
+/// appears in the HeadObject representation), so we don't append it here.
 fn compute_crc32c_of_crc32c_checksums(individual_checksums: impl IntoIterator<Item = String>) -> String {
     let mut checksum = crc32c::Hasher::new();
-    let mut count = 0;
     for individual_checksum in individual_checksums {
-        count += 1;
         checksum.update(individual_checksum.as_bytes());
     }
-    let mut checksum = crc32c_to_base64(&checksum.finalize());
-    write!(checksum, "-{count}").expect("should be able to append to String");
-    checksum
+    crc32c_to_base64(&checksum.finalize())
 }
 
 impl Drop for MockPutObjectRequest {

@@ -1475,15 +1475,15 @@ fn write_checksums_test(
                 && part_checksums
                     .iter()
                     .all(|checksum| checksum.as_ref().is_some_and(|c| extract(c).is_some()));
-            // CRC64NVME on multipart must be a FULL_OBJECT checksum (S3 doesn't support
-            // composite for CRC64NVME), so the value must end up on the object itself, not
-            // just on the parts. Other algorithms can land on either.
+            // We read checksums via GetObjectAttributes, which returns the object-level checksum as
+            // a bare `<base64>` for BOTH composite and full-object uploads — the
+            // `<base64>-<part-count>` composite suffix only appears in the HeadObject representation,
+            // not here. So the object value's shape can't distinguish the two; assert it's bare and
+            // lean on the per-part checksums for composite integrity.
             //
-            // S3 distinguishes the two ChecksumType values on the wire by the value's shape:
-            // COMPOSITE objects carry a `<base64>-<part-count>` suffix on the object-level
-            // checksum, FULL_OBJECT carries a bare `<base64>`. Assert both shapes so a
-            // regression that flipped CRC64NVME back to composite (or quietly broke the CRC32C
-            // composite path) would fail loudly here.
+            // CRC64NVME must be a full-object checksum (S3 doesn't support composite for CRC64NVME),
+            // so its value must land on the object itself, not just the parts. CRC32C is composite
+            // (carried by the per-part checksums) and can land on the object or only the parts.
             if matches!(algo, UploadChecksumAlgorithm::Crc64nvme) {
                 assert!(
                     object_has_checksum,
@@ -1492,37 +1492,19 @@ fn write_checksums_test(
                 let value = extract(object_checksum.as_ref().unwrap()).unwrap();
                 assert!(
                     !value.contains('-'),
-                    "CRC64NVME object-level checksum must be FULL_OBJECT shape (no `-<part-count>` suffix), got {value:?}"
+                    "CRC64NVME object-level checksum must be a bare `<base64>` (no `-<part-count>` suffix), got {value:?}"
                 );
             } else {
                 assert!(
                     object_has_checksum || parts_have_checksum,
                     "{algo:?} should be present on the object or its parts"
                 );
-                // The object-level checksum shape depends on how the object was uploaded.
-                // Multipart (atomic) uploads complete with CompleteMultipartUpload, which for
-                // CRC32C yields a COMPOSITE checksum-of-checksums carrying a `<base64>-<part-count>`
-                // suffix. Incremental uploads use the append API (PutObject with a write offset),
-                // which never completes a multipart upload, so the object carries a bare FULL_OBJECT
-                // checksum with no suffix. Assert the shape that matches the path so a regression
-                // (e.g. the composite path quietly breaking, or append emitting a composite value)
-                // would fail loudly.
                 if object_has_checksum {
                     let value = extract(object_checksum.as_ref().unwrap()).unwrap();
-                    if upload_mode.is_incremental() {
-                        assert!(
-                            !value.contains('-'),
-                            "{algo:?} append (incremental) object-level checksum must be FULL_OBJECT shape (no `-<part-count>` suffix), got {value:?}"
-                        );
-                    } else {
-                        let (_, suffix) = value.rsplit_once('-').unwrap_or_else(|| {
-                            panic!("{algo:?} multipart object-level checksum must be COMPOSITE shape (`<base64>-<part-count>`), got {value:?}")
-                        });
-                        assert!(
-                            !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
-                            "{algo:?} composite suffix must be a positive part count, got {value:?}"
-                        );
-                    }
+                    assert!(
+                        !value.contains('-'),
+                        "{algo:?} object-level checksum must be a bare `<base64>` (no `-<part-count>` suffix), got {value:?}"
+                    );
                 }
             }
         }
