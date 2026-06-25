@@ -17,7 +17,7 @@ use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
-    PutObjectTrailingChecksums,
+    PutObjectTrailingChecksums, UploadReviewOutcome,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 
@@ -374,7 +374,7 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
             } else {
                 assert_eq!(review.checksum_algorithm, Some(ChecksumAlgorithm::Crc32c));
             }
-            true
+            UploadReviewOutcome::Proceed(None)
         })
         .await
         .unwrap();
@@ -488,7 +488,11 @@ async fn test_put_review(pass_review: bool) {
         .review_and_complete(move |review| {
             let total_size: u64 = review.parts.iter().map(|p| p.size).sum();
             assert_eq!(total_size, contents_size as u64);
-            pass_review
+            if pass_review {
+                UploadReviewOutcome::Proceed(None)
+            } else {
+                UploadReviewOutcome::Abort
+            }
         })
         .await;
 

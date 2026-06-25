@@ -34,7 +34,7 @@ use crate::object_client::{
     ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectInfo, ObjectMetadata, ObjectPart,
     PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
     PutObjectTrailingChecksums, RenameObjectError, RenameObjectParams, RenameObjectResult, RenamePreconditionTypes,
-    RestoreStatus, UploadChecksum, UploadReview, UploadReviewPart,
+    RestoreStatus, UploadChecksum, UploadReview, UploadReviewOutcome, UploadReviewPart,
 };
 
 mod leaky_bucket;
@@ -1257,6 +1257,7 @@ impl MockPutObjectRequest {
     fn complete_inner(
         mut self,
         parts: Vec<MockObjectPartAttributes>,
+        full_object_checksum: Option<UploadChecksum>,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, MockClientError> {
         let buffer = std::mem::take(&mut self.buffer);
         let mut object: MockObject = buffer.into();
@@ -1275,14 +1276,14 @@ impl MockPutObjectRequest {
                     parts,
                 });
             }
-            PutObjectTrailingChecksums::FullObject { algorithm, handle } => {
-                // Full-object mode: read the base64 value the caller wrote into the handle.
-                let value = handle.peek_base64().ok_or_else(|| {
+            PutObjectTrailingChecksums::FullObject(algorithm) => {
+                // Full-object mode: the object-level checksum comes from the upload-review callback.
+                let checksum = full_object_checksum.ok_or_else(|| {
                     ObjectClientError::ClientError(MockClientError(
-                        "full_object_checksum handle was not populated before upload completed".into(),
+                        "full-object checksum was not supplied by the upload review".into(),
                     ))
                 })?;
-                let whole_obj_checksum = checksum_for_algorithm(algorithm, Some(value));
+                let whole_obj_checksum = checksum_for_algorithm(algorithm, Some(checksum.to_base64()));
                 object.set_checksum(whole_obj_checksum);
                 object.parts = Some(MockObjectParts::Parts {
                     algorithm: algorithm.clone(),
@@ -1379,12 +1380,12 @@ impl PutObjectRequest for MockPutObjectRequest {
 
     async fn complete(mut self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         let parts = self.parts();
-        self.complete_inner(parts)
+        self.complete_inner(parts, None)
     }
 
     async fn review_and_complete(
         self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         let checksum_algorithm = self.params.trailing_checksums.algorithm().cloned();
         let parts = self.parts();
@@ -1399,10 +1400,10 @@ impl PutObjectRequest for MockPutObjectRequest {
             checksum_algorithm,
             parts: review_parts,
         };
-        if !review_callback(review) {
-            return mock_client_error("upload review failed, aborting");
+        match review_callback(review) {
+            UploadReviewOutcome::Proceed(full_object_checksum) => self.complete_inner(parts, full_object_checksum),
+            UploadReviewOutcome::Abort => mock_client_error("upload review failed, aborting"),
         }
-        self.complete_inner(parts)
     }
 }
 
@@ -2175,7 +2176,7 @@ mod tests {
 
         let stored_on_object = matches!(
             trailing_checksums,
-            PutObjectTrailingChecksums::Composite(_) | PutObjectTrailingChecksums::FullObject { .. }
+            PutObjectTrailingChecksums::Composite(_) | PutObjectTrailingChecksums::FullObject(_)
         );
         match stored_object
             .parts
@@ -2218,27 +2219,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crc64nvme_with_full_object_handle_lands_on_object() {
-        use crate::types::FullObjectChecksumHandle;
-
+    async fn crc64nvme_full_object_checksum_lands_on_object() {
         let client = MockClient::config().bucket("test_bucket").part_size(1024).build();
-        let handle = FullObjectChecksumHandle::new();
-        let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::FullObject {
-            algorithm: ChecksumAlgorithm::Crc64nvme,
-            handle: handle.clone(),
-        });
+        let params = PutObjectParams::new()
+            .trailing_checksums(PutObjectTrailingChecksums::FullObject(ChecksumAlgorithm::Crc64nvme));
         let mut request = client.put_object("test_bucket", "key_full_obj", &params).await.unwrap();
-        request.write(&[0u8; 2048]).await.unwrap();
-        // Populate the handle with the base64 the CRT would receive from our callback.
-        handle.set(b"ZHVtbXk=".to_vec()); // base64 of "dummy"
-        request.complete().await.unwrap();
+        let body = [0u8; 2048];
+        request.write(&body).await.unwrap();
+
+        // The upload-review callback returns the object-level checksum the CRT would send on
+        // CompleteMultipartUpload.
+        let full_object = UploadChecksum::Crc64nvme(crc64nvme::checksum(&body));
+        let expected = crc64nvme_to_base64(&crc64nvme::checksum(&body));
+        request
+            .review_and_complete(move |_| UploadReviewOutcome::Proceed(Some(full_object)))
+            .await
+            .unwrap();
 
         let objects = client.objects.read().unwrap();
         let stored = objects.get("key_full_obj").expect("object should exist");
         assert_eq!(
             stored.checksum.checksum_crc64nvme.as_deref(),
-            Some("ZHVtbXk="),
-            "full-object CRC64NVME should be the value the caller set on the handle",
+            Some(expected.as_str()),
+            "full-object CRC64NVME should be the value returned by the upload review",
         );
         assert!(
             stored.checksum.checksum_crc32c.is_none(),
@@ -2466,7 +2469,7 @@ mod tests {
                 } else {
                     assert_eq!(review.checksum_algorithm, Some(ChecksumAlgorithm::Crc32c));
                 }
-                true
+                UploadReviewOutcome::Proceed(None)
             })
             .await
             .unwrap();

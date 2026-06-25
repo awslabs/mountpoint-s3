@@ -621,8 +621,7 @@ impl PutObjectParams {
 }
 
 /// How additional checksums are computed and sent for a multi-part PutObject request. Each
-/// non-`Disabled` variant carries the algorithm, and (for full-object mode) the handle the
-/// caller will populate with the object-level checksum before the upload completes.
+/// non-`Disabled` variant carries the checksum algorithm.
 #[derive(Debug, Default, Clone)]
 pub enum PutObjectTrailingChecksums {
     /// Checksums are not computed on the client side. S3 may still compute its own
@@ -634,15 +633,11 @@ pub enum PutObjectTrailingChecksums {
     /// SHA256). For CRC64NVME, use [`Self::FullObject`] instead — S3 rejects composite for it.
     Composite(ChecksumAlgorithm),
     /// S3 FULL_OBJECT mode. Per-part trailers are still sent (so upload review works), but the
-    /// object-level checksum sent on `CompleteMultipartUpload` is the value the caller writes
-    /// into `handle` (typically computed by the FS layer's local hasher). Required for CRC64NVME.
-    FullObject {
-        /// The algorithm whose digest the caller will write into `handle`.
-        algorithm: ChecksumAlgorithm,
-        /// Populated by the caller before the upload completes; the CRT reads it just before
-        /// issuing `CompleteMultipartUpload`. See [`FullObjectChecksumHandle::set`].
-        handle: FullObjectChecksumHandle,
-    },
+    /// object-level checksum sent on `CompleteMultipartUpload` is the one the
+    /// [`review_and_complete`](PutObjectRequest::review_and_complete) callback returns via
+    /// [`UploadReviewOutcome::Proceed`] (typically computed by the FS layer's local hasher).
+    /// Required for CRC64NVME.
+    FullObject(ChecksumAlgorithm),
     /// Per-part trailing checksums are computed and passed to upload review, but no checksum is
     /// sent to S3.
     ReviewOnly(ChecksumAlgorithm),
@@ -654,7 +649,7 @@ impl PutObjectTrailingChecksums {
         match self {
             Self::Disabled => None,
             Self::Composite(algorithm) => Some(algorithm),
-            Self::FullObject { algorithm, .. } => Some(algorithm),
+            Self::FullObject(algorithm) => Some(algorithm),
             Self::ReviewOnly(algorithm) => Some(algorithm),
         }
     }
@@ -674,8 +669,18 @@ pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 /// A checksum algorithm used by the object client for integrity checks on uploads and downloads.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
 
-/// Handle used to provide an S3 full-object checksum to the CRT after streaming completes.
-pub type FullObjectChecksumHandle = mountpoint_s3_crt::s3::client::FullObjectChecksumHandle;
+/// Outcome of an upload-review callback passed to
+/// [`review_and_complete`](PutObjectRequest::review_and_complete).
+#[derive(Debug)]
+pub enum UploadReviewOutcome {
+    /// Proceed with completing the upload. For full-object checksum mode
+    /// ([`PutObjectTrailingChecksums::FullObject`], e.g. CRC64NVME on a multipart upload), carry
+    /// the object-level [`UploadChecksum`] to send on `CompleteMultipartUpload`; `None` for
+    /// composite and review-only modes, which derive the object checksum from the per-part trailers.
+    Proceed(Option<UploadChecksum>),
+    /// Abort the upload without completing it.
+    Abort,
+}
 
 /// Parameters to a [`put_object_single`](ObjectClient::put_object_single) request
 #[derive(Debug, Default, Clone)]
@@ -782,6 +787,17 @@ impl UploadChecksum {
             UploadChecksum::Sha256(_) => ChecksumAlgorithm::Sha256,
         }
     }
+
+    /// The base64-encoded value of this checksum, as sent to S3 in `x-amz-checksum-*` headers.
+    pub fn to_base64(&self) -> String {
+        match self {
+            UploadChecksum::Crc64nvme(crc) => crc64nvme_to_base64(crc),
+            UploadChecksum::Crc32c(crc) => crc32c_to_base64(crc),
+            UploadChecksum::Crc32(crc) => crc32_to_base64(crc),
+            UploadChecksum::Sha1(sha) => sha1_to_base64(sha),
+            UploadChecksum::Sha256(sha) => sha256_to_base64(sha),
+        }
+    }
 }
 
 /// A handle for controlling backpressure enabled requests.
@@ -875,10 +891,12 @@ pub trait PutObjectRequest: Send {
     /// Complete the put request and return a [`PutObjectResult`].
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 
-    /// Review and complete the put request and return a [`PutObjectResult`].
+    /// Review and complete the put request and return a [`PutObjectResult`]. The callback inspects
+    /// the [`UploadReview`] and returns an [`UploadReviewOutcome`] deciding whether to proceed (and,
+    /// in full-object checksum mode, supplying the object-level checksum) or abort.
     async fn review_and_complete(
         self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 }
 

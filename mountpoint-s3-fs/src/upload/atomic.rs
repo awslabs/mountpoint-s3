@@ -1,12 +1,10 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::checksums::{
-    Crc32c, crc32c_from_base64, crc64nvme, crc64nvme_from_base64, crc64nvme_to_base64,
-};
+use mountpoint_s3_client::checksums::{Crc32c, crc32c_from_base64, crc64nvme, crc64nvme_from_base64};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
-    ChecksumAlgorithm, FullObjectChecksumHandle, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums,
-    UploadChecksum, UploadReview,
+    ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadChecksum, UploadReview,
+    UploadReviewOutcome,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
 use tracing::{error, trace};
@@ -31,10 +29,10 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     hasher: AtomicUploadHasher,
-    /// Set when the upload uses S3 full-object checksum mode (e.g. CRC64NVME).
-    /// We populate it with the final base64 checksum before invoking `review_and_complete`,
-    /// and the CRT reads it just before issuing `CompleteMultipartUpload`.
-    full_object_checksum_handle: Option<FullObjectChecksumHandle>,
+    /// `true` when the upload uses S3 full-object checksum mode (e.g. CRC64NVME). In that case
+    /// `complete` returns the final object-level checksum from the `review_and_complete` callback,
+    /// and the CRT sends it on `CompleteMultipartUpload`.
+    full_object_checksum: bool,
     maximum_upload_size: usize,
     sse: ServerSideEncryption,
 }
@@ -60,44 +58,36 @@ where
     ) -> Result<Self, UploadError<Client::ClientError>> {
         let mut put_object_params = PutObjectParams::new();
 
-        // Construct the trailing-checksums variant for this upload. The handle (if any) is
-        // returned alongside so `complete()` can populate it with the local hasher's final value
-        // before the CRT issues CompleteMultipartUpload. The third element is the algorithm in the
-        // narrow `UploadChecksumAlgorithm` form so the local hasher can be constructed totally
-        // (no `expect`-chain on infallible operations).
-        let (trailing_checksums, full_object_checksum_handle, hasher_algorithm) =
-            match &params.default_checksum_algorithm {
-                Some(ChecksumAlgorithm::Crc32c) => (
-                    PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c),
-                    None,
-                    UploadChecksumAlgorithm::Crc32c,
-                ),
-                Some(ChecksumAlgorithm::Crc64nvme) => {
-                    // S3 requires FULL_OBJECT for CRC64NVME on multipart uploads. The handle is
-                    // populated with the final CRC64NVME just before `review_and_complete`.
-                    let handle = FullObjectChecksumHandle::new();
-                    (
-                        PutObjectTrailingChecksums::FullObject {
-                            algorithm: ChecksumAlgorithm::Crc64nvme,
-                            handle: handle.clone(),
-                        },
-                        Some(handle),
-                        UploadChecksumAlgorithm::Crc64nvme,
-                    )
-                }
-                Some(unsupported) => {
-                    // Defense in depth: the FS-config boundary (`UploadChecksumAlgorithm`) only
-                    // admits Crc32c/Crc64nvme, so reaching here means an internal caller
-                    // constructed an `UploaderConfig` with an unsupported algorithm.
-                    unimplemented!("checksum algorithm not supported: {:?}", unsupported);
-                }
-                None => (
-                    // Default to CRC32C upload review so the client can verify what S3 received.
-                    PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c),
-                    None,
-                    UploadChecksumAlgorithm::Crc32c,
-                ),
-            };
+        // Construct the trailing-checksums variant for this upload. The second element flags
+        // full-object mode, in which `complete()` returns the local hasher's final value from the
+        // review callback for the CRT to send on CompleteMultipartUpload. The third element is the
+        // algorithm in the narrow `UploadChecksumAlgorithm` form so the local hasher can be
+        // constructed totally (no `expect`-chain on infallible operations).
+        let (trailing_checksums, full_object_checksum, hasher_algorithm) = match &params.default_checksum_algorithm {
+            Some(ChecksumAlgorithm::Crc32c) => (
+                PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c),
+                false,
+                UploadChecksumAlgorithm::Crc32c,
+            ),
+            Some(ChecksumAlgorithm::Crc64nvme) => (
+                // S3 requires FULL_OBJECT for CRC64NVME on multipart uploads.
+                PutObjectTrailingChecksums::FullObject(ChecksumAlgorithm::Crc64nvme),
+                true,
+                UploadChecksumAlgorithm::Crc64nvme,
+            ),
+            Some(unsupported) => {
+                // Defense in depth: the FS-config boundary (`UploadChecksumAlgorithm`) only
+                // admits Crc32c/Crc64nvme, so reaching here means an internal caller
+                // constructed an `UploaderConfig` with an unsupported algorithm.
+                unimplemented!("checksum algorithm not supported: {:?}", unsupported);
+            }
+            None => (
+                // Default to CRC32C upload review so the client can verify what S3 received.
+                PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c),
+                false,
+                UploadChecksumAlgorithm::Crc32c,
+            ),
+        };
         put_object_params = put_object_params.trailing_checksums(trailing_checksums);
         let hasher = AtomicUploadHasher::new(hasher_algorithm);
 
@@ -129,7 +119,7 @@ where
             key: params.key,
             next_request_offset: 0,
             hasher,
-            full_object_checksum_handle,
+            full_object_checksum,
             maximum_upload_size,
             sse: params.server_side_encryption,
         })
@@ -168,19 +158,21 @@ where
     pub async fn complete(self) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
-        // For full-object mode (CRC64NVME on multipart), give the CRT the final base64 checksum
-        // before it starts assembling the CompleteMultipartUpload request.
-        if let Some(handle) = &self.full_object_checksum_handle
-            && let UploadChecksum::Crc64nvme(crc) = &checksum
-        {
-            handle.set(crc64nvme_to_base64(crc).into_bytes());
-        }
+        // In full-object mode (CRC64NVME on multipart), hand the final object-level checksum back
+        // to the CRT via the review callback so it can send it on CompleteMultipartUpload.
+        let full_object_checksum = self.full_object_checksum.then(|| checksum.clone());
         let result = self
             .request
             .into_inner()
             .await?
             .ok_or(UploadError::UploadAlreadyTerminated)?
-            .review_and_complete(move |review| verify_checksums(review, size, checksum))
+            .review_and_complete(move |review| {
+                if verify_checksums(&review, size, &checksum) {
+                    UploadReviewOutcome::Proceed(full_object_checksum)
+                } else {
+                    UploadReviewOutcome::Abort
+                }
+            })
             .await?;
         if let Err(err) = self
             .sse
@@ -209,7 +201,7 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
     }
 }
 
-fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: UploadChecksum) -> bool {
+fn verify_checksums(review: &UploadReview, expected_size: u64, expected_checksum: &UploadChecksum) -> bool {
     let uploaded_size: u64 = review.parts.iter().map(|part| part.size).sum();
     if uploaded_size != expected_size {
         error!(
@@ -220,8 +212,8 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
     }
 
     match expected_checksum {
-        UploadChecksum::Crc32c(expected) => verify_crc32c(&review, expected),
-        UploadChecksum::Crc64nvme(expected) => verify_crc64nvme(&review, expected),
+        UploadChecksum::Crc32c(expected) => verify_crc32c(review, expected),
+        UploadChecksum::Crc64nvme(expected) => verify_crc64nvme(review, expected),
         other => {
             error!(
                 ?other,
@@ -232,7 +224,7 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
     }
 }
 
-fn verify_crc32c(review: &UploadReview, expected: Crc32c) -> bool {
+fn verify_crc32c(review: &UploadReview, expected: &Crc32c) -> bool {
     let mut combined = Crc32c::new(0);
     for (i, part) in review.parts.iter().enumerate() {
         let Some(checksum) = &part.checksum else {
@@ -248,7 +240,7 @@ fn verify_crc32c(review: &UploadReview, expected: Crc32c) -> bool {
         };
         combined = combine_checksums(combined, part_checksum, part.size as usize);
     }
-    if combined != expected {
+    if combined != *expected {
         error!(
             ?combined,
             ?expected,
@@ -259,7 +251,7 @@ fn verify_crc32c(review: &UploadReview, expected: Crc32c) -> bool {
     true
 }
 
-fn verify_crc64nvme(review: &UploadReview, expected: crc64nvme::Crc64nvme) -> bool {
+fn verify_crc64nvme(review: &UploadReview, expected: &crc64nvme::Crc64nvme) -> bool {
     let mut combined = crc64nvme::Crc64nvme::new(0);
     for (i, part) in review.parts.iter().enumerate() {
         let Some(checksum) = &part.checksum else {
@@ -275,7 +267,7 @@ fn verify_crc64nvme(review: &UploadReview, expected: crc64nvme::Crc64nvme) -> bo
         };
         combined = crc64nvme::combine(combined, part_checksum, part.size as usize);
     }
-    if combined != expected {
+    if combined != *expected {
         error!(
             ?combined,
             ?expected,

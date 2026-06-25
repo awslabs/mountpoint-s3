@@ -245,7 +245,7 @@ type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 type BodyExCallback = Box<dyn FnMut(u64, &Buffer) + Send>;
 
 /// Callback for reviewing an upload before it completes.
-type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> bool + Send>;
+type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> UploadReviewOutcome + Send>;
 
 /// Callback for when the request is finished. Given (error_code, optional_error_body).
 type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
@@ -461,7 +461,10 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Provide a callback to run when the upload request is ready to complete.
-    pub fn on_upload_review(&mut self, callback: impl FnOnce(UploadReview) -> bool + Send + 'static) -> &mut Self {
+    pub fn on_upload_review(
+        &mut self,
+        callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
+    ) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_upload_review = Some(Box::new(callback));
@@ -677,11 +680,21 @@ unsafe extern "C" fn meta_request_upload_review_callback(
             .as_ref()
             .expect("CRT should provide a valid upload_review")
     };
-    if callback(UploadReview::new(upload_review)) {
-        AWS_OP_SUCCESS
-    } else {
+    match callback(UploadReview::new(upload_review)) {
+        UploadReviewOutcome::Proceed(full_object_checksum) => {
+            // In full-object mode the review callback returns the object-level checksum. The CRT
+            // runs this review callback in the same prepare step that is about to invoke the
+            // full-object checksum callback (on this thread), so stashing the value here makes it
+            // available to `full_object_checksum_shim` before `CompleteMultipartUpload` is issued.
+            if let Some(checksum) = full_object_checksum
+                && let Some(config) = user_data.checksum_config.as_ref()
+            {
+                config.set_full_object_checksum(checksum);
+            }
+            AWS_OP_SUCCESS
+        }
         // SAFETY: we are returning from the CRT callback.
-        unsafe { aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32) }
+        UploadReviewOutcome::Abort => unsafe { aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32) },
     }
 }
 
@@ -1640,68 +1653,23 @@ pub fn init_signing_config(
 /// Checksum configuration for a single S3 request.
 ///
 /// **Lifetime contract (full-object mode only):** `inner.user_data` is a raw pointer derived from
-/// `full_object_state` and lives as long as either an [`Arc`] clone of that state is held — by
-/// this struct in `full_object_state`, and/or by the matching [`FullObjectChecksumHandle`] the
-/// caller holds. `inner` is **private** and only escapes via [`Self::to_inner_ptr`], whose
-/// returned `*const` is borrow-bound to `&self` — meaning the CRT cannot observe the pointer
-/// without an outstanding borrow of the whole `ChecksumConfig`. The struct is intentionally
-/// non-`Clone` to keep the (`inner`, `full_object_state`) pair from being split apart.
+/// `full_object_state`, the [`Arc`] this struct holds in that field. `inner` is **private** and
+/// only escapes via [`Self::to_inner_ptr`], whose returned `*const` is borrow-bound to `&self` —
+/// meaning the CRT cannot observe the pointer without an outstanding borrow of the whole
+/// `ChecksumConfig`. The struct is intentionally non-`Clone` to keep the (`inner`,
+/// `full_object_state`) pair from being split apart.
 #[derive(Debug, Default)]
 pub struct ChecksumConfig {
     /// The C struct passed to the CRT. Private so its `user_data` pointer cannot be observed
     /// independently of the `Arc` in `full_object_state`.
     inner: aws_s3_checksum_config,
-    /// `Arc` clone of the OnceLock that backs `inner.user_data` in full-object mode. The field
-    /// isn't read by Rust code — its purpose is to keep the allocation behind that raw pointer
-    /// alive for as long as this `ChecksumConfig` exists, and therefore for as long as the CRT
-    /// holds the pointer. Dropping this `Arc` while the CRT might still call back is UB.
-    #[allow(dead_code)]
+    /// In full-object mode, the OnceLock that backs `inner.user_data`. The upload-review callback
+    /// writes the object-level checksum into it (via [`Self::set_full_object_checksum`]) and
+    /// `full_object_checksum_shim` reads it just before `CompleteMultipartUpload`. Holding the
+    /// `Arc` here keeps the allocation behind that raw pointer alive for as long as this
+    /// `ChecksumConfig` exists, and therefore for as long as the CRT holds the pointer. Dropping
+    /// this `Arc` while the CRT might still call back is UB.
     full_object_state: Option<Arc<OnceLock<Vec<u8>>>>,
-}
-
-/// Handle the caller uses to provide an S3 full-object checksum for a multipart upload.
-///
-/// The handle is created with [`Self::new`] (or as the second tuple element of
-/// [`ChecksumConfig::trailing_with_full_object`]) and passed into both
-/// [`ChecksumConfig::with_full_object_handle`] and the caller's own state. The caller MUST call
-/// [`Self::set`] exactly once before the upload's final `CompleteMultipartUpload` request is
-/// issued — otherwise the CRT's full-object callback will return NULL, aborting the upload with
-/// an error. Cloning the handle is cheap (an [`Arc`] bump); all clones share the same OnceLock,
-/// so populating any one of them is visible to all.
-#[derive(Debug, Clone)]
-pub struct FullObjectChecksumHandle {
-    state: Arc<OnceLock<Vec<u8>>>,
-}
-
-impl FullObjectChecksumHandle {
-    /// Create a fresh, unpopulated handle. The caller MUST populate it via [`Self::set`] before
-    /// the upload completes (see the type-level doc). Clones share the same backing state.
-    pub fn new() -> Self {
-        Self {
-            state: Arc::new(OnceLock::new()),
-        }
-    }
-
-    /// Provide the base64-encoded full-object checksum the CRT should send on
-    /// `CompleteMultipartUpload`. Must be called before the upload completes. Subsequent calls
-    /// are no-ops (the underlying [`OnceLock`] is write-once).
-    pub fn set(&self, base64: Vec<u8>) {
-        let _ = self.state.set(base64);
-    }
-
-    /// Read the base64 value the caller has written, if any. Primarily for non-CRT consumers
-    /// (e.g. the mock client) that need to inspect what would be sent to S3.
-    pub fn peek_base64(&self) -> Option<String> {
-        self.state
-            .get()
-            .and_then(|bytes| std::str::from_utf8(bytes).ok().map(str::to_owned))
-    }
-}
-
-impl Default for FullObjectChecksumHandle {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ChecksumConfig {
@@ -1731,28 +1699,10 @@ impl ChecksumConfig {
 
     /// Create a [ChecksumConfig] that uses S3's "full-object" checksum mode for multipart uploads.
     /// Per-part trailing checksums are still sent (for the CRT's upload review), but the object-level
-    /// checksum sent on `CompleteMultipartUpload` is the value the caller writes into the returned
-    /// [`FullObjectChecksumHandle`].
-    pub fn trailing_with_full_object(algorithm: &ChecksumAlgorithm) -> (Self, FullObjectChecksumHandle) {
+    /// checksum sent on `CompleteMultipartUpload` is supplied by the upload-review callback's
+    /// return value — see [`UploadReviewOutcome::Proceed`].
+    pub fn trailing_full_object(algorithm: &ChecksumAlgorithm) -> Self {
         let state = Arc::new(OnceLock::new());
-        let user_data = Arc::as_ptr(&state) as *mut libc::c_void;
-        let config = Self {
-            inner: aws_s3_checksum_config {
-                location: aws_s3_checksum_location::AWS_SCL_TRAILER,
-                checksum_algorithm: algorithm.to_aws_s3_checksum_algorithm(),
-                full_object_checksum_callback: Some(full_object_checksum_shim),
-                user_data,
-                ..Default::default()
-            },
-            full_object_state: Some(Arc::clone(&state)),
-        };
-        let handle = FullObjectChecksumHandle { state };
-        (config, handle)
-    }
-
-    /// Variant of [`Self::trailing_with_full_object`] that reuses an existing handle.
-    pub fn with_full_object_handle(algorithm: &ChecksumAlgorithm, handle: FullObjectChecksumHandle) -> Self {
-        let state = handle.state;
         let user_data = Arc::as_ptr(&state) as *mut libc::c_void;
         Self {
             inner: aws_s3_checksum_config {
@@ -1763,6 +1713,16 @@ impl ChecksumConfig {
                 ..Default::default()
             },
             full_object_state: Some(state),
+        }
+    }
+
+    /// Stash the base64-encoded object-level checksum for `full_object_checksum_shim` to send on
+    /// `CompleteMultipartUpload`. Called from the upload-review callback, which the CRT runs on the
+    /// same thread immediately before the full-object checksum callback. A no-op if this config is
+    /// not in full-object mode, or if a value was already set (the [`OnceLock`] is write-once).
+    fn set_full_object_checksum(&self, base64: Vec<u8>) {
+        if let Some(state) = &self.full_object_state {
+            let _ = state.set(base64);
         }
     }
 
@@ -1784,7 +1744,8 @@ impl ChecksumConfig {
 ///   `Arc` that is currently kept alive by the owning [`ChecksumConfig`] (via its
 ///   `full_object_state` field). [`ChecksumConfig`] is non-`Clone` and its `inner` field is
 ///   private, so the only way the CRT obtains this pointer is through
-///   [`ChecksumConfig::to_inner_ptr`], whose borrow lifetime keeps the `Arc` alive.
+///   [`ChecksumConfig::to_inner_ptr`], whose borrow lifetime keeps the `Arc` alive. The OnceLock is
+///   populated by the upload-review callback via [`ChecksumConfig::set_full_object_checksum`].
 /// - The returned `aws_string` is owned by the CRT after this function returns; it is freed by
 ///   the CRT.
 unsafe extern "C" fn full_object_checksum_shim(
@@ -1794,8 +1755,9 @@ unsafe extern "C" fn full_object_checksum_shim(
     // SAFETY: see function-level safety contract.
     let state = unsafe { &*(user_data as *const OnceLock<Vec<u8>>) };
     let Some(bytes) = state.get() else {
-        // Caller didn't populate the handle in time (see FullObjectChecksumHandle's type doc).
-        // NULL signals an error to the CRT, which aborts the multipart upload.
+        // The upload-review callback didn't supply a full-object checksum (see
+        // `UploadReviewOutcome::Proceed`). NULL signals an error to the CRT, which aborts the
+        // multipart upload.
         return std::ptr::null_mut();
     };
     // SAFETY: aws_default_allocator returns a non-null allocator; aws_string_new_from_array copies
@@ -1862,6 +1824,18 @@ impl Display for ChecksumAlgorithm {
             ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {algorithm:?}"),
         }
     }
+}
+
+/// Outcome of an [`on_upload_review`](MetaRequestOptions::on_upload_review) callback.
+#[derive(Debug)]
+pub enum UploadReviewOutcome {
+    /// Proceed with completing the upload. In full-object checksum mode (a multipart upload
+    /// configured with [`ChecksumConfig::trailing_full_object`]) the payload is the base64-encoded
+    /// object-level checksum the CRT sends on `CompleteMultipartUpload`; `None` for composite and
+    /// review-only modes, which derive the object checksum from the per-part trailers.
+    Proceed(Option<Vec<u8>>),
+    /// Abort the upload without completing it.
+    Abort,
 }
 
 /// Info for the caller to review before an upload completes.
