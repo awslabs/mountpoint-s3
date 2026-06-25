@@ -9,7 +9,7 @@ on:
         required: true
         type: string
   push:
-    branches: [main, feature/memory-limit]
+    branches: [main, feature/memory-limit, "wf-changes/**"]
   workflow_dispatch:
 
 permissions:
