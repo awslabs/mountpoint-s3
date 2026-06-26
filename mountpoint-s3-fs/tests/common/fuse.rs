@@ -126,6 +126,12 @@ impl TestSessionConfig {
         self.mem_limit = mem_limit;
         self
     }
+
+    /// Override the part size for this test session.
+    pub fn with_part_size(mut self, part_size: usize) -> Self {
+        self.part_size = part_size;
+        self
+    }
 }
 
 // Holds resources for the testing session and cleans them on drop.
