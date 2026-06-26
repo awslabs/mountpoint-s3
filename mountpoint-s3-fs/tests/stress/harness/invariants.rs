@@ -10,6 +10,7 @@ use super::latency::{FileOp, FileOpLatencies};
 use super::report::{format_mib, us_to_ms_str};
 
 const RESERVED_MEMORY_METRIC: &str = "mem.bytes_reserved";
+const ALLOCATED_MEMORY_METRIC: &str = "mem.allocated_bytes";
 const IN_USE_MEMORY_METRIC: &str = "pool.bytes_in_use";
 
 /// Collect `(label_value, Arc<HdrMetric>)` for every registered gauge whose name matches
@@ -83,6 +84,25 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             RESERVED_MEMORY_METRIC,
             format_mib(effective_budget),
         );
+    }
+
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        let peak = metric.gauge_history().max();
+        tracing::info!(
+            scenario = scenario_name,
+            peak = %format_mib(peak),
+            ceiling = %format_mib(effective_budget),
+            "stress: peak {}",
+            ALLOCATED_MEMORY_METRIC,
+        );
+        if peak > effective_budget {
+            mem_overshoots.push(format!(
+                "{} peak {} exceeds effective budget {}",
+                ALLOCATED_MEMORY_METRIC,
+                format_mib(peak),
+                format_mib(effective_budget),
+            ));
+        }
     }
 
     let mut pool_violations: Vec<String> = Vec::new();
@@ -209,6 +229,18 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
         let v = metric.gauge();
         tracing::info!(scenario = scenario_name, area = %area, value = v, "stress: teardown {}", RESERVED_MEMORY_METRIC);
         check_teardown_leak(RESERVED_MEMORY_METRIC, "area", &area, v, &mut leaks);
+    }
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        let v = metric.gauge();
+        tracing::info!(
+            scenario = scenario_name,
+            value = v,
+            "stress: teardown {}",
+            ALLOCATED_MEMORY_METRIC
+        );
+        if v != 0.0 {
+            leaks.push(format!("{ALLOCATED_MEMORY_METRIC} = {v}"));
+        }
     }
     for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
         let v = metric.gauge();
