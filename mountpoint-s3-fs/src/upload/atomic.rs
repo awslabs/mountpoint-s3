@@ -29,10 +29,6 @@ pub struct UploadRequest<Client: ObjectClient> {
     key: String,
     next_request_offset: u64,
     hasher: AtomicUploadHasher,
-    /// `true` when the upload uses S3 full-object checksum mode (e.g. CRC64NVME). In that case
-    /// `complete` returns the final object-level checksum from the `review_and_complete` callback,
-    /// and the CRT sends it on `CompleteMultipartUpload`.
-    full_object_checksum: bool,
     maximum_upload_size: usize,
     sse: ServerSideEncryption,
 }
@@ -58,21 +54,17 @@ where
     ) -> Result<Self, UploadError<Client::ClientError>> {
         let mut put_object_params = PutObjectParams::new();
 
-        // Construct the trailing-checksums variant for this upload. The second element flags
-        // full-object mode, in which `complete()` returns the local hasher's final value from the
-        // review callback for the CRT to send on CompleteMultipartUpload. The third element is the
+        // Construct the trailing-checksums variant for this upload. The second element is the
         // algorithm in the narrow `UploadChecksumAlgorithm` form so the local hasher can be
         // constructed totally (no `expect`-chain on infallible operations).
-        let (trailing_checksums, full_object_checksum, hasher_algorithm) = match &params.default_checksum_algorithm {
+        let (trailing_checksums, hasher_algorithm) = match &params.default_checksum_algorithm {
             Some(ChecksumAlgorithm::Crc32c) => (
                 PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c),
-                false,
                 UploadChecksumAlgorithm::Crc32c,
             ),
             Some(ChecksumAlgorithm::Crc64nvme) => (
                 // S3 requires FULL_OBJECT for CRC64NVME on multipart uploads.
                 PutObjectTrailingChecksums::FullObject(ChecksumAlgorithm::Crc64nvme),
-                true,
                 UploadChecksumAlgorithm::Crc64nvme,
             ),
             Some(unsupported) => {
@@ -84,7 +76,6 @@ where
             None => (
                 // Default to CRC32C upload review so the client can verify what S3 received.
                 PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c),
-                false,
                 UploadChecksumAlgorithm::Crc32c,
             ),
         };
@@ -119,7 +110,6 @@ where
             key: params.key,
             next_request_offset: 0,
             hasher,
-            full_object_checksum,
             maximum_upload_size,
             sse: params.server_side_encryption,
         })
@@ -158,19 +148,22 @@ where
     pub async fn complete(self) -> Result<PutObjectResult, UploadError<Client::ClientError>> {
         let size = self.size();
         let checksum = self.hasher.finalize();
-        // In full-object mode (CRC64NVME on multipart), hand the final object-level checksum back
-        // to the CRT via the review callback so it can send it on CompleteMultipartUpload.
-        let full_object_checksum = self.full_object_checksum.then(|| checksum.clone());
         let result = self
             .request
             .into_inner()
             .await?
             .ok_or(UploadError::UploadAlreadyTerminated)?
             .review_and_complete(move |review| {
-                if verify_checksums(&review, size, &checksum) {
-                    UploadReviewOutcome::Proceed(full_object_checksum)
+                if !verify_checksums(&review, size, &checksum) {
+                    return UploadReviewOutcome::Abort;
+                }
+                // S3 full-object mode (CRC64NVME on multipart) needs the object-level checksum on
+                // CompleteMultipartUpload. Composite algorithms derive it from the part trailers, so
+                // there's nothing to send.
+                if matches!(checksum, UploadChecksum::Crc64nvme(_)) {
+                    UploadReviewOutcome::Proceed(Some(checksum))
                 } else {
-                    UploadReviewOutcome::Abort
+                    UploadReviewOutcome::Proceed(None)
                 }
             })
             .await?;

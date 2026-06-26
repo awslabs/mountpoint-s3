@@ -550,9 +550,8 @@ pub type ObjectMetadata = HashMap<String, String>;
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct PutObjectParams {
-    /// Trailing-checksum mode for the upload. Variants carry the algorithm (and, for full-object
-    /// mode, the handle the caller will populate) so invalid states like "Disabled + algorithm"
-    /// or "Enabled with no handle for an algorithm that requires one" are unrepresentable.
+    /// Trailing-checksum mode for the upload. Each non-`Disabled` variant carries its algorithm,
+    /// so invalid states like "Disabled + algorithm" are unrepresentable.
     pub trailing_checksums: PutObjectTrailingChecksums,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
@@ -635,8 +634,7 @@ pub enum PutObjectTrailingChecksums {
     /// S3 FULL_OBJECT mode. Per-part trailers are still sent (so upload review works), but the
     /// object-level checksum sent on `CompleteMultipartUpload` is the one the
     /// [`review_and_complete`](PutObjectRequest::review_and_complete) callback returns via
-    /// [`UploadReviewOutcome::Proceed`] (typically computed by the FS layer's local hasher).
-    /// Required for CRC64NVME.
+    /// [`UploadReviewOutcome::Proceed`]. Required for CRC64NVME.
     FullObject(ChecksumAlgorithm),
     /// Per-part trailing checksums are computed and passed to upload review, but no checksum is
     /// sent to S3.
@@ -652,11 +650,6 @@ impl PutObjectTrailingChecksums {
             Self::FullObject(algorithm) => Some(algorithm),
             Self::ReviewOnly(algorithm) => Some(algorithm),
         }
-    }
-
-    /// `true` for any variant that causes checksums to be computed on the client (i.e. not `Disabled`).
-    pub fn is_computing(&self) -> bool {
-        !matches!(self, Self::Disabled)
     }
 }
 

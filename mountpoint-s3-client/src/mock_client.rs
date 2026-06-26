@@ -1269,7 +1269,18 @@ impl MockPutObjectRequest {
         // construction differs.
         match &self.params.trailing_checksums {
             PutObjectTrailingChecksums::Composite(algorithm) => {
-                let whole_obj_checksum = compute_whole_object_checksum(algorithm, &parts);
+                // S3's composite ("checksum of checksums") object-level value. The mock only
+                // computes it for CRC32C; other composite algorithms rely on the per-part
+                // checksums for verification.
+                let mut whole_obj_checksum = Checksum::empty();
+                if let ChecksumAlgorithm::Crc32c = algorithm {
+                    let part_checksums = parts.iter().map(|part| {
+                        part.checksum
+                            .clone()
+                            .expect("checksum must be set when using trailing checksums")
+                    });
+                    whole_obj_checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
+                }
                 object.set_checksum(whole_obj_checksum);
                 object.parts = Some(MockObjectParts::Parts {
                     algorithm: algorithm.clone(),
@@ -1334,27 +1345,7 @@ fn compute_part_checksum_base64(algorithm: &ChecksumAlgorithm, part: &[u8]) -> S
     }
 }
 
-/// Build the whole-object `Checksum` for an upload with `algorithm`. For algorithms with a
-/// well-defined S3 composite ("checksum of checksums"), produce it; otherwise leave the
-/// whole-object slot empty and rely on per-part checksums.
-fn compute_whole_object_checksum(algorithm: &ChecksumAlgorithm, parts: &[MockObjectPartAttributes]) -> Checksum {
-    let mut checksum = Checksum::empty();
-    let part_checksums = parts.iter().map(|part| {
-        part.checksum
-            .clone()
-            .expect("checksum must be set when using trailing checksums")
-    });
-    // For algorithms other than CRC32C the mock leaves the whole-object slot empty; consumers
-    // can still verify integrity via per-part checksums.
-    if let ChecksumAlgorithm::Crc32c = algorithm {
-        checksum.checksum_crc32c = Some(compute_crc32c_of_crc32c_checksums(part_checksums));
-    }
-    checksum
-}
-
-/// Compute a checksum of checksums, mirroring how S3 computes the composite object checksum for an
-/// MPU. GetObjectAttributes returns this as a bare `<base64>` (the `-<part-count>` suffix only
-/// appears in the HeadObject representation), so we don't append it here.
+/// Compute a checksum of checksums, mirroring how S3 computes object checksums for MPUs.
 fn compute_crc32c_of_crc32c_checksums(individual_checksums: impl IntoIterator<Item = String>) -> String {
     let mut checksum = crc32c::Hasher::new();
     for individual_checksum in individual_checksums {
