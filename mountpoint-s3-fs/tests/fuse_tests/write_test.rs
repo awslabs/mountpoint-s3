@@ -1475,15 +1475,15 @@ fn write_checksums_test(
                 && part_checksums
                     .iter()
                     .all(|checksum| checksum.as_ref().is_some_and(|c| extract(c).is_some()));
-            // We read checksums via GetObjectAttributes, which returns the object-level checksum as
-            // a bare `<base64>` for BOTH composite and full-object uploads — the
-            // `<base64>-<part-count>` composite suffix only appears in the HeadObject representation,
-            // not here. So the object value's shape can't distinguish the two; assert it's bare and
-            // lean on the per-part checksums for composite integrity.
-            //
             // CRC64NVME must be a full-object checksum (S3 doesn't support composite for CRC64NVME),
-            // so its value must land on the object itself, not just the parts. CRC32C is composite
-            // (carried by the per-part checksums) and can land on the object or only the parts.
+            // so its value must land on the object itself, not just the parts, and GetObjectAttributes
+            // always reports it as a bare `<base64>` with no part-count suffix.
+            //
+            // CRC32C is composite (carried by the per-part checksums) and can land on the object or
+            // only the parts. The object-level representation returned by GetObjectAttributes differs
+            // by backend: S3 Standard returns a bare `<base64>`, while S3 Express One Zone returns the
+            // composite form `<base64>-<part-count>`. Accept either, and when the suffix is present
+            // assert the part count matches the number of parts we observed.
             if matches!(algo, UploadChecksumAlgorithm::Crc64nvme) {
                 assert!(
                     object_has_checksum,
@@ -1501,10 +1501,20 @@ fn write_checksums_test(
                 );
                 if object_has_checksum {
                     let value = extract(object_checksum.as_ref().unwrap()).unwrap();
-                    assert!(
-                        !value.contains('-'),
-                        "{algo:?} object-level checksum must be a bare `<base64>` (no `-<part-count>` suffix), got {value:?}"
-                    );
+                    if let Some((base, suffix)) = value.split_once('-') {
+                        assert!(
+                            !base.is_empty(),
+                            "{algo:?} object-level checksum must have a `<base64>` prefix, got {value:?}"
+                        );
+                        let part_count: usize = suffix.parse().unwrap_or_else(|_| {
+                            panic!("{algo:?} object-level checksum suffix must be a `-<part-count>`, got {value:?}")
+                        });
+                        assert_eq!(
+                            part_count,
+                            part_checksums.len(),
+                            "{algo:?} composite object-level checksum part count must match the number of parts"
+                        );
+                    }
                 }
             }
         }
