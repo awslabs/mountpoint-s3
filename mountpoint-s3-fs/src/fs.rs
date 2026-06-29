@@ -115,7 +115,7 @@ pub struct StatFs {
     pub block_size: u32,
     /// Maximum name length
     pub maximum_name_length: u32,
-    /// Fragement size
+    /// Fragment size
     pub fragment_size: u32,
 }
 
@@ -179,7 +179,7 @@ where
 
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
-        // Set max_background FUSE parameter to 64 by default, may be overriden with config setting or by an environment variable.
+        // Set max_background FUSE parameter to 64 by default, may be overridden with config setting or by an environment variable.
         if let Some(max_background) = self.config.max_background_fuse_requests() {
             let old = config
                 .set_max_background(max_background)

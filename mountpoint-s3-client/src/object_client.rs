@@ -988,7 +988,7 @@ pub struct ObjectInfo {
     pub checksum_algorithms: Vec<ChecksumAlgorithm>,
 }
 
-/// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].
+/// All possible object attributes that can be retrieved from [ObjectClient::get_object_attributes].
 /// Fields that you do not specify are not returned.
 #[derive(Debug)]
 pub enum ObjectAttribute {
@@ -1060,7 +1060,7 @@ impl Checksum {
         // We assume that at most one checksum will be set.
         let mut algorithms = Vec::with_capacity(1);
 
-        // Pattern match forces us to accomodate any new fields when added.
+        // Pattern match forces us to accommodate any new fields when added.
         let Self {
             checksum_crc64nvme,
             checksum_crc32,

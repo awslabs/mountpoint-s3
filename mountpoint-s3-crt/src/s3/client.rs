@@ -656,7 +656,7 @@ unsafe extern "C" fn meta_request_shutdown_callback(user_data: *mut libc::c_void
     // in MetaRequestOptions::new.
     let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr_owned(user_data) };
 
-    // SAFETY: at this point, we shouldn't receieve any more callbacks for this request.
+    // SAFETY: at this point, we shouldn't receive any more callbacks for this request.
     std::mem::drop(user_data);
 }
 
