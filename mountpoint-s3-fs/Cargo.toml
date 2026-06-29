@@ -52,7 +52,7 @@ tracing = { version = "0.1.44", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 opentelemetry = { version = "0.31.0", features = ["metrics"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
 opentelemetry-otlp = { version = "0.31.1", features = ["metrics", "http-proto"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -71,7 +71,7 @@ ctor = "0.10.1"
 filetime = "0.2.27"
 futures = { version = "0.3.32", features = ["thread-pool"] }
 humantime-serde = "1.1.1"
-opentelemetry_sdk = { version = "0.31.0", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["testing"] }
 predicates = "3.1.4"
 proptest = "1.11.0"
 proptest-derive = "0.8.0"
