@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782763476200,
+  "lastUpdate": 1782773054456,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone)": [
-      {
-        "commit": {
-          "author": {
-            "email": "djonesoa@amazon.com",
-            "name": "Daniel Carl Jones",
-            "username": "dannycjones"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fd1c93202af0b75eaff505ffeeb08cc283048b4f",
-          "message": "Add client error for S3 Express session creation failure (#1793)\n\nThis change introduces a proper S3 client error for when the CRT fails\nto create an S3 Express session, such as when having no authorization to\ndo so.\n\nInstead of a CRT error code, the customer will now see a clear message\n\"Failed to create S3 Express session, see CRT debug logs\".\n\nThis change also updates many tests that were previously testing S3\ngeneral purpose buckets to correctly test S3 Express / directory\nbuckets.\n\n### Does this change impact existing behavior?\n\nYes, it improves S3 Express session creation failure error messages. It\nincludes a call to action to direct the customer to check CRT debug logs\nto help them resolve the issue.\n\nIn the client, it introduces a new error variant.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nGiven the new error variant, the S3 client is a unstable minor version\nbump. (Effectively major.)\n\nFor all other crates and MP itself, a patch version bump has been\napplied, alongside changelog entries. The change is fairly minimal.\n\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
-          "timestamp": "2026-03-27T11:22:07Z",
-          "tree_id": "88c5ee68d8cdf7f802dbdc0228a84d9dc0e624af",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/fd1c93202af0b75eaff505ffeeb08cc283048b4f"
-        },
-        "date": 1774618768457,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 2907.8515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4567.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8241.453125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 22.04296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 52.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 43.01953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 51.27734375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 19.51953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 28.09765625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 24.08984375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 28.859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8066.98046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 55.03515625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8192.3671875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 49.046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2107.44921875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 23.5625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2104.171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2095.0546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 23.11328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 403.26171875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 239.3984375,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 251.25390625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mvdoster@gmail.com",
+            "name": "vladislav doster",
+            "username": "vladdoster"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f455c4df12fb70fc16c35cebe6727673bc42841b",
+          "message": "fix: correct spelling across markdown and rust files (#1837)\n\nCorrected all typos across project except for `CHANGELOG.md` files. I\nwas reading through the code and I noticed them all over the place.\n\n### Does this change impact existing behavior?\n\nNo. All rust tests pass running them locally.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. It is purely spelling fixes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Vladislav Doster <mvdoster@gmail.com>\nSigned-off-by: Renan Magagnin <renanmag@amazon.com>\nCo-authored-by: Renan Magagnin <renanmag@amazon.com>",
+          "timestamp": "2026-06-29T20:11:47Z",
+          "tree_id": "7d3b2aa9480b36f059d6775562a7234547152c9e",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/f455c4df12fb70fc16c35cebe6727673bc42841b"
+        },
+        "date": 1782773054387,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 2900.93359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4568.25390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8250.4453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 22.2421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 56.140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 37.01953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 60.7578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 23.24609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 36.84765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 23.27734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 35.20703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8167.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 48,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 8115.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 48.4765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2104.91015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 19.8828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2100.6953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2100.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 20.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 393.66796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 235.50390625,
             "unit": "MiB"
           }
         ]
