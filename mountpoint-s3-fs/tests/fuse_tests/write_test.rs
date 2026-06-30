@@ -17,7 +17,7 @@ use mountpoint_s3_fs::S3FilesystemConfig;
 use mountpoint_s3_fs::ServerSideEncryption;
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::content_type::ContentTypeDetection;
-use mountpoint_s3_fs::fs::CacheConfig;
+use mountpoint_s3_fs::fs::{CacheConfig, UploadChecksumAlgorithm};
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -1488,18 +1488,13 @@ fn open_for_write_returns_enomem_when_cap_exhausted() {
     };
 }
 
-#[derive(Clone, Copy)]
-enum UploadChecksumsMode {
-    Enabled,
-    Disabled,
-}
-
-const CHECKSUMS_ENABLED: UploadChecksumsMode = UploadChecksumsMode::Enabled;
-const CHECKSUMS_DISABLED: UploadChecksumsMode = UploadChecksumsMode::Disabled;
+const CHECKSUMS_CRC32C: Option<UploadChecksumAlgorithm> = Some(UploadChecksumAlgorithm::Crc32c);
+const CHECKSUMS_CRC64NVME: Option<UploadChecksumAlgorithm> = Some(UploadChecksumAlgorithm::Crc64nvme);
+const CHECKSUMS_DISABLED: Option<UploadChecksumAlgorithm> = None;
 
 fn write_checksums_test(
     creator_fn: impl TestSessionCreator,
-    checksums_mode: UploadChecksumsMode,
+    algorithm: Option<UploadChecksumAlgorithm>,
     upload_mode: UploadMode,
 ) {
     const OBJECT_SIZE: usize = 20 * 1024 * 1024;
@@ -1507,7 +1502,7 @@ fn write_checksums_test(
 
     let config = TestSessionConfig {
         filesystem_config: S3FilesystemConfig {
-            use_upload_checksums: matches!(checksums_mode, UploadChecksumsMode::Enabled),
+            upload_checksum_algorithm: algorithm,
             ..Default::default()
         }
         .upload_mode(upload_mode),
@@ -1540,19 +1535,53 @@ fn write_checksums_test(
 
     // Now it's fsync'ed and closed, it should be present in S3
     let (object_checksum, part_checksums) = test_session.client().get_object_checksums(KEY).unwrap();
-    match checksums_mode {
-        UploadChecksumsMode::Enabled => {
-            // We should get the correct checksum on the whole object or on the parts.
-            let object_crc32c = object_checksum.is_some_and(|checksum| checksum.checksum_crc32c.is_some());
-            let parts_crc32c = !part_checksums.is_empty()
-                && part_checksums.iter().all(|checksum| {
-                    checksum
-                        .as_ref()
-                        .is_some_and(|checksum| checksum.checksum_crc32c.is_some())
-                });
-            assert!(object_crc32c || parts_crc32c, "crc32c is used for trailing checksums");
+    match algorithm {
+        Some(UploadChecksumAlgorithm::Crc64nvme) => {
+            // CRC64NVME must be a full-object checksum (S3 doesn't support composite for it), so its
+            // value must land on the object itself, not just the parts, and is a bare `<base64>`
+            // with no `-<part-count>` suffix.
+            let value = object_checksum
+                .as_ref()
+                .and_then(|c| c.checksum_crc64nvme.as_ref())
+                .expect("CRC64NVME must be reported as a full-object checksum on the object");
+            assert!(
+                !value.contains('-'),
+                "CRC64NVME object-level checksum must be a bare `<base64>` (no `-<part-count>` suffix), got {value:?}"
+            );
         }
-        UploadChecksumsMode::Disabled => {
+        Some(UploadChecksumAlgorithm::Crc32c) => {
+            // CRC32C is composite (carried by the per-part checksums) and can land on the object or
+            // only the parts. The object-level representation returned by GetObjectAttributes differs
+            // by backend: S3 Standard returns a bare `<base64>`, while S3 Express One Zone returns the
+            // composite form `<base64>-<part-count>`. Accept either, and when the suffix is present
+            // assert the part count matches the number of parts we observed.
+            let object_value = object_checksum.as_ref().and_then(|c| c.checksum_crc32c.as_ref());
+            let parts_have_checksum = !part_checksums.is_empty()
+                && part_checksums
+                    .iter()
+                    .all(|checksum| checksum.as_ref().is_some_and(|c| c.checksum_crc32c.is_some()));
+            assert!(
+                object_value.is_some() || parts_have_checksum,
+                "CRC32C should be present on the object or its parts"
+            );
+            if let Some(value) = object_value
+                && let Some((base, suffix)) = value.split_once('-')
+            {
+                assert!(
+                    !base.is_empty(),
+                    "CRC32C object-level checksum must have a `<base64>` prefix, got {value:?}"
+                );
+                let part_count: usize = suffix.parse().unwrap_or_else(|_| {
+                    panic!("CRC32C object-level checksum suffix must be a `-<part-count>`, got {value:?}")
+                });
+                assert_eq!(
+                    part_count,
+                    part_checksums.len(),
+                    "CRC32C composite object-level checksum part count must match the number of parts"
+                );
+            }
+        }
+        None => {
             // If no checksum was sent with the PutObject request, S3 automatically uses CRC-64NVME.
             // We'll ignore it for the test below.
             // See https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html.
@@ -1577,20 +1606,23 @@ fn write_checksums_test(
 }
 
 #[cfg(feature = "s3_tests")]
-#[test_matrix([CHECKSUMS_ENABLED, CHECKSUMS_DISABLED])]
-fn write_checksums_test_s3(checksums_mode: UploadChecksumsMode) {
-    write_checksums_test(fuse::s3_session::new, checksums_mode, ATOMIC_UPLOAD);
+#[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED])]
+fn write_checksums_test_s3(algorithm: Option<UploadChecksumAlgorithm>) {
+    write_checksums_test(fuse::s3_session::new, algorithm, ATOMIC_UPLOAD);
 }
 
 #[cfg(feature = "s3express_tests")]
-#[test_matrix([CHECKSUMS_ENABLED, CHECKSUMS_DISABLED])]
-fn write_checksums_test_s3_incremental_upload(checksums_mode: UploadChecksumsMode) {
-    write_checksums_test(fuse::s3_session::new, checksums_mode, INCREMENTAL_UPLOAD);
+#[test_matrix([CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED])]
+fn write_checksums_test_s3_incremental_upload(algorithm: Option<UploadChecksumAlgorithm>) {
+    write_checksums_test(fuse::s3_session::new, algorithm, INCREMENTAL_UPLOAD);
 }
 
-#[test_matrix([CHECKSUMS_ENABLED, CHECKSUMS_DISABLED], [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD])]
-fn write_checksums_test_mock(checksums_mode: UploadChecksumsMode, upload_mode: UploadMode) {
-    write_checksums_test(fuse::mock_session::new, checksums_mode, upload_mode);
+#[test_matrix(
+    [CHECKSUMS_CRC32C, CHECKSUMS_CRC64NVME, CHECKSUMS_DISABLED],
+    [ATOMIC_UPLOAD, INCREMENTAL_UPLOAD]
+)]
+fn write_checksums_test_mock(algorithm: Option<UploadChecksumAlgorithm>, upload_mode: UploadMode) {
+    write_checksums_test(fuse::mock_session::new, algorithm, upload_mode);
 }
 
 #[derive(Debug)]

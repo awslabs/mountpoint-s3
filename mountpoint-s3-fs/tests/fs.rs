@@ -1601,7 +1601,7 @@ async fn test_lookup_forbidden() {
         .await
         .expect("uploading an object must succeeed");
 
-    // try to lookup file with a S3 policy that dissallows that
+    // try to lookup file with a S3 policy that disallows that
     let fs = make_test_filesystem_with_client(
         client,
         pool,
@@ -1618,7 +1618,7 @@ async fn test_lookup_forbidden() {
         *metadata,
         ErrorMetadata {
             client_error_meta: ClientErrorMetadata {
-                http_code: Some(403), // here we assume that HeadObject failes with 403 code
+                http_code: Some(403), // here we assume that HeadObject fails with 403 code
                 error_code: None,
                 error_message: None,
             },

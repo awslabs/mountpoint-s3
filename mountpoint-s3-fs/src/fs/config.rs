@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use mountpoint_s3_client::types::ChecksumAlgorithm;
 use nix::unistd::{getgid, getuid};
 
 use crate::content_type::ContentTypeDetection;
@@ -8,6 +9,24 @@ use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
 
 use super::{ServerSideEncryption, TimeToLive};
+
+/// The set of checksum algorithms supported by the upload path. Narrower than
+/// [`ChecksumAlgorithm`] so the FS-config and CLI boundaries can't accept algorithms the upload
+/// path doesn't handle (the `unimplemented!` arm in atomic.rs is then defensive only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadChecksumAlgorithm {
+    Crc32c,
+    Crc64nvme,
+}
+
+impl From<UploadChecksumAlgorithm> for ChecksumAlgorithm {
+    fn from(value: UploadChecksumAlgorithm) -> Self {
+        match value {
+            UploadChecksumAlgorithm::Crc32c => ChecksumAlgorithm::Crc32c,
+            UploadChecksumAlgorithm::Crc64nvme => ChecksumAlgorithm::Crc64nvme,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct S3FilesystemConfig {
@@ -37,8 +56,9 @@ pub struct S3FilesystemConfig {
     pub s3_personality: S3Personality,
     /// Server side encryption configuration to be used when creating new S3 object
     pub server_side_encryption: ServerSideEncryption,
-    /// Use additional checksums for uploads
-    pub use_upload_checksums: bool,
+    /// Algorithm used to compute additional checksums for uploads.
+    /// `None` disables upload checksums.
+    pub upload_checksum_algorithm: Option<UploadChecksumAlgorithm>,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
     /// Content type inference mode for uploaded objects
@@ -70,7 +90,7 @@ impl Default for S3FilesystemConfig {
             storage_class: None,
             s3_personality: S3Personality::default(),
             server_side_encryption: Default::default(),
-            use_upload_checksums: true,
+            upload_checksum_algorithm: Some(UploadChecksumAlgorithm::Crc32c),
             content_type_detection: ContentTypeDetection::Disabled,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,

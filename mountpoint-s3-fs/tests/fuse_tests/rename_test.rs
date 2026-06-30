@@ -458,7 +458,7 @@ where
         vec!["other.txt", "writing-after-move.txt"],
         "should only see existing files and new renamed file"
     );
-    debug!("test successfull");
+    debug!("test successful");
 }
 
 #[cfg(feature = "s3express_tests")]
@@ -600,7 +600,7 @@ fn rename_same_file_test_mock(prefix: &str) {
 }
 
 /**
- * Semantics Issue: What hapens, when we call rename on a direcotry with itself as an argument?
+ * Semantics Issue: What happens, when we call rename on a directory with itself as an argument?
  */
 fn rename_dir_noop_accepted_test<F>(creator_fn: F, prefix: &str)
 where
@@ -982,14 +982,15 @@ where
         &mount_point.join("b.txt"),
         nix::fcntl::RenameFlags::RENAME_NOREPLACE,
     );
-    result_noreplace.expect_err("RENAME_NOREPLACE not handled correctly, since rename succeded when it shouldn't have");
+    result_noreplace
+        .expect_err("RENAME_NOREPLACE not handled correctly, since rename succeeded when it shouldn't have");
 
     let result_noreplace = renameat2_wrapper(
         &mount_point.join("a.txt"),
         &mount_point.join("b.txt"),
         RenameFlags::empty(),
     );
-    result_noreplace.expect("Without RENAME_NOREPLACE overwriting rename should succeded");
+    result_noreplace.expect("Without RENAME_NOREPLACE overwriting rename should succeeded");
 }
 
 #[cfg(target_os = "linux")]
@@ -1254,7 +1255,7 @@ where
     }
     // Rename it
     {
-        fs::rename(mount_point.join("a.txt"), mount_point.join("dir/b.txt")).expect("rename successfull");
+        fs::rename(mount_point.join("a.txt"), mount_point.join("dir/b.txt")).expect("rename successful");
     }
     // Append to it again
     {
@@ -1267,7 +1268,7 @@ where
         file.sync_all().unwrap();
         drop(file);
     }
-    fs::rename(mount_point.join("dir/b.txt"), mount_point.join("dir/c.txt")).expect("rename successfull");
+    fs::rename(mount_point.join("dir/b.txt"), mount_point.join("dir/c.txt")).expect("rename successful");
     // Verify the contents
     // Wait for a few seconds
     let contents = fs::read_to_string(mount_point.join("dir/c.txt")).expect("read should succeed");
@@ -1992,7 +1993,7 @@ struct FsState {
     b_has_a_content: bool, // true if b exists and has a's content
 }
 
-/// Takes a path and generates cooresponding FsState
+/// Takes a path and generates corresponding FsState
 fn get_fs_state(mount_point: &Path) -> FsState {
     let a_path = mount_point.join("a.txt");
     let b_path = mount_point.join("b.txt");

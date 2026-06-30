@@ -8,13 +8,16 @@ use futures::FutureExt;
 use futures::channel::oneshot::{self, Receiver};
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
 use mountpoint_s3_crt::io::stream::InputStream;
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{
+    ChecksumConfig, MetaRequestResult, RequestType, UploadReview, UploadReviewOutcome as CrtUploadReviewOutcome,
+};
 use thiserror::Error;
 use tracing::error;
 use xmltree::Element;
 
 use crate::object_client::{
     ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    UploadReviewOutcome,
 };
 
 use super::{
@@ -48,10 +51,13 @@ impl S3CrtClient {
                 params.ssekms_key_id.as_deref(),
             )?;
 
-            let checksum_config = match params.trailing_checksums {
-                PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
-                PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
+            let checksum_config = match &params.trailing_checksums {
                 PutObjectTrailingChecksums::Disabled => None,
+                PutObjectTrailingChecksums::Composite(algorithm) => Some(ChecksumConfig::trailing(algorithm)),
+                PutObjectTrailingChecksums::FullObject(algorithm) => {
+                    Some(ChecksumConfig::trailing_full_object(algorithm))
+                }
+                PutObjectTrailingChecksums::ReviewOnly(algorithm) => Some(ChecksumConfig::upload_review(algorithm)),
             };
             message.set_checksum_config(checksum_config);
 
@@ -234,7 +240,7 @@ impl S3CrtClient {
     }
 }
 
-type ReviewCallback = dyn FnOnce(UploadReview) -> bool + Send;
+type ReviewCallback = dyn FnOnce(UploadReview) -> UploadReviewOutcome + Send;
 
 /// Holder for the upload review callback.
 /// Used to set the callback when initiating the PutObject request on the CRT client,
@@ -251,19 +257,27 @@ impl std::fmt::Debug for ReviewCallbackBox {
 }
 
 impl ReviewCallbackBox {
-    fn set(&mut self, callback: impl FnOnce(UploadReview) -> bool + Send + 'static) {
+    fn set(&mut self, callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static) {
         let previous = self.callback.lock().unwrap().replace(Box::new(callback));
         assert!(previous.is_none(), "review callback set twice");
     }
 
-    fn invoke(self, review: UploadReview) -> bool {
+    /// Invoke the caller's review callback and translate its outcome into the CRT's. The optional
+    /// full-object [`UploadChecksum`](crate::object_client::UploadChecksum) is rendered to its
+    /// base64 wire form for the CRT to send on `CompleteMultipartUpload`.
+    fn invoke(self, review: UploadReview) -> CrtUploadReviewOutcome {
         let mut callback = self.callback.lock().unwrap();
         let Some(callback) = callback.take() else {
             error!("review callback was either never set or invoked twice");
-            return false;
+            return CrtUploadReviewOutcome::Abort;
         };
 
-        (callback)(review)
+        match (callback)(review) {
+            UploadReviewOutcome::Proceed(checksum) => {
+                CrtUploadReviewOutcome::Proceed(checksum.map(|checksum| checksum.to_base64().into_bytes()))
+            }
+            UploadReviewOutcome::Abort => CrtUploadReviewOutcome::Abort,
+        }
     }
 }
 
@@ -411,12 +425,12 @@ impl PutObjectRequest for S3PutObjectRequest {
     }
 
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        self.review_and_complete(|_| true).await
+        self.review_and_complete(|_| UploadReviewOutcome::Proceed(None)).await
     }
 
     async fn review_and_complete(
         mut self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         if matches!(self.state, S3PutObjectRequestState::PendingWrite) {
             // Fail if a previous write was not completed.

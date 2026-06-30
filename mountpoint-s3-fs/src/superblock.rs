@@ -1122,7 +1122,7 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             // the directory entries and don't want to keep them all in memory. But one common case
             // we've seen (https://github.com/awslabs/mountpoint-s3/issues/477) is applications that
             // request offset 0 twice in a row. So we remember the last response and, if repeated,
-            // we return it again. Last response may also be used partially, if an interrupt occured
+            // we return it again. Last response may also be used partially, if an interrupt occurred
             // (https://github.com/awslabs/mountpoint-s3/issues/955), which caused entries from it to
             // be only partially fetched by kernel.
 

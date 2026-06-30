@@ -153,7 +153,7 @@ cache_benchmark () {
     fi
 
     mount_dir=$(mktemp -d /tmp/fio-XXXXXXXXXXXX)
-    # creates a cache directoy with the suffix of the mount directory
+    # creates a cache directory with the suffix of the mount directory
     cache_dir=$(mktemp -d -p $local_storage -t `basename "${mount_dir}"`-cache-XXXXXXXXXXXX)
 
     job_name=$(basename "${job_file}")

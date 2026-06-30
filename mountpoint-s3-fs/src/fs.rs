@@ -8,7 +8,6 @@ use bytes::Bytes;
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{FileAttr, KernelConfig};
 use mountpoint_s3_client::ObjectClient;
-use mountpoint_s3_client::types::ChecksumAlgorithm;
 use thiserror::Error;
 use time::OffsetDateTime;
 use tracing::{Level, debug, trace};
@@ -27,7 +26,7 @@ use crate::sync::{Arc, AsyncMutex, AsyncRwLock};
 use crate::upload::{Uploader, UploaderConfig};
 
 mod config;
-pub use config::{CacheConfig, S3FilesystemConfig};
+pub use config::{CacheConfig, S3FilesystemConfig, UploadChecksumAlgorithm};
 
 #[macro_use]
 mod error;
@@ -119,7 +118,7 @@ pub struct StatFs {
     pub block_size: u32,
     /// Maximum name length
     pub maximum_name_length: u32,
-    /// Fragement size
+    /// Fragment size
     pub fragment_size: u32,
 }
 
@@ -164,7 +163,7 @@ where
             UploaderConfig::new(client.write_part_size())
                 .storage_class(config.storage_class.to_owned())
                 .server_side_encryption(config.server_side_encryption.clone())
-                .default_checksum_algorithm(config.use_upload_checksums.then_some(ChecksumAlgorithm::Crc32c))
+                .default_checksum_algorithm(config.upload_checksum_algorithm.map(Into::into))
                 .content_type_detection(config.content_type_detection),
         );
 
@@ -185,7 +184,7 @@ where
 
     pub async fn init(&self, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         let _ = config.add_capabilities(fuser::consts::FUSE_DO_READDIRPLUS);
-        // Set max_background FUSE parameter to 64 by default, may be overriden with config setting or by an environment variable.
+        // Set max_background FUSE parameter to 64 by default, may be overridden with config setting or by an environment variable.
         if let Some(max_background) = self.config.max_background_fuse_requests() {
             let old = config
                 .set_max_background(max_background)

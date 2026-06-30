@@ -222,7 +222,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    RustLogAdapter::try_init().context("failed to inititalize RustLogAdapter")?;
+    RustLogAdapter::try_init().context("failed to initialize RustLogAdapter")?;
     tracing_subscriber::fmt::try_init().map_err(|e| anyhow!("failed to initialize tracing subscriber: {:?}", e))?;
 
     let args = CliArgs::parse();
