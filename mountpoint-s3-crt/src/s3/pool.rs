@@ -8,7 +8,8 @@ use std::{fmt::Debug, ptr::NonNull};
 
 use mountpoint_s3_crt_sys::{
     aws_allocator, aws_byte_buf, aws_byte_buf_from_empty_array, aws_byte_cursor, aws_future_s3_buffer_ticket,
-    aws_future_s3_buffer_ticket_acquire, aws_future_s3_buffer_ticket_new, aws_future_s3_buffer_ticket_release,
+    aws_future_s3_buffer_ticket_acquire, aws_future_s3_buffer_ticket_get_error, aws_future_s3_buffer_ticket_is_done,
+    aws_future_s3_buffer_ticket_new, aws_future_s3_buffer_ticket_release,
     aws_future_s3_buffer_ticket_set_result_by_move, aws_ref_count_init, aws_s3_buffer_pool, aws_s3_buffer_pool_config,
     aws_s3_buffer_pool_factory_fn, aws_s3_buffer_pool_reserve_meta, aws_s3_buffer_pool_vtable, aws_s3_buffer_ticket,
     aws_s3_buffer_ticket_vtable,
@@ -20,6 +21,15 @@ use crate::io::event_loop::EventLoopGroup;
 use crate::io::futures::FutureSpawner;
 use crate::s3::client::MetaRequest;
 
+/// Predicate reporting whether a buffer reservation is still wanted.
+///
+/// Returns `true` while the reservation is still needed, and `false` once the CRT has
+/// cancelled it (the underlying buffer-ticket future has been errored out — see
+/// `aws_s3_meta_request_cancel_pending_buffer_futures`). A [MemoryPool] that defers a
+/// reservation under memory pressure can poll this to abandon a reservation that was
+/// cancelled while queued, avoiding a wasteful allocation that would be freed immediately.
+pub type LivenessFn = Arc<dyn Fn() -> bool + Send + Sync>;
+
 /// A custom memory pool.
 ///
 /// **WARNING:** The API for this trait is still experimental and will likely change
@@ -29,12 +39,19 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     type Buffer: AsMut<[u8]> + Send;
 
     /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
-    /// Returns a future that resolves to the buffer.
+    /// Returns a future that resolves to the buffer, or to `None` if the reservation was
+    /// abandoned because the CRT cancelled it while it was queued (see [LivenessFn]).
     ///
     /// Implementations must always eventually resolve. If memory is not immediately
     /// available, the implementation should block/await until it is — not panic or
-    /// deadlock.
-    fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> impl Future<Output = Self::Buffer> + Send;
+    /// deadlock. While waiting, the implementation may poll `is_alive` and resolve to
+    /// `None` once it reports the reservation is no longer wanted.
+    fn get_buffer_async(
+        &self,
+        size: usize,
+        meta_request: &MetaRequest,
+        is_alive: LivenessFn,
+    ) -> impl Future<Output = Option<Self::Buffer>> + Send;
 
     /// Trim the pool.
     ///
@@ -317,18 +334,20 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         let ticket_vtable = self.ticket_vtable;
         let pool = self.pool.clone();
         let future_clone = future.clone();
-        // Dropping the handle is intentional: if the CRT cancels the meta request
-        // while the task is in flight, the buffer will be allocated (eventually) and
-        // set on an already-done future — the CRT handles this safely by destroying
-        // the ticket via `s_future_impl_result_dtor`. This results in a wasted
-        // allocation that is immediately freed, but no leak or error.
-        // TODO: The CRT does not currently provide a cancellation mechanism for
-        // in-flight ticket futures. If one is added, we could propagate it to
-        // `get_buffer_async` to avoid the wasteful buffer allocation.
+        // Liveness predicate for the pool: the reservation is alive until the CRT errors
+        // this ticket future, which it does when cancelling the meta request (see
+        // `aws_s3_meta_request_cancel_pending_buffer_futures`).
+        let liveness_future = future.clone();
+        let is_alive: LivenessFn = Arc::new(move || !liveness_future.is_errored());
+        // Dropping the handle is intentional: the acquisition runs to completion on the
+        // event loop and delivers its result out-of-band via `future_clone.set`.
+        //
+        // If the pool returns `None`, the reservation was cancelled while queued: the CRT
+        // already errored this future, so there is nothing to deliver.
         let _handle = self.event_loop_group.spawn_future(async move {
-            let buffer = pool.get_buffer_async(size, &meta_request).await;
-            let ticket = CrtTicket::new(buffer, ticket_vtable);
-            future_clone.set(ticket);
+            if let Some(buffer) = pool.get_buffer_async(size, &meta_request, is_alive).await {
+                future_clone.set(CrtTicket::new(buffer, ticket_vtable));
+            }
         });
 
         future
@@ -456,6 +475,39 @@ unsafe extern "C" fn ticket_destroy<Buffer: AsMut<[u8]>>(data: *mut libc::c_void
     _ = unsafe { CrtTicket::<Buffer>::from_raw(ticket) };
 }
 
+#[cfg(test)]
+mod tests {
+    use mountpoint_s3_crt_sys::{aws_future_s3_buffer_ticket_set_error, aws_s3_errors};
+
+    use super::*;
+    use crate::common::allocator::Allocator;
+    use crate::s3::s3_library_init;
+
+    #[test]
+    fn test_ticket_future_liveness_flips_on_error() {
+        let allocator = Allocator::default();
+        s3_library_init(&allocator);
+
+        let future = CrtTicketFuture::new(&allocator);
+        // Mirror exactly what `reserve()` builds for `get_buffer_async`.
+        let liveness_future = future.clone();
+        let is_alive: LivenessFn = Arc::new(move || !liveness_future.is_errored());
+
+        // A fresh reservation is not yet done, so it is alive.
+        assert!(!future.is_errored(), "fresh future must not be errored");
+        assert!(is_alive(), "fresh reservation must report alive");
+
+        // Simulate the CRT cancelling the reservation.
+        // SAFETY: `future.inner` is a valid `aws_future_s3_buffer_ticket`.
+        unsafe {
+            aws_future_s3_buffer_ticket_set_error(future.inner, aws_s3_errors::AWS_ERROR_S3_CANCELED as i32);
+        }
+
+        assert!(future.is_errored(), "errored future must report errored");
+        assert!(!is_alive(), "cancelled reservation must report dead");
+    }
+}
+
 /// Wrapper for [aws_future_s3_buffer_ticket].
 #[derive(Debug)]
 struct CrtTicketFuture {
@@ -481,6 +533,17 @@ impl CrtTicketFuture {
         // SAFETY: `self.inner` is a valid future and we are setting it to `ticket`.
         unsafe {
             aws_future_s3_buffer_ticket_set_result_by_move(self.inner, &mut ticket);
+        }
+    }
+
+    /// Returns `true` if the future is done and completed with an error, which is how the
+    /// CRT signals that this reservation was cancelled (`AWS_ERROR_S3_CANCELED`).
+    fn is_errored(&self) -> bool {
+        // SAFETY: `self.inner` is a valid `aws_future_s3_buffer_ticket` (a reference is held
+        // by this struct for its lifetime); both accessors are thread-safe reads guarded by
+        // the future's own internal lock.
+        unsafe {
+            aws_future_s3_buffer_ticket_is_done(self.inner) && aws_future_s3_buffer_ticket_get_error(self.inner) != 0
         }
     }
 
