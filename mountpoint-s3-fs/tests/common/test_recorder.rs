@@ -59,6 +59,14 @@ impl TestRecorder {
     pub fn get(&self, name: &str, labels: &[(&str, &str)]) -> Option<Arc<Metric>> {
         lookup(&self.metrics, name, labels)
     }
+
+    /// Get-or-insert the metric for `key`, building it with `make` on first registration.
+    fn register_metric(&self, key: &Key, make: impl FnOnce() -> Metric) -> Arc<Metric> {
+        self.metrics
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(make()))
+            .clone()
+    }
 }
 
 #[derive(Debug)]
@@ -97,30 +105,15 @@ impl Recorder for TestRecorder {
     fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
 
     fn register_counter(&self, key: &Key, _metadata: &Metadata<'_>) -> Counter {
-        let metric = self
-            .metrics
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Metric::Counter(Default::default())))
-            .clone();
-        Counter::from_arc(metric)
+        Counter::from_arc(self.register_metric(key, || Metric::Counter(Default::default())))
     }
 
     fn register_gauge(&self, key: &Key, _metadata: &Metadata<'_>) -> Gauge {
-        let metric = self
-            .metrics
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Metric::Gauge(Default::default())))
-            .clone();
-        Gauge::from_arc(metric)
+        Gauge::from_arc(self.register_metric(key, || Metric::Gauge(Default::default())))
     }
 
     fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> Histogram {
-        let metric = self
-            .metrics
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Metric::Histogram(Default::default())))
-            .clone();
-        Histogram::from_arc(metric)
+        Histogram::from_arc(self.register_metric(key, || Metric::Histogram(Default::default())))
     }
 }
 
