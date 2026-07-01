@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mountpoint_s3_client::config::{MemoryPool, MetaRequest};
+use mountpoint_s3_client::config::{LivenessFn, MemoryPool, MetaRequest};
 
 use crate::prefetch::CursorId;
 use crate::sync::thread::{self, JoinHandle};
@@ -116,7 +116,11 @@ impl PagedPool {
         kind: BufferKind,
         cursor_id: Option<CursorId>,
     ) -> PoolBufferMut {
-        let buffer = self.inner.get_buffer_async(capacity, kind, cursor_id).await;
+        let buffer = self
+            .inner
+            .get_buffer_async(capacity, kind, cursor_id, None)
+            .await
+            .expect("get_buffer_async without a liveness predicate always returns a buffer");
         PoolBufferMut::new(buffer)
     }
 
@@ -201,10 +205,15 @@ impl PagedPool {
 impl MemoryPool for PagedPool {
     type Buffer = PoolBuffer;
 
-    async fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> Self::Buffer {
+    async fn get_buffer_async(
+        &self,
+        size: usize,
+        meta_request: &MetaRequest,
+        is_alive: LivenessFn,
+    ) -> Option<Self::Buffer> {
         let kind = meta_request.meta_request_type().into();
         let cursor_id = meta_request.custom_id().map(CursorId::new_from_raw);
-        self.inner.get_buffer_async(size, kind, cursor_id).await
+        self.inner.get_buffer_async(size, kind, cursor_id, Some(is_alive)).await
     }
 
     fn trim(&self) -> bool {
@@ -274,22 +283,36 @@ impl PagedPoolInner {
     /// - cursor with an active FUSE read → high priority
     /// - cursor without an active read (speculative prefetch) → low priority
     /// - no cursor (upload) → high priority (write syscall is blocked)
-    async fn get_buffer_async(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
+    ///
+    /// `is_alive` is an optional liveness predicate. When the
+    /// reservation is cancelled while queued, the queue prunes it and this method resolves to
+    /// `None` — so no buffer is allocated for a request that no longer wants it. Callers that
+    /// pass `None` (disk cache, incremental upload) always receive `Some`.
+    async fn get_buffer_async(
+        &self,
+        size: usize,
+        kind: BufferKind,
+        cursor_id: Option<CursorId>,
+        is_alive: Option<LivenessFn>,
+    ) -> Option<PoolBuffer> {
         // Fast path: if the queue is empty, try to acquire immediately.
         if !self.allocation_queue.has_pending()
             && let Some(buffer) = self.try_get_buffer(size, kind, cursor_id, false)
         {
-            return buffer;
+            return Some(buffer);
         }
 
         // Determine priority: a cursor with an active FUSE read is High (urgent),
         // speculative prefetch (cursor with no active read) is Low.
         // Uploads (no cursor) are always High — a write syscall is blocked.
         // NOTE: We check if the cursor has an active read, not if this allocation serves it.
+        let queued = is_alive.clone();
         let rx = match cursor_id {
-            Some(id) if self.limiter.has_active_read(id) => self.allocation_queue.push_high(cursor_id, size, kind),
-            Some(id) => self.allocation_queue.push_low(id, size, kind),
-            None => self.allocation_queue.push_high(None, size, kind), // uploads are urgent
+            Some(id) if self.limiter.has_active_read(id) => {
+                self.allocation_queue.push_high(cursor_id, size, kind, queued)
+            }
+            Some(id) => self.allocation_queue.push_low(id, size, kind, queued),
+            None => self.allocation_queue.push_high(None, size, kind, queued), // uploads are urgent
         };
         // After pushing, try to wake immediately in case memory freed between the fast-path
         // check above and the push (avoids the race where a buffer drop called trigger_process_pending
@@ -298,12 +321,18 @@ impl PagedPoolInner {
         // Nudge the maintenance thread: it may be parked on its long idle interval, in which
         // case it would otherwise sleep up to that interval before noticing the new waiter.
         self.limiter.trigger_pruning();
-        // Await the buffer from the queue. Err(Canceled) can only happen during pool shutdown.
-        // TODO(memory-limiter): signal error to CRT via aws_future_s3_buffer_ticket_set_error.
-        rx.await.unwrap_or_else(|_| {
-            self.try_get_buffer(size, kind, cursor_id, true)
-                .expect("forced allocations cannot fail")
-        })
+
+        match rx.await {
+            Ok(buffer) => Some(buffer),
+            // Reservation cancelled while queued: abandon it so the CRT bridge leaves its
+            // already-errored ticket future untouched, avoiding a wasted allocation.
+            Err(_) if is_alive.is_some_and(|alive| !alive()) => None,
+            // Pool shutdown (or no liveness predicate): force the allocation.
+            Err(_) => Some(
+                self.try_get_buffer(size, kind, cursor_id, true)
+                    .expect("forced allocations cannot fail"),
+            ),
+        }
     }
 
     /// Get a buffer from the pool if available or allocates new memory if allowed.
@@ -699,7 +728,7 @@ mod tests {
         #[test]
         fn test_fast_path_when_room_available() {
             let pool = tight_pool(1024);
-            let buffer = block_on(pool.inner.get_buffer_async(256, BufferKind::GetObject, None));
+            let buffer = block_on(pool.inner.get_buffer_async(256, BufferKind::GetObject, None, None)).unwrap();
             assert!(buffer.capacity() >= 256);
         }
 
@@ -717,7 +746,11 @@ mod tests {
             // Spawn a request — it should enqueue since there's no room.
             let pool_clone = pool.clone();
             let _handle = std::thread::spawn(move || {
-                block_on(pool_clone.inner.get_buffer_async(BUF, BufferKind::GetObject, None))
+                block_on(
+                    pool_clone
+                        .inner
+                        .get_buffer_async(BUF, BufferKind::GetObject, None, None),
+                )
             });
 
             // Wait for the request to enter the queue (retry for up to 100ms).
@@ -745,7 +778,11 @@ mod tests {
             }
             let pool_clone = pool.clone();
             let _handle = std::thread::spawn(move || {
-                block_on(pool_clone.inner.get_buffer_async(BUF, BufferKind::GetObject, None))
+                block_on(
+                    pool_clone
+                        .inner
+                        .get_buffer_async(BUF, BufferKind::GetObject, None, None),
+                )
             });
             for _ in 0..100 {
                 if pool.inner.is_memory_pressure() {
@@ -779,7 +816,12 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             let pool_clone = pool.clone();
             std::thread::spawn(move || {
-                let buffer = block_on(pool_clone.inner.get_buffer_async(BUF, BufferKind::GetObject, None));
+                let buffer = block_on(
+                    pool_clone
+                        .inner
+                        .get_buffer_async(BUF, BufferKind::GetObject, None, None),
+                )
+                .unwrap();
                 let _ = tx.send(buffer);
             });
 
@@ -809,11 +851,14 @@ mod tests {
 
             // Push both requests directly to the queue so ordering is deterministic.
             // Low priority first (speculative read), then high priority (upload).
-            let low_rx = pool
+            let low_rx =
+                pool.inner
+                    .allocation_queue
+                    .push_low(CursorId::new_from_raw(1), BUF, BufferKind::GetObject, None);
+            let high_rx = pool
                 .inner
                 .allocation_queue
-                .push_low(CursorId::new_from_raw(1), BUF, BufferKind::GetObject);
-            let high_rx = pool.inner.allocation_queue.push_high(None, BUF, BufferKind::PutObject);
+                .push_high(None, BUF, BufferKind::PutObject, None);
 
             // Receive via threads + mpsc channels so we can use recv_timeout.
             let (low_tx, low_mpsc) = std::sync::mpsc::channel();
@@ -861,8 +906,9 @@ mod tests {
                 let buf = block_on(
                     pool1
                         .inner
-                        .get_buffer_async(BUF, BufferKind::GetObject, Some(cursor_id)),
-                );
+                        .get_buffer_async(BUF, BufferKind::GetObject, Some(cursor_id), None),
+                )
+                .unwrap();
                 let _ = tx.send(buf);
             });
             // Wait for it to enter the queue as low priority.
@@ -919,13 +965,15 @@ mod tests {
                             let pool = pool.clone();
                             let barrier = barrier.clone();
                             scope.spawn(move || {
-                                let mut fut = Box::pin(pool.inner.get_buffer_async(BUF, BufferKind::GetObject, None));
+                                let mut fut =
+                                    Box::pin(pool.inner.get_buffer_async(BUF, BufferKind::GetObject, None, None));
                                 // Release all racers into the fast path at once for maximum contention.
                                 barrier.wait();
                                 let waker = futures::task::noop_waker();
                                 let mut cx = std::task::Context::from_waker(&waker);
                                 match std::future::Future::poll(fut.as_mut(), &mut cx) {
-                                    std::task::Poll::Ready(buffer) => Some(buffer),
+                                    // Without a liveness predicate the fast path never resolves to `None`.
+                                    std::task::Poll::Ready(buffer) => Some(buffer.expect("fast path returns a buffer")),
                                     std::task::Poll::Pending => None,
                                 }
                             })
@@ -949,6 +997,73 @@ mod tests {
                 );
                 drop(granted);
             }
+        }
+
+        #[test]
+        fn test_cancelled_reservation_abandoned_without_allocating() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            const BUF: usize = 1024;
+            let pool = tight_pool(BUF);
+
+            // Fill all available memory so further requests must queue.
+            let mut blockers = Vec::new();
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Other, None, false) {
+                blockers.push(buffer);
+            }
+
+            // Request A: queues with a liveness predicate we later flip to "dead" (simulating
+            // the CRT erroring the reservation's ticket future after a cancel).
+            let alive = Arc::new(AtomicBool::new(true));
+            let alive_for_fn = alive.clone();
+            let liveness: LivenessFn = Arc::new(move || alive_for_fn.load(Ordering::SeqCst));
+            let (a_tx, a_rx) = std::sync::mpsc::channel();
+            let pool_a = pool.clone();
+            std::thread::spawn(move || {
+                let result = block_on(
+                    pool_a
+                        .inner
+                        .get_buffer_async(BUF, BufferKind::GetObject, None, Some(liveness)),
+                );
+                let _ = a_tx.send(result);
+            });
+            // Wait for A to enter the queue.
+            for _ in 0..1000 {
+                if pool.inner.is_memory_pressure() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(pool.inner.is_memory_pressure(), "request A should be queued");
+
+            // Request B: queues behind A, no liveness predicate (always wants its buffer).
+            let (b_tx, b_rx) = std::sync::mpsc::channel();
+            let pool_b = pool.clone();
+            std::thread::spawn(move || {
+                let result = block_on(pool_b.inner.get_buffer_async(BUF, BufferKind::GetObject, None, None));
+                let _ = b_tx.send(result);
+            });
+            // Give B a moment to enqueue behind A.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+
+            // Cancel A, then free exactly one buffer. A is pruned without allocating (resolves
+            // to None); the single freed buffer is delivered to the live waiter B.
+            alive.store(false, Ordering::SeqCst);
+            blockers.pop();
+
+            let a_result = a_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("A timed out");
+            assert!(a_result.is_none(), "cancelled reservation must be abandoned (None)");
+
+            let b_result = b_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("B timed out");
+            assert!(
+                b_result.expect("live waiter B must be served").capacity() >= BUF,
+                "the freed buffer should go to the live waiter",
+            );
         }
     }
 }
