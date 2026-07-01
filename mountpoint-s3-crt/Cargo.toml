@@ -21,7 +21,7 @@ thiserror = "2.0.18"
 anyhow = { version = "1.0.103", features = ["backtrace"] }
 clap = { version = "4.6.1", features = ["derive"] }
 criterion = "0.8.2"
-ctor = "0.10.1"
+ctor = "1.0.7"
 rand = "0.10.1"
 serde_json = "1.0.150"
 test-case = "3.3.1"

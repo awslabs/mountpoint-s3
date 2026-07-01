@@ -37,13 +37,13 @@ mime_guess = "2.0.5"
 nix = { version = "0.31.3", default-features = false, features = ["fs", "process", "signal", "user"] }
 rand = "0.10.1"
 regex = "1.12.4"
-rusqlite = { version = "0.39.0", features = ["bundled", "fallible_uint"], optional = true }
+rusqlite = { version = "0.40.1", features = ["bundled", "fallible_uint"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.11.0"
 signal-hook = "0.4.4"
 supports-color = "3.0.2"
-sysinfo = "0.38.4"
+sysinfo = "0.39.5"
 syslog = "7.0.0"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
@@ -51,9 +51,9 @@ time = { version = "0.3.53", features = ["macros", "formatting", "serde-well-kno
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-opentelemetry = { version = "0.31.0", features = ["metrics"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
-opentelemetry-otlp = { version = "0.31.1", features = ["metrics", "http-proto"] }
+opentelemetry = { version = "0.32.0", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["metrics", "rt-tokio", "spec_unstable_metrics_views"] }
+opentelemetry-otlp = { version = "0.32.0", features = ["metrics", "http-proto"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.18.0", default-features = false }
@@ -67,11 +67,11 @@ aws-config = "1.8.18"
 aws-credential-types = "1.2.14"
 aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
 criterion = { version = "0.8.2", features = ["async", "async_futures"] }
-ctor = "0.10.1"
+ctor = "1.0.7"
 filetime = "0.2.29"
 futures = { version = "0.3.32", features = ["thread-pool"] }
 humantime-serde = "1.1.1"
-opentelemetry_sdk = { version = "0.31.0", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["testing"] }
 predicates = "3.1.4"
 proptest = "1.11.0"
 proptest-derive = "0.8.0"
@@ -80,7 +80,7 @@ rusty-fork = "0.3.1"
 serde_with = "3.21.0"
 serial_test = "3.5.0"
 sha2 = "0.11.0"
-shuttle = { version = "0.8.1" }
+shuttle = { version = "0.9.1" }
 syscalls = { version = "0.8.1", default-features = false }
 test-case = "3.3.1"
 tokio = { version = "1.52.3", features = ["rt", "macros", "rt-multi-thread"] }
