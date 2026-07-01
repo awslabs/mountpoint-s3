@@ -30,7 +30,7 @@ async fn test_put_object_single(
     rng.fill(&mut contents[..]);
 
     let put_object_result = client
-        .put_object_single(bucket, key, &request_params, &contents)
+        .put_object_single(bucket, key, &request_params, contents.clone())
         .await
         .expect("put_object should succeed");
 
@@ -113,7 +113,7 @@ async fn test_put_checksums(checksum_algorithm: Option<ChecksumAlgorithm>) {
 
     let params = PutObjectSingleParams::new().checksum(upload_checksum.clone());
     client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("put_object should succeed");
 
@@ -158,7 +158,7 @@ async fn test_put_bad_checksums() {
 
     let params = PutObjectSingleParams::new().checksum(checksum.clone());
     let error = client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect_err("put_object should fail");
 
@@ -225,7 +225,7 @@ async fn test_put_object_storage_class(storage_class: &str) {
 
     let params = PutObjectSingleParams::new().storage_class(storage_class.to_owned());
     client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("put_object should succeed");
 
@@ -393,7 +393,7 @@ async fn test_append_new_object() {
 
     let params = PutObjectSingleParams::new_for_append(0);
     let put_object_result = client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("put_object_single should succeed");
 
@@ -419,7 +419,7 @@ async fn test_append_new_object_with_empty() {
     let contents = vec![0u8; 0];
     let params = PutObjectSingleParams::new_for_append(0);
     let put_object_result = client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("put_object_single should succeed");
 
@@ -468,7 +468,7 @@ async fn test_append_existing_object() {
     let params = PutObjectSingleParams::new_for_append(object_size as u64)
         .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
     let put_object_result = client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("put_object_single should succeed");
 
@@ -519,7 +519,7 @@ async fn test_append_existing_object_if_match() {
         .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))))
         .if_match(Some(etag.to_owned().into()));
     let put_object_result = client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("put_object_single should succeed");
 
@@ -607,7 +607,7 @@ async fn test_append_existing_object_with_empty() {
     let contents = vec![0u8; 0];
     let params = PutObjectSingleParams::new_for_append(object_size as u64)
         .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
-    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    let result = client.put_object_single(&bucket, &key, &params, contents.clone()).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(PutObjectError::EmptyBody))
@@ -639,7 +639,7 @@ async fn test_append_empty_object_with_empty() {
     let contents = vec![0u8; 0];
     let params = PutObjectSingleParams::new_for_append(object_size as u64)
         .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
-    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    let result = client.put_object_single(&bucket, &key, &params, contents.clone()).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(PutObjectError::EmptyBody))
@@ -659,7 +659,7 @@ async fn test_append_non_existing_object() {
     rng.fill(&mut contents[..]);
 
     let params = PutObjectSingleParams::new_for_append(1024);
-    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    let result = client.put_object_single(&bucket, &key, &params, contents.clone()).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(PutObjectError::NoSuchKey))
@@ -695,7 +695,7 @@ async fn test_append_invalid_offset() {
 
     let params = PutObjectSingleParams::new_for_append(object_size as u64 + 1)
         .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
-    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    let result = client.put_object_single(&bucket, &key, &params, contents.clone()).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(PutObjectError::InvalidWriteOffset))
@@ -735,7 +735,7 @@ async fn test_append_with_bad_checksum() {
 
     let mut params = PutObjectSingleParams::new_for_append(object_size as u64);
     params = params.checksum(Some(checksum));
-    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    let result = client.put_object_single(&bucket, &key, &params, contents.clone()).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(PutObjectError::BadChecksum))
@@ -774,7 +774,7 @@ async fn test_append_with_invalid_checksum() {
 
     let mut params = PutObjectSingleParams::new_for_append(object_size as u64);
     params = params.checksum(Some(checksum));
-    let result = client.put_object_single(&bucket, &key, &params, &contents).await;
+    let result = client.put_object_single(&bucket, &key, &params, contents.clone()).await;
     assert!(matches!(
         result,
         Err(ObjectClientError::ServiceError(PutObjectError::InvalidChecksumType))
@@ -824,7 +824,7 @@ async fn test_append_with_matching_checksum(checksum_algorithm: aws_sdk_s3::type
     let mut params = PutObjectSingleParams::new_for_append(object_size as u64);
     params = params.checksum(Some(checksum));
     _ = client
-        .put_object_single(&bucket, &key, &params, &contents)
+        .put_object_single(&bucket, &key, &params, contents.clone())
         .await
         .expect("append should succeed");
 }
@@ -848,7 +848,7 @@ async fn test_append_to_service_side_crc64nvme() {
             &bucket,
             &key,
             &PutObjectSingleParams::new().checksum(None),
-            &initial_contents,
+            initial_contents.clone(),
         )
         .await
         .expect("initial put_object with no checksum should succeed");
@@ -874,7 +874,7 @@ async fn test_append_to_service_side_crc64nvme() {
             &bucket,
             &key,
             &PutObjectSingleParams::new_for_append(initial_contents.len() as u64).checksum(Some(append_checksum)),
-            &contents,
+            contents,
         )
         .await
         .expect("append put_object with crc64nvme checksum should succeed");

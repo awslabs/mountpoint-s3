@@ -25,7 +25,6 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
-use mountpoint_s3_crt::io::stream::InputStream;
 use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
     BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
@@ -1036,12 +1035,6 @@ impl<'a> S3Message<'a> {
         self.checksum_config = checksum_config;
     }
 
-    /// Sets the body input stream for this message, and returns any previously set input stream.
-    /// If input_stream is None, unsets the body.
-    fn set_body_stream(&mut self, input_stream: Option<InputStream<'a>>) -> Option<InputStream<'a>> {
-        self.inner.set_body_stream(input_stream)
-    }
-
     /// Set the content length header.
     fn set_content_length_header(
         &mut self,
@@ -1541,12 +1534,12 @@ impl ObjectClient for S3CrtClient {
         self.put_object(bucket, key, params).await
     }
 
-    async fn put_object_single<'a>(
+    async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.put_object_single(bucket, key, params, contents).await
     }

@@ -1,6 +1,7 @@
 ## Unreleased (v0.14.1)
 
 * Update to latest CRT dependencies.
+* Add `MetaRequestOptions::request_body`.
 
 ## v0.14.0 (April 28, 2026)
 
