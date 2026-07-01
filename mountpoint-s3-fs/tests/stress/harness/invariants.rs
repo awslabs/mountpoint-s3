@@ -39,7 +39,7 @@ impl NamedGauge {
     /// Log the gauge's peak against the budget and, iff `peak > effective_budget`, push a
     /// `{gauge_id} peak ... exceeds effective budget ...` message onto `violations`.
     fn check_peak_violation(&self, scenario_name: &str, effective_budget: u64, violations: &mut Vec<String>) {
-        let peak = self.metric.gauge_history().max();
+        let peak = self.metric.gauge_peak();
         tracing::info!(
             scenario = scenario_name,
             metric = %self.id(),
@@ -203,7 +203,7 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
         );
         return;
     };
-    let peak = metric.gauge_history().max();
+    let peak = metric.gauge_peak();
     let ceiling = ceiling_bytes as u64;
     tracing::info!(
         scenario = scenario_name,

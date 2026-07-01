@@ -236,13 +236,14 @@ pub mod stress {
         }
     }
 
-    /// State behind a [`HdrMetric::Gauge`]. Holds both the latest point-in-time value and
-    /// a history of every value the gauge has taken on since installation. The history lets
-    /// tests assert true peak/percentiles of the gauge; the current
-    /// value is still needed for teardown invariants assertions.
+    /// State behind a [`HdrMetric::Gauge`]. Holds the latest point-in-time value, the exact
+    /// running peak, and a history of every value the gauge has taken on since installation.
+    /// `current` is needed for teardown invariants; `peak` is the exact maximum used for peak
+    /// invariants; `history` backs the percentile report (`p50`/`p90`/`p99`).
     #[derive(Debug)]
     pub struct GaugeState {
         pub current: f64,
+        pub peak: f64,
         pub history: HdrHistogram<u64>,
     }
 
@@ -250,6 +251,7 @@ pub mod stress {
         fn new(metric_name: &str) -> Self {
             Self {
                 current: 0.0,
+                peak: 0.0,
                 history: new_hdr(metric_name),
             }
         }
@@ -270,8 +272,27 @@ pub mod stress {
             }
         }
 
+        /// Current value if this metric is a gauge, otherwise `None`. Unlike [`Self::gauge`],
+        /// this never panics on counters/histograms, so callers iterating every registered
+        /// metric (e.g. the time-series snapshotter) can filter to gauges safely.
+        pub fn try_gauge(&self) -> Option<f64> {
+            match self {
+                HdrMetric::Gauge(g) => Some(g.lock().unwrap().current),
+                _ => None,
+            }
+        }
+
+        /// Exact largest value the gauge has held, in bytes. Unlike [`Self::gauge_history`]'s
+        /// `max()`, it is not quantized by the histogram, so it is exact for invariant checks.
+        pub fn gauge_peak(&self) -> u64 {
+            match self {
+                HdrMetric::Gauge(g) => g.lock().unwrap().peak.max(0.0) as u64,
+                _ => panic!("expected gauge"),
+            }
+        }
+
         /// Clone of the full history of values this gauge has been set to since installation.
-        /// Use `.max()` on the returned histogram to get the true peak without sampling races.
+        /// Backs the percentile report; use [`Self::gauge_peak`] for the exact maximum.
         pub fn gauge_history(&self) -> HdrHistogram<u64> {
             match self {
                 HdrMetric::Gauge(g) => g.lock().unwrap().history.clone(),
@@ -349,8 +370,7 @@ pub mod stress {
             };
             let mut g = g.lock().unwrap();
             g.current += value;
-            let current = g.current;
-            record_gauge_sample(&mut g.history, current);
+            record_gauge_sample(&mut g);
         }
         fn decrement(&self, value: f64) {
             let HdrMetric::Gauge(g) = self else {
@@ -358,8 +378,7 @@ pub mod stress {
             };
             let mut g = g.lock().unwrap();
             g.current -= value;
-            let current = g.current;
-            record_gauge_sample(&mut g.history, current);
+            record_gauge_sample(&mut g);
         }
         fn set(&self, value: f64) {
             let HdrMetric::Gauge(g) = self else {
@@ -367,15 +386,16 @@ pub mod stress {
             };
             let mut g = g.lock().unwrap();
             g.current = value;
-            let current = g.current;
-            record_gauge_sample(&mut g.history, current);
+            record_gauge_sample(&mut g);
         }
     }
 
-    /// Record a gauge's post-mutation value into its history histogram.
-    fn record_gauge_sample(history: &mut HdrHistogram<u64>, value: f64) {
-        let clamped = clamp(value, history);
-        history.record(clamped).ok();
+    /// Fold a gauge's just-updated `current` value into its exact `peak` and its history
+    /// histogram. Callers must have already set `current`.
+    fn record_gauge_sample(g: &mut GaugeState) {
+        g.peak = g.peak.max(g.current);
+        let clamped = clamp(g.current, &g.history);
+        g.history.record(clamped).ok();
     }
 
     impl HistogramFn for HdrMetric {
@@ -411,6 +431,24 @@ pub mod stress {
             assert!(
                 peak.abs_diff(rss) <= tolerance,
                 "gauge peak {peak} should be within {tolerance} of {rss}",
+            );
+        }
+
+        /// `gauge_peak` is the exact maximum the gauge ever held, unlike the quantized
+        /// `gauge_history().max()`. It tracks the running peak across increments and is not
+        /// pulled down by later decrements.
+        #[test]
+        fn gauge_peak_is_exact_and_tracks_the_running_maximum() {
+            let metric = HdrMetric::Gauge(Mutex::new(GaugeState::new(PROCESS_MEMORY_USAGE)));
+            // A value that sits exactly on a bucket boundary, so history.max() would round up.
+            let high: u64 = 402_653_184; // 384 MiB
+            GaugeFn::increment(&metric, high as f64);
+            GaugeFn::decrement(&metric, (high / 2) as f64); // fall back down; peak stays at `high`
+
+            assert_eq!(metric.gauge_peak(), high, "peak must be the exact running maximum");
+            assert!(
+                metric.gauge_history().max() > high,
+                "precondition: history.max() rounds the boundary value up, so gauge_peak is the exact source",
             );
         }
     }
