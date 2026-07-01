@@ -59,6 +59,14 @@ impl TestRecorder {
     pub fn get(&self, name: &str, labels: &[(&str, &str)]) -> Option<Arc<Metric>> {
         lookup(&self.metrics, name, labels)
     }
+
+    /// Get-or-insert the metric for `key`, building it with `make` on first registration.
+    fn register_metric(&self, key: &Key, make: impl FnOnce() -> Metric) -> Arc<Metric> {
+        self.metrics
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(make()))
+            .clone()
+    }
 }
 
 #[derive(Debug)]
@@ -97,30 +105,15 @@ impl Recorder for TestRecorder {
     fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: SharedString) {}
 
     fn register_counter(&self, key: &Key, _metadata: &Metadata<'_>) -> Counter {
-        let metric = self
-            .metrics
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Metric::Counter(Default::default())))
-            .clone();
-        Counter::from_arc(metric)
+        Counter::from_arc(self.register_metric(key, || Metric::Counter(Default::default())))
     }
 
     fn register_gauge(&self, key: &Key, _metadata: &Metadata<'_>) -> Gauge {
-        let metric = self
-            .metrics
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Metric::Gauge(Default::default())))
-            .clone();
-        Gauge::from_arc(metric)
+        Gauge::from_arc(self.register_metric(key, || Metric::Gauge(Default::default())))
     }
 
     fn register_histogram(&self, key: &Key, _metadata: &Metadata<'_>) -> Histogram {
-        let metric = self
-            .metrics
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Metric::Histogram(Default::default())))
-            .clone();
-        Histogram::from_arc(metric)
+        Histogram::from_arc(self.register_metric(key, || Metric::Histogram(Default::default())))
     }
 }
 
@@ -184,12 +177,28 @@ pub mod stress {
     use hdrhistogram::Histogram as HdrHistogram;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// Upper bound of the HDR histogram — 10 minutes expressed as µs. Records beyond this
-    /// are clamped down so we never panic during recording.
-    pub const HDR_HIGH: u64 = 600_000_000;
+    /// Latency upper bound: 10 minutes in microseconds.
+    pub const LATENCY_HDR_HIGH: u64 = 600_000_000;
 
-    fn new_hdr() -> HdrHistogram<u64> {
-        HdrHistogram::<u64>::new_with_bounds(1, HDR_HIGH, 3).expect("HDR bounds valid")
+    /// Byte upper bound: 256 TiB, above any memory or disk-cache size a stress test reaches.
+    pub const BYTES_HDR_HIGH: u64 = 1 << 48;
+
+    /// Count upper bound (count-valued HDR histograms), e.g. for thread counts.
+    pub const COUNT_HDR_HIGH: u64 = 1 << 32;
+
+    /// HDR upper bound for a metric, determined by its unit to avoid clamping and
+    /// over-allocating histogram buckets.
+    fn hdr_high_for(metric_name: &str) -> u64 {
+        use mountpoint_s3_fs::metrics::defs::lookup_config;
+        match lookup_config(metric_name).unit {
+            Unit::Microseconds => LATENCY_HDR_HIGH,
+            Unit::Bytes => BYTES_HDR_HIGH,
+            _ => COUNT_HDR_HIGH,
+        }
+    }
+
+    fn new_hdr(metric_name: &str) -> HdrHistogram<u64> {
+        HdrHistogram::<u64>::new_with_bounds(1, hdr_high_for(metric_name), 3).expect("HDR bounds valid")
     }
 
     /// Clamp an `f64` into `[0, hist.high()]` as `u64`. NaN and negatives become 0; values
@@ -237,11 +246,11 @@ pub mod stress {
         pub history: HdrHistogram<u64>,
     }
 
-    impl Default for GaugeState {
-        fn default() -> Self {
+    impl GaugeState {
+        fn new(metric_name: &str) -> Self {
             Self {
                 current: 0.0,
-                history: new_hdr(),
+                history: new_hdr(metric_name),
             }
         }
     }
@@ -303,7 +312,7 @@ pub mod stress {
             let metric = self
                 .metrics
                 .entry(key.clone())
-                .or_insert_with(|| Arc::new(HdrMetric::Gauge(Mutex::new(GaugeState::default()))))
+                .or_insert_with(|| Arc::new(HdrMetric::Gauge(Mutex::new(GaugeState::new(key.name())))))
                 .clone();
             Gauge::from_arc(metric)
         }
@@ -312,7 +321,7 @@ pub mod stress {
             let metric = self
                 .metrics
                 .entry(key.clone())
-                .or_insert_with(|| Arc::new(HdrMetric::Histogram(Mutex::new(new_hdr()))))
+                .or_insert_with(|| Arc::new(HdrMetric::Histogram(Mutex::new(new_hdr(key.name())))))
                 .clone();
             Histogram::from_arc(metric)
         }
@@ -378,6 +387,31 @@ pub mod stress {
             let clamped = clamp(value, &h);
             // Cannot fail: `clamped` is within [0, high()].
             h.record(clamped).ok();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use metrics::GaugeFn;
+        use mountpoint_s3_fs::metrics::defs::PROCESS_MEMORY_USAGE;
+
+        /// Byte values above the latency bound must not be clamped, which would
+        /// under-report the true memory peak.
+        #[test]
+        fn byte_gauge_history_records_large_values_without_clamping() {
+            let metric = HdrMetric::Gauge(Mutex::new(GaugeState::new(PROCESS_MEMORY_USAGE)));
+            // Above the latency bound LATENCY_HDR_HIGH (≈572 MiB).
+            let rss: u64 = 756_809_728;
+            metric.set(rss as f64);
+
+            let peak = metric.gauge_history().max();
+            // HDR histograms quantise to 3 significant figures; allow one bucket of tolerance.
+            let tolerance = rss / 100;
+            assert!(
+                peak.abs_diff(rss) <= tolerance,
+                "gauge peak {peak} should be within {tolerance} of {rss}",
+            );
         }
     }
 }
