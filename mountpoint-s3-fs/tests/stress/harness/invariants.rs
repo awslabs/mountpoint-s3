@@ -1,7 +1,7 @@
 //! Teardown-time invariant assertions for stress scenarios.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::common::stress_recorder;
 use crate::common::test_recorder::stress::{HdrMetric, HdrRecorder};
@@ -10,6 +10,7 @@ use super::latency::{FileOp, FileOpLatencies};
 use super::report::{format_mib, us_to_ms_str};
 
 const RESERVED_MEMORY_METRIC: &str = "mem.bytes_reserved";
+const ALLOCATED_MEMORY_METRIC: &str = "mem.allocated_bytes";
 const IN_USE_MEMORY_METRIC: &str = "pool.bytes_in_use";
 
 /// Collect `(label_value, Arc<HdrMetric>)` for every registered gauge whose name matches
@@ -83,6 +84,25 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             RESERVED_MEMORY_METRIC,
             format_mib(effective_budget),
         );
+    }
+
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        let peak = metric.gauge_history().max();
+        tracing::info!(
+            scenario = scenario_name,
+            peak = %format_mib(peak),
+            ceiling = %format_mib(effective_budget),
+            "stress: peak {}",
+            ALLOCATED_MEMORY_METRIC,
+        );
+        if peak > effective_budget {
+            mem_overshoots.push(format!(
+                "{} peak {} exceeds effective budget {}",
+                ALLOCATED_MEMORY_METRIC,
+                format_mib(peak),
+                format_mib(effective_budget),
+            ));
+        }
     }
 
     let mut pool_violations: Vec<String> = Vec::new();
@@ -195,7 +215,12 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
     }
 }
 
+/// How long to wait for reservation gauges to settle to zero after the session is dropped.
+/// Freeing pool pages lags `drop(session)` by however long CRT teardown takes.
+const TEARDOWN_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// After the session is dropped, every reservation-tracking gauge must be back to zero.
+/// Polls until the gauges settle or [`TEARDOWN_SETTLE_TIMEOUT`] elapses.
 pub fn assert_teardown_invariants(scenario_name: &str) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
@@ -204,17 +229,48 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
         );
         return;
     };
-    let mut leaks: Vec<String> = Vec::new();
+
+    // Collect any reservation gauge not back to zero.
+    let collect_leaks = || {
+        let mut leaks: Vec<String> = Vec::new();
+        for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
+            check_teardown_leak(RESERVED_MEMORY_METRIC, "area", &area, metric.gauge(), &mut leaks);
+        }
+        if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+            let v = metric.gauge();
+            if v != 0.0 {
+                leaks.push(format!("{ALLOCATED_MEMORY_METRIC} = {v}"));
+            }
+        }
+        for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
+            check_teardown_leak(IN_USE_MEMORY_METRIC, "kind", &kind, metric.gauge(), &mut leaks);
+        }
+        leaks
+    };
+
+    let start = Instant::now();
+    let mut leaks = collect_leaks();
+    while !leaks.is_empty() && start.elapsed() < TEARDOWN_SETTLE_TIMEOUT {
+        std::thread::sleep(Duration::from_millis(50));
+        leaks = collect_leaks();
+    }
+
+    // Log each gauge's resting value.
     for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
-        let v = metric.gauge();
-        tracing::info!(scenario = scenario_name, area = %area, value = v, "stress: teardown {}", RESERVED_MEMORY_METRIC);
-        check_teardown_leak(RESERVED_MEMORY_METRIC, "area", &area, v, &mut leaks);
+        tracing::info!(scenario = scenario_name, area = %area, value = metric.gauge(), "stress: teardown {}", RESERVED_MEMORY_METRIC);
+    }
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        tracing::info!(
+            scenario = scenario_name,
+            value = metric.gauge(),
+            "stress: teardown {}",
+            ALLOCATED_MEMORY_METRIC
+        );
     }
     for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        let v = metric.gauge();
-        tracing::info!(scenario = scenario_name, kind = %kind, value = v, "stress: teardown {}", IN_USE_MEMORY_METRIC);
-        check_teardown_leak(IN_USE_MEMORY_METRIC, "kind", &kind, v, &mut leaks);
+        tracing::info!(scenario = scenario_name, kind = %kind, value = metric.gauge(), "stress: teardown {}", IN_USE_MEMORY_METRIC);
     }
+
     if leaks.is_empty() {
         tracing::info!(
             scenario = scenario_name,

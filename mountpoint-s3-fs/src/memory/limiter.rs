@@ -254,6 +254,7 @@ impl MemoryLimiter {
     ) -> Option<ManagedBuffer> {
         if forced {
             self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
+            metrics::gauge!("mem.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
             let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
@@ -273,6 +274,7 @@ impl MemoryLimiter {
                     Ordering::SeqCst,
                 ) {
                     Ok(_) => {
+                        metrics::gauge!("mem.allocated_bytes").increment(size as f64);
                         metrics::histogram!("mem.allocate_latency_us").record(start.elapsed().as_micros() as f64);
                         break;
                     }
@@ -292,6 +294,7 @@ impl MemoryLimiter {
         let size = ptr.size();
         drop(ptr);
         self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
+        metrics::gauge!("mem.allocated_bytes").decrement(size as f64);
         if let Some(kind) = kind {
             self.release_bytes(size, kind);
         } else {
