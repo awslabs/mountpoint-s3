@@ -33,13 +33,23 @@ impl SizePoolStats {
         self.empty_pages.load(Ordering::SeqCst)
     }
 
-    pub(super) fn add_empty_page(&self) {
-        metrics::gauge!("pool.empty_pages", "buffer_size" => format!("{}", self.buffer_size)).increment(1.0);
+    pub(super) fn add_empty_page(&self, buffer_count: usize) {
+        metrics::gauge!(
+            "pool.empty_pages",
+            "buffer_size" => format!("{}", self.buffer_size),
+            "buffer_count" => format!("{}", buffer_count),
+        )
+        .increment(1.0);
         self.empty_pages.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub(super) fn remove_empty_page(&self) {
-        metrics::gauge!("pool.empty_pages", "buffer_size" => format!("{}", self.buffer_size)).decrement(1.0);
+    pub(super) fn remove_empty_page(&self, buffer_count: usize) {
+        metrics::gauge!(
+            "pool.empty_pages",
+            "buffer_size" => format!("{}", self.buffer_size),
+            "buffer_count" => format!("{}", buffer_count),
+        )
+        .decrement(1.0);
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
@@ -52,7 +62,7 @@ impl SizePoolStats {
             "buffer_count" => format!("{}", buffer_count),
         )
         .increment(1.0);
-        self.add_empty_page();
+        self.add_empty_page(buffer_count);
         Some(result)
     }
 

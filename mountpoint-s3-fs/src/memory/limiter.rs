@@ -254,7 +254,7 @@ impl MemoryLimiter {
     ) -> Option<ManagedBuffer> {
         if forced {
             self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
-            metrics::gauge!("mem.allocated_bytes").increment(size as f64);
+            metrics::gauge!("pool.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
             let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
@@ -263,7 +263,7 @@ impl MemoryLimiter {
                 let new_total_mem_usage = new_mem_allocated.saturating_add(self.additional_mem_reserved);
                 if new_total_mem_usage > self.mem_limit {
                     trace!(new_total_mem_usage, "not enough memory to allocate");
-                    metrics::histogram!("mem.allocate_latency_us").record(start.elapsed().as_micros() as f64);
+                    metrics::histogram!("pool.allocate_latency_us").record(start.elapsed().as_micros() as f64);
                     return None;
                 }
                 // Check that the value we have read is still the same before updating it
@@ -274,8 +274,8 @@ impl MemoryLimiter {
                     Ordering::SeqCst,
                 ) {
                     Ok(_) => {
-                        metrics::gauge!("mem.allocated_bytes").increment(size as f64);
-                        metrics::histogram!("mem.allocate_latency_us").record(start.elapsed().as_micros() as f64);
+                        metrics::gauge!("pool.allocated_bytes").increment(size as f64);
+                        metrics::histogram!("pool.allocate_latency_us").record(start.elapsed().as_micros() as f64);
                         break;
                     }
                     Err(current) => mem_allocated = current, // another thread updated the atomic before us, trying again
@@ -294,7 +294,7 @@ impl MemoryLimiter {
         let size = ptr.size();
         drop(ptr);
         self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
-        metrics::gauge!("mem.allocated_bytes").decrement(size as f64);
+        metrics::gauge!("pool.allocated_bytes").decrement(size as f64);
         if let Some(kind) = kind {
             self.release_bytes(size, kind);
         } else {

@@ -372,14 +372,14 @@ impl PagedPoolInner {
                     "free empty memory pool pages"
                 );
                 removed = true;
-                for (buffer_count, &n) in freed_by_count.iter().enumerate() {
-                    if n > 0 {
+                for (buffer_count, &page_count) in freed_by_count.iter().enumerate() {
+                    if page_count > 0 {
                         metrics::gauge!(
                             "pool.allocated_pages",
                             "buffer_size" => format!("{}", pool.stats.buffer_size),
                             "buffer_count" => format!("{}", buffer_count),
                         )
-                        .decrement(n as f64);
+                        .decrement(page_count as f64);
                     }
                 }
             }

@@ -73,7 +73,7 @@ impl Page {
         let (index, page_status) = consume(&mut self.inner.acquired_bitmask.lock().unwrap(), self.buffer_count())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
-            self.inner.stats.remove_empty_page();
+            self.inner.stats.remove_empty_page(self.buffer_count());
         };
 
         self.inner.stats.acquire_buffer(kind);
@@ -107,7 +107,7 @@ impl Page {
         *bitmask &= mask;
 
         if *bitmask == 0 {
-            self.inner.stats.add_empty_page();
+            self.inner.stats.add_empty_page(self.buffer_count());
         }
         drop(bitmask);
 
@@ -129,7 +129,7 @@ impl Page {
             // arrives before the page is removed from the pool, it will be denied.
             *bitmask = FULL_MASK;
         }
-        self.inner.stats.remove_empty_page();
+        self.inner.stats.remove_empty_page(self.buffer_count());
         true
     }
 
