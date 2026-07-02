@@ -139,7 +139,7 @@ pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfi
 }
 
 /// Enable tracing and CRT logging when running unit tests.
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_tracing_subscriber() {
     let _ = RustLogAdapter::try_init();
 
@@ -152,7 +152,7 @@ fn init_tracing_subscriber() {
         .try_init();
 }
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_crt() {
     mountpoint_s3_client::config::io_library_init(&mountpoint_s3_client::config::Allocator::default());
     mountpoint_s3_client::config::s3_library_init(&mountpoint_s3_client::config::Allocator::default());
