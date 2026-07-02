@@ -68,7 +68,6 @@ aws-credential-types = "1.2.14"
 aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["behavior-version-latest", "sigv4a", "rt-tokio", "default-https-client"] }
 criterion = { version = "0.8.2", features = ["async", "async_futures"] }
 ctor = "1.0.7"
-filetime = "0.2.29"
 futures = { version = "0.3.32", features = ["thread-pool"] }
 humantime-serde = "1.1.1"
 opentelemetry_sdk = { version = "0.32.1", features = ["testing"] }
