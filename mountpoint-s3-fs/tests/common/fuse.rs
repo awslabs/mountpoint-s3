@@ -422,7 +422,10 @@ pub mod mock_session {
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            _ = tokio_block_on(self.client.put_object_single(BUCKET_NAME, &full_key, &params, value))?;
+            _ = tokio_block_on(
+                self.client
+                    .put_object_single(BUCKET_NAME, &full_key, &params, value.to_vec()),
+            )?;
             Ok(())
         }
 

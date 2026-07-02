@@ -99,11 +99,11 @@ where
         }
     }
 
-    pub async fn make_put_object_request<'a>(
+    pub async fn make_put_object_request(
         &self,
         mut params: PutObjectSingleParams,
         object_key: &str,
-        data: impl AsRef<[u8]> + Send + 'a,
+        data: impl AsRef<[u8]> + Send + 'static,
     ) -> Result<(), DataCacheError> {
         let (sse_type, key_id) = self
             .config

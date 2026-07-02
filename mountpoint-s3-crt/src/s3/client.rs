@@ -271,6 +271,9 @@ struct MetaRequestOptionsInner<'a> {
     /// Owned source uri for copy request, if provided.
     copy_source_uri: Option<String>,
 
+    /// Owned request body, if provided.
+    request_body: Option<Box<dyn AsRef<[u8]> + Send>>,
+
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
 
@@ -357,6 +360,7 @@ impl<'a> MetaRequestOptions<'a> {
             signing_config: None,
             checksum_config: None,
             copy_source_uri: None,
+            request_body: None,
             on_telemetry: None,
             on_headers: None,
             on_body_ex: None,
@@ -501,6 +505,22 @@ impl<'a> MetaRequestOptions<'a> {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.inner.send_using_async_writes = send_using_async_writes;
+        self
+    }
+
+    /// Send the request body directly from the given buffer (zero-copy). See the `request_body`
+    /// field docs in `aws/s3/s3_client.h` for more details.
+    ///
+    /// Ownership of `body` is moved into these options, which are only dropped once the meta request
+    /// is fully torn down (in the shutdown callback).
+    pub fn request_body(&mut self, body: impl AsRef<[u8]> + Send + 'static) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        let body = options.request_body.insert(Box::new(body));
+        // SAFETY: `body` is owned by these options and only dropped in the shutdown callback, so it
+        // outlives every read the CRT makes; the CRT only reads it (never writes/frees). The cursor
+        // is not invalidated by later `self` moves because the box owns the heap buffer, not `self`.
+        options.inner.request_body = unsafe { (**body).as_ref().as_aws_byte_cursor() };
         self
     }
 
