@@ -43,8 +43,10 @@ fn collect_gauges_by_label(
     out
 }
 
-/// Assert each individual reserved-memory gauge stayed below the effective budget the
-/// limiter enforces against (`mem_limit - additional_mem_reserved`)
+/// Assert each memory gauge's peak stayed within the effective budget the limiter enforces
+/// against (`mem_limit - additional_mem_reserved`). Reservations may transiently overshoot, so
+/// `mem.bytes_reserved` is only logged; the pool's committed memory is a hard bound, so
+/// `pool.allocated_bytes` and `pool.bytes_in_use` breaches fail the assertion.
 pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
@@ -105,9 +107,14 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             &mut allocated_violations,
         );
     }
-    // TODO: promote from logging error to assert once production accounting is tight
-    // enough that breaches indicate real regressions rather than known-gap overshoot.
-    if !allocated_violations.is_empty() {
+    if allocated_violations.is_empty() {
+        tracing::info!(
+            scenario = scenario_name,
+            "stress: assertion PASSED — peak {} invariant (ceiling {})",
+            ALLOCATED_MEMORY_METRIC,
+            format_mib(effective_budget),
+        );
+    } else {
         tracing::error!(
             scenario = scenario_name,
             violations = ?allocated_violations,
@@ -115,14 +122,14 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             ALLOCATED_MEMORY_METRIC,
             format_mib(effective_budget),
         );
-    } else {
-        tracing::info!(
-            scenario = scenario_name,
-            "stress: assertion PASSED — peak {} invariant (ceiling {})",
-            ALLOCATED_MEMORY_METRIC,
-            format_mib(effective_budget),
-        );
     }
+    assert!(
+        allocated_violations.is_empty(),
+        "peak {} invariant violated (ceiling {}):\n  {}",
+        ALLOCATED_MEMORY_METRIC,
+        format_mib(effective_budget),
+        allocated_violations.join("\n  "),
+    );
 
     let mut in_use_violations: Vec<String> = Vec::new();
     for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
@@ -143,9 +150,14 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             &mut in_use_violations,
         );
     }
-    // TODO: promote from logging error to assert once production accounting is tight
-    // enough that breaches indicate real regressions rather than known-gap overshoot.
-    if !in_use_violations.is_empty() {
+    if in_use_violations.is_empty() {
+        tracing::info!(
+            scenario = scenario_name,
+            "stress: assertion PASSED — peak {} invariant (ceiling {})",
+            IN_USE_MEMORY_METRIC,
+            format_mib(effective_budget),
+        );
+    } else {
         tracing::error!(
             scenario = scenario_name,
             violations = ?in_use_violations,
@@ -153,14 +165,14 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             IN_USE_MEMORY_METRIC,
             format_mib(effective_budget),
         );
-    } else {
-        tracing::info!(
-            scenario = scenario_name,
-            "stress: assertion PASSED — peak {} invariant (ceiling {})",
-            IN_USE_MEMORY_METRIC,
-            format_mib(effective_budget),
-        );
     }
+    assert!(
+        in_use_violations.is_empty(),
+        "peak {} invariant violated (ceiling {}):\n  {}",
+        IN_USE_MEMORY_METRIC,
+        format_mib(effective_budget),
+        in_use_violations.join("\n  "),
+    );
 }
 
 /// Render a metric's identity for log messages, e.g. `mem.bytes_reserved{area=prefetch}`
