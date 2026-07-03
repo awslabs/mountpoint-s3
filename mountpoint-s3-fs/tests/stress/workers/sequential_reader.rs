@@ -30,6 +30,10 @@ impl Worker for SequentialReader {
         vec![(self.target.key.to_string(), self.target.size)]
     }
 
+    fn io_buffer_bytes(&self) -> usize {
+        self.chunk
+    }
+
     fn run(
         &self,
         _instance: usize,

@@ -186,9 +186,9 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     );
 }
 
-/// Assert the peak sampled `process.memory_usage` (OS-reported RSS) stayed under
-/// `ceiling_bytes`.
-pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
+/// Assert the peak sampled `process.memory_usage` (OS-reported RSS), minus
+/// `worker_io_buffer_bytes` of in-process worker I/O buffers, stayed under `ceiling_bytes`.
+pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64, worker_io_buffer_bytes: usize) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
             scenario = scenario_name,
@@ -203,13 +203,13 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
         );
         return;
     };
-    let peak = metric.gauge_peak();
+    let peak = metric.gauge_peak().saturating_sub(worker_io_buffer_bytes as u64);
     let ceiling = ceiling_bytes as u64;
     tracing::info!(
         scenario = scenario_name,
         peak = %format_mib(peak),
         ceiling = %format_mib(ceiling),
-        "stress: peak process.memory_usage"
+        "stress: peak process.memory_usage (worker buffers subtracted)"
     );
     let mut violations: Vec<String> = Vec::new();
     if peak > ceiling {

@@ -170,10 +170,14 @@ pub fn run(scenario: Scenario) {
 
     dump_summary(scenario_name, &aggregate);
 
+    // Workers run in this process, so their I/O buffers count toward RSS; sum them so the
+    // peak-RSS invariant can exclude memory a real out-of-process application would own.
+    let worker_io_buffer_bytes: usize = workers.iter().map(|w| w.io_buffer_bytes()).sum();
+
     tracing::info!("");
     tracing::info!("=== STRESS [{}] INVARIANT ASSERTIONS ===", scenario_name);
     assert_peak_reserved_invariant(scenario_name, mem_limit);
-    assert_peak_rss_invariant(scenario_name, mem_limit);
+    assert_peak_rss_invariant(scenario_name, mem_limit, worker_io_buffer_bytes);
     assert_teardown_invariants(scenario_name);
     assert_p100_latency(scenario_name, &aggregate, max_latency);
     tracing::info!("");

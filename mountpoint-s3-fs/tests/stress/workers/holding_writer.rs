@@ -25,6 +25,10 @@ impl Worker for HoldingWriter {
         "holding_writer"
     }
 
+    fn io_buffer_bytes(&self) -> usize {
+        WRITE_CHUNK
+    }
+
     fn run(
         &self,
         instance: usize,
