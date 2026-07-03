@@ -1317,10 +1317,10 @@ mod tests {
     #[test_case(8 * MB, 8 * MB, 1 * MB + 128 * KB; "default")]
     #[test_case(8 * MB, 8 * MB, 0; "no initial request")]
     #[test_case(1 * KB, 1 * MB, 10 * MB; "initial request larger than part size")]
-    #[test_case(16 * MB, 8 * MB, 1 * MB + 128 * KB; "larger intial read window")]
-    #[test_case(16 * MB, 8 * MB, 0; "larger intial read window w/o initial request")]
-    #[test_case(1 * KB, 8 * MB, 1 * MB + 128 * KB; "smaller intial read window")]
-    #[test_case(1 * KB, 8 * MB, 0; "smaller intial read window w/o initial request")]
+    #[test_case(16 * MB, 8 * MB, 1 * MB + 128 * KB; "larger initial read window")]
+    #[test_case(16 * MB, 8 * MB, 0; "larger initial read window w/o initial request")]
+    #[test_case(1 * KB, 8 * MB, 1 * MB + 128 * KB; "smaller initial read window")]
+    #[test_case(1 * KB, 8 * MB, 0; "smaller initial read window w/o initial request")]
     fn test_initial_reqeust_size(initial_read_window_size: usize, part_size: usize, initial_request_size: usize) {
         let object_size = (16 * MB) as u64;
 

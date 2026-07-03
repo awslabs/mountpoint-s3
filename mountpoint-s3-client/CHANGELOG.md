@@ -1,4 +1,6 @@
-## Unreleased
+## Unreleased (v0.20.1)
+
+* Update to latest CRT dependencies.
 
 * Add `TlsConfig` type and `S3ClientConfig::tls_config()` builder for configuring a custom CA trust store. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
 

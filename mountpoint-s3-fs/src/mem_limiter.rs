@@ -54,7 +54,7 @@ impl BufferArea {
 ///                                     mem reserved by the backpressure controller
 ///                                     (on `BackpressureFeedbackEvent`)
 ///
-/// Incremental uploder instances may try to reserve multiple buffers to queue append requests. Under memory pressure,
+/// Incremental uploader instances may try to reserve multiple buffers to queue append requests. Under memory pressure,
 /// each instance will limit to a single buffer.
 #[derive(Debug)]
 pub struct MemoryLimiter {

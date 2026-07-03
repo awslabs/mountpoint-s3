@@ -115,6 +115,8 @@ pub enum SseType {
 pub enum ChecksumAlgorithm {
     #[serde(rename = "off")]
     Off,
+    #[serde(rename = "CRC64NVME")]
+    Crc64nvme,
     #[serde(rename = "CRC32C")]
     Crc32c,
     #[serde(rename = "CRC32")]

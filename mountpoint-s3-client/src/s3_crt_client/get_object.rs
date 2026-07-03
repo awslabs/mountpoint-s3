@@ -94,7 +94,7 @@ impl S3CrtClient {
                     // then on_meta_request_result will send an error.
                     if (200..300).contains(&status) {
                         // Headers can be returned multiple times, but the metadata/checksums don't change.
-                        // We only send the first occurence to the channel.
+                        // We only send the first occurrence to the channel.
                         if let Some(headers_sender) = headers_sender.take() {
                             _ = headers_sender.unbounded_send(S3GetObjectEvent::Headers(headers.clone()));
                         }

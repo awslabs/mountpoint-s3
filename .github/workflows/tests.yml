@@ -45,7 +45,7 @@ jobs:
       with:
         tool: nextest
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
@@ -77,7 +77,7 @@ jobs:
       with:
         rustflags: ""
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
@@ -120,7 +120,7 @@ jobs:
       with:
         tool: nextest
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
@@ -157,7 +157,7 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
@@ -189,7 +189,7 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
@@ -225,7 +225,7 @@ jobs:
       with:
         fuseVersion: 2
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/
@@ -275,7 +275,7 @@ jobs:
           rustflags: ""
           components: clippy
       - name: Cargo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -304,7 +304,7 @@ jobs:
           rustflags: ""
           components: rust-docs
       - name: Cargo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -413,7 +413,7 @@ jobs:
       with:
         rustflags: ""
     - name: Cargo cache
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           ~/.cargo/bin/

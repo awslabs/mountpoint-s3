@@ -96,7 +96,7 @@ pub mod types {
         GetObjectResponse, HeadObjectParams, HeadObjectResult, ListObjectsResult, ObjectAttribute, ObjectClientResult,
         ObjectInfo, ObjectPart, PutObjectParams, PutObjectResult, PutObjectSingleParams, PutObjectTrailingChecksums,
         RenameObjectParams, RenameObjectResult, RenamePreconditionTypes, RestoreStatus, UploadChecksum, UploadReview,
-        UploadReviewPart,
+        UploadReviewOutcome, UploadReviewPart,
     };
 }
 

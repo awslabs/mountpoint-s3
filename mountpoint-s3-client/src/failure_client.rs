@@ -19,7 +19,7 @@ use crate::object_client::{
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError,
     PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, RenameObjectError, RenameObjectParams,
-    RenameObjectResult, UploadReview,
+    RenameObjectResult, UploadReview, UploadReviewOutcome,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -292,7 +292,7 @@ where
 
     async fn review_and_complete(
         mut self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         (self.result_fn)(&mut self.state)?;
         self.request.review_and_complete(review_callback).await
