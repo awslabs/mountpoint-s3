@@ -1370,7 +1370,8 @@ mod tests {
         use futures::task::{FutureObj, Spawn, SpawnError};
         use shuttle::future::block_on;
         use shuttle::rand::Rng;
-        use shuttle::{check_pct, check_random};
+        use shuttle::scheduler::{PctScheduler, RandomScheduler};
+        use shuttle::{Config, Runner};
 
         struct ShuttleRuntime;
         impl Spawn for ShuttleRuntime {
@@ -1434,10 +1435,17 @@ mod tests {
             assert_eq!(next_offset, object_size);
         }
 
+        // The default coroutine stack size in shuttle 0.9 is too small for these tests.
+        fn shuttle_config() -> Config {
+            let mut config = Config::default();
+            config.stack_size = 256 * 1024;
+            config
+        }
+
         #[test]
         fn sequential_read_stress() {
-            check_random(sequential_read_stress_helper, 1000);
-            check_pct(sequential_read_stress_helper, 1000, 3);
+            Runner::new(RandomScheduler::new(1000), shuttle_config()).run(sequential_read_stress_helper);
+            Runner::new(PctScheduler::new(3, 1000), shuttle_config()).run(sequential_read_stress_helper);
         }
 
         fn random_read_stress_helper() {
@@ -1506,8 +1514,8 @@ mod tests {
 
         #[test]
         fn random_read_stress() {
-            check_random(random_read_stress_helper, 1000);
-            check_pct(random_read_stress_helper, 1000, 3);
+            Runner::new(RandomScheduler::new(1000), shuttle_config()).run(random_read_stress_helper);
+            Runner::new(PctScheduler::new(3, 1000), shuttle_config()).run(random_read_stress_helper);
         }
     }
 }
