@@ -585,13 +585,8 @@ mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
 
-    use crate::Runtime;
-    use crate::data_cache::InMemoryDataCache;
-    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
-    use crate::memory::PagedPool;
-    use crate::sync::Arc;
+    use std::collections::HashMap;
 
-    use super::*;
     use futures::executor::{ThreadPool, block_on};
     use mountpoint_s3_client::failure_client::{
         CountdownFailureConfig, GetObjectFailureMode, countdown_failure_client,
@@ -601,8 +596,14 @@ mod tests {
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use std::collections::HashMap;
     use test_case::test_case;
+
+    use crate::Runtime;
+    use crate::data_cache::InMemoryDataCache;
+    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::memory::PagedPool;
+
+    use super::*;
 
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
@@ -1365,6 +1366,7 @@ mod tests {
     #[cfg(feature = "shuttle")]
     mod shuttle_tests {
         use super::*;
+
         use futures::task::{FutureObj, Spawn, SpawnError};
         use shuttle::future::block_on;
         use shuttle::rand::Rng;
