@@ -13,14 +13,38 @@ const RESERVED_MEMORY_METRIC: &str = "mem.bytes_reserved";
 const ALLOCATED_MEMORY_METRIC: &str = "pool.allocated_bytes";
 const IN_USE_MEMORY_METRIC: &str = "pool.bytes_in_use";
 
-/// Collect `(label_value, Arc<HdrMetric>)` for every registered gauge whose name matches
-/// `metric_name` and that carries a label keyed on `label_key`. Lets invariant checks
-/// auto-discover new `area=` / `kind=` values instead of hardcoding the allowlist.
+/// A gauge handle carrying its identity for logging and violation messages.
+struct NamedGauge {
+    metric_name: &'static str,
+    /// `(label_key, label_value)`, or `None` for an unlabeled gauge.
+    label: Option<(&'static str, String)>,
+    metric: Arc<HdrMetric>,
+}
+
+impl NamedGauge {
+    /// Render the gauge's identity, e.g. `mem.bytes_reserved{area=prefetch}` for a labeled
+    /// gauge or `pool.allocated_bytes` for an unlabeled one.
+    fn id(&self) -> String {
+        match &self.label {
+            Some((key, value)) => format!("{}{{{key}={value}}}", self.metric_name),
+            None => self.metric_name.to_string(),
+        }
+    }
+
+    /// Current gauge value
+    fn value(&self) -> f64 {
+        self.metric.gauge()
+    }
+}
+
+/// Collect a [`NamedGauge`] for every registered gauge whose name matches `metric_name` and that
+/// carries a label keyed on `label_key`. Lets invariant checks auto-discover new `area=` / `kind=`
+/// values instead of hardcoding the allowlist.
 fn collect_gauges_by_label(
     recorder: &HdrRecorder,
-    metric_name: &str,
-    label_key: &str,
-) -> Vec<(String, Arc<HdrMetric>)> {
+    metric_name: &'static str,
+    label_key: &'static str,
+) -> Vec<NamedGauge> {
     let mut out = Vec::new();
     recorder.for_each(|key, metric| {
         if key.name() != metric_name {
@@ -37,9 +61,13 @@ fn collect_gauges_by_label(
         else {
             return;
         };
-        out.push((label_value, Arc::clone(metric)));
+        out.push(NamedGauge {
+            metric_name,
+            label: Some((label_key, label_value)),
+            metric: Arc::clone(metric),
+        });
     });
-    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
 
@@ -60,22 +88,8 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     let effective_budget = mem_limit_u64.saturating_sub(additional_mem_reserved);
 
     let mut reserved_overshoots: Vec<String> = Vec::new();
-    for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
-        let peak = metric.gauge_history().max();
-        tracing::info!(
-            scenario = scenario_name,
-            area = %area,
-            peak = %format_mib(peak),
-            ceiling = %format_mib(effective_budget),
-            "stress: peak mem.bytes_reserved"
-        );
-        check_peak_violation(
-            RESERVED_MEMORY_METRIC,
-            Some(("area", &area)),
-            peak,
-            effective_budget,
-            &mut reserved_overshoots,
-        );
+    for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
+        check_peak_violation(scenario_name, &gauge, effective_budget, &mut reserved_overshoots);
     }
     if !reserved_overshoots.is_empty() {
         tracing::warn!(
@@ -91,21 +105,12 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     // allocated gauge is a hard bound (unlike reservations, which may transiently overshoot).
     let mut allocated_violations: Vec<String> = Vec::new();
     if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
-        let peak = metric.gauge_history().max();
-        tracing::info!(
-            scenario = scenario_name,
-            peak = %format_mib(peak),
-            ceiling = %format_mib(effective_budget),
-            "stress: peak {}",
-            ALLOCATED_MEMORY_METRIC,
-        );
-        check_peak_violation(
-            ALLOCATED_MEMORY_METRIC,
-            None,
-            peak,
-            effective_budget,
-            &mut allocated_violations,
-        );
+        let gauge = NamedGauge {
+            metric_name: ALLOCATED_MEMORY_METRIC,
+            label: None,
+            metric,
+        };
+        check_peak_violation(scenario_name, &gauge, effective_budget, &mut allocated_violations);
     }
     if allocated_violations.is_empty() {
         tracing::info!(
@@ -132,23 +137,8 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     );
 
     let mut in_use_violations: Vec<String> = Vec::new();
-    for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        let peak = metric.gauge_history().max();
-        tracing::info!(
-            scenario = scenario_name,
-            kind = %kind,
-            peak = %format_mib(peak),
-            ceiling = %format_mib(effective_budget),
-            "stress: peak {}",
-            IN_USE_MEMORY_METRIC,
-        );
-        check_peak_violation(
-            IN_USE_MEMORY_METRIC,
-            Some(("kind", &kind)),
-            peak,
-            effective_budget,
-            &mut in_use_violations,
-        );
+    for gauge in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
+        check_peak_violation(scenario_name, &gauge, effective_budget, &mut in_use_violations);
     }
     if in_use_violations.is_empty() {
         tracing::info!(
@@ -175,28 +165,21 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     );
 }
 
-/// Render a metric's identity for log messages, e.g. `mem.bytes_reserved{area=prefetch}`
-/// for a labeled gauge or `pool.allocated_bytes` for an unlabeled one.
-fn metric_id(metric_name: &str, label: Option<(&str, &str)>) -> String {
-    match label {
-        Some((key, value)) => format!("{metric_name}{{{key}={value}}}"),
-        None => metric_name.to_string(),
-    }
-}
-
-/// Push a `{metric_id} peak ... exceeds effective budget ...` message onto `violations`
-/// iff `peak > effective_budget`.
-fn check_peak_violation(
-    metric_name: &str,
-    label: Option<(&str, &str)>,
-    peak: u64,
-    effective_budget: u64,
-    violations: &mut Vec<String>,
-) {
+/// Log a gauge's peak against the budget and, iff `peak > effective_budget`, push a
+/// `{gauge_id} peak ... exceeds effective budget ...` message onto `violations`.
+fn check_peak_violation(scenario_name: &str, gauge: &NamedGauge, effective_budget: u64, violations: &mut Vec<String>) {
+    let peak = gauge.metric.gauge_history().max();
+    tracing::info!(
+        scenario = scenario_name,
+        metric = %gauge.id(),
+        peak = %format_mib(peak),
+        ceiling = %format_mib(effective_budget),
+        "stress: peak memory gauge"
+    );
     if peak > effective_budget {
         violations.push(format!(
             "{} peak {} exceeds effective budget {}",
-            metric_id(metric_name, label),
+            gauge.id(),
             format_mib(peak),
             format_mib(effective_budget),
         ));
@@ -260,23 +243,6 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
 /// zero shortly after `drop(session)` returns. With no deterministic signal to await, we poll.
 const TEARDOWN_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// A gauge handle polled during teardown, retaining its identity for logging.
-struct NamedGauge {
-    metric_name: &'static str,
-    /// `(label_key, label_value)`, or `None` for an unlabeled gauge.
-    label: Option<(&'static str, String)>,
-    metric: Arc<HdrMetric>,
-}
-
-impl NamedGauge {
-    fn id(&self) -> String {
-        metric_id(
-            self.metric_name,
-            self.label.as_ref().map(|(key, value)| (*key, value.as_str())),
-        )
-    }
-}
-
 /// After the session is dropped, every tracked gauge must be back to zero.
 /// Polls until the gauges settle or [`TEARDOWN_SETTLE_TIMEOUT`] elapses.
 pub fn assert_teardown_invariants(scenario_name: &str) {
@@ -289,14 +255,7 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
     };
 
     // Each handle holds a live value that CRT teardown decrements, so we poll them in place.
-    let mut gauges: Vec<NamedGauge> = Vec::new();
-    for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
-        gauges.push(NamedGauge {
-            metric_name: RESERVED_MEMORY_METRIC,
-            label: Some(("area", area)),
-            metric,
-        });
-    }
+    let mut gauges = collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area");
     if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
         gauges.push(NamedGauge {
             metric_name: ALLOCATED_MEMORY_METRIC,
@@ -304,25 +263,17 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
             metric,
         });
     }
-    for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        gauges.push(NamedGauge {
-            metric_name: IN_USE_MEMORY_METRIC,
-            label: Some(("kind", kind)),
-            metric,
-        });
-    }
-
-    let any_leak = |gauges: &[NamedGauge]| gauges.iter().any(|g| g.metric.gauge() != 0.0);
+    gauges.extend(collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind"));
 
     let start = Instant::now();
-    while any_leak(&gauges) && start.elapsed() < TEARDOWN_SETTLE_TIMEOUT {
+    while gauges.iter().any(|g| g.value() != 0.0) && start.elapsed() < TEARDOWN_SETTLE_TIMEOUT {
         std::thread::sleep(Duration::from_millis(50));
     }
 
     // Log each gauge's resting value and record any that did not return to zero.
     let mut leaks: Vec<String> = Vec::new();
     for gauge in &gauges {
-        let value = gauge.metric.gauge();
+        let value = gauge.value();
         tracing::info!(
             scenario = scenario_name,
             metric = %gauge.id(),
