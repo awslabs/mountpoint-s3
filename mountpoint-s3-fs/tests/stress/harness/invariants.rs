@@ -35,6 +35,27 @@ impl NamedGauge {
     fn value(&self) -> f64 {
         self.metric.gauge()
     }
+
+    /// Log the gauge's peak against the budget and, iff `peak > effective_budget`, push a
+    /// `{gauge_id} peak ... exceeds effective budget ...` message onto `violations`.
+    fn check_peak_violation(&self, scenario_name: &str, effective_budget: u64, violations: &mut Vec<String>) {
+        let peak = self.metric.gauge_history().max();
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %self.id(),
+            peak = %format_mib(peak),
+            ceiling = %format_mib(effective_budget),
+            "stress: peak memory gauge"
+        );
+        if peak > effective_budget {
+            violations.push(format!(
+                "{} peak {} exceeds effective budget {}",
+                self.id(),
+                format_mib(peak),
+                format_mib(effective_budget),
+            ));
+        }
+    }
 }
 
 /// Collect a [`NamedGauge`] for every registered gauge whose name matches `metric_name` and that
@@ -89,7 +110,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
 
     let mut reserved_overshoots: Vec<String> = Vec::new();
     for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
-        check_peak_violation(scenario_name, &gauge, effective_budget, &mut reserved_overshoots);
+        gauge.check_peak_violation(scenario_name, effective_budget, &mut reserved_overshoots);
     }
     if !reserved_overshoots.is_empty() {
         tracing::warn!(
@@ -110,7 +131,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             label: None,
             metric,
         };
-        check_peak_violation(scenario_name, &gauge, effective_budget, &mut allocated_violations);
+        gauge.check_peak_violation(scenario_name, effective_budget, &mut allocated_violations);
     }
     if allocated_violations.is_empty() {
         tracing::info!(
@@ -138,7 +159,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
 
     let mut in_use_violations: Vec<String> = Vec::new();
     for gauge in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        check_peak_violation(scenario_name, &gauge, effective_budget, &mut in_use_violations);
+        gauge.check_peak_violation(scenario_name, effective_budget, &mut in_use_violations);
     }
     if in_use_violations.is_empty() {
         tracing::info!(
@@ -163,27 +184,6 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         format_mib(effective_budget),
         in_use_violations.join("\n  "),
     );
-}
-
-/// Log a gauge's peak against the budget and, iff `peak > effective_budget`, push a
-/// `{gauge_id} peak ... exceeds effective budget ...` message onto `violations`.
-fn check_peak_violation(scenario_name: &str, gauge: &NamedGauge, effective_budget: u64, violations: &mut Vec<String>) {
-    let peak = gauge.metric.gauge_history().max();
-    tracing::info!(
-        scenario = scenario_name,
-        metric = %gauge.id(),
-        peak = %format_mib(peak),
-        ceiling = %format_mib(effective_budget),
-        "stress: peak memory gauge"
-    );
-    if peak > effective_budget {
-        violations.push(format!(
-            "{} peak {} exceeds effective budget {}",
-            gauge.id(),
-            format_mib(peak),
-            format_mib(effective_budget),
-        ));
-    }
 }
 
 /// Assert the peak sampled `process.memory_usage` (OS-reported RSS) stayed under
