@@ -26,7 +26,6 @@ use std::default::Default;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -47,6 +46,7 @@ use crate::metablock::{
     NewHandle, PendingUploadHook, ReadWriteMode, S3Location, ValidKey, ValidName, WriteMode,
 };
 use crate::s3::{S3Path, S3Personality};
+use crate::sync::atomic::{AtomicU64, Ordering};
 use crate::sync::{Arc, RwLock};
 
 mod handles_map;

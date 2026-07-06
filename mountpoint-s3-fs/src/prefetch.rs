@@ -585,13 +585,8 @@ mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
 
-    use crate::Runtime;
-    use crate::data_cache::InMemoryDataCache;
-    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
-    use crate::memory::PagedPool;
-    use crate::sync::Arc;
+    use std::collections::HashMap;
 
-    use super::*;
     use futures::executor::{ThreadPool, block_on};
     use mountpoint_s3_client::failure_client::{
         CountdownFailureConfig, GetObjectFailureMode, countdown_failure_client,
@@ -601,8 +596,14 @@ mod tests {
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use std::collections::HashMap;
     use test_case::test_case;
+
+    use crate::Runtime;
+    use crate::data_cache::InMemoryDataCache;
+    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
+    use crate::memory::PagedPool;
+
+    use super::*;
 
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
@@ -1365,10 +1366,12 @@ mod tests {
     #[cfg(feature = "shuttle")]
     mod shuttle_tests {
         use super::*;
+
         use futures::task::{FutureObj, Spawn, SpawnError};
         use shuttle::future::block_on;
         use shuttle::rand::Rng;
-        use shuttle::{check_pct, check_random};
+        use shuttle::scheduler::{PctScheduler, RandomScheduler};
+        use shuttle::{Config, Runner};
 
         struct ShuttleRuntime;
         impl Spawn for ShuttleRuntime {
@@ -1432,10 +1435,17 @@ mod tests {
             assert_eq!(next_offset, object_size);
         }
 
+        // The default coroutine stack size in shuttle 0.9 is too small for these tests.
+        fn shuttle_config() -> Config {
+            let mut config = Config::default();
+            config.stack_size = 256 * 1024;
+            config
+        }
+
         #[test]
         fn sequential_read_stress() {
-            check_random(sequential_read_stress_helper, 1000);
-            check_pct(sequential_read_stress_helper, 1000, 3);
+            Runner::new(RandomScheduler::new(1000), shuttle_config()).run(sequential_read_stress_helper);
+            Runner::new(PctScheduler::new(3, 1000), shuttle_config()).run(sequential_read_stress_helper);
         }
 
         fn random_read_stress_helper() {
@@ -1504,8 +1514,8 @@ mod tests {
 
         #[test]
         fn random_read_stress() {
-            check_random(random_read_stress_helper, 1000);
-            check_pct(random_read_stress_helper, 1000, 3);
+            Runner::new(RandomScheduler::new(1000), shuttle_config()).run(random_read_stress_helper);
+            Runner::new(PctScheduler::new(3, 1000), shuttle_config()).run(random_read_stress_helper);
         }
     }
 }
