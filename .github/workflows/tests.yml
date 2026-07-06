@@ -374,12 +374,12 @@ jobs:
 
     steps:
       - name: Build Dockerfile using official release binaries
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.2.0
         with:
           push: false
           file: docker/Dockerfile
       - name: Build Dockerfile using Mountpoint source code
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v7.2.0
         with:
           push: false
           file: docker/Dockerfile.source
