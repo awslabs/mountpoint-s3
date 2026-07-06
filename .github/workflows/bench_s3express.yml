@@ -85,13 +85,13 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -103,7 +103,7 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -129,7 +129,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}${{ matrix.results_subdir_suffix }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
       with:
         name: Throughput Benchmark (S3 Express One Zone${{ matrix.name_suffix }})
         tool: 'customBiggerIsBetter'
@@ -145,7 +145,7 @@ jobs:
         max-items-in-chart: ${{ env.MAX_VALUES_IN_BENCH_CHART }}
         summary-always: true
     - name: Check resource utilization
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
       with:
         name: Throughput Benchmark - Peak Memory Usage (S3 Express One Zone${{ matrix.name_suffix }})
         tool: 'customSmallerIsBetter'
@@ -176,13 +176,13 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
         aws-region: ${{ vars.S3_BENCH_REGION }}
         role-duration-seconds: 21600
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -194,7 +194,7 @@ jobs:
         libunwind: true
         fio: true
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -214,7 +214,7 @@ jobs:
         S3_BENCH_RESULTS_PREFIX: ${{ inputs.s3_bench_results_prefix }}/${{ github.job }}
         COMMIT_ID: ${{ inputs.ref }}
     - name: Check benchmark results
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
       with:
         name: Latency Benchmark (S3 Express One Zone)
         tool: 'customSmallerIsBetter'
