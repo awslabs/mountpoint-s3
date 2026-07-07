@@ -77,10 +77,10 @@ exclude = [
 bindgen = { version = "0.72.1", default-features = false, features = [
     "runtime",
 ] }
-cc = "1.2.61"
+cc = "1.2.65"
 cmake = "0.1.58"
 rustflags = "0.1.7"
-which = "8.0.2"
+which = "8.0.4"
 
 [dependencies]
 libc = "0.2.186"
