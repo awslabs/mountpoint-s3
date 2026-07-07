@@ -208,7 +208,7 @@ impl S3CrtClient {
         storage_class: Option<&str>,
         server_side_encryption: Option<&str>,
         ssekms_key_id: Option<&str>,
-    ) -> Result<S3Message<'_>, S3RequestError> {
+    ) -> Result<S3Message, S3RequestError> {
         let mut message = self
             .inner
             .new_request_template("PUT", bucket)

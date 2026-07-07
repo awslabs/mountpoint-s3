@@ -487,7 +487,7 @@ impl S3CrtClientInner {
     /// Pre-populates common headers used across all requests. Sets the "accept" header assuming the
     /// response should be XML; this header should be overwritten for requests like GET that return
     /// object data.
-    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message<'_>, ConstructionError> {
+    fn new_request_template(&self, method: &str, bucket: &str) -> Result<S3Message, ConstructionError> {
         let endpoint = self.endpoint_config.resolve_for_bucket(bucket)?;
         let uri = endpoint.uri()?;
         trace!(?uri, "resolved endpoint");
@@ -932,8 +932,8 @@ impl S3Operation {
 /// virtual-hosted-style addresses. The `path_prefix` is appended to the front of all paths, and
 /// need not be terminated with a `/`.
 #[derive(Debug)]
-struct S3Message<'a> {
-    inner: Message<'a>,
+struct S3Message {
+    inner: Message,
     uri: Uri,
     path_prefix: String,
     checksum_config: Option<ChecksumConfig>,
@@ -995,7 +995,7 @@ impl<P: AsRef<OsStr>> QueryFragment<'_, P> {
     }
 }
 
-impl<'a> S3Message<'a> {
+impl S3Message {
     /// Add a header to this message. The header is added if necessary and any existing values for
     /// this header are removed.
     fn set_header(
@@ -1059,7 +1059,7 @@ impl<'a> S3Message<'a> {
         self.inner.set_header(&header)
     }
 
-    fn into_options(self, operation: S3Operation) -> MetaRequestOptions<'a> {
+    fn into_options(self, operation: S3Operation) -> MetaRequestOptions {
         let mut options = MetaRequestOptions::new();
         if let Some(checksum_config) = self.checksum_config {
             options.checksum_config(checksum_config);

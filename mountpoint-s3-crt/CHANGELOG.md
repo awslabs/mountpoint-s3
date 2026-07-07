@@ -2,6 +2,8 @@
 
 * Update to latest CRT dependencies.
 * Add `MetaRequestOptions::request_body`.
+* Remove the `io::stream` module (`InputStream`) and `Message::set_body_stream`, which are superseded by `MetaRequestOptions::request_body`. 
+* `Message` and `MetaRequestOptions` are no longer generic over a lifetime.
 
 ## v0.14.0 (April 28, 2026)
 
