@@ -51,6 +51,9 @@ pub struct ClientConfig {
 
     /// Value for the user-agent header
     pub user_agent: UserAgent,
+
+    /// Whether the memory limit was explicitly set by the user via --max-memory-target
+    pub memory_limit_user_specified: bool,
 }
 
 #[derive(Debug)]
@@ -139,13 +142,46 @@ impl ClientConfig {
         memory_pool: PagedPool,
         validate_on_s3_path: Option<&S3Path>,
     ) -> anyhow::Result<S3CrtClient> {
+        // Check if read_part_size exceeds memory budget and apply hybrid approach:
+        // - Fail mount when both memory and part size are explicitly set and conflict
+        // - Clamp when memory is default (auto-detected)
+        const MIB: usize = 1024 * 1024;
+
+        let data_buffer_budget = memory_pool.data_buffer_budget();
+        let mut effective_read_part_size = self.part_config.read_size_bytes;
+
+        if effective_read_part_size > data_buffer_budget {
+            let read_part_size_mib = effective_read_part_size / MIB;
+            let budget_mib = data_buffer_budget / MIB;
+
+            if self.memory_limit_user_specified {
+                // User explicitly set memory target - fail fast with clear error
+                anyhow::bail!(
+                    "read part size ({} MiB) exceeds memory budget ({} MiB). \
+                     Increase --max-memory-target or decrease --read-part-size.",
+                    read_part_size_mib,
+                    budget_mib
+                );
+            } else {
+                // Memory was auto-detected (default) - clamp and warn
+                effective_read_part_size = data_buffer_budget;
+                tracing::warn!(
+                    "read part size ({} MiB) exceeds auto-detected memory budget ({} MiB), \
+                     clamping to {} MiB",
+                    read_part_size_mib,
+                    budget_mib,
+                    budget_mib
+                );
+            }
+        }
+
         let mut client_config = S3ClientConfig::new()
             .auth_config(self.auth_config)
             .throughput_target_gbps(self.throughput_target.value())
-            .read_part_size(self.part_config.read_size_bytes)
+            .read_part_size(effective_read_part_size)
             .write_part_size(self.part_config.write_size_bytes)
             .read_backpressure(true)
-            .initial_read_window(self.part_config.read_size_bytes)
+            .initial_read_window(effective_read_part_size)
             .user_agent(self.user_agent)
             .memory_pool(memory_pool);
         if let Some(interfaces) = self.bind {
@@ -241,5 +277,121 @@ fn validate_client_for_bucket(
                 s3_path.bucket, region
             )
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::PagedPool;
+
+    #[test]
+    fn test_read_part_size_within_budget_no_clamp() {
+        // read_part_size < budget → should use requested size, no error
+        let pool = PagedPool::config()
+            .with_candidate_sizes([8 * 1024 * 1024])
+            .with_memory_limit(1024 * 1024 * 1024) // 1 GB
+            .build();
+
+        let config = ClientConfig {
+            region: Region::new_inferred("us-east-1".to_string()),
+            endpoint_url: None,
+            addressing_style: AddressingStyle::Automatic,
+            dual_stack: false,
+            transfer_acceleration: false,
+            auth_config: S3ClientAuthConfig::NoSigning,
+            requester_pays: false,
+            expected_bucket_owner: None,
+            throughput_target: TargetThroughputSetting::Default,
+            bind: None,
+            part_config: PartConfig::with_part_size(8 * 1024 * 1024), // 8 MB - well within budget
+            user_agent: UserAgent::new(None),
+            memory_limit_user_specified: false,
+        };
+
+        let result = config.create_client(pool, None);
+        assert!(result.is_ok(), "Should succeed when read_part_size < budget");
+    }
+
+    #[test]
+    fn test_read_part_size_exceeds_budget_user_specified_fails() {
+        // User set memory + read_part_size > budget → should fail
+        let pool = PagedPool::config()
+            .with_candidate_sizes([8 * 1024 * 1024])
+            .with_memory_limit(512 * 1024 * 1024) // 512 MB
+            .build();
+
+        let budget = pool.data_buffer_budget();
+        let excessive_size = budget + 1; // Just over budget
+
+        let config = ClientConfig {
+            region: Region::new_inferred("us-east-1".to_string()),
+            endpoint_url: None,
+            addressing_style: AddressingStyle::Automatic,
+            dual_stack: false,
+            transfer_acceleration: false,
+            auth_config: S3ClientAuthConfig::NoSigning,
+            requester_pays: false,
+            expected_bucket_owner: None,
+            throughput_target: TargetThroughputSetting::Default,
+            bind: None,
+            part_config: PartConfig::with_part_size(excessive_size),
+            user_agent: UserAgent::new(None),
+            memory_limit_user_specified: true, // User explicitly set memory
+        };
+
+        let result = config.create_client(pool, None);
+        assert!(
+            result.is_err(),
+            "Should fail when user set memory and read_part_size > budget"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds memory budget"),
+            "Error should mention budget exceeded: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_read_part_size_exceeds_budget_default_clamps() {
+        // Default memory + read_part_size > budget → should clamp and succeed
+        let pool = PagedPool::config()
+            .with_candidate_sizes([8 * 1024 * 1024])
+            .with_memory_limit(512 * 1024 * 1024) // 512 MB
+            .build();
+
+        let budget = pool.data_buffer_budget();
+        let excessive_size = budget + 100 * 1024 * 1024; // 100 MB over budget
+
+        let config = ClientConfig {
+            region: Region::new_inferred("us-east-1".to_string()),
+            endpoint_url: None,
+            addressing_style: AddressingStyle::Automatic,
+            dual_stack: false,
+            transfer_acceleration: false,
+            auth_config: S3ClientAuthConfig::NoSigning,
+            requester_pays: false,
+            expected_bucket_owner: None,
+            throughput_target: TargetThroughputSetting::Default,
+            bind: None,
+            part_config: PartConfig::with_part_size(excessive_size),
+            user_agent: UserAgent::new(None),
+            memory_limit_user_specified: false, // Memory was auto-detected (default)
+        };
+
+        let result = config.create_client(pool, None);
+        assert!(
+            result.is_ok(),
+            "Should succeed (with clamping) when memory is default and read_part_size > budget"
+        );
+
+        // Verify the client was created with clamped size (it should use budget, not excessive_size)
+        let client = result.unwrap();
+        assert_eq!(
+            client.read_part_size(),
+            budget,
+            "Client should use clamped size equal to budget"
+        );
     }
 }

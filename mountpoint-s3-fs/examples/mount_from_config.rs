@@ -148,6 +148,7 @@ impl ConfigOptions {
             bind: None,
             part_config: PartConfig::with_part_size(self.part_size()),
             user_agent: UserAgent::new(Some(user_agent_string)),
+            memory_limit_user_specified: false,
         })
     }
 

@@ -809,6 +809,12 @@ impl CliArgs {
         let throughput_target = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
+        #[cfg(feature = "mem_limiter")]
+        let memory_limit_user_specified = self.max_memory_target.is_some();
+
+        #[cfg(not(feature = "mem_limiter"))]
+        let memory_limit_user_specified = false;
+
         ClientConfig {
             region,
             endpoint_url: self.endpoint_url.clone(),
@@ -822,6 +828,7 @@ impl CliArgs {
             bind: self.bind.clone(),
             part_config: self.part_config(),
             user_agent,
+            memory_limit_user_specified,
         }
     }
 }
