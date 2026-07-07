@@ -136,13 +136,13 @@ mod test {
     use crate::common::rust_log_adapter::RustLogAdapter;
 
     /// Enable tracing when running unit tests.
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn init_tracing_subscriber() {
         RustLogAdapter::try_init().expect("unable to install CRT log adapter");
         tracing_subscriber::fmt::init();
     }
 
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn init_crt() {
         crate::io::io_library_init(&crate::common::allocator::Allocator::default());
         crate::s3::s3_library_init(&crate::common::allocator::Allocator::default());

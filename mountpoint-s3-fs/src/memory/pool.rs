@@ -331,7 +331,7 @@ impl PagedPoolInner {
         {
             metrics::histogram!("pool.acquired_bytes", "type" => "primary", "kind" => kind.as_str())
                 .record(size as f64);
-            metrics::histogram!("pool.slack_bytes", "size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
+            metrics::histogram!("pool.slack_bytes", "buffer_size" => format!("{}", pool.buffer_size()), "kind" => kind.as_str())
                     .record((pool.buffer_size() - size) as f64);
 
             PoolBuffer::new_primary(buffer_ptr, size)
@@ -352,20 +352,38 @@ impl PagedPoolInner {
             }
             let mut write = pool.pages.write().unwrap();
             let len = write.len();
-            write.retain(|p| !p.invalidate_if_empty());
+            // Freed pages in a tier can have different buffer counts (small-page fallback), so
+            // tally by count to decrement the matching `pool.allocated_pages` label below.
+            let mut freed_by_count: [usize; MAX_BUFFERS_PER_PAGE + 1] = [0; MAX_BUFFERS_PER_PAGE + 1];
+            write.retain(|p| {
+                if p.invalidate_if_empty() {
+                    freed_by_count[p.buffer_count()] += 1;
+                    false
+                } else {
+                    true
+                }
+            });
 
             let pages_freed = len - write.len();
             if pages_freed > 0 {
                 tracing::trace!(
-                    size = pool.stats.buffer_size,
+                    buffer_size = pool.stats.buffer_size,
                     pages_freed,
                     "free empty memory pool pages"
                 );
                 removed = true;
-                metrics::gauge!("pool.allocated_pages", "size" => format!("{}", pool.stats.buffer_size))
-                    .decrement(pages_freed as f64);
+                for (buffer_count, &page_count) in freed_by_count.iter().enumerate() {
+                    if page_count > 0 {
+                        metrics::gauge!(
+                            "pool.allocated_pages",
+                            "buffer_size" => format!("{}", pool.stats.buffer_size),
+                            "buffer_count" => format!("{}", buffer_count),
+                        )
+                        .decrement(page_count as f64);
+                    }
+                }
             }
-            metrics::histogram!("pool.trim_pages", "size" => format!("{}", pool.stats.buffer_size))
+            metrics::histogram!("pool.trim_pages", "buffer_size" => format!("{}", pool.stats.buffer_size))
                 .record(pages_freed as f64);
         }
 
