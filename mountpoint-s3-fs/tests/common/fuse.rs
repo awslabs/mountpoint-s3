@@ -65,6 +65,10 @@ type ObjectChecksums = (Option<Checksum>, Vec<Option<Checksum>>);
 
 pub struct TestSessionConfig {
     pub part_size: usize,
+    /// Read part size for the S3 client. When `None`, `part_size` is used for both reads and
+    /// writes (the default). Set it to a different value to give reads and writes distinct part
+    /// sizes — and therefore distinct `PagedPool` size-pools.
+    pub read_part_size: Option<usize>,
     pub initial_read_window_size: usize,
     pub filesystem_config: S3FilesystemConfig,
     pub auth_config: S3ClientAuthConfig,
@@ -87,6 +91,7 @@ impl Default for TestSessionConfig {
         let cache_block_size = 1024 * 1024;
         Self {
             part_size,
+            read_part_size: None,
             initial_read_window_size,
             filesystem_config: Default::default(),
             auth_config: Default::default(),
@@ -131,6 +136,18 @@ impl TestSessionConfig {
     pub fn with_part_size(mut self, part_size: usize) -> Self {
         self.part_size = part_size;
         self
+    }
+
+    /// Override the read part size, giving reads and writes distinct part sizes (and therefore
+    /// distinct `PagedPool` size-pools). Writes continue to use `part_size`.
+    pub fn with_read_part_size(mut self, read_part_size: usize) -> Self {
+        self.read_part_size = Some(read_part_size);
+        self
+    }
+
+    /// The effective read part size: the override if set, otherwise `part_size`.
+    pub fn effective_read_part_size(&self) -> usize {
+        self.read_part_size.unwrap_or(self.part_size)
     }
 }
 
@@ -527,12 +544,16 @@ pub mod s3_session {
     pub fn new_with_test_client(test_config: TestSessionConfig, sdk_client: Client, s3_path: S3Path) -> TestSession {
         let mount_dir = tempfile::tempdir().unwrap();
 
+        // Reads and writes may use distinct part sizes; seed the pool with both so each lands in
+        // its own size-pool (identical sizes dedupe to one).
+        let read_part_size = test_config.effective_read_part_size();
         let pool = PagedPool::config()
-            .with_candidate_sizes([test_config.part_size])
+            .with_candidate_sizes([test_config.part_size, read_part_size])
             .with_memory_limit(test_config.mem_limit)
             .build();
         let client_config = S3ClientConfig::default()
-            .part_size(test_config.part_size)
+            .write_part_size(test_config.part_size)
+            .read_part_size(read_part_size)
             .endpoint_config(get_test_endpoint_config())
             .auth_config(test_config.auth_config.clone())
             .read_backpressure(true)

@@ -55,6 +55,16 @@ pub const SMALL_OBJECT_POOL: SharedObjectPool = SharedObjectPool {
     size: 4 * 1024 * 1024,
 };
 
+/// A pool of larger objects for exercising memory pinned behind idle prefetch handles.
+/// Each object is big enough to hold a scaled-up read window, so a handle that reads a
+/// prefix and then goes idle pins a full window of buffers (not just the ~1 MiB initial
+/// window). `count` is >= the idle-worker count so each worker can hold a distinct object.
+pub const LARGE_OBJECT_POOL: SharedObjectPool = SharedObjectPool {
+    key_prefix: "large_",
+    count: 48,
+    size: 32 * 1024 * 1024,
+};
+
 /// Open `path`, read it front-to-back into `buf`, close. Increments `progress` on every
 /// successful open and every byte read. Returns on `stop`. Panics (with `scope` in the
 /// message) on any I/O error.

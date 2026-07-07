@@ -52,6 +52,13 @@ jobs:
           - mixed_rw
           - idle_and_churn
           - held_writes_vs_reads
+          - many_handlers
+          - page_fragmentation
+          - mixed_rw_read16_write8
+          - mixed_rw_read8_write16
+          - mixed_rw_oversized
+          - page_creation_under_pressure
+          - sustained_reads_large_window
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
