@@ -194,9 +194,12 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
-    let client_config = args.client_config(build_info::FULL_VERSION);
+    let mut client_config = args.client_config(build_info::FULL_VERSION);
 
-    // Set up a paged memory pool
+    // Validate and clamp read_part_size BEFORE creating the memory pool
+    client_config.validate_and_clamp_read_part_size(args.mem_limit())?;
+
+    // Set up a paged memory pool with the validated read_size_bytes
     let pool = PagedPool::config()
         .with_candidate_sizes([
             args.cache_block_size_in_bytes() as usize,

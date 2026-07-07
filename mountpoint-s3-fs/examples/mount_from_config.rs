@@ -307,10 +307,14 @@ fn mount_filesystem(
         .error_logger(error_logger);
 
     // Create the client and runtime
-    let client_config = config.build_client_config()?;
+    let mut client_config = config.build_client_config()?;
     let mem_limit = config
         .memory_limit_bytes
         .unwrap_or(mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT);
+
+    // Validate and clamp read_part_size BEFORE creating the memory pool
+    client_config.validate_and_clamp_read_part_size(mem_limit)?;
+
     let pool = PagedPool::config()
         .with_candidate_sizes([client_config.part_config.read_size_bytes])
         .with_memory_limit(mem_limit)
