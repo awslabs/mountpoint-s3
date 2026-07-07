@@ -52,6 +52,8 @@ jobs:
           - mixed_rw
           - idle_and_churn
           - held_writes_vs_reads
+          - single_reader_budget_part
+          - many_readers_budget_part
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
