@@ -272,16 +272,6 @@ pub mod stress {
             }
         }
 
-        /// Current value if this metric is a gauge, otherwise `None`. Unlike [`Self::gauge`],
-        /// this never panics on counters/histograms, so callers iterating every registered
-        /// metric (e.g. the time-series snapshotter) can filter to gauges safely.
-        pub fn try_gauge(&self) -> Option<f64> {
-            match self {
-                HdrMetric::Gauge(g) => Some(g.lock().unwrap().current),
-                _ => None,
-            }
-        }
-
         /// Exact largest value the gauge has held, in bytes. Unlike [`Self::gauge_history`]'s
         /// `max()`, it is not quantized by the histogram, so it is exact for invariant checks.
         pub fn gauge_peak(&self) -> u64 {
