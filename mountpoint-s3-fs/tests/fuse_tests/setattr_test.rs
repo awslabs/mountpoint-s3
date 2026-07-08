@@ -1,22 +1,10 @@
-use std::fs::{File, metadata};
+use std::fs::{File, FileTimes, metadata};
 use std::os::unix::prelude::MetadataExt;
-use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use filetime::FileTime;
 use test_case::test_case;
 
 use crate::common::fuse::{self, TestSessionCreator};
-
-fn open_for_write(path: impl AsRef<Path>, append: bool) -> std::io::Result<File> {
-    let mut options = File::options();
-    if append {
-        options.append(true);
-    } else {
-        options.write(true);
-    }
-    options.create(true).open(path)
-}
 
 fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool) {
     let test_session = creator_fn(prefix, Default::default());
@@ -29,13 +17,22 @@ fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool)
 
     let path = test_session.mount_path().join("dir/new.txt");
 
-    let f = open_for_write(&path, append).unwrap();
+    let f = {
+        let mut options = File::options();
+        if append {
+            options.append(true);
+        } else {
+            options.write(true);
+        }
+        options.create(true).open(&path)
+    }
+    .expect("file open should succeed");
 
     let expected_atime = SystemTime::now().checked_add(Duration::from_secs(10)).unwrap();
     let expected_mtime = SystemTime::now().checked_add(Duration::from_secs(5)).unwrap();
-    filetime::set_file_atime(&path, FileTime::from_system_time(expected_atime))
+    f.set_times(FileTimes::new().set_accessed(expected_atime))
         .expect("set atime should be successful");
-    filetime::set_file_mtime(&path, FileTime::from_system_time(expected_mtime))
+    f.set_times(FileTimes::new().set_modified(expected_mtime))
         .expect("set mtime should be successful");
 
     // Verify that time attributes are changed
@@ -54,10 +51,13 @@ fn setattr_test(creator_fn: impl TestSessionCreator, prefix: &str, append: bool)
     drop(f);
 
     // Verify that we get an error when setting time attributes for remote files
-    let err = filetime::set_file_atime(&path, FileTime::from_system_time(expected_atime))
+    let f = File::open(&path).expect("remote file open should succeed");
+    let err = f
+        .set_times(FileTimes::new().set_accessed(expected_atime))
         .expect_err("set atime should fail on remote files");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
-    let err = filetime::set_file_mtime(&path, FileTime::from_system_time(expected_mtime))
+    let err = f
+        .set_times(FileTimes::new().set_modified(expected_mtime))
         .expect_err("set mtime should fail on remote files");
     assert_eq!(err.raw_os_error(), Some(libc::EPERM));
 }

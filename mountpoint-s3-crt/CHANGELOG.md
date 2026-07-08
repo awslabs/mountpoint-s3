@@ -1,7 +1,6 @@
 ## Unreleased (v0.15.0)
 
 * Update to latest CRT dependencies.
-
 * Add `io::tls` module with safe wrappers around `aws-c-io`'s TLS primitives (`TlsContextOptions`, `TlsContext`, `TlsConnectionOptions`). ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
 * Add `s3::client::ClientConfig::tls_connection_options()` builder to pass a custom `TlsConnectionOptions` into the S3 client. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
 * Add `tls_ctx` field to `CredentialsProviderChainDefaultOptions` and `CredentialsProviderProfileOptions`. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
