@@ -11,7 +11,8 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use mountpoint_s3_client::config::{
-    AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, TlsConfig, Uri,
+    AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, TlsConfig,
+    TlsConfigValidationError, Uri,
 };
 use mountpoint_s3_client::{NewClientError, S3CrtClient};
 use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair};
@@ -227,6 +228,71 @@ fn is_tls_error(err: &dyn std::fmt::Debug) -> bool {
         || rendered.contains("peer")
         || rendered.contains("trust")
         || rendered.contains("ssl")
+}
+
+// ---------------------------------------------------------------------------
+// TlsConfig::validate() tests
+// ---------------------------------------------------------------------------
+
+/// An empty config configures no trust store, so validation is a no-op.
+#[test]
+fn tls_config_empty_validates() {
+    TlsConfig::new().validate().expect("empty TlsConfig is always valid");
+}
+
+/// A trust store path that does not exist fails with `UnreadableFile`.
+#[test]
+fn tls_config_missing_trust_store_fails() {
+    let tls = TlsConfig::new().with_trust_store_path("/nonexistent/ca.pem");
+    let err = tls.validate().expect_err("missing trust store should fail");
+    match err {
+        TlsConfigValidationError::UnreadableFile { role, path, .. } => {
+            assert_eq!(role, "CA bundle");
+            assert_eq!(path, PathBuf::from("/nonexistent/ca.pem"));
+        }
+        other => panic!("expected UnreadableFile, got {other:?}"),
+    }
+}
+
+/// A directory (for example `/etc/ssl/certs`) is not a valid CA bundle file.
+#[test]
+fn tls_config_directory_trust_store_is_rejected() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let tls = TlsConfig::new().with_trust_store_path(tmp.path());
+    let err = tls
+        .validate()
+        .expect_err("a directory must not be accepted as a CA bundle");
+    match err {
+        TlsConfigValidationError::NotARegularFile { role, path } => {
+            assert_eq!(role, "CA bundle");
+            assert_eq!(path, tmp.path());
+        }
+        other => panic!("expected NotARegularFile, got {other:?}"),
+    }
+}
+
+/// A readable regular file passes validation (content is validated later, by the CRT).
+#[test]
+fn tls_config_valid_file_passes() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ca = tmp.path().join("ca.pem");
+    std::fs::write(&ca, b"dummy").expect("write");
+
+    let tls = TlsConfig::new().with_trust_store_path(&ca);
+    tls.validate().expect("valid path should pass");
+}
+
+/// `S3CrtClient::new` runs `TlsConfig::validate()` up front, so a bad path surfaces as
+/// `NewClientError::TlsConfigValidationError` rather than a later handshake failure.
+#[test]
+fn s3_client_new_rejects_invalid_tls_path() {
+    let tls = TlsConfig::new().with_trust_store_path("/nonexistent/ca.pem");
+    let config = S3ClientConfig::new().tls_config(tls);
+    let err = S3CrtClient::new(config).expect_err("client creation should fail");
+    match err {
+        NewClientError::TlsConfigValidationError(_) => {}
+        other => panic!("unexpected error variant: {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------
