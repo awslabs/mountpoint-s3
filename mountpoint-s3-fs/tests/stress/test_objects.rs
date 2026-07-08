@@ -16,7 +16,7 @@ use aws_sdk_s3::operation::head_object::HeadObjectError;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool};
+use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool, effective_total_memory};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 
 use crate::common::s3::{get_test_bucket, get_test_endpoint_config, get_test_region, get_test_sdk_client};
@@ -85,12 +85,10 @@ const DEFAULT_WRITE_PART_SIZE: usize = 8 * 1024 * 1024;
 const MAX_PARTS: u64 = 10_000;
 const TEST_OBJECT_FILL_BYTE: u8 = 0xA5;
 
-/// Memory budget for the test object uploader: 95% of total system memory, floored at
-/// `MINIMUM_MEM_LIMIT`. Matches the pattern used by Mountpoint.
+/// Memory budget for the test object uploader: 95% of effective total memory (cgroup-aware),
+/// floored at `MINIMUM_MEM_LIMIT`. Matches the pattern used by Mountpoint.
 fn compute_test_object_mem_budget() -> usize {
-    use sysinfo::{RefreshKind, System};
-    let sys = System::new_with_specifics(RefreshKind::everything());
-    let ninety_five_pct = ((sys.total_memory() as f64) * 0.95) as usize;
+    let ninety_five_pct = ((effective_total_memory() as f64) * 0.95) as usize;
     ninety_five_pct.max(MINIMUM_MEM_LIMIT)
 }
 
