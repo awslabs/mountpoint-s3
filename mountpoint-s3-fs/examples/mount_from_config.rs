@@ -16,7 +16,7 @@ use mountpoint_s3_fs::{
     manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
     memory::PagedPool,
     metrics::{self, MetricsSinkHandle},
-    s3::config::{ClientConfig, PartConfig, Region, TargetThroughputSetting},
+    s3::config::{ClientConfig, MemoryLimitSetting, PartConfig, Region, TargetThroughputSetting},
 };
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
@@ -135,7 +135,7 @@ impl ConfigOptions {
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
         };
         let throughput_target = self.determine_throughput()?;
-        let mut config = ClientConfig {
+        let config = ClientConfig {
             region: Region::new_user_specified(self.region.clone()),
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: AddressingStyle::Automatic,
@@ -146,13 +146,10 @@ impl ConfigOptions {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: None,
-            part_config: PartConfig::with_part_size(self.part_size()),
+            part_config: PartConfig::with_part_size(self.part_size())
+                .validate(MemoryLimitSetting::Default(mem_limit))?,
             user_agent: UserAgent::new(Some(user_agent_string)),
         };
-
-        // Validate and clamp read_part_size before returning
-        use mountpoint_s3_fs::s3::config::MemoryLimitSetting;
-        config.validate_and_clamp_read_part_size(MemoryLimitSetting::Default(mem_limit))?;
 
         Ok(config)
     }

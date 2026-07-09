@@ -13,7 +13,7 @@ use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive, Upload
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, effective_total_memory};
-use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::config::{ClientConfig, MemoryLimitSetting, PartConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path, S3PathError, S3Personality};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 
@@ -493,17 +493,17 @@ impl CliArgs {
     }
 
     pub fn mem_limit(&self) -> usize {
-        let mut mem_limit = MINIMUM_MEM_LIMIT;
+        self.memory_limit_setting().bytes()
+    }
 
-        let default_mem_target = (effective_total_memory() as f64 * 0.95) as usize;
-        mem_limit = mem_limit.max(default_mem_target);
-
+    pub fn memory_limit_setting(&self) -> MemoryLimitSetting {
         #[cfg(feature = "mem_limiter")]
         if let Some(max_mem_target) = self.max_memory_target {
-            mem_limit = max_mem_target as usize * 1024 * 1024;
+            return MemoryLimitSetting::User(max_mem_target as usize * 1024 * 1024);
         }
 
-        mem_limit
+        let default = (effective_total_memory() as f64 * 0.95) as usize;
+        MemoryLimitSetting::Default(default.max(MINIMUM_MEM_LIMIT))
     }
 
     fn upload_checksum_algorithm(&self, s3_personality: S3Personality) -> Option<UploadChecksumAlgorithm> {
@@ -809,7 +809,7 @@ impl CliArgs {
         let throughput_target = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
-        let mut config = ClientConfig {
+        let config = ClientConfig {
             region,
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: self.addressing_style(),
@@ -820,26 +820,11 @@ impl CliArgs {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: self.bind.clone(),
-            part_config: self.part_config(),
+            part_config: self.part_config().validate(self.memory_limit_setting())?,
             user_agent,
         };
 
-        // Validate and clamp read_part_size before returning
-        config.validate_and_clamp_read_part_size(self.memory_limit_setting())?;
-
         Ok(config)
-    }
-
-    pub fn memory_limit_setting(&self) -> mountpoint_s3_fs::s3::config::MemoryLimitSetting {
-        use mountpoint_s3_fs::s3::config::MemoryLimitSetting;
-        let mem_limit = self.mem_limit();
-
-        #[cfg(feature = "mem_limiter")]
-        if self.max_memory_target.is_some() {
-            return MemoryLimitSetting::User(mem_limit);
-        }
-
-        MemoryLimitSetting::Default(mem_limit)
     }
 }
 
@@ -882,7 +867,6 @@ fn parse_bucket_name_or_s3_uri(bucket_name_or_uri: &str) -> Result<BucketNameOrS
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::build_info;
     use test_case::test_case;
 
     #[test_case("s3://bucket--eun1-az1--x-s3", true; "s3:// example bucket")]
@@ -1036,99 +1020,28 @@ mod tests {
         );
     }
 
-    #[test]
     #[cfg(feature = "mem_limiter")]
-    fn validate_read_part_size_within_budget() {
-        // Test that validation passes when read_part_size is within budget
-        let cli_args = CliArgs::try_parse_from([
+    #[test_case("--read-part-size", "8388608",   true  ; "read-part within budget ok")]
+    #[test_case("--part-size",      "8388608",   true  ; "part-size within budget ok")]
+    #[test_case("--read-part-size", "524288000", false ; "read-part over budget fails")]
+    #[test_case("--part-size",      "524288000", false ; "part-size over budget fails")]
+    fn validate_read_part_size(flag: &str, value: &str, ok: bool) {
+        let args = CliArgs::try_parse_from([
             "mount-s3",
             "bucket",
             "test/location",
             "--max-memory-target",
-            "1024",
-            "--read-part-size",
-            "8388608", // 8 MiB - well within 1024 MiB budget
+            "512",
+            flag,
+            value,
         ])
-        .expect("CLI args should parse");
-
-        let result = cli_args.client_config(build_info::FULL_VERSION);
-
-        assert!(
-            result.is_ok(),
-            "Validation should succeed when part size is within budget"
-        );
-        let client_config = result.unwrap();
-        assert_eq!(
-            client_config.part_config.read_size_bytes,
-            8 * 1024 * 1024,
-            "Read size should remain unchanged"
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "mem_limiter")]
-    fn validate_read_part_size_exceeds_user_specified_memory() {
-        // Test that validation fails when read_part_size exceeds user-specified memory budget
-        let cli_args = CliArgs::try_parse_from([
-            "mount-s3",
-            "bucket",
-            "test/location",
-            "--max-memory-target",
-            "512", // 512 MiB
-            "--read-part-size",
-            "524288000", // 500 MiB - exceeds budget of ~384 MiB (512 - 128 overhead)
-        ])
-        .expect("CLI args should parse");
-
-        let result = cli_args.client_config(build_info::FULL_VERSION);
-
-        assert!(
-            result.is_err(),
-            "Validation should fail when part size exceeds user-specified budget"
-        );
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("exceeds the memory available for data buffers"),
-            "Error should explain the budget: {}",
-            err_msg
-        );
-        assert!(
-            err_msg.contains("reserved for Mountpoint overhead"),
-            "Error should explain reserved memory: {}",
-            err_msg
-        );
-    }
-
-    #[test]
-    fn validate_read_part_size_exceeds_default_memory_clamps() {
-        // Test that when default memory is used and part size exceeds, it clamps (doesn't fail)
-        // We'll use a small default by not setting --max-memory-target
-        let cli_args = CliArgs::try_parse_from([
-            "mount-s3",
-            "bucket",
-            "test/location",
-            "--read-part-size",
-            "1073741824", // 1 GiB - likely exceeds default budget on small systems
-        ])
-        .expect("CLI args should parse");
-
-        let original_read_size = 1073741824;
-
-        let result = cli_args.client_config(build_info::FULL_VERSION);
-
-        // Should succeed (with clamping) rather than fail
-        assert!(
-            result.is_ok(),
-            "Validation should succeed (with clamping) for default memory"
-        );
-
-        let client_config = result.unwrap();
-
-        // Read size should either be unchanged (if within budget) or clamped (if exceeded)
-        // We can't assert exact value since it depends on system memory, but we can check it's reasonable
-        assert!(
-            client_config.part_config.read_size_bytes <= original_read_size,
-            "Read size should be clamped or unchanged, not increased"
-        );
+        .expect("parse");
+        let result = args.client_config(build_info::FULL_VERSION);
+        assert_eq!(result.is_ok(), ok);
+        if !ok {
+            let msg = result.unwrap_err().to_string();
+            assert!(msg.contains("exceeds the memory available for data buffers"), "{msg}");
+            assert!(msg.contains("reserved for Mountpoint overhead"), "{msg}");
+        }
     }
 }
