@@ -10,7 +10,7 @@ use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient, S3RequestError};
 
-use crate::memory::PagedPool;
+use crate::memory::{PagedPool, data_buffer_budget_for};
 
 use super::S3Path;
 
@@ -52,9 +52,6 @@ pub struct ClientConfig {
 
     /// Value for the user-agent header
     pub user_agent: UserAgent,
-
-    /// Whether the memory limit was explicitly set by the user via --max-memory-target
-    pub memory_limit_user_specified: bool,
 }
 
 #[derive(Debug)]
@@ -136,33 +133,61 @@ impl TargetThroughputSetting {
     }
 }
 
+/// Memory limit setting.
+#[derive(Debug, Clone, Copy)]
+pub enum MemoryLimitSetting {
+    /// Default memory limit (95% of system memory)
+    Default(usize),
+    /// User-specified memory limit via --max-memory-target
+    User(usize),
+}
+
+impl MemoryLimitSetting {
+    pub fn bytes(&self) -> usize {
+        match self {
+            MemoryLimitSetting::Default(bytes) => *bytes,
+            MemoryLimitSetting::User(bytes) => *bytes,
+        }
+    }
+
+    pub fn is_user_specified(&self) -> bool {
+        matches!(self, MemoryLimitSetting::User(_))
+    }
+}
+
 impl ClientConfig {
     /// Validate and clamp read_part_size against memory budget.
     /// Must be called BEFORE creating the PagedPool.
     ///
     /// - If user explicitly set both memory and part size AND they conflict → FAIL
     /// - If memory is default (auto-detected) and conflict → CLAMP and warn
-    pub fn validate_and_clamp_read_part_size(&mut self, mem_limit: usize) -> anyhow::Result<()> {
-        // Calculate data_buffer_budget (same formula as MemoryLimiter)
-        let min_reserved = 128 * 1024 * 1024;
-        let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
-        let data_buffer_budget = mem_limit.saturating_sub(additional_mem_reserved);
+    pub fn validate_and_clamp_read_part_size(&mut self, memory_limit: MemoryLimitSetting) -> anyhow::Result<()> {
+        let mem_limit = memory_limit.bytes();
+        let data_buffer_budget = data_buffer_budget_for(mem_limit);
+        let reserved = mem_limit.saturating_sub(data_buffer_budget);
 
         if self.part_config.read_size_bytes > data_buffer_budget {
-            if self.memory_limit_user_specified {
+            if memory_limit.is_user_specified() {
                 // User explicitly set both → FAIL IMMEDIATELY
                 anyhow::bail!(
-                    "read part size ({}) exceeds memory budget ({}). \
+                    "read part size ({}) exceeds the memory available for data buffers ({}). \
+                     The memory target is {}, of which {} is reserved for Mountpoint overhead. \
                      Increase --max-memory-target or decrease --read-part-size.",
                     format_size(self.part_config.read_size_bytes, BINARY),
-                    format_size(data_buffer_budget, BINARY)
+                    format_size(data_buffer_budget, BINARY),
+                    format_size(mem_limit, BINARY),
+                    format_size(reserved, BINARY)
                 );
             } else {
                 // Memory was auto-detected → CLAMP and warn
                 tracing::warn!(
-                    "read part size ({}) exceeds auto-detected memory budget ({}), clamping to {}",
+                    "read part size ({}) exceeds the memory available for data buffers ({}). \
+                     The auto-detected memory target is {}, of which {} is reserved for Mountpoint overhead. \
+                     Clamping read part size to {}.",
                     format_size(self.part_config.read_size_bytes, BINARY),
                     format_size(data_buffer_budget, BINARY),
+                    format_size(mem_limit, BINARY),
+                    format_size(reserved, BINARY),
                     format_size(data_buffer_budget, BINARY)
                 );
                 self.part_config.read_size_bytes = data_buffer_budget;
@@ -177,7 +202,6 @@ impl ClientConfig {
         memory_pool: PagedPool,
         validate_on_s3_path: Option<&S3Path>,
     ) -> anyhow::Result<S3CrtClient> {
-        // Validation and clamping now happens before pool creation via validate_and_clamp_read_part_size()
         let mut client_config = S3ClientConfig::new()
             .auth_config(self.auth_config)
             .throughput_target_gbps(self.throughput_target.value())
@@ -291,7 +315,7 @@ mod tests {
     #[test]
     fn test_read_part_size_within_budget_no_clamp() {
         // read_part_size < budget → should use requested size, no error
-        let mem_limit = 1024 * 1024 * 1024; // 1 GB
+        let mem_limit = MemoryLimitSetting::Default(1024 * 1024 * 1024); // 1 GB
         let mut config = ClientConfig {
             region: Region::new_inferred("us-east-1".to_string()),
             endpoint_url: None,
@@ -305,7 +329,6 @@ mod tests {
             bind: None,
             part_config: PartConfig::with_part_size(8 * 1024 * 1024), // 8 MB - well within budget
             user_agent: UserAgent::new(None),
-            memory_limit_user_specified: false,
         };
 
         let result = config.validate_and_clamp_read_part_size(mem_limit);
@@ -320,12 +343,10 @@ mod tests {
     #[test]
     fn test_read_part_size_exceeds_budget_user_specified_fails() {
         // User set memory + read_part_size > budget → should fail during validation
-        let mem_limit: usize = 512 * 1024 * 1024; // 512 MB
+        let mem_limit_bytes: usize = 512 * 1024 * 1024; // 512 MB
+        let memory_limit = MemoryLimitSetting::User(mem_limit_bytes);
 
-        // Calculate budget to determine excessive size
-        let min_reserved: usize = 128 * 1024 * 1024;
-        let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
-        let budget = mem_limit.saturating_sub(additional_mem_reserved);
+        let budget = data_buffer_budget_for(mem_limit_bytes);
         let excessive_size = budget + 1; // Just over budget
 
         let mut config = ClientConfig {
@@ -341,18 +362,23 @@ mod tests {
             bind: None,
             part_config: PartConfig::with_part_size(excessive_size),
             user_agent: UserAgent::new(None),
-            memory_limit_user_specified: true, // User explicitly set memory
         };
 
-        let result = config.validate_and_clamp_read_part_size(mem_limit);
+        let result = config.validate_and_clamp_read_part_size(memory_limit);
         assert!(
             result.is_err(),
             "Should fail when user set memory and read_part_size > budget"
         );
         let err = result.unwrap_err();
+        let err_msg = err.to_string();
         assert!(
-            err.to_string().contains("exceeds memory budget"),
-            "Error should mention budget exceeded: {}",
+            err_msg.contains("exceeds the memory available for data buffers"),
+            "Error should mention data buffers: {}",
+            err
+        );
+        assert!(
+            err_msg.contains("reserved for Mountpoint overhead"),
+            "Error should explain reserved memory: {}",
             err
         );
     }
@@ -360,12 +386,10 @@ mod tests {
     #[test]
     fn test_read_part_size_exceeds_budget_default_clamps() {
         // Default memory + read_part_size > budget → should clamp and succeed
-        let mem_limit: usize = 512 * 1024 * 1024; // 512 MB
+        let mem_limit_bytes: usize = 512 * 1024 * 1024; // 512 MB
+        let memory_limit = MemoryLimitSetting::Default(mem_limit_bytes);
 
-        // Calculate budget
-        let min_reserved: usize = 128 * 1024 * 1024;
-        let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
-        let budget = mem_limit.saturating_sub(additional_mem_reserved);
+        let budget = data_buffer_budget_for(mem_limit_bytes);
         let excessive_size = budget + 100 * 1024 * 1024; // 100 MB over budget
 
         let mut config = ClientConfig {
@@ -381,10 +405,9 @@ mod tests {
             bind: None,
             part_config: PartConfig::with_part_size(excessive_size),
             user_agent: UserAgent::new(None),
-            memory_limit_user_specified: false, // Memory was auto-detected (default)
         };
 
-        let result = config.validate_and_clamp_read_part_size(mem_limit);
+        let result = config.validate_and_clamp_read_part_size(memory_limit);
         assert!(
             result.is_ok(),
             "Should succeed (with clamping) when memory is default and read_part_size > budget"
@@ -396,10 +419,16 @@ mod tests {
             "read_size_bytes should be clamped to budget"
         );
 
+        // Verify write_size_bytes was NOT clamped
+        assert_eq!(
+            config.part_config.write_size_bytes, excessive_size,
+            "write_size_bytes should remain unchanged"
+        );
+
         // Now create pool and client with clamped value to verify end-to-end flow
         let pool = PagedPool::config()
             .with_candidate_sizes([config.part_config.read_size_bytes])
-            .with_memory_limit(mem_limit)
+            .with_memory_limit(mem_limit_bytes)
             .build();
 
         let client = config.create_client(pool, None).unwrap();
@@ -407,6 +436,50 @@ mod tests {
             client.read_part_size(),
             budget,
             "Client should use clamped size equal to budget"
+        );
+    }
+
+    #[test]
+    fn test_read_part_size_with_separate_read_write_sizes() {
+        // Test the --read-part-size override case (separate from --part-size)
+        let mem_limit_bytes: usize = 512 * 1024 * 1024; // 512 MB
+        let memory_limit = MemoryLimitSetting::User(mem_limit_bytes);
+
+        let budget = data_buffer_budget_for(mem_limit_bytes);
+        let excessive_read_size = budget + 1; // Just over budget
+        let normal_write_size = 8 * 1024 * 1024; // 8 MB - within budget
+
+        let mut config = ClientConfig {
+            region: Region::new_inferred("us-east-1".to_string()),
+            endpoint_url: None,
+            addressing_style: AddressingStyle::Automatic,
+            dual_stack: false,
+            transfer_acceleration: false,
+            auth_config: S3ClientAuthConfig::NoSigning,
+            requester_pays: false,
+            expected_bucket_owner: None,
+            throughput_target: TargetThroughputSetting::Default,
+            bind: None,
+            // Use with_read_write_sizes to model --read-part-size override
+            part_config: PartConfig::with_read_write_sizes(excessive_read_size, normal_write_size),
+            user_agent: UserAgent::new(None),
+        };
+
+        // Should fail because read_part_size exceeds budget (even though write is fine)
+        let result = config.validate_and_clamp_read_part_size(memory_limit);
+        assert!(result.is_err(), "Should fail when read_part_size exceeds budget");
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("exceeds the memory available for data buffers"),
+            "Error should mention data buffers: {}",
+            err
+        );
+
+        // Verify write_size_bytes was not affected
+        assert_eq!(
+            config.part_config.write_size_bytes, normal_write_size,
+            "write_size_bytes should remain unchanged"
         );
     }
 }

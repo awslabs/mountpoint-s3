@@ -16,6 +16,16 @@ use super::stats::{BUFFER_KIND_COUNT, BufferKind};
 
 pub const MINIMUM_MEM_LIMIT: usize = 512 * 1024 * 1024;
 
+/// Calculate the data buffer budget for a given memory limit.
+/// This is the memory available for actual data buffers after reserving overhead for metadata and internal structures.
+///
+/// The formula reserves 12.5% of total memory (or 128 MiB minimum) for non-buffer usage.
+pub fn data_buffer_budget_for(mem_limit: usize) -> usize {
+    let min_reserved = 128 * 1024 * 1024;
+    let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
+    mem_limit.saturating_sub(additional_mem_reserved)
+}
+
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
 #[derive(Debug)]
 pub enum BufferArea {
@@ -83,8 +93,7 @@ pub struct MemoryLimiter {
 
 impl MemoryLimiter {
     pub fn new(mem_limit: usize) -> Self {
-        let min_reserved = 128 * 1024 * 1024;
-        let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
+        let additional_mem_reserved = mem_limit.saturating_sub(data_buffer_budget_for(mem_limit));
         let formatter = make_format(humansize::BINARY);
         debug!(
             "target memory usage is {} with {} reserved memory",

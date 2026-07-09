@@ -129,13 +129,13 @@ impl ConfigOptions {
         Ok(fs_config)
     }
 
-    fn build_client_config(&self) -> Result<ClientConfig> {
+    fn build_client_config(&self, mem_limit: usize) -> Result<ClientConfig> {
         let user_agent_string = match &self.user_agent_prefix {
             Some(prefix) => format!("{prefix}/mp-exmpl"),
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
         };
         let throughput_target = self.determine_throughput()?;
-        Ok(ClientConfig {
+        let mut config = ClientConfig {
             region: Region::new_user_specified(self.region.clone()),
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: AddressingStyle::Automatic,
@@ -148,8 +148,13 @@ impl ConfigOptions {
             bind: None,
             part_config: PartConfig::with_part_size(self.part_size()),
             user_agent: UserAgent::new(Some(user_agent_string)),
-            memory_limit_user_specified: false,
-        })
+        };
+
+        // Validate and clamp read_part_size before returning
+        use mountpoint_s3_fs::s3::config::MemoryLimitSetting;
+        config.validate_and_clamp_read_part_size(MemoryLimitSetting::Default(mem_limit))?;
+
+        Ok(config)
     }
 
     fn build_logging_config(&self) -> LoggingConfig {
@@ -307,13 +312,11 @@ fn mount_filesystem(
         .error_logger(error_logger);
 
     // Create the client and runtime
-    let mut client_config = config.build_client_config()?;
     let mem_limit = config
         .memory_limit_bytes
         .unwrap_or(mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT);
 
-    // Validate and clamp read_part_size BEFORE creating the memory pool
-    client_config.validate_and_clamp_read_part_size(mem_limit)?;
+    let client_config = config.build_client_config(mem_limit)?;
 
     let pool = PagedPool::config()
         .with_candidate_sizes([client_config.part_config.read_size_bytes])
