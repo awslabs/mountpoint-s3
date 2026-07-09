@@ -34,6 +34,7 @@ fn held_writes_vs_reads() {
         session_config: TestSessionConfig::default()
             .with_mem_limit(MINIMUM_MEM_LIMIT)
             .with_part_size(PART_SIZE),
+        setup: None,
         workers,
         max_latency: default_max_latency,
     });

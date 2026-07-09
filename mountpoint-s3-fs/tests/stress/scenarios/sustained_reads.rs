@@ -23,6 +23,7 @@ fn sustained_reads() {
     harness::run(Scenario {
         name: "sustained_reads",
         session_config: TestSessionConfig::default().with_mem_limit(MINIMUM_MEM_LIMIT),
+        setup: None,
         workers,
         max_latency: default_max_latency,
     });

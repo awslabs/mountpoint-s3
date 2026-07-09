@@ -104,9 +104,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         );
         return;
     };
-    let mem_limit_u64 = mem_limit as u64;
-    let additional_mem_reserved = (mem_limit_u64 / 8).max(128 * 1024 * 1024);
-    let effective_budget = mem_limit_u64.saturating_sub(additional_mem_reserved);
+    let effective_budget = super::setup::data_buffer_budget(mem_limit as usize) as u64;
 
     let mut reserved_overshoots: Vec<String> = Vec::new();
     for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
