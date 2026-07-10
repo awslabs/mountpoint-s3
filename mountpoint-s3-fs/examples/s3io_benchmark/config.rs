@@ -21,7 +21,7 @@ pub struct GlobalConfig {
     pub region: Option<String>,
     pub endpoint_url: Option<String>,
     pub throughput_target_gbps: Option<f64>,
-    pub max_memory_target: Option<usize>, // MiB
+    pub memory_target: Option<usize>, // MiB
     pub bind: Option<Vec<String>>,
     pub output_file: Option<String>,
     pub read_part_size: Option<usize>,

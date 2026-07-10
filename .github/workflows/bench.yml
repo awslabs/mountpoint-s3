@@ -51,14 +51,12 @@ jobs:
       matrix:
         include:
           - variant: default
-            features: ""
-            max_memory_target_mib: ""
+            memory_target_mib: ""
             name_suffix: ""
             data_path_suffix: ""
             results_subdir_suffix: ""
           - variant: mem-limited
-            features: "--features mem_limiter"
-            max_memory_target_mib: "512"
+            memory_target_mib: "512"
             name_suffix: ", Memory-Limited"
             data_path_suffix: "/mem_limited"
             results_subdir_suffix: "-mem-limited"
@@ -89,10 +87,10 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
-      run: cargo build --release ${{ matrix.features }}
+      run: cargo build --release
     - name: Run Benchmark
       env:
-        S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
+        S3_MEMORY_TARGET_MIB: ${{ matrix.memory_target_mib }}
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
@@ -226,14 +224,12 @@ jobs:
       matrix:
         include:
           - variant: default
-            features: ""
-            max_memory_target_mib: ""
+            memory_target_mib: ""
             name_suffix: ""
             data_path_suffix: ""
             results_subdir_suffix: ""
           - variant: mem-limited
-            features: "--features mem_limiter"
-            max_memory_target_mib: "512"
+            memory_target_mib: "512"
             name_suffix: ", Memory-Limited"
             data_path_suffix: "/mem_limited"
             results_subdir_suffix: "-mem-limited"
@@ -264,11 +260,11 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
-      run: cargo build --release ${{ matrix.features }}
+      run: cargo build --release
     - name: Run Benchmark
       env:
         S3_MOUNT_LOCAL_STORAGE: yes
-        S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
+        S3_MEMORY_TARGET_MIB: ${{ matrix.memory_target_mib }}
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}cache-bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_cache_bench.sh
     - name: Render memory summary

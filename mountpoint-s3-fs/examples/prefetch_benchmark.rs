@@ -73,7 +73,7 @@ pub struct CliArgs {
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
     )]
-    pub max_memory_target: Option<u64>,
+    pub memory_target: Option<u64>,
 
     #[clap(
         long,
@@ -123,7 +123,7 @@ fn parse_duration(arg: &str) -> Result<Duration, String> {
 
 impl CliArgs {
     fn memory_target_in_bytes(&self) -> usize {
-        if let Some(target) = self.max_memory_target {
+        if let Some(target) = self.memory_target {
             target as usize * 1024 * 1024
         } else {
             // Default to 95% of total system memory (cgroup-aware)

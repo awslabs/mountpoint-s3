@@ -32,7 +32,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
 
     if cfg.mountpoint.mountpoint_binary is None:
         # Compile the binary instead of using cargo run
-        features = ["mock", "mem_limiter"]
+        features = ["mock"]
         build_env = {}
 
         if stub_mode == "s3_client":
@@ -88,8 +88,8 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
     if cfg.mountpoint.upload_checksums is not None:
         subprocess_args.append(f"--upload-checksums={cfg.mountpoint.upload_checksums}")
 
-    if (max_memory_target := cfg.mountpoint.max_memory_target) is not None:
-        subprocess_args.append(f"--max-memory-target={max_memory_target}")
+    if (memory_target := cfg.mountpoint.memory_target) is not None:
+        subprocess_args.append(f"--memory-target={memory_target}")
 
     if (fuse_threads := cfg.mountpoint.fuse_threads) is not None:
         subprocess_args.append(f"--max-threads={fuse_threads}")

@@ -183,8 +183,6 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub max_threads: u64,
 
-    // This config is still unstable
-    #[cfg(feature = "mem_limiter")]
     #[clap(
         long,
         help = "Maximum memory usage target [default: 95% of total system memory with a minimum of 512 MiB]",
@@ -192,7 +190,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         value_parser = value_parser!(u64).range(512..),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub max_memory_target: Option<u64>,
+    pub memory_target: Option<u64>,
 
     #[clap(
         long,
@@ -493,9 +491,8 @@ impl CliArgs {
     }
 
     pub fn memory_limit_setting(&self) -> MemoryLimitSetting {
-        #[cfg(feature = "mem_limiter")]
-        if let Some(max_mem_target) = self.max_memory_target {
-            return MemoryLimitSetting::User(max_mem_target as usize * 1024 * 1024);
+        if let Some(memory_target) = self.memory_target {
+            return MemoryLimitSetting::User(memory_target as usize * 1024 * 1024);
         }
 
         let default = (effective_total_memory() as f64 * 0.95) as usize;
@@ -981,13 +978,13 @@ mod tests {
 
     #[test]
     fn memory_limit_setting_default() {
-        // Test that when --max-memory-target is NOT set, we get Default variant
+        // Test that when --memory-target is NOT set, we get Default variant
         let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location"]).expect("CLI args should parse");
 
         let memory_limit = cli_args.memory_limit_setting();
         assert!(
             !memory_limit.is_user_specified(),
-            "Should be Default when --max-memory-target not provided"
+            "Should be Default when --memory-target not provided"
         );
         assert!(
             memory_limit.bytes() >= mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT,
@@ -996,16 +993,15 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "mem_limiter")]
     fn memory_limit_setting_user_specified() {
-        // Test that when --max-memory-target IS set, we get User variant
-        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--max-memory-target", "1024"])
+        // Test that when --memory-target IS set, we get User variant
+        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--memory-target", "1024"])
             .expect("CLI args should parse");
 
         let memory_limit = cli_args.memory_limit_setting();
         assert!(
             memory_limit.is_user_specified(),
-            "Should be User when --max-memory-target is provided"
+            "Should be User when --memory-target is provided"
         );
         assert_eq!(
             memory_limit.bytes(),
@@ -1014,7 +1010,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "mem_limiter")]
     #[test_case("--read-part-size", "8388608",   true  ; "read-part within budget ok")]
     #[test_case("--part-size",      "8388608",   true  ; "part-size within budget ok")]
     #[test_case("--read-part-size", "524288000", false ; "read-part over budget fails")]
@@ -1024,7 +1019,7 @@ mod tests {
             "mount-s3",
             "bucket",
             "test/location",
-            "--max-memory-target",
+            "--memory-target",
             "512",
             flag,
             value,
