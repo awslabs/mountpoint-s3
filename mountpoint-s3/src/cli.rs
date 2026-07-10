@@ -492,10 +492,6 @@ impl CliArgs {
         Ok(s3path)
     }
 
-    pub fn mem_limit(&self) -> usize {
-        self.memory_limit_setting().bytes()
-    }
-
     pub fn memory_limit_setting(&self) -> MemoryLimitSetting {
         #[cfg(feature = "mem_limiter")]
         if let Some(max_mem_target) = self.max_memory_target {
@@ -803,13 +799,13 @@ impl CliArgs {
         }
     }
 
-    pub fn client_config(&self, version: &str) -> anyhow::Result<ClientConfig> {
+    pub fn client_config(&self, version: &str, memory_limit: MemoryLimitSetting) -> anyhow::Result<ClientConfig> {
         let instance_info = InstanceInfo::new();
         let user_agent = self.user_agent(&instance_info, version);
         let throughput_target = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
-        let config = ClientConfig {
+        Ok(ClientConfig {
             region,
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: self.addressing_style(),
@@ -820,11 +816,9 @@ impl CliArgs {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: self.bind.clone(),
-            part_config: self.part_config().validate(self.memory_limit_setting())?,
+            part_config: self.part_config().validate(memory_limit)?,
             user_agent,
-        };
-
-        Ok(config)
+        })
     }
 }
 
@@ -1036,7 +1030,8 @@ mod tests {
             value,
         ])
         .expect("parse");
-        let result = args.client_config(build_info::FULL_VERSION);
+        let memory_limit = args.memory_limit_setting();
+        let result = args.client_config(build_info::FULL_VERSION, memory_limit);
         assert_eq!(result.is_ok(), ok);
         if !ok {
             let msg = result.unwrap_err().to_string();

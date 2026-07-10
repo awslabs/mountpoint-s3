@@ -194,7 +194,8 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     let fuse_session_config = args.fuse_session_config()?;
     let sse = args.server_side_encryption()?;
 
-    let client_config = args.client_config(build_info::FULL_VERSION)?;
+    let memory_limit = args.memory_limit_setting();
+    let client_config = args.client_config(build_info::FULL_VERSION, memory_limit)?;
 
     // Set up a paged memory pool with the validated read_size_bytes
     let pool = PagedPool::config()
@@ -203,7 +204,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
             client_config.part_config.read_size_bytes,
             client_config.part_config.write_size_bytes,
         ])
-        .with_memory_limit(args.mem_limit())
+        .with_memory_limit(memory_limit.bytes())
         .with_maintenance_interval(Duration::from_secs(60))
         .build();
 

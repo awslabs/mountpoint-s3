@@ -135,7 +135,7 @@ impl ConfigOptions {
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
         };
         let throughput_target = self.determine_throughput()?;
-        let config = ClientConfig {
+        Ok(ClientConfig {
             region: Region::new_user_specified(self.region.clone()),
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: AddressingStyle::Automatic,
@@ -149,9 +149,7 @@ impl ConfigOptions {
             part_config: PartConfig::with_part_size(self.part_size())
                 .validate(MemoryLimitSetting::Default(mem_limit))?,
             user_agent: UserAgent::new(Some(user_agent_string)),
-        };
-
-        Ok(config)
+        })
     }
 
     fn build_logging_config(&self) -> LoggingConfig {
