@@ -16,7 +16,7 @@ use mountpoint_s3_fs::{
     manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
     memory::PagedPool,
     metrics::{self, MetricsSinkHandle},
-    s3::config::{ClientConfig, PartConfig, Region, TargetThroughputSetting},
+    s3::config::{ClientConfig, MemoryLimitSetting, PartConfig, Region, TargetThroughputSetting},
 };
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
@@ -129,7 +129,7 @@ impl ConfigOptions {
         Ok(fs_config)
     }
 
-    fn build_client_config(&self) -> Result<ClientConfig> {
+    fn build_client_config(&self, mem_limit: usize) -> Result<ClientConfig> {
         let user_agent_string = match &self.user_agent_prefix {
             Some(prefix) => format!("{prefix}/mp-exmpl"),
             None => "mountpoint-s3-example/mp-exmpl".to_string(),
@@ -146,7 +146,8 @@ impl ConfigOptions {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: None,
-            part_config: PartConfig::with_part_size(self.part_size()),
+            part_config: PartConfig::with_part_size(self.part_size())
+                .validate(MemoryLimitSetting::Default(mem_limit))?,
             user_agent: UserAgent::new(Some(user_agent_string)),
         })
     }
@@ -306,10 +307,12 @@ fn mount_filesystem(
         .error_logger(error_logger);
 
     // Create the client and runtime
-    let client_config = config.build_client_config()?;
     let mem_limit = config
         .memory_limit_bytes
         .unwrap_or(mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT);
+
+    let client_config = config.build_client_config(mem_limit)?;
+
     let pool = PagedPool::config()
         .with_candidate_sizes([client_config.part_config.read_size_bytes])
         .with_memory_limit(mem_limit)
