@@ -16,14 +16,12 @@ use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 const SCOPE: &str = "many_readers_held_budget";
 const NUM_READERS: usize = 32;
 const PART_SIZE: usize = 8 * 1024 * 1024; // 8 MiB — the default, realistic part size
-/// Hold every part of the budget except one, leaving exactly one read part free. At the 512 MiB
-/// limit this is 48 - 1 = 47 parts (376 MiB) pinned.
-const HELD_PARTS: usize = budget_parts(MINIMUM_MEM_LIMIT, PART_SIZE) - 1;
 const READ_CHUNK: usize = PART_SIZE;
 
 /// Setup phase: pin all but one part of the budget before the readers start.
 fn hold(mount_path: &Path) -> Box<dyn SetupGuard> {
-    Box::new(hold_budget_parts(SCOPE, HELD_PARTS, mount_path))
+    let held_parts = budget_parts(MINIMUM_MEM_LIMIT, PART_SIZE) - 1;
+    Box::new(hold_budget_parts(SCOPE, held_parts, mount_path))
 }
 
 #[test]

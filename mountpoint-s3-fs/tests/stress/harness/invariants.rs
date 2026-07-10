@@ -3,6 +3,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use mountpoint_s3_fs::memory::data_buffer_budget_for;
+
 use crate::common::stress_recorder;
 use crate::common::test_recorder::stress::{HdrMetric, HdrRecorder};
 
@@ -104,7 +106,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         );
         return;
     };
-    let effective_budget = super::setup::data_buffer_budget(mem_limit as usize) as u64;
+    let effective_budget = data_buffer_budget_for(mem_limit as usize) as u64;
 
     let mut reserved_overshoots: Vec<String> = Vec::new();
     for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {

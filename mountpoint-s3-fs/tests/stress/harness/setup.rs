@@ -4,7 +4,7 @@ use std::path::Path;
 
 mod budget_hold;
 
-pub use budget_hold::{budget_parts, data_buffer_budget, hold_budget_parts};
+pub use budget_hold::{budget_parts, hold_budget_parts};
 
 /// A guard produced by a scenario's [setup phase](super::Scenario::setup). The harness keeps it
 /// alive for the entire run and drops it just before unmount, so whatever a setup step must keep in
