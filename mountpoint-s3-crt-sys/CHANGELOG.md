@@ -1,7 +1,6 @@
 ## Unreleased (v0.17.0)
 
 * Update to latest CRT dependencies.
-* TODO: `aws-c-s3` is pinned to an unreleased commit for the `request_body` API; bump it to a release tag > 0.12.7 before merging.
 
 ## v0.16.3 (April 28, 2026)
 
