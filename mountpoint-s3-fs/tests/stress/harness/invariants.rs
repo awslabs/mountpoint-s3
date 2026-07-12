@@ -3,6 +3,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use mountpoint_s3_fs::memory::data_buffer_budget_for;
+
 use crate::common::stress_recorder;
 use crate::common::test_recorder::stress::{HdrMetric, HdrRecorder};
 
@@ -39,7 +41,7 @@ impl NamedGauge {
     /// Log the gauge's peak against the budget and, iff `peak > effective_budget`, push a
     /// `{gauge_id} peak ... exceeds effective budget ...` message onto `violations`.
     fn check_peak_violation(&self, scenario_name: &str, effective_budget: u64, violations: &mut Vec<String>) {
-        let peak = self.metric.gauge_history().max();
+        let peak = self.metric.gauge_peak();
         tracing::info!(
             scenario = scenario_name,
             metric = %self.id(),
@@ -104,9 +106,7 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         );
         return;
     };
-    let mem_limit_u64 = mem_limit as u64;
-    let additional_mem_reserved = (mem_limit_u64 / 8).max(128 * 1024 * 1024);
-    let effective_budget = mem_limit_u64.saturating_sub(additional_mem_reserved);
+    let effective_budget = data_buffer_budget_for(mem_limit as usize) as u64;
 
     let mut reserved_overshoots: Vec<String> = Vec::new();
     for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
@@ -186,9 +186,9 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
     );
 }
 
-/// Assert the peak sampled `process.memory_usage` (OS-reported RSS) stayed under
-/// `ceiling_bytes`.
-pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
+/// Assert the peak sampled `process.memory_usage` (OS-reported RSS), minus
+/// `worker_io_buffer_bytes` of in-process worker I/O buffers, stayed under `ceiling_bytes`.
+pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64, worker_io_buffer_bytes: usize) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
             scenario = scenario_name,
@@ -203,13 +203,13 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
         );
         return;
     };
-    let peak = metric.gauge_history().max();
+    let peak = metric.gauge_peak().saturating_sub(worker_io_buffer_bytes as u64);
     let ceiling = ceiling_bytes as u64;
     tracing::info!(
         scenario = scenario_name,
         peak = %format_mib(peak),
         ceiling = %format_mib(ceiling),
-        "stress: peak process.memory_usage"
+        "stress: peak process.memory_usage (worker buffers subtracted)"
     );
     let mut violations: Vec<String> = Vec::new();
     if peak > ceiling {

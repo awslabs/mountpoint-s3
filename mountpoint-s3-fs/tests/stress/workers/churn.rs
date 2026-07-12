@@ -24,6 +24,10 @@ impl Worker for Churn {
         self.pool.manifest()
     }
 
+    fn io_buffer_bytes(&self) -> usize {
+        self.pool.size
+    }
+
     fn run(
         &self,
         instance: usize,

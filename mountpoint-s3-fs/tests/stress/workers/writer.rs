@@ -24,6 +24,10 @@ impl Worker for Writer {
         "writer"
     }
 
+    fn io_buffer_bytes(&self) -> usize {
+        self.chunk
+    }
+
     fn run(
         &self,
         instance: usize,

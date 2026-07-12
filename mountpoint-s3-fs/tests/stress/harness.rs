@@ -17,6 +17,7 @@ mod latency;
 mod memory_monitor;
 mod report;
 mod scenario;
+mod setup;
 mod watchdog;
 mod worker;
 use invariants::{
@@ -26,6 +27,7 @@ pub use latency::{FileOp, FileOpLatencies};
 use memory_monitor::spawn_memory_monitor;
 use report::dump_summary;
 pub use scenario::{Scenario, default_max_latency};
+pub use setup::{SetupGuard, budget_parts, hold_budget_parts};
 use watchdog::{NO_STALL, spawn_watchdog};
 pub use worker::Worker;
 
@@ -48,6 +50,7 @@ pub fn run(scenario: Scenario) {
     let Scenario {
         name: scenario_name,
         mut session_config,
+        setup,
         workers,
         max_latency,
     } = scenario;
@@ -95,6 +98,18 @@ pub fn run(scenario: Scenario) {
         .expect("scenario must declare at least one worker");
 
     let mount_path: std::path::PathBuf = session.mount_path().to_path_buf();
+
+    // Setup phase: run any setup step to completion *before* spawning workers, so whatever it
+    // establishes (pinned memory, a warmed cache, …) is fully in effect and the workers do not race
+    // it. The returned guard is held until just before unmount (see the explicit `drop` after the
+    // workers join).
+    let setup_guard = setup.map(|setup| {
+        tracing::info!(scenario = scenario_name, "stress: setup phase starting");
+        let guard = setup(&mount_path);
+        tracing::info!(scenario = scenario_name, "stress: setup phase complete");
+        guard
+    });
+
     let mut handles: Vec<thread::JoinHandle<FileOpLatencies>> = Vec::with_capacity(num_workers);
     for (worker_id, worker) in workers.iter().enumerate() {
         let worker = Arc::clone(worker);
@@ -144,6 +159,7 @@ pub fn run(scenario: Scenario) {
                 .enumerate()
                 .filter_map(|(id, h)| (!h.is_finished()).then_some(labels[id].as_str()))
                 .collect();
+            drop(setup_guard);
             drop(session);
             panic!("stress: workers {stuck:?} did not finish within {max_join_wait:?} after stop");
         }
@@ -158,6 +174,7 @@ pub fn run(scenario: Scenario) {
         aggregate.merge(&rec);
     }
 
+    drop(setup_guard);
     drop(session);
 
     let stalled = stalled_worker.load(Ordering::SeqCst);
@@ -170,10 +187,14 @@ pub fn run(scenario: Scenario) {
 
     dump_summary(scenario_name, &aggregate);
 
+    // Workers run in this process, so their I/O buffers count toward RSS; sum them so the
+    // peak-RSS invariant can exclude memory a real out-of-process application would own.
+    let worker_io_buffer_bytes: usize = workers.iter().map(|w| w.io_buffer_bytes()).sum();
+
     tracing::info!("");
     tracing::info!("=== STRESS [{}] INVARIANT ASSERTIONS ===", scenario_name);
     assert_peak_reserved_invariant(scenario_name, mem_limit);
-    assert_peak_rss_invariant(scenario_name, mem_limit);
+    assert_peak_rss_invariant(scenario_name, mem_limit, worker_io_buffer_bytes);
     assert_teardown_invariants(scenario_name);
     assert_p100_latency(scenario_name, &aggregate, max_latency);
     tracing::info!("");
