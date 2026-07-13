@@ -28,6 +28,10 @@ pub fn data_buffer_budget_for(mem_limit: usize) -> usize {
     mem_limit.saturating_sub(additional_mem_reserved_for(mem_limit))
 }
 
+/// Prunable-sized buffers reserved so prunable allocations aren't starved. A sequential read (the
+/// prunable kind today) holds one part while it prefetches the next.
+const PRUNABLE_RESERVED_PARTS: usize = 1;
+
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
 #[derive(Debug)]
 pub enum BufferArea {
@@ -71,6 +75,9 @@ pub struct MemoryLimiter {
     mem_limit: usize,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: usize,
+    /// Bytes reserved for reads: non-read allocations stop this many bytes short of `mem_limit`, so they can't starve active reads.
+    /// Derived in [`Self::new`] from the prunable buffer size; zero when none is configured.
+    prunable_reserved: usize,
     /// Memory allocated by the pool.
     allocated_bytes: AtomicUsize,
     /// Memory in use by [`BufferKind`].
@@ -94,17 +101,20 @@ pub struct MemoryLimiter {
 }
 
 impl MemoryLimiter {
-    pub fn new(mem_limit: usize) -> Self {
+    pub fn new(mem_limit: usize, prunable_buffer_size: usize) -> Self {
         let additional_mem_reserved = additional_mem_reserved_for(mem_limit);
+        let prunable_reserved = prunable_buffer_size * PRUNABLE_RESERVED_PARTS;
         let formatter = make_format(humansize::BINARY);
         debug!(
-            "target memory usage is {} with {} reserved memory",
+            "target memory usage is {} with {} reserved memory and {} reserved for prunable buffers",
             formatter(mem_limit),
-            formatter(additional_mem_reserved)
+            formatter(additional_mem_reserved),
+            formatter(prunable_reserved)
         );
         Self {
             mem_limit,
             additional_mem_reserved,
+            prunable_reserved,
             allocated_bytes: Default::default(),
             acquired_bytes: Default::default(),
             mem_reserved: Default::default(),
@@ -257,10 +267,20 @@ impl MemoryLimiter {
         metrics::gauge!("mem.bytes_reserved", "area" => BufferArea::Prefetch.as_str()).decrement(decremented as f64);
     }
 
+    /// Try to allocate `size` bytes from the pool budget.
+    ///
+    /// `kind` selects the ceiling: reads ([`BufferKind::GetObject`]) may use the full `mem_limit`,
+    /// while every other kind stops `prunable_reserved` bytes short, keeping a read-part-sized slice
+    /// exclusively for reads.
+    ///
+    /// `track` controls per-kind byte accounting: `true` records the allocation against `kind` (and
+    /// releases it on drop), `false` skips tracking. Page allocations pass `false` because their
+    /// individual buffers are tracked separately as they are acquired.
     pub fn try_allocate(
         self: &Arc<Self>,
         size: usize,
-        kind: Option<BufferKind>,
+        kind: BufferKind,
+        track: bool,
         forced: bool,
     ) -> Option<ManagedBuffer> {
         if forced {
@@ -268,11 +288,17 @@ impl MemoryLimiter {
             metrics::gauge!("pool.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
+            // Reads use the full limit; other kinds must leave `prunable_reserved` bytes free.
+            let ceiling = if matches!(kind, BufferKind::GetObject) {
+                self.mem_limit
+            } else {
+                self.mem_limit.saturating_sub(self.prunable_reserved)
+            };
             let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
             loop {
                 let new_mem_allocated = mem_allocated.saturating_add(size);
                 let new_total_mem_usage = new_mem_allocated.saturating_add(self.additional_mem_reserved);
-                if new_total_mem_usage > self.mem_limit {
+                if new_total_mem_usage > ceiling {
                     trace!(new_total_mem_usage, "not enough memory to allocate");
                     metrics::histogram!("pool.allocate_latency_us").record(start.elapsed().as_micros() as f64);
                     return None;
@@ -294,11 +320,11 @@ impl MemoryLimiter {
             }
         }
 
-        if let Some(kind) = kind {
+        if track {
             self.acquire_bytes(size, kind);
         }
 
-        Some(ManagedBuffer::new(size, kind, self.clone()))
+        Some(ManagedBuffer::new(size, track.then_some(kind), self.clone()))
     }
 
     pub fn deallocate(&self, ptr: BufferPtr, kind: Option<BufferKind>) {

@@ -53,9 +53,9 @@ impl SizePoolStats {
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub(super) fn try_allocate_page(&self, buffer_count: usize) -> Option<ManagedBuffer> {
+    pub(super) fn try_allocate_page(&self, buffer_count: usize, kind: BufferKind) -> Option<ManagedBuffer> {
         let size = self.buffer_size * buffer_count;
-        let result = self.limiter.try_allocate(size, None, false)?;
+        let result = self.limiter.try_allocate(size, kind, false, false)?;
         metrics::gauge!(
             "pool.allocated_pages",
             "buffer_size" => format!("{}", self.buffer_size),

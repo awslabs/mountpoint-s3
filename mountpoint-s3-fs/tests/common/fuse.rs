@@ -14,7 +14,7 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool};
+use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -528,7 +528,7 @@ pub mod s3_session {
         let mount_dir = tempfile::tempdir().unwrap();
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([test_config.part_size])
+            .with_candidate_sizes([CandidateSize::prunable(test_config.part_size)])
             .with_memory_limit(test_config.mem_limit)
             .build();
         let client_config = S3ClientConfig::default()

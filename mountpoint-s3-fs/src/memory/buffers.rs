@@ -38,11 +38,9 @@ impl PoolBuffer {
         limiter: Arc<MemoryLimiter>,
         forced: bool,
     ) -> Option<Self> {
-        Some(Self(PoolBufferInner::Secondary(limiter.try_allocate(
-            size,
-            Some(kind),
-            forced,
-        )?)))
+        Some(Self(PoolBufferInner::Secondary(
+            limiter.try_allocate(size, kind, true, forced)?,
+        )))
     }
 
     pub fn capacity(&self) -> usize {
@@ -302,7 +300,7 @@ mod tests {
         PoolBuffer::try_new_secondary(
             buffer_size,
             BufferKind::Other,
-            Arc::new(MemoryLimiter::new(usize::MAX)),
+            Arc::new(MemoryLimiter::new(usize::MAX, 0)),
             true,
         )
         .unwrap()

@@ -174,8 +174,8 @@ mod tests {
         let additional_reserved = (BUF * 16).max(128 * 1024 * 1024);
         let mem_limit = BUF * 16 + additional_reserved;
 
-        let limiter = MemoryLimiter::new(mem_limit);
-        let inner_pool = PagedPoolInner::new(&[BUF], Arc::new(limiter));
+        let limiter = MemoryLimiter::new(mem_limit, 0);
+        let inner_pool = PagedPoolInner::new(&[BUF.into()], Arc::new(limiter));
         PagedPool {
             inner: Arc::new(inner_pool),
         }
