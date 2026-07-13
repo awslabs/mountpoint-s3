@@ -1,4 +1,4 @@
-## Unreleased (v0.20.1)
+## Unreleased (v0.21.0)
 
 * **Breaking:** `ObjectClient::put_object_single` now requires `contents: impl AsRef<[u8]> + Send + 'static` (was `+ 'a`), so the body can be held until the request is fully torn down.
 * Update to latest CRT dependencies.
