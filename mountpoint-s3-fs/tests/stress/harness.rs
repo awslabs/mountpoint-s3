@@ -161,8 +161,13 @@ pub fn run(scenario: Scenario) {
                 .collect();
             // Workers are wedged (likely in uninterruptible FUSE syscalls). Clean unmount
             // would hang in fuse_session_unmount waiting for the FUSE session thread, which
-            // is stuck waiting for the workers. Skip cleanup and panic immediately — process
-            // exit will close /dev/fuse fd and trigger kernel-side unmount.
+            // is stuck waiting for the workers. Skip cleanup and panic immediately.
+            // TODO: Avoid resource leak
+            tracing::warn!(
+                scenario = scenario_name,
+                "stress: workers wedged after stop; skipping clean unmount to avoid a deadlocked \
+                 teardown. Leaking the mount dir, FUSE mount entry, and setup-guard objects"
+            );
             std::mem::forget(setup_guard);
             std::mem::forget(session);
             panic!("stress: workers {stuck:?} did not finish within {max_join_wait:?} after stop");
