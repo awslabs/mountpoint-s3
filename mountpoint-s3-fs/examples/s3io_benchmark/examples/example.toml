@@ -4,7 +4,7 @@ region = "us-east-1"
 output_file = "example_results.json"
 iterations = 3
 throughput_target_gbps = 100.0
-max_memory_target = 4768
+memory_target = 4768
 
 [jobs.read_1]
 workload_type = "read"

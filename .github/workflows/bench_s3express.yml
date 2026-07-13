@@ -51,32 +51,28 @@ jobs:
       matrix:
         include:
           - variant: default
-            features: ""
-            max_memory_target_mib: ""
+            memory_target_mib: ""
             extra_args: ""
             bench_categories: ""
             name_suffix: ""
             data_path_suffix: ""
             results_subdir_suffix: ""
           - variant: mem-limited
-            features: "--features mem_limiter"
-            max_memory_target_mib: "512"
+            memory_target_mib: "512"
             extra_args: ""
             bench_categories: ""
             name_suffix: ", Memory-Limited"
             data_path_suffix: "/mem_limited"
             results_subdir_suffix: "-mem-limited"
           - variant: incremental-upload
-            features: ""
-            max_memory_target_mib: ""
+            memory_target_mib: ""
             extra_args: "--incremental-upload"
             bench_categories: "write mix"
             name_suffix: ", Incremental Upload"
             data_path_suffix: "/incremental_upload"
             results_subdir_suffix: "-incremental-upload"
           - variant: incremental-upload-mem-limited
-            features: "--features mem_limiter"
-            max_memory_target_mib: "512"
+            memory_target_mib: "512"
             extra_args: "--incremental-upload"
             bench_categories: "write mix"
             name_suffix: ", Incremental Upload, Memory-Limited"
@@ -109,16 +105,16 @@ jobs:
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Build
-      run: cargo build --release ${{ matrix.features }}
+      run: cargo build --release
     - name: Run Benchmark
       env:
-        S3_MAX_MEMORY_TARGET_MIB: ${{ matrix.max_memory_target_mib }}
+        S3_MEMORY_TARGET_MIB: ${{ matrix.memory_target_mib }}
         S3_MOUNTPOINT_EXTRA_ARGS: ${{ matrix.extra_args }}
         S3_BENCH_CATEGORIES: ${{ matrix.bench_categories }}
         S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}bench${{ matrix.results_subdir_suffix }}/
       run: mountpoint-s3/scripts/fs_bench.sh
     - name: Render memory summary
-      if: matrix.max_memory_target_mib != ''
+      if: matrix.memory_target_mib != ''
       run: .github/actions/scripts/render-mem-summary.sh
     - name: Save benchmark results in S3
       if: inputs.s3_bench_results_prefix

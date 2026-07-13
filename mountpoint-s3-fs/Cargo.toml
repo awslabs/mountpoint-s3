@@ -91,7 +91,6 @@ wiremock = "0.6.5"
 # Unreleased and/or experimental features: not enabled in the release binary and may be dropped in future
 block_size = []
 event_log = []
-mem_limiter = []
 manifest = ["csv", "rusqlite"]
 
 # Features for choosing tests
