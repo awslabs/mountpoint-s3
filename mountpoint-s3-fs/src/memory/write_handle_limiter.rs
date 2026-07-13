@@ -3,15 +3,15 @@
 //! Each open write handle should have at least one part-sized buffer's worth of memory budget for
 //! forward progress — S3 multipart uploads require non-final parts to be at least 5 MiB, so this
 //! is a hard floor we cannot reduce by flushing more often. This module enforces a hard cap on
-//! the number of concurrently open write handles, derived from the available data-buffer budget
-//! and write part size:
+//! the number of concurrently open write handles, derived from the buffer budget available to
+//! writes and the write part size:
 //!
 //! ```text
-//! max_concurrent_writes = data_buffer_budget / write_part_size
+//! max_concurrent_writes = non_prunable_data_buffer_budget / write_part_size
 //! ```
 //!
-//! `data_buffer_budget` is `mem_limit - additional_mem_reserved`, exposed by
-//! `PagedPool::data_buffer_budget`.
+//! `non_prunable_data_buffer_budget` (from [`crate::memory::PagedPool`]) subtracts the read reserve
+//! from the data-buffer budget, so writes can't open into the slice kept for reads.
 //!
 //! Acquisition is attempted at `open()` time via [`WriteHandleLimiter::try_acquire`]; on
 //! rejection the operation returns `ENOMEM`. The slot is released when the returned
@@ -67,11 +67,13 @@ pub struct WriteHandleLimiter {
 
 impl WriteHandleLimiter {
     /// Construct a limiter with the cap derived from the configured memory parameters.
-    /// `data_buffer_budget` is the static memory budget available for data buffers, i.e.
-    /// `mem_limit - additional_mem_reserved`. `mem_limit` is retained for diagnostics so that
-    /// rejection errors quote the same value as the user-facing `--memory-target` flag.
-    pub fn new(mem_limit: usize, data_buffer_budget: usize, write_part_size: usize) -> Self {
-        let max_concurrent_writes = data_buffer_budget / write_part_size;
+    /// `non_prunable_data_buffer_budget` is the budget available to non-read allocations, i.e.
+    /// `mem_limit - additional_mem_reserved - prunable_reserved`. Deriving the cap from this (rather than
+    /// the full data-buffer budget) guarantees an admitted writer never has to wait on memory that is
+    /// reserved for reads. `mem_limit` is retained for diagnostics so that rejection errors quote the
+    /// same value as the user-facing `--memory-target` flag.
+    pub fn new(mem_limit: usize, non_prunable_data_buffer_budget: usize, write_part_size: usize) -> Self {
+        let max_concurrent_writes = non_prunable_data_buffer_budget / write_part_size;
         let mem_limit_mib = mem_limit / (1024 * 1024);
         let write_part_size_mib = write_part_size / (1024 * 1024);
         if max_concurrent_writes == 0 {
@@ -215,5 +217,37 @@ mod tests {
         let successes: Vec<_> = threads.into_iter().filter_map(|t| t.join().unwrap()).collect();
         assert_eq!(successes.len(), max, "exactly `max` threads should succeed");
         assert!(limiter.try_acquire().is_err());
+    }
+
+    /// A prunable (read) reserve lowers the write cap, so every admitted writer gets a buffer and a
+    /// read can still allocate — the fix for the `held_writes_vs_reads` stall.
+    #[test]
+    fn read_reserve_lowers_the_write_cap() {
+        use crate::memory::{BufferKind, CandidateSize, PagedPool};
+
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::prunable(PART_SIZE_8MIB)])
+            .with_memory_limit(MIN_LIMIT)
+            .build();
+
+        // The reserve drops the cap: (384 - 8) MiB / 8 MiB = 47, versus 48 without it.
+        let write_limiter = WriteHandleLimiter::new(MIN_LIMIT, pool.non_prunable_data_buffer_budget(), PART_SIZE_8MIB);
+        assert_eq!(write_limiter.max_concurrent_writes(), 47);
+
+        // Every admitted writer pins a part-sized buffer; all fit.
+        let mut slots = Vec::new();
+        let mut pinned_buffers = Vec::new();
+        for _ in 0..write_limiter.max_concurrent_writes() {
+            slots.push(write_limiter.try_acquire().expect("acquire should succeed within cap"));
+            pinned_buffers.push(pool.get_buffer_mut(PART_SIZE_8MIB, BufferKind::Append, None));
+        }
+
+        // A read can still allocate while all admitted writers hold their buffers.
+        assert!(
+            pool.inner
+                .try_get_buffer(PART_SIZE_8MIB, BufferKind::GetObject, None, false)
+                .is_some(),
+            "a read must still allocate its buffer while all admitted writers hold theirs"
+        );
     }
 }

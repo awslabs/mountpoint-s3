@@ -170,6 +170,11 @@ impl PagedPool {
         self.inner.limiter.data_buffer_budget()
     }
 
+    /// The buffer budget available to non-evictable allocations, i.e. `data_buffer_budget - prunable_reserved`.
+    pub fn non_prunable_data_buffer_budget(&self) -> usize {
+        self.inner.limiter.non_prunable_data_buffer_budget()
+    }
+
     /// Create a new cursor and return the shared state handle.
     pub fn create_cursor(&self) -> CursorHandle {
         self.inner.limiter.create_cursor(self)

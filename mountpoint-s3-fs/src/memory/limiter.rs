@@ -75,8 +75,9 @@ pub struct MemoryLimiter {
     mem_limit: usize,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: usize,
-    /// Bytes reserved for reads: non-read allocations stop this many bytes short of `mem_limit`, so they can't starve active reads.
-    /// Derived in [`Self::new`] from the prunable buffer size; zero when none is configured.
+    /// Bytes reserved for reads: non-read allocations stop this many bytes short of `mem_limit`, so
+    /// they can't starve active reads. Derived in [`Self::new`] from the prunable buffer size; zero
+    /// when none is configured.
     prunable_reserved: usize,
     /// Memory allocated by the pool.
     allocated_bytes: AtomicUsize,
@@ -133,10 +134,17 @@ impl MemoryLimiter {
     }
 
     /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
-    /// This is the upper bound on buffer-backed allocations and is used by
-    /// [`crate::memory::WriteHandleLimiter`] to derive its cap.
+    /// This is the upper bound on buffer-backed allocations across all kinds.
     pub fn data_buffer_budget(&self) -> usize {
         self.mem_limit.saturating_sub(self.additional_mem_reserved)
+    }
+
+    /// The buffer budget available to non-evictable allocations, i.e. `data_buffer_budget - prunable_reserved`.
+    /// This is the ceiling writes actually see (reads may use the full `data_buffer_budget`), so
+    /// [`crate::memory::WriteHandleLimiter`] derives its cap from it: an admitted writer is then
+    /// always backed by budget and never waits on memory reserved for reads.
+    pub fn non_prunable_data_buffer_budget(&self) -> usize {
+        self.data_buffer_budget().saturating_sub(self.prunable_reserved)
     }
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond

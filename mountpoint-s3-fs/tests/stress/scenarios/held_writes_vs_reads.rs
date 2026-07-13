@@ -8,7 +8,7 @@ use crate::common::fuse::TestSessionConfig;
 use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
 use crate::stress::workers::{HoldingWriter, LARGE_READ_OBJECT, SequentialReader};
 
-const NUM_WRITERS: usize = 48; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT memory target
+const NUM_WRITERS: usize = 47; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT memory target
 const NUM_READERS: usize = 16;
 const PART_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
 const WRITE_BEFORE_HOLD: usize = PART_SIZE + 4 * 1024;
