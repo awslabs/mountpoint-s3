@@ -1076,12 +1076,12 @@ impl ObjectClient for MockClient {
         Ok(put_request)
     }
 
-    async fn put_object_single<'a>(
+    async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         trace!(bucket, key, "PutObject");
         self.inc_op_count(Operation::PutObjectSingle);
@@ -2087,7 +2087,7 @@ mod tests {
         let object_metadata = HashMap::from([("foo".to_string(), "bar".to_string())]);
         let put_object_params = PutObjectSingleParams::new().object_metadata(object_metadata.clone());
         let _put_result = client
-            .put_object_single("test_bucket", "key1", &put_object_params, &content)
+            .put_object_single("test_bucket", "key1", &put_object_params, content.clone())
             .await
             .expect("put_object failed");
 
@@ -2111,7 +2111,7 @@ mod tests {
         let content_checksum = crc32c::checksum(&content);
         let put_object_params = PutObjectSingleParams::new().checksum(Some(UploadChecksum::Crc32c(content_checksum)));
         let _put_result = client
-            .put_object_single("test_bucket", s3_key, &put_object_params, &content)
+            .put_object_single("test_bucket", s3_key, &put_object_params, content.clone())
             .await
             .expect("put_object failed");
 
@@ -2542,7 +2542,7 @@ mod tests {
         let append_data = vec![42u8; 10];
         let params = PutObjectSingleParams::new_for_append(obj.len() as u64);
         client
-            .put_object_single(bucket, key, &params, &append_data)
+            .put_object_single(bucket, key, &params, append_data.clone())
             .await
             .expect("append failed");
 
@@ -2583,7 +2583,9 @@ mod tests {
 
         let append_data = vec![42u8; 10];
         let params = PutObjectSingleParams::new_for_append(append_offset);
-        let result = client.put_object_single(bucket, key, &params, &append_data).await;
+        let result = client
+            .put_object_single(bucket, key, &params, append_data.clone())
+            .await;
 
         if append_offset != original_size as u64 {
             let err = result.expect_err("append should reject invalid offset");
@@ -2621,7 +2623,7 @@ mod tests {
                 bucket,
                 key,
                 &PutObjectSingleParams::new_for_append(offset).checksum(Some(UploadChecksum::Crc32c(checksum))),
-                &append_data,
+                append_data.clone(),
             )
             .await
             .expect("append with correct checksum failed");
@@ -2630,12 +2632,7 @@ mod tests {
 
         // Append with no checksum, while existing object uses CRC32C.
         let err = client
-            .put_object_single(
-                bucket,
-                key,
-                &PutObjectSingleParams::new_for_append(offset),
-                &append_data,
-            )
+            .put_object_single(bucket, key, &PutObjectSingleParams::new_for_append(offset), append_data)
             .await
             .expect_err("append with no checksum succeeded");
         assert!(matches!(
