@@ -148,9 +148,9 @@ pub fn run(scenario: Scenario) {
 
     // Bounded join: workers observe `stop` between ops and should finish quickly. If any
     // are wedged in a kernel FUSE syscall they cannot observe `stop` and `JoinHandle` has
-    // no timeout API, so we poll `is_finished()` up to a deadline. On timeout we drop
-    // (unmount) the session to force EIO/EINTR on stuck syscalls, then panic with the
-    // stuck worker labels.
+    // no timeout API, so we poll `is_finished()` up to a deadline. On timeout we skip
+    // clean unmount (which would hang waiting for the stuck workers in a circular
+    // dependency) and let process exit force-unmount the filesystem.
     let join_deadline = Instant::now() + max_join_wait;
     while !handles.iter().all(|h| h.is_finished()) {
         if Instant::now() >= join_deadline {
@@ -159,8 +159,12 @@ pub fn run(scenario: Scenario) {
                 .enumerate()
                 .filter_map(|(id, h)| (!h.is_finished()).then_some(labels[id].as_str()))
                 .collect();
-            drop(setup_guard);
-            drop(session);
+            // Workers are wedged (likely in uninterruptible FUSE syscalls). Clean unmount
+            // would hang in fuse_session_unmount waiting for the FUSE session thread, which
+            // is stuck waiting for the workers. Skip cleanup and panic immediately — process
+            // exit will close /dev/fuse fd and trigger kernel-side unmount.
+            std::mem::forget(setup_guard);
+            std::mem::forget(session);
             panic!("stress: workers {stuck:?} did not finish within {max_join_wait:?} after stop");
         }
         thread::sleep(Duration::from_millis(100));
