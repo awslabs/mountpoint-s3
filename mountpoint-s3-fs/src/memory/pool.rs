@@ -526,17 +526,18 @@ impl CandidateSize {
     }
 }
 
-// TODO: Consider removing these and updating calls.
-
+// Let callers pass bare sizes (owned or borrowed, e.g. from a `&[usize]` slice); these default to
+// non-prunable. Prunable sizes must be constructed explicitly via `CandidateSize::prunable`.
+//
+// TODO: remove these conversions and make every call site pass an explicit `CandidateSize`, so
+// prunability is always stated rather than silently defaulted (follow-up PR).
 impl From<usize> for CandidateSize {
-    /// Bare sizes default to non-prunable.
     fn from(bytes: usize) -> Self {
         Self::new(bytes)
     }
 }
 
 impl From<&usize> for CandidateSize {
-    /// Convenience for callers passing `&[usize]` slices.
     fn from(bytes: &usize) -> Self {
         Self::new(*bytes)
     }
@@ -1068,12 +1069,18 @@ mod tests {
                 "non-read allocation must not consume the read-reserved slice"
             );
 
-            // But a read can still claim the reserved slice.
+            // But prunable allocations (reads and disk-cache read-backs) can still claim the slice.
             assert!(
                 pool.inner
                     .try_get_buffer(BUF, BufferKind::GetObject, None, false)
                     .is_some(),
                 "read allocation must succeed into the reserved slice"
+            );
+            assert!(
+                pool.inner
+                    .try_get_buffer(BUF, BufferKind::DiskCache, None, false)
+                    .is_some(),
+                "disk-cache allocation must succeed into the reserved slice"
             );
         }
     }

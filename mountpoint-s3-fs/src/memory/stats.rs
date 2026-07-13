@@ -101,6 +101,14 @@ impl<T> Index<BufferKind> for [T; BUFFER_KIND_COUNT] {
 }
 
 impl BufferKind {
+    /// Whether allocations of this kind are prunable: reclaimable/re-fetchable so the memory
+    /// limiter reserves budget for them and lets them use the full memory limit. Reads
+    /// ([`GetObject`](Self::GetObject)) and disk-cache read-backs ([`DiskCache`](Self::DiskCache))
+    /// both serve in-flight reads; writes hold the only copy of their data and are not prunable.
+    pub fn is_prunable(&self) -> bool {
+        matches!(self, BufferKind::GetObject | BufferKind::DiskCache)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             BufferKind::GetObject => "get_object",

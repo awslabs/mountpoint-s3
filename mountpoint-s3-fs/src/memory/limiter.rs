@@ -277,9 +277,9 @@ impl MemoryLimiter {
 
     /// Try to allocate `size` bytes from the pool budget.
     ///
-    /// `kind` selects the ceiling: reads ([`BufferKind::GetObject`]) may use the full `mem_limit`,
-    /// while every other kind stops `prunable_reserved` bytes short, keeping a read-part-sized slice
-    /// exclusively for reads.
+    /// `kind` selects the ceiling: prunable kinds (see [`BufferKind::is_prunable`]) may use the full
+    /// `mem_limit`, while non-prunable kinds stop `prunable_reserved` bytes short, keeping that slice
+    /// available for prunable allocations.
     ///
     /// `track` controls per-kind byte accounting: `true` records the allocation against `kind` (and
     /// releases it on drop), `false` skips tracking. Page allocations pass `false` because their
@@ -296,8 +296,8 @@ impl MemoryLimiter {
             metrics::gauge!("pool.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
-            // Reads use the full limit; other kinds must leave `prunable_reserved` bytes free.
-            let ceiling = if matches!(kind, BufferKind::GetObject) {
+            // Prunable kinds use the full limit; others must leave `prunable_reserved` bytes free.
+            let ceiling = if kind.is_prunable() {
                 self.mem_limit
             } else {
                 self.mem_limit.saturating_sub(self.prunable_reserved)

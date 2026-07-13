@@ -10,7 +10,7 @@ use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::data_cache::{DataCacheConfig, ManagedCacheDir};
 use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::logging::init_logging;
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::metrics::MetricsConfig;
 use mountpoint_s3_fs::s3::config::ClientConfig;
 use mountpoint_s3_fs::s3::{S3Path, S3Personality};
@@ -200,9 +200,9 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
     // Set up a paged memory pool with the validated read_size_bytes
     let pool = PagedPool::config()
         .with_candidate_sizes([
-            args.cache_block_size_in_bytes() as usize,
-            client_config.part_config.read_size_bytes,
-            client_config.part_config.write_size_bytes,
+            CandidateSize::prunable(args.cache_block_size_in_bytes() as usize),
+            CandidateSize::prunable(client_config.part_config.read_size_bytes),
+            CandidateSize::new(client_config.part_config.write_size_bytes),
         ])
         .with_memory_limit(memory_limit.bytes())
         .with_maintenance_interval(Duration::from_secs(60))
