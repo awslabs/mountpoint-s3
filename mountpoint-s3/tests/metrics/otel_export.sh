@@ -48,12 +48,29 @@ if ! command -v jq &> /dev/null; then
 fi
 
 cleanup() {
+  local exit_code=$?
+
+  if [[ ${exit_code} -ne 0 ]]; then
+    echo "Cleaning up after failure (exit code ${exit_code})"
+  fi
+
   ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
   rm -rf "${TMP_DIR}"
 
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
-    kill "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+    kill -TERM "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+
+    # Give it up to 5s to exit gracefully, then force-kill so cleanup can't hang.
+    for _ in $(seq 50); do
+      kill -0 "${OTEL_COLLECTOR_PID}" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+
+    # Reap the terminated job so the OTLP port is fully released before the next run.
+    wait "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+    OTEL_COLLECTOR_PID=""
   fi
   rm -f "${OTEL_COLLECTOR_CONFIG}" "${OTEL_COLLECTOR_METRICS}"
 }
