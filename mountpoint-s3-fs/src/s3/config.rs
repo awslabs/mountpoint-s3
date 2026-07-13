@@ -94,7 +94,7 @@ impl PartConfig {
                 anyhow::bail!(
                     "read part size ({}) exceeds the memory available for data buffers ({}). \
                      The memory target is {}, of which {} is reserved for Mountpoint overhead. \
-                     Increase --max-memory-target or decrease --read-part-size.",
+                     Increase --memory-target or decrease --read-part-size.",
                     format_size(self.read_size_bytes, BINARY),
                     format_size(data_buffer_budget, BINARY),
                     format_size(mem_limit, BINARY),
@@ -178,7 +178,7 @@ impl TargetThroughputSetting {
 pub enum MemoryLimitSetting {
     /// Default memory limit (95% of system memory)
     Default(usize),
-    /// User-specified memory limit via --max-memory-target
+    /// User-specified memory limit via --memory-target
     User(usize),
 }
 
