@@ -68,9 +68,10 @@ impl PagedPool {
 
     /// Create a new [PagedPool] with the given configuration.
     pub fn new(config: &PagedPoolConfig) -> Self {
-        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit()));
+        let ordered_sizes: &[CandidateSize] = config.ordered_sizes();
+        let limiter = Arc::new(MemoryLimiter::new(config.memory_limit(), config.largest_prunable_size));
 
-        let inner = Arc::new(PagedPoolInner::new(config.ordered_sizes(), limiter));
+        let inner = Arc::new(PagedPoolInner::new(ordered_sizes, limiter));
 
         // Spawn a background thread to process pending allocation requests.
         inner.spawn_process_pending_thread();
@@ -157,9 +158,9 @@ impl PagedPool {
         self.inner.limiter.mem_limit()
     }
 
-    /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
-    pub fn data_buffer_budget(&self) -> usize {
-        self.inner.limiter.data_buffer_budget()
+    /// The buffer budget available to writes, i.e. `data_buffer_budget - prunable_reserved`.
+    pub fn write_buffer_budget(&self) -> usize {
+        self.inner.limiter.write_buffer_budget()
     }
 
     /// Create a new cursor and return the shared state handle.
@@ -220,12 +221,12 @@ pub(super) struct PagedPoolInner {
 }
 
 impl PagedPoolInner {
-    pub(super) fn new(ordered_sizes: &[usize], limiter: Arc<MemoryLimiter>) -> Self {
+    pub(super) fn new(ordered_sizes: &[CandidateSize], limiter: Arc<MemoryLimiter>) -> Self {
         let ordered_size_pools = ordered_sizes
             .iter()
-            .map(|&buffer_size| SizePool {
+            .map(|candidate| SizePool {
                 pages: Default::default(),
-                stats: Arc::new(SizePoolStats::new(buffer_size, limiter.clone())),
+                stats: Arc::new(SizePoolStats::new(candidate.bytes(), limiter.clone())),
             })
             .collect();
 
@@ -457,7 +458,7 @@ impl SizePool {
         // memory, keep retrying by halving the count.
         let mut buffer_count = MAX_BUFFERS_PER_PAGE;
         while buffer_count > 0 {
-            let Some(page) = Page::try_new(&self.stats, buffer_count) else {
+            let Some(page) = Page::try_new(&self.stats, buffer_count, kind) else {
                 buffer_count /= 2;
                 continue;
             };
@@ -482,6 +483,37 @@ impl SizePool {
     }
 }
 
+/// A buffer size the pool maintains a [SizePool] for, and whether allocations of that size are
+/// prunable (reclaimable on demand, e.g. prefetch reads).
+///
+/// The limiter keeps a budget reserve for prunable sizes so non-prunable allocations can't consume
+/// the whole budget and starve them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CandidateSize {
+    bytes: usize,
+    prunable: bool,
+}
+
+impl CandidateSize {
+    /// A non-prunable candidate size (the default).
+    pub fn new(bytes: usize) -> Self {
+        Self { bytes, prunable: false }
+    }
+
+    /// A prunable candidate size: the limiter keeps a reserve for it so it is not starved.
+    pub fn prunable(bytes: usize) -> Self {
+        Self { bytes, prunable: true }
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    pub fn is_prunable(&self) -> bool {
+        self.prunable
+    }
+}
+
 /// Configuration for a [PagedPool].
 ///
 /// Defaults:
@@ -490,7 +522,8 @@ impl SizePool {
 /// - maintenance interval: 60s.
 #[derive(Debug, Clone)]
 pub struct PagedPoolConfig {
-    ordered_sizes: Vec<usize>,
+    ordered_sizes: Vec<CandidateSize>,
+    largest_prunable_size: usize,
     mem_limit: usize,
     maintenance_interval: Duration,
 }
@@ -499,6 +532,7 @@ impl Default for PagedPoolConfig {
     fn default() -> Self {
         Self {
             ordered_sizes: Default::default(),
+            largest_prunable_size: 0,
             mem_limit: MINIMUM_MEM_LIMIT,
             maintenance_interval: Duration::from_secs(60),
         }
@@ -506,16 +540,27 @@ impl Default for PagedPoolConfig {
 }
 
 impl PagedPoolConfig {
-    /// Configure primary memory with the given set of buffer sizes, if valid.
+    /// Configure primary memory with the given [CandidateSize] buffer sizes, if valid.
     ///
-    /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE])
-    /// or duplicate values for buffer sizes. If no valid value is provided,
-    /// uses [DEFAULT_BUFFER_SIZE].
-    pub fn with_candidate_sizes(&mut self, buffer_sizes: impl Into<Vec<usize>>) -> &mut Self {
-        self.ordered_sizes = buffer_sizes.into();
-        self.ordered_sizes.retain(|&size| size > 0 && size <= MAX_BUFFER_SIZE);
-        self.ordered_sizes.sort();
-        self.ordered_sizes.dedup();
+    /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE]) or duplicate sizes; falls back to
+    /// [DEFAULT_BUFFER_SIZE] if none are valid. On a size collision the prunable candidate wins.
+    pub fn with_candidate_sizes<I>(&mut self, buffer_sizes: I) -> &mut Self
+    where
+        I: IntoIterator<Item = CandidateSize>,
+    {
+        let mut sizes: Vec<CandidateSize> = buffer_sizes.into_iter().collect();
+        self.largest_prunable_size = sizes
+            .iter()
+            .filter(|s| s.prunable && s.bytes > 0)
+            .map(|s| s.bytes)
+            .max()
+            .unwrap_or(0);
+        sizes.retain(|s| s.bytes > 0 && s.bytes <= MAX_BUFFER_SIZE);
+        // Sort by size; keep a prunable candidate ahead of a non-prunable one of the same size so
+        // dedup (which keeps the first) preserves prunability when sizes coincide.
+        sizes.sort_by(|a, b| a.bytes.cmp(&b.bytes).then(b.prunable.cmp(&a.prunable)));
+        sizes.dedup_by_key(|s| s.bytes);
+        self.ordered_sizes = sizes;
         self
     }
 
@@ -549,9 +594,13 @@ impl PagedPoolConfig {
         PagedPool::new(self)
     }
 
-    fn ordered_sizes(&self) -> &[usize] {
+    fn ordered_sizes(&self) -> &[CandidateSize] {
         if self.ordered_sizes.is_empty() {
-            &[DEFAULT_BUFFER_SIZE]
+            const DEFAULT: &[CandidateSize] = &[CandidateSize {
+                bytes: DEFAULT_BUFFER_SIZE,
+                prunable: false,
+            }];
+            DEFAULT
         } else {
             &self.ordered_sizes
         }
@@ -585,7 +634,7 @@ mod tests {
     #[test_case(&vec![42u8; 1000], &[128, 1024])]
     fn test_from_slice(original: &[u8], buffer_sizes: &[usize]) {
         let pool = PagedPool::config()
-            .with_candidate_sizes(buffer_sizes)
+            .with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)))
             .with_no_memory_limit()
             .build();
         let bytes = copy_from_slice(&pool, original);
@@ -595,7 +644,7 @@ mod tests {
     #[test_case(&[5, 10, 1024])]
     fn test_pages(buffer_sizes: &[usize]) {
         let pool = PagedPool::config()
-            .with_candidate_sizes(buffer_sizes)
+            .with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)))
             .with_no_memory_limit()
             .build();
 
@@ -634,7 +683,7 @@ mod tests {
     #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [Duration::MAX, Duration::from_millis(10)])]
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Duration) {
         let pool = PagedPool::config()
-            .with_candidate_sizes(buffer_sizes)
+            .with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)))
             .with_no_memory_limit()
             .with_maintenance_interval(schedule)
             .build();
@@ -669,7 +718,7 @@ mod tests {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_no_memory_limit()
             .build();
         let mut buffers = Vec::new();
@@ -690,12 +739,46 @@ mod tests {
     #[test_case(&[8, 8, 10])]
     fn test_ordered_pool_sizes(buffer_sizes: &[usize]) {
         let mut config = PagedPool::config();
-        config.with_candidate_sizes(buffer_sizes);
+        config.with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)));
 
-        let ordered_sizes = config.ordered_sizes();
-        assert!(ordered_sizes.iter().is_sorted(), "Sizes should be sorted");
-        let unique: HashSet<_> = ordered_sizes.iter().collect();
-        assert_eq!(ordered_sizes.len(), unique.len(), "Sizes should be unique");
+        let ordered_bytes: Vec<usize> = config.ordered_sizes().iter().map(|s| s.bytes()).collect();
+        assert!(ordered_bytes.iter().is_sorted(), "Sizes should be sorted");
+        let unique: HashSet<_> = ordered_bytes.iter().collect();
+        assert_eq!(ordered_bytes.len(), unique.len(), "Sizes should be unique");
+    }
+
+    /// The reserve is sized from the *largest prunable* candidate, ignoring non-prunable sizes.
+    #[test]
+    fn largest_prunable_candidate_sizes_the_reserve() {
+        const READ: usize = 256 * 1024;
+        const CACHE: usize = 1024 * 1024;
+        const WRITE: usize = 8 * 1024 * 1024;
+        const MEM_LIMIT: usize = 512 * 1024 * 1024;
+        let data_budget = MEM_LIMIT - 128 * 1024 * 1024; // additional_mem_reserved floors at 128 MiB
+        let pool = PagedPool::config()
+            .with_candidate_sizes([
+                CandidateSize::prunable(READ),
+                CandidateSize::prunable(CACHE),
+                CandidateSize::new(WRITE),
+            ])
+            .with_memory_limit(MEM_LIMIT)
+            .build();
+        // Reserve is the max prunable size (CACHE), not the max overall size (WRITE) nor the read.
+        assert_eq!(pool.write_buffer_budget(), data_budget - CACHE);
+    }
+
+    /// A prunable candidate larger than [MAX_BUFFER_SIZE] is dropped from `ordered_sizes` (served
+    /// from secondary memory instead), but the reserve must still account for its full size.
+    #[test]
+    fn prunable_reserve_honours_sizes_above_max_buffer_size() {
+        const BIG_READ: usize = MAX_BUFFER_SIZE * 2;
+        const MEM_LIMIT: usize = 4 * 1024 * 1024 * 1024;
+        let data_budget = MEM_LIMIT - MEM_LIMIT / 8; // additional_mem_reserved == mem_limit / 8 here
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::prunable(BIG_READ), CandidateSize::new(8 * 1024 * 1024)])
+            .with_memory_limit(MEM_LIMIT)
+            .build();
+        assert_eq!(pool.write_buffer_budget(), data_budget - BIG_READ);
     }
 
     mod allocation_queue_tests {
@@ -709,7 +792,7 @@ mod tests {
             let additional_reserved = (buffer_size * 16).max(128 * 1024 * 1024);
             let mem_limit = buffer_size * 16 + additional_reserved;
             PagedPool::config()
-                .with_candidate_sizes([buffer_size])
+                .with_candidate_sizes([CandidateSize::new(buffer_size)])
                 .with_memory_limit(mem_limit)
                 .build()
         }
@@ -967,6 +1050,49 @@ mod tests {
                 );
                 drop(granted);
             }
+        }
+
+        /// With a read reserve configured, non-read allocations must stop one read-part
+        /// short of the budget, leaving that slice allocatable only by reads. This is the
+        /// pool-level guarantee behind the `held_writes_vs_reads` starvation fix.
+        #[test]
+        fn read_reserve_keeps_last_slice_for_reads() {
+            const BUF: usize = 1024;
+            let additional_reserved = (BUF * 16).max(128 * 1024 * 1024);
+            let mem_limit = BUF * 16 + additional_reserved;
+            let pool = PagedPool::config()
+                .with_candidate_sizes([CandidateSize::prunable(BUF)])
+                .with_memory_limit(mem_limit)
+                .build();
+
+            // Fill the budget with non-read (upload) buffers. The reduced ceiling
+            // (mem_limit - BUF) stops them one buffer short of the full budget.
+            let mut writes = Vec::new();
+            while let Some(buffer) = pool.inner.try_get_buffer(BUF, BufferKind::Append, None, false) {
+                writes.push(buffer);
+            }
+
+            // A further non-read allocation is denied — the last slice is off-limits to writes.
+            assert!(
+                pool.inner
+                    .try_get_buffer(BUF, BufferKind::PutObject, None, false)
+                    .is_none(),
+                "non-read allocation must not consume the read-reserved slice"
+            );
+
+            // But prunable allocations (reads and disk-cache read-backs) can still claim the slice.
+            assert!(
+                pool.inner
+                    .try_get_buffer(BUF, BufferKind::GetObject, None, false)
+                    .is_some(),
+                "read allocation must succeed into the reserved slice"
+            );
+            assert!(
+                pool.inner
+                    .try_get_buffer(BUF, BufferKind::DiskCache, None, false)
+                    .is_some(),
+                "disk-cache allocation must succeed into the reserved slice"
+            );
         }
     }
 }

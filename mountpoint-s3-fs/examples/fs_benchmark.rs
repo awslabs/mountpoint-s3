@@ -9,7 +9,7 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_fs::fuse::S3FuseFilesystem;
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::fuse::session::FuseSession;
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -144,7 +144,7 @@ fn mount_file_system(
 ) -> FuseSession {
     let part_size = 8 * 1024 * 1024;
     let pool = PagedPool::config()
-        .with_candidate_sizes([part_size])
+        .with_candidate_sizes([CandidateSize::new(part_size)])
         .with_minimum_memory_limit()
         .build();
     let mut config = S3ClientConfig::new().endpoint_config(EndpointConfig::new(region));

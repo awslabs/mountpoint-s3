@@ -5,8 +5,8 @@ use std::time::Instant;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::memory::effective_total_memory;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
@@ -67,7 +67,7 @@ impl Executor {
 
         let memory_target_bytes = memory_target * 1024 * 1024;
         let pool = PagedPool::config()
-            .with_candidate_sizes([read_part_size, write_part_size])
+            .with_candidate_sizes([CandidateSize::new(read_part_size), CandidateSize::new(write_part_size)])
             .with_memory_limit(memory_target_bytes)
             .build();
 

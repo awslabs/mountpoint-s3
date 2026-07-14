@@ -18,6 +18,8 @@ use mountpoint_s3_fs::ServerSideEncryption;
 #[cfg(feature = "s3_tests")]
 use mountpoint_s3_fs::content_type::ContentTypeDetection;
 use mountpoint_s3_fs::fs::{CacheConfig, UploadChecksumAlgorithm};
+#[cfg(feature = "s3_tests")]
+use mountpoint_s3_fs::memory::write_buffer_budget_for;
 
 use crate::common::fuse::{self, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -1380,19 +1382,20 @@ fn write_with_sse_settings_test(policy: &str, sse: ServerSideEncryption, should_
 }
 
 #[cfg(feature = "s3_tests")]
-// `additional_mem_reserved = max(mem_limit/8, 128 MiB)` and `write_part_size = 8 MiB`, so the
-// write-handle cap is `(mem_limit - additional_mem_reserved) / 8 MiB`:
-// - `mem_limit = 512 MiB` → reserved 128 MiB, budget 384 MiB, cap 48 (boundary case at the
-//   minimum supported memory target).
-// - `mem_limit = 2 GiB` → reserved 256 MiB, budget 1792 MiB, cap 224 (high-fan-out case
-//   exercising the concurrent-write path without bumping into the cap).
-#[test_case(512 * 1024 * 1024, 48; "minimum_mem_limit_48_writers")]
-#[test_case(2 * 1024 * 1024 * 1024, 224; "2gib_mem_limit_224_writers")]
-fn concurrent_open_for_write_test(mem_limit: usize, max_files: usize) {
+// The write-handle cap is `write_buffer_budget(mem_limit, write_part_size) / write_part_size`, where
+// the write budget is `mem_limit - additional_mem_reserved - one prunable read part`. With the
+// default 8 MiB part size: `mem_limit = 512 MiB` → cap 47 (boundary at the minimum memory target),
+// `mem_limit = 2 GiB` → cap 223 (high-fan-out). Derived here so the expectation can't drift from the
+// limiter.
+#[test_case(512 * 1024 * 1024; "minimum_mem_limit")]
+#[test_case(2 * 1024 * 1024 * 1024; "2gib_mem_limit")]
+fn concurrent_open_for_write_test(mem_limit: usize) {
     let test_config = TestSessionConfig {
         mem_limit,
         ..Default::default()
     };
+    let part_size = test_config.part_size;
+    let max_files = write_buffer_budget_for(mem_limit, part_size) / part_size;
     let test_session = fuse::s3_session::new("concurrent_open_for_write_test", test_config);
 
     let file_names: Vec<_> = (0..max_files).map(|i| format!("file-{i}")).collect();
@@ -1431,20 +1434,22 @@ fn concurrent_open_for_write_test(mem_limit: usize, max_files: usize) {
 #[cfg(feature = "s3_tests")]
 #[test]
 fn open_for_write_returns_enomem_when_cap_exhausted() {
-    // With `mem_limit = 512 MiB`, `additional_mem_reserved = max(mem_limit/8, 128 MiB) = 128 MiB`,
-    // and the default `write_part_size = 8 MiB`, the cap is `(512 - 128) / 8 = 48` writers.
+    // With `mem_limit = 512 MiB`, `additional_mem_reserved = 128 MiB`, a one-part (8 MiB) read
+    // reserve, and the default 8 MiB write part size, the cap is `(512 - 128 - 8) / 8 = 47` writers.
+    // Derived from `write_buffer_budget_for` so it can't drift from the limiter.
     const MEM_LIMIT: usize = 512 * 1024 * 1024;
-    const CAP: usize = 48;
 
     let test_config = TestSessionConfig {
         mem_limit: MEM_LIMIT,
         ..Default::default()
     };
+    let part_size = test_config.part_size;
+    let cap = write_buffer_budget_for(MEM_LIMIT, part_size) / part_size;
     let test_session = fuse::s3_session::new("open_for_write_returns_enomem_when_cap_exhausted", test_config);
 
-    // Open `CAP` files for write — all should succeed.
-    let mut open_files = Vec::with_capacity(CAP);
-    for i in 0..CAP {
+    // Open `cap` files for write — all should succeed.
+    let mut open_files = Vec::with_capacity(cap);
+    for i in 0..cap {
         let path = test_session.mount_path().join(format!("file-{i}"));
         let f = File::options()
             .append(true)
@@ -1455,7 +1460,7 @@ fn open_for_write_returns_enomem_when_cap_exhausted() {
     }
 
     // The next open exceeds the cap → ENOMEM at the syscall boundary.
-    let extra_path = test_session.mount_path().join(format!("file-{CAP}"));
+    let extra_path = test_session.mount_path().join(format!("file-{cap}"));
     let err = File::options()
         .append(true)
         .create(true)

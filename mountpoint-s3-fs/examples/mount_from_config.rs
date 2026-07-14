@@ -14,7 +14,7 @@ use mountpoint_s3_fs::{
     },
     logging::{LoggingConfig, LoggingHandle, error_logger::FileErrorLogger, init_logging},
     manifest::{ChannelConfig, Manifest, ManifestMetablock, ingest_manifest},
-    memory::PagedPool,
+    memory::{CandidateSize, PagedPool},
     metrics::{self, MetricsSinkHandle},
     s3::config::{ClientConfig, MemoryLimitSetting, PartConfig, Region, TargetThroughputSetting},
 };
@@ -314,7 +314,7 @@ fn mount_filesystem(
     let client_config = config.build_client_config(mem_limit)?;
 
     let pool = PagedPool::config()
-        .with_candidate_sizes([client_config.part_config.read_size_bytes])
+        .with_candidate_sizes([CandidateSize::new(client_config.part_config.read_size_bytes)])
         .with_memory_limit(mem_limit)
         .build();
     let client = client_config

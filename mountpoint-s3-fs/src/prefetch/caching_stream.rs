@@ -423,7 +423,7 @@ mod tests {
     use test_case::test_case;
 
     use crate::data_cache::InMemoryDataCache;
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
     use crate::object::ObjectId;
 
     use super::*;
@@ -467,7 +467,7 @@ mod tests {
                 .build(),
         );
         let pool = PagedPool::config()
-            .with_candidate_sizes([block_size, client_part_size])
+            .with_candidate_sizes([CandidateSize::new(block_size), CandidateSize::new(client_part_size)])
             .with_minimum_memory_limit()
             .build();
         mock_client.add_object(key, object.clone());
@@ -554,7 +554,7 @@ mod tests {
                 .build(),
         );
         let pool = PagedPool::config()
-            .with_candidate_sizes([block_size, client_part_size])
+            .with_candidate_sizes([CandidateSize::new(block_size), CandidateSize::new(client_part_size)])
             .with_minimum_memory_limit()
             .build();
         mock_client.add_object(key, object.clone());

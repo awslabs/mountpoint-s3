@@ -26,7 +26,7 @@ use mountpoint_s3_client::config::{
 };
 use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::metrics::metrics_tracing_span_layer;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
@@ -53,7 +53,7 @@ pub fn make_test_filesystem(
             .build(),
     );
     let pool = PagedPool::config()
-        .with_candidate_sizes([part_size])
+        .with_candidate_sizes([CandidateSize::new(part_size)])
         .with_minimum_memory_limit()
         .build();
     let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
