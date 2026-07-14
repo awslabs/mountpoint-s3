@@ -140,6 +140,8 @@ trigger_metrics() {
   done
 
   cat "${MOUNT_DIR}/nonexistent_file.txt" 2>/dev/null || true
+
+  echo "Completed file operations."
 }
 
 setup_mount() {
@@ -230,20 +232,25 @@ verify_log_metrics() {
 run_test() {
   local mode=$1
   
+  echo "Running test ${mode}"
+  
   start_collector
   setup_mount "${mode}"
   trigger_metrics
   
   # Not ideal but we have to wait for periodic metrics to be generated and exported.
   sleep 10 
-  
+
+  echo "Verify metrics"
   verify_otel_metrics "${mode}"
   verify_log_metrics "${mode}"
+
+  echo "Completed test ${mode}"
+
   cleanup
 }
 
 for i in "with_otlp" "with_both" "with_logs"; do 
-  echo "Running test $i"
   run_test "$i"
 done
 echo "All tests passed!"
