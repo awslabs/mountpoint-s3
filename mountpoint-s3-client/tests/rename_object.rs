@@ -72,7 +72,7 @@ async fn put_append_rename_append_test() {
     let params = PutObjectSingleParams::new_for_append(object_size as u64)
         .checksum(Some(UploadChecksum::Crc64nvme(crc64nvme::checksum(&contents))));
     let put_object_result = client
-        .put_object_single(&bucket, &source_key, &params, &contents)
+        .put_object_single(&bucket, &source_key, &params, contents.clone())
         .await
         .expect("put_object_single should succeed");
 
