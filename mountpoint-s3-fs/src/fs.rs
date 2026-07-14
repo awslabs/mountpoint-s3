@@ -153,13 +153,8 @@ where
         trace!(?config, "new filesystem");
 
         let pool = pool.clone();
-        let write_handle_limiter = (!config.read_only).then(|| {
-            WriteHandleLimiter::new(
-                pool.mem_limit(),
-                pool.non_prunable_data_buffer_budget(),
-                client.write_part_size(),
-            )
-        });
+        let write_handle_limiter = (!config.read_only)
+            .then(|| WriteHandleLimiter::new(pool.mem_limit(), pool.write_buffer_budget(), client.write_part_size()));
         let prefetcher = prefetch_builder.build(runtime.clone(), pool.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),

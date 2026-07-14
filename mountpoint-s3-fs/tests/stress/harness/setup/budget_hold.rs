@@ -4,18 +4,18 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use mountpoint_s3_fs::memory::data_buffer_budget_for;
+use mountpoint_s3_fs::memory::write_buffer_budget_for;
 
 use super::SetupGuard;
 use crate::stress::test_objects;
 
 const STUB_WRITE: usize = 4 * 1024;
 
-/// Number of full write-part buffers that fit in the data-buffer budget at `mem_limit` — i.e. the
+/// Number of full write-part buffers that fit in the write budget at `mem_limit` — i.e. the
 /// concurrent write-handle cap (`WriteHandleLimiter`) and the most parts a [`BudgetHold`] can pin.
 /// Scenarios typically hold `budget_parts(..) - n` to leave `n` parts free.
 pub fn budget_parts(mem_limit: usize, part_size: usize) -> usize {
-    data_buffer_budget_for(mem_limit) / part_size
+    write_buffer_budget_for(mem_limit, part_size) / part_size
 }
 
 /// A held slice of the data-buffer budget: a set of open write handles, each pinning one

@@ -32,6 +32,17 @@ pub fn data_buffer_budget_for(mem_limit: usize) -> usize {
 /// prunable kind today) holds one part while it prefetches the next.
 const PRUNABLE_RESERVED_PARTS: usize = 1;
 
+/// The budget reserved for prunable allocations (0 if none is configured).
+fn prunable_reserved_for(prunable_buffer_size: usize) -> usize {
+    prunable_buffer_size * PRUNABLE_RESERVED_PARTS
+}
+
+/// The buffer budget available to writes: `data_buffer_budget_for(mem_limit)` minus the prunable
+/// reserve. Source of truth for the write-handle cap (see [`MemoryLimiter::write_buffer_budget`]).
+pub fn write_buffer_budget_for(mem_limit: usize, prunable_buffer_size: usize) -> usize {
+    data_buffer_budget_for(mem_limit).saturating_sub(prunable_reserved_for(prunable_buffer_size))
+}
+
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
 #[derive(Debug)]
 pub enum BufferArea {
@@ -104,7 +115,7 @@ pub struct MemoryLimiter {
 impl MemoryLimiter {
     pub fn new(mem_limit: usize, prunable_buffer_size: usize) -> Self {
         let additional_mem_reserved = additional_mem_reserved_for(mem_limit);
-        let prunable_reserved = prunable_buffer_size * PRUNABLE_RESERVED_PARTS;
+        let prunable_reserved = prunable_reserved_for(prunable_buffer_size);
         let formatter = make_format(humansize::BINARY);
         debug!(
             "target memory usage is {} with {} reserved memory and {} reserved for prunable buffers",
@@ -139,11 +150,11 @@ impl MemoryLimiter {
         self.mem_limit.saturating_sub(self.additional_mem_reserved)
     }
 
-    /// The buffer budget available to non-evictable allocations, i.e. `data_buffer_budget - prunable_reserved`.
+    /// The buffer budget available to writes, i.e. `data_buffer_budget - prunable_reserved`.
     /// This is the ceiling writes actually see (reads may use the full `data_buffer_budget`), so
     /// [`crate::memory::WriteHandleLimiter`] derives its cap from it: an admitted writer is then
     /// always backed by budget and never waits on memory reserved for reads.
-    pub fn non_prunable_data_buffer_budget(&self) -> usize {
+    pub fn write_buffer_budget(&self) -> usize {
         self.data_buffer_budget().saturating_sub(self.prunable_reserved)
     }
 

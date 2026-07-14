@@ -7,11 +7,11 @@
 //! writes and the write part size:
 //!
 //! ```text
-//! max_concurrent_writes = non_prunable_data_buffer_budget / write_part_size
+//! max_concurrent_writes = write_buffer_budget / write_part_size
 //! ```
 //!
-//! `non_prunable_data_buffer_budget` (from [`crate::memory::PagedPool`]) subtracts the read reserve
-//! from the data-buffer budget, so writes can't open into the slice kept for reads.
+//! `write_buffer_budget` (from [`crate::memory::PagedPool`]) subtracts the read reserve from the
+//! data-buffer budget, so writes can't open into the slice kept for reads.
 //!
 //! Acquisition is attempted at `open()` time via [`WriteHandleLimiter::try_acquire`]; on
 //! rejection the operation returns `ENOMEM`. The slot is released when the returned
@@ -67,13 +67,13 @@ pub struct WriteHandleLimiter {
 
 impl WriteHandleLimiter {
     /// Construct a limiter with the cap derived from the configured memory parameters.
-    /// `non_prunable_data_buffer_budget` is the budget available to non-read allocations, i.e.
+    /// `write_buffer_budget` is the budget available to writes, i.e.
     /// `mem_limit - additional_mem_reserved - prunable_reserved`. Deriving the cap from this (rather than
     /// the full data-buffer budget) guarantees an admitted writer never has to wait on memory that is
     /// reserved for reads. `mem_limit` is retained for diagnostics so that rejection errors quote the
     /// same value as the user-facing `--memory-target` flag.
-    pub fn new(mem_limit: usize, non_prunable_data_buffer_budget: usize, write_part_size: usize) -> Self {
-        let max_concurrent_writes = non_prunable_data_buffer_budget / write_part_size;
+    pub fn new(mem_limit: usize, write_buffer_budget: usize, write_part_size: usize) -> Self {
+        let max_concurrent_writes = write_buffer_budget / write_part_size;
         let mem_limit_mib = mem_limit / (1024 * 1024);
         let write_part_size_mib = write_part_size / (1024 * 1024);
         if max_concurrent_writes == 0 {
@@ -153,22 +153,22 @@ mod tests {
     use super::*;
 
     const MIN_LIMIT: usize = 512 * 1024 * 1024;
-    const MIN_BUDGET: usize = MIN_LIMIT - 128 * 1024 * 1024;
+    const MIN_WRITE_BUDGET: usize = MIN_LIMIT - 128 * 1024 * 1024;
     const LARGE_LIMIT: usize = 4 * 1024 * 1024 * 1024;
-    const LARGE_BUDGET: usize = LARGE_LIMIT - 512 * 1024 * 1024;
+    const LARGE_WRITE_BUDGET: usize = LARGE_LIMIT - 512 * 1024 * 1024;
     const PART_SIZE_8MIB: usize = 8 * 1024 * 1024;
     const PART_SIZE_1GIB: usize = 1024 * 1024 * 1024;
 
-    #[test_case(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB, 48; "512MiB_limit_8MiB_part")]
-    #[test_case(LARGE_LIMIT, LARGE_BUDGET, PART_SIZE_8MIB, 448; "4GiB_limit_8MiB_part")]
-    #[test_case(MIN_LIMIT, MIN_BUDGET, PART_SIZE_1GIB, 0; "part_larger_than_budget_saturates_to_zero")]
+    #[test_case(MIN_LIMIT, MIN_WRITE_BUDGET, PART_SIZE_8MIB, 48; "512MiB_limit_8MiB_part")]
+    #[test_case(LARGE_LIMIT, LARGE_WRITE_BUDGET, PART_SIZE_8MIB, 448; "4GiB_limit_8MiB_part")]
+    #[test_case(MIN_LIMIT, MIN_WRITE_BUDGET, PART_SIZE_1GIB, 0; "part_larger_than_budget_saturates_to_zero")]
     fn test_max_concurrent_writes(
         mem_limit: usize,
-        data_buffer_budget: usize,
+        write_buffer_budget: usize,
         write_part_size: usize,
         expected: usize,
     ) {
-        let limiter = WriteHandleLimiter::new(mem_limit, data_buffer_budget, write_part_size);
+        let limiter = WriteHandleLimiter::new(mem_limit, write_buffer_budget, write_part_size);
         assert_eq!(limiter.max_concurrent_writes(), expected);
         if expected == 0 {
             assert!(limiter.try_acquire().is_err());
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_try_acquire_caps_at_max() {
-        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB);
+        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_WRITE_BUDGET, PART_SIZE_8MIB);
         let max = limiter.max_concurrent_writes();
 
         let mut slots = Vec::new();
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_release_allows_reacquire() {
-        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB);
+        let limiter = WriteHandleLimiter::new(MIN_LIMIT, MIN_WRITE_BUDGET, PART_SIZE_8MIB);
         let max = limiter.max_concurrent_writes();
 
         let mut slots: Vec<WriteHandleSlot> = (0..max)
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_try_acquire_concurrent_no_overshoot() {
-        let limiter = Arc::new(WriteHandleLimiter::new(MIN_LIMIT, MIN_BUDGET, PART_SIZE_8MIB));
+        let limiter = Arc::new(WriteHandleLimiter::new(MIN_LIMIT, MIN_WRITE_BUDGET, PART_SIZE_8MIB));
         let max = limiter.max_concurrent_writes();
 
         let threads: Vec<_> = (0..max * 4)
@@ -226,12 +226,15 @@ mod tests {
         use crate::memory::{BufferKind, CandidateSize, PagedPool};
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([CandidateSize::prunable(PART_SIZE_8MIB)])
+            .with_candidate_sizes([
+                CandidateSize::prunable(PART_SIZE_8MIB),
+                CandidateSize::new(PART_SIZE_8MIB),
+            ])
             .with_memory_limit(MIN_LIMIT)
             .build();
 
         // The reserve drops the cap: (384 - 8) MiB / 8 MiB = 47, versus 48 without it.
-        let write_limiter = WriteHandleLimiter::new(MIN_LIMIT, pool.non_prunable_data_buffer_budget(), PART_SIZE_8MIB);
+        let write_limiter = WriteHandleLimiter::new(MIN_LIMIT, pool.write_buffer_budget(), PART_SIZE_8MIB);
         assert_eq!(write_limiter.max_concurrent_writes(), 47);
 
         // Every admitted writer pins a part-sized buffer; all fit.
