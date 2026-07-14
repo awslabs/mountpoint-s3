@@ -175,8 +175,7 @@ setup_mount() {
       ;;
   esac
 
-  cargo run --quiet --release -- "${args[@]}"
-  if [ $? -ne 0 ]; then
+  if ! cargo run --quiet --release -- "${args[@]}"; then
     echo "Failed to mount file system"
     exit 1
   fi
