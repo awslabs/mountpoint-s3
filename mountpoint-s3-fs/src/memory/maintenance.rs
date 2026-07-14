@@ -18,7 +18,9 @@ enum PruningOutcome {
     /// In-flight uploads or active reads will release buffers naturally; wait.
     WaitingForRelease,
     /// One idle cursor was reset this round.
-    Acted,
+    ResetIdleCursor,
+    /// Cleared one active cursor's backward seek window.
+    ClearedSeekWindow,
 }
 
 /// Period of the pruning loop's inner tick while under memory pressure.
@@ -95,6 +97,8 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///      natural release path do the work — unless the head of the queue
 ///      has been waiting beyond [`PRUNING_STARVATION_THRESHOLD`].
 ///   4. Otherwise reset one idle cursor.
+///   5. If no idle cursor was available and a waiter is starving, clear one active cursor's
+///      backward seek window.
 fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
     //    by a different SizePool after a future allocation.
@@ -121,10 +125,16 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
     // 4. Disruptive: reset one idle cursor.
     if pool_inner.limiter().reset_one_idle_cursor() {
         metrics::counter!("mem.cursor_resets").increment(1);
-        return PruningOutcome::Acted;
+        return PruningOutcome::ResetIdleCursor;
     }
 
-    // We attempted to reset an idle cursor but found nothing eligible.
+    // 5. No idle cursor was eligible. Clear one active cursor's seek window to release the buffer.
+    if starving && pool_inner.limiter().clear_one_seek_window() {
+        metrics::counter!("mem.seek_window_clears").increment(1);
+        return PruningOutcome::ClearedSeekWindow;
+    }
+
+    // Nothing reclaimable this round.
     // Wait for the next tick; a release elsewhere may unstick us.
     PruningOutcome::WaitingForRelease
 }
@@ -320,12 +330,74 @@ mod tests {
         let outcome = run_pruning_round(pool.inner());
         assert_eq!(
             outcome,
-            PruningOutcome::Acted,
+            PruningOutcome::ResetIdleCursor,
             "starving waiter should force the pruner to reset an idle cursor",
         );
         assert!(
             idle_was_reset.load(Ordering::SeqCst),
             "the idle cursor's reset_fn should have been invoked",
+        );
+    }
+
+    #[test]
+    fn run_pruning_round_starvation_clears_active_cursor_seek_window() {
+        let pool = tight_pool_no_spawn();
+
+        // A single *active* cursor whose seek window holds a pinned buffer. No idle cursor exists,
+        // so `reset_one_idle_cursor` will find nothing and the pruner must fall through to clear.
+        let active = pool.create_cursor();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let flag = cleared.clone();
+        // Clear callback reports a non-zero freed count on its first call, mimicking a window that
+        // held one part buffer.
+        active.register_clear_seek_window_fn(Box::new(move || {
+            if flag.swap(true, Ordering::SeqCst) { 0 } else { BUF }
+        }));
+        let _active_guard = active.set_active_read(0, BUF);
+
+        let _blockers = fill_and_enqueue_waiter(&pool);
+
+        // Wait past the starvation threshold so the pruner escalates past the natural-release path.
+        std::thread::sleep(PRUNING_STARVATION_THRESHOLD + Duration::from_millis(2));
+
+        let outcome = run_pruning_round(pool.inner());
+        assert_eq!(
+            outcome,
+            PruningOutcome::ClearedSeekWindow,
+            "starving waiter with no idle cursor should force the pruner to clear an active seek window",
+        );
+        assert!(
+            cleared.load(Ordering::SeqCst),
+            "the active cursor's clear_seek_window_fn should have been invoked",
+        );
+    }
+
+    #[test]
+    fn run_pruning_round_does_not_clear_before_starvation() {
+        let pool = tight_pool_no_spawn();
+
+        let active = pool.create_cursor();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let flag = cleared.clone();
+        active.register_clear_seek_window_fn(Box::new(move || {
+            flag.store(true, Ordering::SeqCst);
+            BUF
+        }));
+        let _active_guard = active.set_active_read(0, BUF);
+
+        let _blockers = fill_and_enqueue_waiter(&pool);
+
+        // Run immediately, before the starvation threshold — the active read should defer to the
+        // natural-release path, not clear.
+        let outcome = run_pruning_round(pool.inner());
+        assert_eq!(
+            outcome,
+            PruningOutcome::WaitingForRelease,
+            "a non-starving waiter should defer to natural release, not clear the seek window",
+        );
+        assert!(
+            !cleared.load(Ordering::SeqCst),
+            "the seek window must not be cleared before the starvation threshold",
         );
     }
 }
