@@ -109,12 +109,12 @@ pub trait ObjectClient {
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError>;
 
     /// Put an object into the object store.
-    async fn put_object_single<'a>(
+    async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 
     /// Retrieves all the metadata from an object without returning the object contents.

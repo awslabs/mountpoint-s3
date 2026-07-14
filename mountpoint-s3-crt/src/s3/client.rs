@@ -252,12 +252,12 @@ type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
 /// Options for meta requests to S3. This is not a public interface, since clients should always
 /// be using the [MetaRequestOptions] wrapper, which pins this struct behind a pointer.
-struct MetaRequestOptionsInner<'a> {
+struct MetaRequestOptionsInner {
     /// Inner struct to pass to CRT functions.
     inner: aws_s3_meta_request_options,
 
     /// Owned copy of the message, if provided.
-    message: Option<Message<'a>>,
+    message: Option<Message>,
 
     /// Owned copy of the endpoint URI, if provided
     endpoint: Option<Uri>,
@@ -270,6 +270,9 @@ struct MetaRequestOptionsInner<'a> {
 
     /// Owned source uri for copy request, if provided.
     copy_source_uri: Option<String>,
+
+    /// Owned request body, if provided.
+    request_body: Option<Box<dyn AsRef<[u8]> + Send>>,
 
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
@@ -294,7 +297,7 @@ struct MetaRequestOptionsInner<'a> {
     _pinned: PhantomPinned,
 }
 
-impl<'a> MetaRequestOptionsInner<'a> {
+impl MetaRequestOptionsInner {
     /// Convert from user_data in a callback to a reference to this struct.
     ///
     /// ## Safety
@@ -302,7 +305,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     /// Don't use except in a MetaRequest callback. The lifetime 'a of the returned
     /// [MetaRequestOptionsInner] is unconstrained, so the caller must make sure that the lifetime
     /// of the returned reference does not outlive the [MetaRequestOptionsInner].
-    unsafe fn from_user_data_ptr(user_data: *mut libc::c_void) -> &'a mut Self {
+    unsafe fn from_user_data_ptr<'a>(user_data: *mut libc::c_void) -> &'a mut Self {
         // SAFETY: `user_data` is initialized in `MetaRequestOptions::new`.
         unsafe { (user_data as *mut Self).as_mut().unwrap() }
     }
@@ -319,7 +322,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     }
 }
 
-impl Debug for MetaRequestOptionsInner<'_> {
+impl Debug for MetaRequestOptionsInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetaRequestOptionsInner")
             .field("inner", &self.inner)
@@ -332,9 +335,9 @@ impl Debug for MetaRequestOptionsInner<'_> {
 /// Options for a meta request to S3.
 // Implementation details: this wraps the inner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
-pub struct MetaRequestOptions<'a>(Pin<Box<MetaRequestOptionsInner<'a>>>);
+pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
 
-impl<'a> MetaRequestOptions<'a> {
+impl MetaRequestOptions {
     /// Create a new default options struct. It follows the builder pattern so clients can use
     /// methods to set various options.
     pub fn new() -> Self {
@@ -357,6 +360,7 @@ impl<'a> MetaRequestOptions<'a> {
             signing_config: None,
             checksum_config: None,
             copy_source_uri: None,
+            request_body: None,
             on_telemetry: None,
             on_headers: None,
             on_body_ex: None,
@@ -390,7 +394,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Set the message of the request.
-    pub fn message(&mut self, message: Message<'a>) -> &mut Self {
+    pub fn message(&mut self, message: Message) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
@@ -504,6 +508,22 @@ impl<'a> MetaRequestOptions<'a> {
         self
     }
 
+    /// Send the request body directly from the given buffer (zero-copy). See the `request_body`
+    /// field docs in `aws/s3/s3_client.h` for more details.
+    ///
+    /// Ownership of `body` is moved into these options, which are only dropped once the meta request
+    /// is fully torn down (in the shutdown callback).
+    pub fn request_body(&mut self, body: impl AsRef<[u8]> + Send + 'static) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        let body = options.request_body.insert(Box::new(body));
+        // SAFETY: `body` is owned by these options and only dropped in the shutdown callback, so it
+        // outlives every read the CRT makes; the CRT only reads it (never writes/frees). The cursor
+        // is not invalidated by later `self` moves because the box owns the heap buffer, not `self`.
+        options.inner.request_body = unsafe { (**body).as_ref().as_aws_byte_cursor() };
+        self
+    }
+
     /// Set the URI of source bucket/key for COPY request only
     pub fn copy_source_uri(&mut self, source_uri: String) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
@@ -526,7 +546,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 }
 
-impl Default for MetaRequestOptions<'_> {
+impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
     }
