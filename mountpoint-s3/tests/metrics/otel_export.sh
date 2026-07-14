@@ -5,10 +5,6 @@ set -e
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
 OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
-TMP_DIR=$(mktemp -d /tmp/mountpoint-XXXXXXXXXXXX)
-MOUNT_DIR="$TMP_DIR/mnt"
-MOUNTPOINT_LOGS="$TMP_DIR/logs"
-MOUNTPOINT_CACHE="$TMP_DIR/cache"
 EXPECTED_METRICS=(
   "experimental.cache.evict_latency"
   "experimental.cache.get_latency"
@@ -54,8 +50,12 @@ cleanup() {
     echo "Cleaning up after failure (exit code ${exit_code})"
   fi
 
-  ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
-  rm -rf "${TMP_DIR}"
+  if [[ -n "${TMP_DIR}" ]]; then
+    # Best-effort unmount.
+    ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}" || true
+    rm -rf "${TMP_DIR}"
+    TMP_DIR=""
+  fi
 
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
@@ -144,6 +144,12 @@ trigger_metrics() {
 
 setup_mount() {
   local mode=$1
+
+  # Set up temp directory tree. To be deleted in cleanup.
+  TMP_DIR=$(mktemp -d /tmp/mountpoint-XXXXXXXXXXXX)
+  MOUNT_DIR="$TMP_DIR/mnt"
+  MOUNTPOINT_LOGS="$TMP_DIR/logs"
+  MOUNTPOINT_CACHE="$TMP_DIR/cache"
   
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
