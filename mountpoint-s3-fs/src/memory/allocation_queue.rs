@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 use futures::channel::oneshot;
+use mountpoint_s3_client::config::LivenessFn;
 use tracing::trace;
 
 use crate::prefetch::CursorId;
@@ -39,6 +40,11 @@ pub struct PendingAllocation {
     /// Channel sender used to deliver the allocated [PoolBuffer] to the waiter.
     /// When dropped, the receiver resolves with `Err(Canceled)`.
     sender: oneshot::Sender<PoolBuffer>,
+    /// Optional liveness predicate for requests originating from the CRT. Reports `false`
+    /// once the CRT has cancelled the underlying reservation (the buffer-ticket future was
+    /// errored). `None` for fs-internal requests, whose cancellation is observed via the
+    /// dropped `sender` instead.
+    is_alive: Option<LivenessFn>,
 }
 
 impl PendingAllocation {
@@ -46,6 +52,12 @@ impl PendingAllocation {
     /// Returns `Err(buffer)` if the receiver was dropped (caller cancelled).
     pub fn fulfill(self, buffer: PoolBuffer) -> Result<(), PoolBuffer> {
         self.sender.send(buffer)
+    }
+
+    /// Returns `true` if the queue should drop this request because it no longer wants its
+    /// buffer.
+    fn is_abandoned(&self) -> bool {
+        self.sender.is_canceled() || self.is_alive.as_ref().is_some_and(|alive| !alive())
     }
 }
 
@@ -107,16 +119,23 @@ impl AllocationQueue {
         cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
+        is_alive: Option<LivenessFn>,
     ) -> oneshot::Receiver<PoolBuffer> {
-        self.push_inner(AllocationPriority::High, cursor_id, size, kind)
+        self.push_inner(AllocationPriority::High, cursor_id, size, kind, is_alive)
     }
 
     /// Enqueue a low-priority buffer allocation request.
     /// Low-priority requests always have a cursor (speculative prefetch).
     /// Returns a receiver that resolves to the allocated [PoolBuffer] when fulfilled,
     /// or `Err(Canceled)` if the sender is dropped.
-    pub fn push_low(&self, cursor_id: CursorId, size: usize, kind: BufferKind) -> oneshot::Receiver<PoolBuffer> {
-        self.push_inner(AllocationPriority::Low, Some(cursor_id), size, kind)
+    pub fn push_low(
+        &self,
+        cursor_id: CursorId,
+        size: usize,
+        kind: BufferKind,
+        is_alive: Option<LivenessFn>,
+    ) -> oneshot::Receiver<PoolBuffer> {
+        self.push_inner(AllocationPriority::Low, Some(cursor_id), size, kind, is_alive)
     }
 
     fn push_inner(
@@ -125,6 +144,7 @@ impl AllocationQueue {
         cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
+        is_alive: Option<LivenessFn>,
     ) -> oneshot::Receiver<PoolBuffer> {
         let (sender, receiver) = oneshot::channel();
         let entry = PendingAllocation {
@@ -133,6 +153,7 @@ impl AllocationQueue {
             kind,
             queued_at: Instant::now(),
             sender,
+            is_alive,
         };
 
         let mut inner = self.inner.lock().unwrap();
@@ -177,21 +198,23 @@ impl AllocationQueue {
 
     /// Atomically peeks at the front entry and removes it if `predicate` returns `true`.
     ///
-    /// Checks the high-priority list first, then low. Cancelled entries (where the
-    /// receiver was dropped) are pruned from the front of each queue before checking
-    /// the predicate — this prevents a large cancelled entry from blocking smaller
-    /// live entries behind it.
+    /// Checks the high-priority list first, then low. Abandoned entries — where the waiter
+    /// dropped the receiver, or the CRT cancelled the reservation (see
+    /// [`PendingAllocation::is_abandoned`]) — are pruned from the front of each queue before
+    /// checking the predicate. This prevents a large abandoned entry from blocking smaller live
+    /// entries behind it, and (crucially) avoids allocating a buffer for a request that no
+    /// longer wants it.
     ///
     /// Returns `None` if both queues are empty or the predicate returns `false`.
     /// Sets `has_pending` to `false` if both queues become empty after removal.
     fn pop_front_if(&self, predicate: impl FnOnce(&PendingAllocation) -> bool) -> Option<PendingAllocation> {
         let mut inner = self.inner.lock().unwrap();
 
-        // Prune cancelled entries from the front of each queue.
-        while inner.high.front().is_some_and(|e| e.sender.is_canceled()) {
+        // Prune abandoned entries from the front of each queue.
+        while inner.high.front().is_some_and(|e| e.is_abandoned()) {
             inner.high.pop_front();
         }
-        while inner.low.front().is_some_and(|e| e.sender.is_canceled()) {
+        while inner.low.front().is_some_and(|e| e.is_abandoned()) {
             inner.low.pop_front();
         }
 
@@ -221,6 +244,11 @@ impl AllocationQueue {
         let n = inner.low.len();
         for _ in 0..n {
             let entry = inner.low.pop_front().unwrap();
+            // Only drop entries whose receiver is already gone. We deliberately use the cheap
+            // `is_canceled()` atomic here rather than the full `is_abandoned()` check: this is an
+            // O(n) scan on the hot FUSE-read path, and `upgrade` only reorders entries (it never
+            // allocates), so a CRT-cancelled-but-not-yet-pruned entry promoted to high is
+            // harmless — `pop_front_if` prunes it before any buffer is allocated.
             if entry.sender.is_canceled() {
                 continue;
             }
@@ -247,22 +275,24 @@ impl AllocationQueue {
     /// `Instant` at which the next-to-be-served live entry was queued.
     ///
     /// Walks high then low (matching [`Self::pop_front_if`]'s priority order)
-    /// and skips cancelled entries without removing them — pruning happens on
+    /// and skips abandoned entries without removing them — pruning happens on
     /// the next [`Self::pop_front_if`] call. Returns `None` if the queue is
-    /// empty or contains only cancelled entries.
+    /// empty or contains only abandoned entries.
     pub fn head_queued_at(&self) -> Option<Instant> {
         let inner = self.inner.lock().unwrap();
         inner
             .high
             .iter()
-            .find(|e| !e.sender.is_canceled())
-            .or_else(|| inner.low.iter().find(|e| !e.sender.is_canceled()))
+            .find(|e| !e.is_abandoned())
+            .or_else(|| inner.low.iter().find(|e| !e.is_abandoned()))
             .map(|e| e.queued_at)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use futures::executor::block_on;
 
@@ -284,14 +314,14 @@ mod tests {
         let queue = AllocationQueue::new();
         assert!(!queue.has_pending());
 
-        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
         assert!(queue.has_pending());
     }
 
     #[test]
     fn test_pop_front_if_fulfills_and_clears_pressure() {
         let queue = AllocationQueue::new();
-        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
 
         let entry = queue.pop_front_if(always).unwrap();
         assert!(!queue.has_pending());
@@ -306,7 +336,7 @@ mod tests {
     #[test]
     fn test_pop_front_if_predicate_false_does_not_remove() {
         let queue = AllocationQueue::new();
-        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
 
         let result = queue.pop_front_if(|_pending| false);
         assert!(result.is_none());
@@ -317,8 +347,8 @@ mod tests {
     fn test_high_priority_served_before_low() {
         let queue = AllocationQueue::new();
 
-        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject);
-        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None);
+        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
         let entry = queue.pop_front_if(always).unwrap();
         assert_eq!(entry.cursor_id, Some(CursorId::new_from_raw(2))); // high first
@@ -328,8 +358,8 @@ mod tests {
     fn test_fifo_within_same_priority() {
         let queue = AllocationQueue::new();
 
-        let _rx1 = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
-        let _rx2 = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+        let _rx1 = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
+        let _rx2 = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
         let first = queue.pop_front_if(always).unwrap();
         let second = queue.pop_front_if(always).unwrap();
@@ -343,8 +373,8 @@ mod tests {
         let cursor_a = CursorId::new_from_raw(1);
         let cursor_b = CursorId::new_from_raw(2);
 
-        let _rx_a = queue.push_low(cursor_a, 1024, BufferKind::GetObject);
-        let _rx_b = queue.push_low(cursor_b, 1024, BufferKind::GetObject);
+        let _rx_a = queue.push_low(cursor_a, 1024, BufferKind::GetObject, None);
+        let _rx_b = queue.push_low(cursor_b, 1024, BufferKind::GetObject, None);
 
         queue.upgrade(cursor_a);
 
@@ -358,9 +388,9 @@ mod tests {
         let cursor = CursorId::new_from_raw(1);
         let other = CursorId::new_from_raw(2);
 
-        let _rx1 = queue.push_low(cursor, 1024, BufferKind::GetObject);
-        let _rx2 = queue.push_low(cursor, 2048, BufferKind::GetObject);
-        let _rx_other = queue.push_low(other, 1024, BufferKind::GetObject);
+        let _rx1 = queue.push_low(cursor, 1024, BufferKind::GetObject, None);
+        let _rx2 = queue.push_low(cursor, 2048, BufferKind::GetObject, None);
+        let _rx_other = queue.push_low(other, 1024, BufferKind::GetObject, None);
 
         queue.upgrade(cursor);
 
@@ -379,8 +409,8 @@ mod tests {
         let cursor = CursorId::new_from_raw(1);
 
         // Upload (no cursor_id) in high queue, read in low queue
-        let _rx_upload = queue.push_high(None, 8192, BufferKind::PutObject);
-        let _rx_read = queue.push_low(cursor, 1024, BufferKind::GetObject);
+        let _rx_upload = queue.push_high(None, 8192, BufferKind::PutObject, None);
+        let _rx_read = queue.push_low(cursor, 1024, BufferKind::GetObject, None);
 
         queue.upgrade(cursor);
 
@@ -396,8 +426,13 @@ mod tests {
     fn test_cancelled_large_entry_does_not_block_smaller_entry() {
         let queue = AllocationQueue::new();
 
-        let rx_large = queue.push_high(Some(CursorId::new_from_raw(1)), 64 * 1024 * 1024, BufferKind::GetObject);
-        let _rx_small = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+        let rx_large = queue.push_high(
+            Some(CursorId::new_from_raw(1)),
+            64 * 1024 * 1024,
+            BufferKind::GetObject,
+            None,
+        );
+        let _rx_small = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
         drop(rx_large);
 
@@ -416,12 +451,55 @@ mod tests {
     #[test]
     fn test_cancelled_entry_pruned_on_pop() {
         let queue = AllocationQueue::new();
-        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
         drop(rx);
 
         let entry = queue.pop_front_if(always);
         assert!(entry.is_none());
         assert!(!queue.has_pending());
+    }
+
+    #[test]
+    fn test_dead_liveness_entry_pruned_on_pop() {
+        let queue = AllocationQueue::new();
+        let dead: LivenessFn = Arc::new(|| false);
+        // Hold the receiver alive: only the liveness fn marks it dead.
+        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, Some(dead));
+
+        let entry = queue.pop_front_if(always);
+        assert!(entry.is_none(), "dead-via-liveness entry must be pruned");
+        assert!(!queue.has_pending());
+    }
+
+    #[test]
+    fn test_live_liveness_entry_not_pruned() {
+        let queue = AllocationQueue::new();
+        let alive: LivenessFn = Arc::new(|| true);
+        let _rx = queue.push_high(
+            Some(CursorId::new_from_raw(7)),
+            1024,
+            BufferKind::GetObject,
+            Some(alive),
+        );
+
+        let entry = queue.pop_front_if(always).expect("live entry must remain servable");
+        assert_eq!(entry.cursor_id, Some(CursorId::new_from_raw(7)));
+    }
+
+    #[test]
+    fn test_dead_liveness_entry_does_not_block_live_entry() {
+        let queue = AllocationQueue::new();
+        let dead: LivenessFn = Arc::new(|| false);
+        let _rx_dead = queue.push_high(
+            Some(CursorId::new_from_raw(1)),
+            64 * 1024 * 1024,
+            BufferKind::GetObject,
+            Some(dead),
+        );
+        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+
+        let entry = queue.pop_front_if(always).expect("live entry should be served");
+        assert_eq!(entry.cursor_id, Some(CursorId::new_from_raw(2)));
     }
 
     #[test]
@@ -434,9 +512,9 @@ mod tests {
     fn test_head_queued_at_returns_oldest_high_priority_first() {
         let queue = AllocationQueue::new();
         // Push low first, then high. `head_queued_at` should report the high entry.
-        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject);
+        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None);
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
         let head = queue.head_queued_at().expect("queue not empty");
         // The high entry was pushed last, so its elapsed time is shorter.
@@ -449,9 +527,9 @@ mod tests {
     #[test]
     fn test_head_queued_at_skips_cancelled_entries() {
         let queue = AllocationQueue::new();
-        let rx_old = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject);
+        let rx_old = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject);
+        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
         drop(rx_old); // cancels the older entry without removing it
 
@@ -463,9 +541,25 @@ mod tests {
     }
 
     #[test]
+    fn test_head_queued_at_skips_dead_liveness_entries() {
+        let queue = AllocationQueue::new();
+        let dead: LivenessFn = Arc::new(|| false);
+        // Older entry is dead-via-liveness (receiver still held); newer entry is live.
+        let _rx_dead = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, Some(dead));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+
+        let head = queue.head_queued_at().expect("live entry remains");
+        assert!(
+            head.elapsed() < std::time::Duration::from_millis(2),
+            "head_queued_at should skip dead-via-liveness entries to the next live one",
+        );
+    }
+
+    #[test]
     fn test_head_queued_at_falls_back_to_low_when_high_empty() {
         let queue = AllocationQueue::new();
-        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject);
+        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None);
 
         let head = queue.head_queued_at().expect("low queue not empty");
         assert!(head.elapsed() < std::time::Duration::from_secs(1));
