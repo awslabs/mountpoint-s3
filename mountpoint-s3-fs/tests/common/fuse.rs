@@ -14,9 +14,7 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-#[cfg(feature = "s3_tests")]
-use mountpoint_s3_fs::memory::CandidateSize;
-use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool};
+use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -329,7 +327,7 @@ pub mod mock_session {
 
         let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
         let pool = PagedPool::config()
-            .with_candidate_sizes([test_config.part_size])
+            .with_candidate_sizes([CandidateSize::new(test_config.part_size)])
             .with_memory_limit(test_config.mem_limit)
             .build();
         let client = Arc::new(
@@ -374,7 +372,10 @@ pub mod mock_session {
 
             let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
             let pool = PagedPool::config()
-                .with_candidate_sizes([test_config.cache_block_size, test_config.part_size])
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
                 .with_memory_limit(test_config.mem_limit)
                 .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
@@ -573,7 +574,10 @@ pub mod s3_session {
             let region = get_test_region();
 
             let pool = PagedPool::config()
-                .with_candidate_sizes([test_config.cache_block_size, test_config.part_size])
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
                 .with_memory_limit(test_config.mem_limit)
                 .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());

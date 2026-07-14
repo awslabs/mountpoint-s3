@@ -310,7 +310,7 @@ fn validate_client_for_bucket(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
 
     #[test]
     fn test_read_part_size_within_budget_no_clamp() {
@@ -385,7 +385,7 @@ mod tests {
 
         // Now create pool and client with clamped value to verify end-to-end flow
         let pool = PagedPool::config()
-            .with_candidate_sizes([part_config.read_size_bytes])
+            .with_candidate_sizes([CandidateSize::new(part_config.read_size_bytes)])
             .with_memory_limit(mem_limit_bytes)
             .build();
 

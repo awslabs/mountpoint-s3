@@ -16,7 +16,7 @@ use aws_sdk_s3::operation::head_object::HeadObjectError;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool, effective_total_memory};
+use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool, effective_total_memory};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 
 use crate::common::s3::{get_test_bucket, get_test_endpoint_config, get_test_region, get_test_sdk_client};
@@ -102,7 +102,7 @@ fn build_test_object_uploader(max_object_size: usize) -> (Uploader<S3CrtClient>,
     let part_size = DEFAULT_WRITE_PART_SIZE.max(min_part_size);
 
     let pool = PagedPool::config()
-        .with_candidate_sizes(vec![part_size])
+        .with_candidate_sizes([CandidateSize::new(part_size)])
         .with_memory_limit(compute_test_object_mem_budget())
         .build();
 

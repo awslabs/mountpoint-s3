@@ -393,7 +393,7 @@ mod tests {
 
     use crate::Runtime;
     use crate::data_cache::InMemoryDataCache;
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
     use crate::sync::Arc;
 
     use super::*;
@@ -433,7 +433,10 @@ mod tests {
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let pool = PagedPool::config()
-            .with_candidate_sizes([client.read_part_size(), client.write_part_size()])
+            .with_candidate_sizes([
+                CandidateSize::new(client.read_part_size()),
+                CandidateSize::new(client.write_part_size()),
+            ])
             .with_minimum_memory_limit()
             .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -1234,7 +1237,7 @@ mod tests {
                     .build(),
             );
             let pool = PagedPool::config()
-                .with_candidate_sizes([part_size])
+                .with_candidate_sizes([CandidateSize::new(part_size)])
                 .with_minimum_memory_limit()
                 .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -1305,7 +1308,7 @@ mod tests {
                     .build(),
             );
             let pool = PagedPool::config()
-                .with_candidate_sizes([part_size])
+                .with_candidate_sizes([CandidateSize::new(part_size)])
                 .with_minimum_memory_limit()
                 .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());

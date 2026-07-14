@@ -514,23 +514,6 @@ impl CandidateSize {
     }
 }
 
-// Let callers pass bare sizes (owned or borrowed, e.g. from a `&[usize]` slice); these default to
-// non-prunable. Prunable sizes must be constructed explicitly via `CandidateSize::prunable`.
-//
-// TODO: remove these conversions and make every call site pass an explicit `CandidateSize`, so
-// prunability is always stated rather than silently defaulted (follow-up PR).
-impl From<usize> for CandidateSize {
-    fn from(bytes: usize) -> Self {
-        Self::new(bytes)
-    }
-}
-
-impl From<&usize> for CandidateSize {
-    fn from(bytes: &usize) -> Self {
-        Self::new(*bytes)
-    }
-}
-
 /// Configuration for a [PagedPool].
 ///
 /// Defaults:
@@ -557,17 +540,15 @@ impl Default for PagedPoolConfig {
 }
 
 impl PagedPoolConfig {
-    /// Configure primary memory with the given candidate buffer sizes, if valid. Accepts bare
-    /// `usize` sizes (non-prunable) or explicit [CandidateSize] values.
+    /// Configure primary memory with the given [CandidateSize] buffer sizes, if valid.
     ///
     /// Ignores invalid (0 or greater than [MAX_BUFFER_SIZE]) or duplicate sizes; falls back to
     /// [DEFAULT_BUFFER_SIZE] if none are valid. On a size collision the prunable candidate wins.
     pub fn with_candidate_sizes<I>(&mut self, buffer_sizes: I) -> &mut Self
     where
-        I: IntoIterator,
-        I::Item: Into<CandidateSize>,
+        I: IntoIterator<Item = CandidateSize>,
     {
-        let mut sizes: Vec<CandidateSize> = buffer_sizes.into_iter().map(Into::into).collect();
+        let mut sizes: Vec<CandidateSize> = buffer_sizes.into_iter().collect();
         self.largest_prunable_size = sizes
             .iter()
             .filter(|s| s.prunable && s.bytes > 0)
@@ -653,7 +634,7 @@ mod tests {
     #[test_case(&vec![42u8; 1000], &[128, 1024])]
     fn test_from_slice(original: &[u8], buffer_sizes: &[usize]) {
         let pool = PagedPool::config()
-            .with_candidate_sizes(buffer_sizes)
+            .with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)))
             .with_no_memory_limit()
             .build();
         let bytes = copy_from_slice(&pool, original);
@@ -663,7 +644,7 @@ mod tests {
     #[test_case(&[5, 10, 1024])]
     fn test_pages(buffer_sizes: &[usize]) {
         let pool = PagedPool::config()
-            .with_candidate_sizes(buffer_sizes)
+            .with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)))
             .with_no_memory_limit()
             .build();
 
@@ -702,7 +683,7 @@ mod tests {
     #[test_matrix(&vec![42u8; 10000], &[128, 1024, 2024, 8192], [Duration::MAX, Duration::from_millis(10)])]
     fn stress_test(original: &[u8], buffer_sizes: &[usize], schedule: Duration) {
         let pool = PagedPool::config()
-            .with_candidate_sizes(buffer_sizes)
+            .with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)))
             .with_no_memory_limit()
             .with_maintenance_interval(schedule)
             .build();
@@ -737,7 +718,7 @@ mod tests {
         let buffer_size = 1024;
         let reservations = HashMap::from([(BufferKind::GetObject, 10), (BufferKind::Other, 20)]);
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_no_memory_limit()
             .build();
         let mut buffers = Vec::new();
@@ -758,7 +739,7 @@ mod tests {
     #[test_case(&[8, 8, 10])]
     fn test_ordered_pool_sizes(buffer_sizes: &[usize]) {
         let mut config = PagedPool::config();
-        config.with_candidate_sizes(buffer_sizes);
+        config.with_candidate_sizes(buffer_sizes.iter().map(|&b| CandidateSize::new(b)));
 
         let ordered_bytes: Vec<usize> = config.ordered_sizes().iter().map(|s| s.bytes()).collect();
         assert!(ordered_bytes.iter().is_sorted(), "Sizes should be sorted");
@@ -811,7 +792,7 @@ mod tests {
             let additional_reserved = (buffer_size * 16).max(128 * 1024 * 1024);
             let mem_limit = buffer_size * 16 + additional_reserved;
             PagedPool::config()
-                .with_candidate_sizes([buffer_size])
+                .with_candidate_sizes([CandidateSize::new(buffer_size)])
                 .with_memory_limit(mem_limit)
                 .build()
         }

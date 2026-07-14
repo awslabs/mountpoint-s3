@@ -19,7 +19,7 @@ use {
     mountpoint_s3_fs::Runtime,
     mountpoint_s3_fs::data_cache::DataCache,
     mountpoint_s3_fs::fuse::session::FuseSession,
-    mountpoint_s3_fs::memory::PagedPool,
+    mountpoint_s3_fs::memory::{CandidateSize, PagedPool},
     mountpoint_s3_fs::object::ObjectId,
     mountpoint_s3_fs::prefetch::Prefetcher,
     mountpoint_s3_fs::s3::S3Path,
@@ -58,7 +58,10 @@ async fn express_invalid_block_read() {
 
     // Mount the bucket
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default(), pool.clone());
@@ -123,7 +126,10 @@ fn express_cache_write_read(key_suffix: &str, key_size: usize, object_size: usiz
     use mountpoint_s3_fs::s3::{Bucket, Prefix};
 
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default(), pool.clone());
@@ -152,7 +158,10 @@ fn disk_cache_write_read(key_suffix: &str, key_size: usize, object_size: usize) 
         limit: Default::default(),
     };
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let cache = DiskDataCache::new(cache_config, pool.clone());
@@ -176,7 +185,10 @@ fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<Str
     use mountpoint_s3_fs::s3::{Bucket, Prefix};
 
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default(), pool.clone());
@@ -194,7 +206,10 @@ fn express_cache_write_read_sse(sse_type: Option<String>, kms_key_id: Option<Str
 #[cfg(feature = "s3express_tests")]
 async fn express_cache_read_empty() {
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default(), pool);
@@ -215,7 +230,7 @@ async fn disk_cache_read_empty() {
         limit: Default::default(),
     };
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize])
+        .with_candidate_sizes([CandidateSize::new(CACHE_BLOCK_SIZE as usize)])
         .with_no_memory_limit()
         .build();
     let cache = DiskDataCache::new(cache_config, pool);
@@ -229,7 +244,10 @@ async fn express_cache_verify_fail_non_express() {
     use mountpoint_s3_fs::data_cache::DataCacheError;
 
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let client = create_crt_client(CLIENT_PART_SIZE, CLIENT_PART_SIZE, Default::default(), pool);
@@ -259,7 +277,10 @@ async fn express_cache_verify_fail_forbidden() {
     use mountpoint_s3_client::config::{
         Allocator, CredentialsProvider, CredentialsProviderStaticOptions, S3ClientAuthConfig,
     };
-    use mountpoint_s3_fs::{data_cache::DataCacheError, memory::PagedPool};
+    use mountpoint_s3_fs::{
+        data_cache::DataCacheError,
+        memory::{CandidateSize, PagedPool},
+    };
 
     let bucket_name = get_standard_bucket();
     let cache_bucket_name = get_express_bucket();
@@ -281,7 +302,10 @@ async fn express_cache_verify_fail_forbidden() {
     let provider = CredentialsProvider::new_static(&Allocator::default(), config).unwrap();
 
     let pool = PagedPool::config()
-        .with_candidate_sizes([CACHE_BLOCK_SIZE as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(CACHE_BLOCK_SIZE as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let client = create_crt_client(
@@ -394,7 +418,10 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
     let prefix = get_test_prefix("express_expected_bucket_owner");
     let cache_config = ExpressDataCacheConfig::new(&cache_bucket, &bucket);
     let pool = PagedPool::config()
-        .with_candidate_sizes([cache_config.block_size as usize, CLIENT_PART_SIZE])
+        .with_candidate_sizes([
+            CandidateSize::new(cache_config.block_size as usize),
+            CandidateSize::new(CLIENT_PART_SIZE),
+        ])
         .with_no_memory_limit()
         .build();
     let cache = ExpressDataCache::new(client.clone(), cache_config);

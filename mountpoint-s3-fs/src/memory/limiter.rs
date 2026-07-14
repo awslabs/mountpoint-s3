@@ -633,12 +633,12 @@ mod tests {
     // TODO: Consider which tests are specific to the MemoryLimiter and which are testing the whole PagedPool.
 
     use super::*;
-    use crate::memory::{BufferKind, PagedPool};
+    use crate::memory::{BufferKind, CandidateSize, PagedPool};
     use crate::sync::atomic::Ordering;
 
     fn new_pool() -> PagedPool {
         PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build()
     }
@@ -737,7 +737,7 @@ mod tests {
         // Simulates the cancellation race: on_reserve fires after release_cursor
         // removed the entry. The callback should be a no-op.
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -760,7 +760,7 @@ mod tests {
     #[test]
     fn test_on_pool_acquire_saturates_on_over_decrement() {
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -786,7 +786,7 @@ mod tests {
         let buffer_size = 1024;
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -822,7 +822,7 @@ mod tests {
         let buffer_size = 1024;
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();

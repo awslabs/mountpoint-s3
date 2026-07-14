@@ -156,7 +156,7 @@ mod tests {
 
     use crate::memory::limiter::MemoryLimiter;
     use crate::memory::pool::PagedPoolInner;
-    use crate::memory::{BufferKind, PagedPool};
+    use crate::memory::{BufferKind, CandidateSize, PagedPool};
 
     use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
 
@@ -175,7 +175,7 @@ mod tests {
         let mem_limit = BUF * 16 + additional_reserved;
 
         let limiter = MemoryLimiter::new(mem_limit, 0);
-        let inner_pool = PagedPoolInner::new(&[BUF.into()], Arc::new(limiter));
+        let inner_pool = PagedPoolInner::new(&[CandidateSize::new(BUF)], Arc::new(limiter));
         PagedPool {
             inner: Arc::new(inner_pool),
         }
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn run_pruning_round_returns_idle_on_empty_queue() {
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build();
 
