@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784038117282,
+  "lastUpdate": 1784056661129,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Memory-Limited)": [
@@ -3349,6 +3349,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 247.50390625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "a9e71eb8f3e932c708851f97fcf5517804715a02",
+          "message": "Improve stability of metrics tests  (#1881)\n\nImprove the stability of the metrics tests by making cleanup in\notel_export.sh more robust. The script now waits for the OTel collector\nto fully exit (time-box for 5s, then SIGKILL) so its port is released\nbefore the next iteration, and then clears the PID so the EXIT trap\ndoesn't re-kill a stale PID. It also logs when cleanup runs after a\nfailure.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-07-14T16:25:29Z",
+          "tree_id": "71d4d09663a2efb229aa6910fee3c9d5c060ff71",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/a9e71eb8f3e932c708851f97fcf5517804715a02"
+        },
+        "date": 1784056661057,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 853.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 499.57421875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 429.00390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 21.00390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 61.10546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 39.00390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 57.86328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 18.3359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 33.3671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 21.765625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 33.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 397.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 48.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 398.25390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 46.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 301.9296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 20.01953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 300.35546875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 302.96484375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 20.25390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 429.3984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 282.00390625,
             "unit": "MiB"
           }
         ]
