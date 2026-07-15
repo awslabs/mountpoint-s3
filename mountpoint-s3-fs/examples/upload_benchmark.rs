@@ -5,8 +5,8 @@ use clap::Parser;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::memory::effective_total_memory;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use tracing_subscriber::EnvFilter;
@@ -103,7 +103,7 @@ fn main() {
         (effective_total_memory() as f64 * 0.95) as usize
     };
     let pool = PagedPool::config()
-        .with_candidate_sizes([args.write_part_size])
+        .with_candidate_sizes([CandidateSize::new(args.write_part_size)])
         .with_memory_limit(memory_target)
         .build();
     let config = S3ClientConfig::new()

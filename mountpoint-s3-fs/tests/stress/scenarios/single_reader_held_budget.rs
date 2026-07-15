@@ -1,5 +1,5 @@
 //! `single_reader_held_budget`: a single reader against a default 8 MiB part, with the setup phase
-//! hard-pinning all but one part of the budget so only one 8 MiB read part is free.
+//! hard-pinning the entire write budget so only the read reserve (one 8 MiB part) is free.
 
 use std::iter::repeat_n;
 use std::path::Path;
@@ -18,9 +18,10 @@ const NUM_READERS: usize = 1;
 const PART_SIZE: usize = 8 * 1024 * 1024; // 8 MiB — the default, realistic part size
 const READ_CHUNK: usize = PART_SIZE;
 
-/// Setup phase: pin all but one part of the budget before the reader starts.
+/// Setup phase: pin the entire write budget before the reader starts, leaving only the read
+/// reserve (one 8 MiB part) free.
 fn hold(mount_path: &Path) -> Box<dyn SetupGuard> {
-    let held_parts = budget_parts(MINIMUM_MEM_LIMIT, PART_SIZE) - 1;
+    let held_parts = budget_parts(MINIMUM_MEM_LIMIT, PART_SIZE);
     Box::new(hold_budget_parts(SCOPE, held_parts, mount_path))
 }
 

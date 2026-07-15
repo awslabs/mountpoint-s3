@@ -154,7 +154,7 @@ where
 
         let pool = pool.clone();
         let write_handle_limiter = (!config.read_only)
-            .then(|| WriteHandleLimiter::new(pool.mem_limit(), pool.data_buffer_budget(), client.write_part_size()));
+            .then(|| WriteHandleLimiter::new(pool.mem_limit(), pool.write_buffer_budget(), client.write_part_size()));
         let prefetcher = prefetch_builder.build(runtime.clone(), pool.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
             client.clone(),
@@ -798,6 +798,7 @@ where
 mod tests {
     use super::*;
 
+    use crate::memory::CandidateSize;
     use crate::prefetch::Prefetcher;
     use crate::s3::{Bucket, S3Path};
     use crate::{Superblock, SuperblockConfig};
@@ -823,7 +824,7 @@ mod tests {
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let pool = PagedPool::config()
-            .with_candidate_sizes([32])
+            .with_candidate_sizes([CandidateSize::new(32)])
             .with_minimum_memory_limit()
             .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
@@ -1090,7 +1091,7 @@ mod tests {
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(10).create().unwrap());
         let pool = PagedPool::config()
-            .with_candidate_sizes([32])
+            .with_candidate_sizes([CandidateSize::new(32)])
             .with_minimum_memory_limit()
             .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
@@ -1138,7 +1139,7 @@ mod tests {
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(2).create().unwrap());
         let pool = PagedPool::config()
-            .with_candidate_sizes([PART_SIZE])
+            .with_candidate_sizes([CandidateSize::new(PART_SIZE)])
             .with_memory_limit(MEM_LIMIT)
             .build();
         let prefetcher_builder = Prefetcher::default_builder(client.clone());

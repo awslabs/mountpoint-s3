@@ -81,7 +81,7 @@ pub fn set_up_client_config(config: S3ClientConfig) -> S3ClientConfig {
     #[cfg(feature = "fs_pool_tests")]
     let config = config.memory_pool_factory(|options: mountpoint_s3_client::config::MemoryPoolFactoryOptions| {
         mountpoint_s3_fs::memory::PagedPool::config()
-            .with_candidate_sizes([options.part_size()])
+            .with_candidate_sizes([mountpoint_s3_fs::memory::CandidateSize::new(options.part_size())])
             .with_no_memory_limit()
             .build()
     });

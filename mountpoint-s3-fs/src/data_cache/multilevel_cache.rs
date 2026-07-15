@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use crate::checksums::ChecksummedBytes;
     use crate::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig, ExpressDataCache, ExpressDataCacheConfig};
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
 
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::MockClient;
@@ -132,7 +132,7 @@ mod tests {
     fn create_disk_cache() -> (TempDir, Arc<DiskDataCache>) {
         let cache_directory = tempfile::tempdir().unwrap();
         let pool = PagedPool::config()
-            .with_candidate_sizes([BLOCK_SIZE as usize, PART_SIZE])
+            .with_candidate_sizes([CandidateSize::new(BLOCK_SIZE as usize), CandidateSize::new(PART_SIZE)])
             .with_no_memory_limit()
             .build();
         let cache = DiskDataCache::new(

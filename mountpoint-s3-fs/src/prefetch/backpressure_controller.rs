@@ -381,6 +381,7 @@ impl ReadWindowIncrementQueue {
 mod tests {
     use super::*;
 
+    use crate::memory::CandidateSize;
     use futures::executor::block_on;
     use mountpoint_s3_client::mock_client::MockClientError;
     use test_case::test_case;
@@ -507,7 +508,7 @@ mod tests {
         backpressure_config: BackpressureConfig,
     ) -> (BackpressureController, BackpressureLimiter) {
         let pool = PagedPool::config()
-            .with_candidate_sizes([8 * 1024 * 1024])
+            .with_candidate_sizes([CandidateSize::new(8 * 1024 * 1024)])
             .with_memory_limit(backpressure_config.max_read_window_size)
             .build();
         let cursor_state = pool.create_cursor().state();
