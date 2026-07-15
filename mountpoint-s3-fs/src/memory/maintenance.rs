@@ -350,9 +350,11 @@ mod tests {
         let flag = cleared.clone();
         // Clear callback reports a non-zero freed count on its first call, mimicking a window that
         // held one part buffer.
-        active.register_clear_seek_window_fn(Box::new(move || {
-            if flag.swap(true, Ordering::SeqCst) { 0 } else { BUF }
-        }));
+        active.register_clear_seek_window_fn(Box::new(
+            move || {
+                if flag.swap(true, Ordering::SeqCst) { 0 } else { BUF }
+            },
+        ));
         let _active_guard = active.set_active_read(0, BUF);
 
         let _blockers = fill_and_enqueue_waiter(&pool);

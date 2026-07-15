@@ -1108,12 +1108,17 @@ mod tests {
         let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = cleared.clone();
         // Report a non-zero freed count once, then zero (window already empty).
-        cursor.register_clear_seek_window_fn(Box::new(move || {
-            if flag.swap(true, Ordering::SeqCst) { 0 } else { 4096 }
-        }));
+        cursor.register_clear_seek_window_fn(Box::new(
+            move || {
+                if flag.swap(true, Ordering::SeqCst) { 0 } else { 4096 }
+            },
+        ));
         let _guard = cursor.set_active_read(0, 1);
 
-        assert!(limiter.clear_one_seek_window(), "should clear the active cursor's window");
+        assert!(
+            limiter.clear_one_seek_window(),
+            "should clear the active cursor's window"
+        );
         assert!(cleared.load(Ordering::SeqCst));
 
         // Second call frees nothing (window already empty) → returns false.
@@ -1151,6 +1156,9 @@ mod tests {
         // No active read — cursor is idle, so clear must leave it alone.
 
         assert!(!limiter.clear_one_seek_window());
-        assert!(!cleared.load(Ordering::SeqCst), "idle cursor's window must not be cleared");
+        assert!(
+            !cleared.load(Ordering::SeqCst),
+            "idle cursor's window must not be cleared"
+        );
     }
 }
