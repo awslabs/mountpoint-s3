@@ -121,7 +121,7 @@ jobs:
 
     needs: approval
     env:
-      features: s3_tests,fips_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
+      features: s3_tests,fips_tests,web_identity_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
       packages: --package mountpoint-s3-client --package mountpoint-s3-crt --package mountpoint-s3-crt-sys
 
     strategy:

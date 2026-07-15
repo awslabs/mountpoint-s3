@@ -146,6 +146,7 @@ mod integ_only {
     ///
     /// Use this as `role_arn` in a profile alongside `web_identity_token_file`
     /// (see [get_web_identity_token_file]).
+    #[cfg(feature = "web_identity_tests")]
     pub fn get_web_identity_test_role() -> String {
         std::env::var("S3_WEB_IDENTITY_TEST_ROLE_ARN")
             .expect("Set S3_WEB_IDENTITY_TEST_ROLE_ARN to run integration tests")
@@ -153,6 +154,7 @@ mod integ_only {
 
     /// Path to a file containing a real web identity token, for testing the
     /// `web_identity_token_file` credential source.
+    #[cfg(feature = "web_identity_tests")]
     pub fn get_web_identity_token_file() -> String {
         std::env::var("S3_WEB_IDENTITY_TEST_TOKEN_FILE")
             .expect("Set S3_WEB_IDENTITY_TEST_TOKEN_FILE to run integration tests")

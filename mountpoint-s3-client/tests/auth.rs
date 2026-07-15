@@ -11,7 +11,9 @@ use bytes::Bytes;
 use rusty_fork::rusty_fork_test;
 use tempfile::NamedTempFile;
 
-use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role, get_web_identity_test_role};
+#[cfg(feature = "web_identity_tests")]
+use common::creds::get_web_identity_test_role;
+use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use common::*;
 
 use mountpoint_s3_client::ObjectClient;
@@ -229,6 +231,7 @@ async fn test_profile_provider_assume_role_async() {
 }
 
 /// Test creating a client with a profile using `web_identity_token_file`.
+#[cfg(feature = "web_identity_tests")]
 async fn test_profile_provider_web_identity_async() {
     let sdk_client = get_test_sdk_client().await;
     let web_identity_role = get_web_identity_test_role();
@@ -276,6 +279,7 @@ async fn test_profile_provider_web_identity_async() {
 
 /// Test creating a client with a profile that chains through a `source_profile` using
 /// `web_identity_token_file`, i.e. `AssumeRoleWithWebIdentity` followed by `AssumeRole`.
+#[cfg(feature = "web_identity_tests")]
 async fn test_profile_provider_web_identity_source_profile_async() {
     let sdk_client = get_test_sdk_client().await;
     let subsession_role = get_subsession_iam_role();
@@ -476,6 +480,7 @@ rusty_fork_test! {
     }
 
     #[test]
+    #[cfg(feature = "web_identity_tests")]
     fn test_profile_provider_web_identity() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -483,6 +488,7 @@ rusty_fork_test! {
     }
 
     #[test]
+    #[cfg(feature = "web_identity_tests")]
     fn test_profile_provider_web_identity_source_profile() {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
