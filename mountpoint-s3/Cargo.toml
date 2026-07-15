@@ -11,7 +11,7 @@ mountpoint-s3-fs = { workspace = true }
 mountpoint-s3-client = { workspace = true }
 
 anyhow = { version = "1.0.103", features = ["backtrace"] }
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
 const_format = "0.2.36"
 futures = "0.3.32"
 nix = { version = "0.31.3", default-features = false, features = ["fs", "process", "signal", "user"] }

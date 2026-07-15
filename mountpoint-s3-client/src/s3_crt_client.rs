@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::prelude::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,6 +26,7 @@ use mountpoint_s3_crt::io::channel_bootstrap::{ClientBootstrap, ClientBootstrapO
 pub use mountpoint_s3_crt::io::event_loop::EventLoopGroup;
 use mountpoint_s3_crt::io::host_resolver::{AddressKinds, HostResolver, HostResolverDefaultOptions};
 use mountpoint_s3_crt::io::retry_strategy::{ExponentialBackoffJitterMode, RetryStrategy, StandardRetryOptions};
+use mountpoint_s3_crt::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions, TlsError as CrtTlsError};
 use mountpoint_s3_crt::s3::buffer::Buffer;
 use mountpoint_s3_crt::s3::client::{
     BufferPoolUsageStats, ChecksumConfig, Client, ClientConfig, MetaRequest, MetaRequestOptions, MetaRequestResult,
@@ -113,6 +115,7 @@ pub struct S3ClientConfig {
     telemetry_callback: Option<Arc<dyn OnTelemetry>>,
     event_loop_threads: Option<u16>,
     buffer_pool_factory: Option<MemoryPoolFactoryWrapper>,
+    tls_config: Option<TlsConfig>,
 }
 
 impl Default for S3ClientConfig {
@@ -135,6 +138,7 @@ impl Default for S3ClientConfig {
             telemetry_callback: None,
             event_loop_threads: None,
             buffer_pool_factory: None,
+            tls_config: None,
         }
     }
 }
@@ -271,6 +275,109 @@ impl S3ClientConfig {
         self.buffer_pool_factory = Some(MemoryPoolFactoryWrapper::new(pool_factory));
         self
     }
+
+    /// Set a custom TLS configuration (for example, a private CA trust store) that applies to
+    /// all HTTPS calls made by this client. When not set, the CRT's default trust store is used.
+    #[must_use = "S3ClientConfig follows a builder pattern"]
+    pub fn tls_config(mut self, tls_config: TlsConfig) -> Self {
+        self.tls_config = Some(tls_config);
+        self
+    }
+}
+
+/// Custom TLS configuration applied to all HTTPS calls made by the CRT-based client.
+#[derive(Debug, Clone, Default)]
+pub struct TlsConfig {
+    /// Optional path to a PEM file containing CA certificates that replace the default trust
+    /// store.
+    pub trust_store_path: Option<PathBuf>,
+}
+
+impl TlsConfig {
+    /// Create a new empty [`TlsConfig`]. At least one field should be populated for the config
+    /// to have any effect.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Builder: set a custom CA bundle path.
+    #[must_use = "TlsConfig follows a builder pattern"]
+    pub fn with_trust_store_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.trust_store_path = Some(path.into());
+        self
+    }
+
+    /// Validate that the configured paths exist and are readable. Callers should invoke this
+    /// before constructing an [`S3CrtClient`] so that bad paths produce a clear error up front.
+    pub fn validate(&self) -> Result<(), TlsConfigValidationError> {
+        if let Some(path) = &self.trust_store_path {
+            validate_readable_file(path, "CA bundle")?;
+        }
+        Ok(())
+    }
+}
+
+/// Errors that can occur while validating a [`TlsConfig`].
+#[derive(Debug, thiserror::Error)]
+pub enum TlsConfigValidationError {
+    /// A file referenced by the config does not exist or is not readable.
+    #[error("{role} '{}' cannot be read: {source}", path.display())]
+    UnreadableFile {
+        /// A human-friendly role for the path ("CA bundle", ...).
+        role: &'static str,
+        /// The path that failed validation.
+        path: PathBuf,
+        /// The underlying IO error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A path referenced by the config resolves to something that is not a regular file
+    /// (most commonly a directory, for example `/etc/ssl/certs`).
+    #[error("{role} '{}' is not a regular file", path.display())]
+    NotARegularFile {
+        /// A human-friendly role for the path ("CA bundle", ...).
+        role: &'static str,
+        /// The path that failed validation.
+        path: PathBuf,
+    },
+}
+
+fn validate_readable_file(path: &Path, role: &'static str) -> Result<(), TlsConfigValidationError> {
+    let metadata = std::fs::metadata(path).map_err(|source| TlsConfigValidationError::UnreadableFile {
+        role,
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if !metadata.is_file() {
+        return Err(TlsConfigValidationError::NotARegularFile {
+            role,
+            path: path.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+/// Build the single TLS context shared by the S3 client and the credentials-resolution chain.
+/// Returns `Ok(None)` when no TLS customization has been configured.
+fn prepare_tls_context(allocator: &Allocator, tls_config: &TlsConfig) -> Result<Option<TlsContext>, NewClientError> {
+    let Some(path) = &tls_config.trust_store_path else {
+        return Ok(None);
+    };
+    let mut opts = TlsContextOptions::new_default_client(allocator);
+    opts.override_default_trust_store_from_path(None, Some(path))
+        .map_err(tls_error_to_new_client_error)?;
+    Ok(Some(
+        TlsContext::new(allocator, &opts).map_err(NewClientError::TlsConfigurationError)?,
+    ))
+}
+
+fn tls_error_to_new_client_error(err: CrtTlsError) -> NewClientError {
+    match err {
+        CrtTlsError::PathContainsNul => {
+            NewClientError::InvalidConfiguration("TLS configuration path contains a NUL byte".to_owned())
+        }
+        CrtTlsError::Crt(e) => NewClientError::TlsConfigurationError(e),
+    }
 }
 
 /// Authentication configuration for the CRT-based S3 client
@@ -378,11 +485,21 @@ impl S3CrtClientInner {
             RetryStrategy::standard(&allocator, &retry_strategy_options).unwrap()
         };
 
+        // Prepare a TLS context up front so it can be threaded into both the credentials chain
+        // and the S3 client.
+        let tls_ctx = if let Some(tls_config) = config.tls_config.as_ref() {
+            tls_config.validate()?;
+            prepare_tls_context(&allocator, tls_config)?
+        } else {
+            None
+        };
+
         trace!("constructing client with auth config {:?}", config.auth_config);
         let credentials_provider = match config.auth_config {
             S3ClientAuthConfig::Default => {
                 let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
                     bootstrap: &mut client_bootstrap,
+                    tls_ctx: tls_ctx.as_ref(),
                 };
                 CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)
                     .map_err(NewClientError::ProviderFailure)?
@@ -394,6 +511,7 @@ impl S3CrtClientInner {
                 let credentials_profile_options = CredentialsProviderProfileOptions {
                     bootstrap: &mut client_bootstrap,
                     profile_name_override: &profile_name,
+                    tls_ctx: tls_ctx.as_ref(),
                 };
                 CredentialsProvider::new_profile(&allocator, credentials_profile_options)
                     .map_err(NewClientError::ProviderFailure)?
@@ -457,6 +575,11 @@ impl S3CrtClientInner {
 
         if !config.network_interface_names.is_empty() {
             client_config.network_interface_names(config.network_interface_names);
+        }
+
+        if let Some(ctx) = tls_ctx.as_ref() {
+            let tls_connection_options = TlsConnectionOptions::new(ctx);
+            client_config.tls_connection_options(tls_connection_options);
         }
 
         let user_agent = config.user_agent.unwrap_or_else(|| UserAgent::new(None));
@@ -1152,6 +1275,12 @@ pub enum NewClientError {
     /// Invalid configuration
     #[error("invalid configuration: {0}")]
     InvalidConfiguration(String),
+    /// The TLS configuration could not be validated against the local filesystem.
+    #[error("invalid TLS configuration")]
+    TlsConfigValidationError(#[from] TlsConfigValidationError),
+    /// The CRT rejected the TLS configuration (e.g. malformed PEM).
+    #[error("failed to build TLS context")]
+    TlsConfigurationError(#[source] mountpoint_s3_crt::common::error::Error),
     /// An internal error from within the AWS Common Runtime
     #[error("Unknown CRT error")]
     CrtError(#[source] mountpoint_s3_crt::common::error::Error),
