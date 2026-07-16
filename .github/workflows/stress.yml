@@ -42,6 +42,7 @@ jobs:
   stress:
     name: Stress (${{ matrix.scenario }})
     runs-on: [self-hosted, linux, x64, nvme-high-performance]
+    timeout-minutes: 25
     needs: approval
     strategy:
       fail-fast: false
