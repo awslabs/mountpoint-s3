@@ -4,6 +4,7 @@
 * Update to latest CRT dependencies.
 * Add `TlsConfig` type and `S3ClientConfig::tls_config()` builder for configuring a custom CA trust store. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
 * Run cleanup for CRT libraries on process exit. ([#1850](https://github.com/awslabs/mountpoint-s3/pull/1850))
+* Fix credential resolution when using a source profile with STS Web Identity. ([#1889](https://github.com/awslabs/mountpoint-s3/pull/1889))
 
 ## v0.20.0 (April 28, 2026)
 
