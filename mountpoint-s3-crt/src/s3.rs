@@ -22,5 +22,6 @@ pub fn s3_library_init(allocator: &Allocator) {
         unsafe {
             aws_s3_library_init(allocator.inner.as_ptr());
         }
+        crate::register_crt_cleanup_at_exit();
     });
 }

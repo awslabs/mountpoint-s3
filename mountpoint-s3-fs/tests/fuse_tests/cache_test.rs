@@ -1,5 +1,3 @@
-use crate::common::cache::CacheTestWrapper;
-use crate::common::fuse::{self, TestSessionConfig};
 use anyhow::{Context, anyhow};
 use mountpoint_s3_fs::data_cache::{CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DiskDataCache, DiskDataCacheConfig};
 use rand::rngs::SmallRng;
@@ -10,22 +8,23 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{debug, info, warn};
 
+use crate::common::cache::CacheTestWrapper;
+use crate::common::fuse::{self, TestSessionConfig};
+
 #[cfg(feature = "s3_tests")]
 use {
-    crate::common::fuse::create_fuse_session,
     crate::common::fuse::s3_session::create_crt_client,
+    crate::common::fuse::{MountedSession, create_fuse_session},
     crate::common::s3::{get_test_prefix, get_test_s3_path},
     mountpoint_s3_client::S3CrtClient,
     mountpoint_s3_fs::Runtime,
     mountpoint_s3_fs::data_cache::DataCache,
-    mountpoint_s3_fs::fuse::session::FuseSession,
     mountpoint_s3_fs::memory::PagedPool,
     mountpoint_s3_fs::object::ObjectId,
     mountpoint_s3_fs::prefetch::Prefetcher,
     mountpoint_s3_fs::s3::S3Path,
     rand::RngExt,
     std::time::Duration,
-    tempfile::TempDir,
     test_case::test_case,
 };
 
@@ -64,7 +63,7 @@ async fn express_invalid_block_read() {
         ExpressDataCacheConfig::new(&cache_bucket, &bucket),
     ));
     let s3_path = S3Path::new(Bucket::new(bucket.clone()).unwrap(), Prefix::new(&prefix).unwrap());
-    let (mount_point, _session) = mount_bucket(client.clone(), cache.clone(), pool, s3_path);
+    let mount = mount_bucket(client.clone(), cache.clone(), pool, s3_path);
 
     // Put an object to the mounted bucket
     let object_key = "key";
@@ -77,7 +76,7 @@ async fn express_invalid_block_read() {
     let object_etag = result.etag.into_inner();
 
     // Read data twice, expect cache hits and no errors
-    let path = mount_point.path().join(object_key);
+    let path = mount.path().join(object_key);
 
     let put_block_count = cache.put_block_count();
     let read = fs::read(&path).expect("read should succeed");
@@ -102,7 +101,7 @@ async fn express_invalid_block_read() {
         .expect("put object must succeed");
 
     // Expect a successful read from the source bucket. We expect cache errors being recorded because of the corrupted block.
-    let path = mount_point.path().join(object_key);
+    let path = mount.path().join(object_key);
     let read = fs::read(&path).expect("read should succeed");
     assert_eq!(read, object_data.as_bytes());
     assert!(
@@ -300,11 +299,11 @@ fn cache_write_read_base<Cache>(
 {
     // Mount a bucket
     let cache = CacheTestWrapper::new(cache);
-    let (mount_point, _session) = mount_bucket(client, cache.clone(), pool, s3_path.clone());
+    let mount = mount_bucket(client, cache.clone(), pool, s3_path.clone());
 
     // Write an object, no caching happens yet
     let key = get_random_key(s3_path.prefix.as_str(), key_suffix, key_size);
-    let path = mount_point.path().join(&key);
+    let path = mount.path().join(&key);
     let written = random_binary_data(object_size);
     fs::write(&path, &written).expect("write should succeed");
     let put_block_count = cache.put_block_count();
@@ -386,11 +385,11 @@ fn express_cache_expected_bucket_owner(cache_bucket: String, owner_checked: bool
 
     let cache = CacheTestWrapper::new(cache);
     let s3_path = S3Path::new(Bucket::new(bucket).unwrap(), Prefix::new(&prefix).unwrap());
-    let (mount_point, _session) = mount_bucket(client, cache.clone(), pool, s3_path);
+    let mount = mount_bucket(client, cache.clone(), pool, s3_path);
 
     // Write an object, no caching happens yet
     let key = get_random_key(&prefix, "key", 100);
-    let path = mount_point.path().join(&key);
+    let path = mount.path().join(&key);
     let written = random_binary_data(CACHE_BLOCK_SIZE as usize);
     fs::write(&path, &written).expect("write should succeed");
 
@@ -433,23 +432,22 @@ fn get_random_key(key_prefix: &str, key_suffix: &str, min_size_in_bytes: usize) 
 }
 
 #[cfg(feature = "s3_tests")]
-fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, pool: PagedPool, s3_path: S3Path) -> (TempDir, FuseSession)
+fn mount_bucket<Cache>(client: S3CrtClient, cache: Cache, pool: PagedPool, s3_path: S3Path) -> MountedSession
 where
     Cache: DataCache + Send + Sync + 'static,
 {
     let mount_point = tempfile::tempdir().unwrap();
     let runtime = Runtime::new(client.event_loop_group());
     let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
-    let (session, _mount) = create_fuse_session(
+    create_fuse_session(
         client,
         prefetcher_builder,
         pool,
         runtime,
         s3_path,
-        mount_point.path(),
+        mount_point,
         Default::default(),
-    );
-    (mount_point, session)
+    )
 }
 
 #[cfg(feature = "s3_tests")]
