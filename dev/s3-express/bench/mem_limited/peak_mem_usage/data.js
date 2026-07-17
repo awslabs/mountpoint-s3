@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784221863833,
+  "lastUpdate": 1784294377902,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Memory-Limited)": [
@@ -3885,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 250.5,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "625ef017a48e3f3db01c817b7074d8d5f2fa12b3",
+          "message": "Add integration tests for STS web identity credential source (#1889)\n\nAdd new integration tests for STS web identity credential source, both\nconfigured directly and through a source profile. Both tests are gated\nunder a new `web_identity_tests` crate feature.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nAdding changelog entries.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\n---------\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-07-17T11:02:53Z",
+          "tree_id": "3057fd70dac0da4e3c143ca021e92f4774b7cdc5",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/625ef017a48e3f3db01c817b7074d8d5f2fa12b3"
+        },
+        "date": 1784294377832,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 846.04296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 484.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 426,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 21.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 54.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 38.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 55.98828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 20.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 31.984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 22.55859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 37.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 397.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 48,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 402,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 46.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 301.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 19.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 301.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 302.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 20.25,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 425.5625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 249.75,
             "unit": "MiB"
           }
         ]
