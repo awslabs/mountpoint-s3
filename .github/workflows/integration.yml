@@ -172,20 +172,24 @@ jobs:
       with:
         # not required for client tests. TODO: make it optional.
         fuseVersion: 2
+    - name: Build tests
+      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Fetch a GitHub Actions OIDC token for web identity tests
       # Requests a fresh, real OIDC token distinct from the one used above to assume
       # ACTIONS_IAM_ROLE, so tests can exercise the web_identity_token_file credential source
       # by assuming S3_WEB_IDENTITY_TEST_ROLE_ARN with it.
       run: |
+        set -euo pipefail
         token=$(curl -sf -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
           "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
         token_file="${RUNNER_TEMP}/web_identity_token"
         echo "$token" > "$token_file"
         echo "S3_WEB_IDENTITY_TEST_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
-    - name: Build tests
-      run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
     - name: Run tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
+    - name: Clean up web identity token
+      if: always()
+      run: rm -f "${S3_WEB_IDENTITY_TEST_TOKEN_FILE}"
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
