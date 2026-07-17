@@ -25,6 +25,8 @@ env:
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_TEST_PREFIX || 'github-actions-tmp/' }}run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
   # An IAM role that tests can assume when they want to create session policies
   S3_SUBSESSION_IAM_ROLE: ${{ vars.S3_SUBSESSION_IAM_ROLE }}
+  # IAM role used to test the web_identity_token_file credential source
+  S3_WEB_IDENTITY_TEST_ROLE_ARN: ${{ vars.S3_WEB_IDENTITY_TEST_ROLE_ARN }}
   # Different Access Points Aliases and ARNs
   S3_ACCESS_POINT_ALIAS: ${{ vars.S3_ACCESS_POINT_ALIAS }}
   S3_ACCESS_POINT_ARN: ${{ vars.S3_ACCESS_POINT_ARN }}
@@ -119,7 +121,7 @@ jobs:
 
     needs: approval
     env:
-      features: s3_tests,fips_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
+      features: s3_tests,fips_tests,web_identity_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
       packages: --package mountpoint-s3-client --package mountpoint-s3-crt --package mountpoint-s3-crt-sys
 
     strategy:
@@ -172,8 +174,22 @@ jobs:
         fuseVersion: 2
     - name: Build tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
+    - name: Fetch a GitHub Actions OIDC token for web identity tests
+      # Requests a fresh, real OIDC token distinct from the one used above to assume
+      # ACTIONS_IAM_ROLE, so tests can exercise the web_identity_token_file credential source
+      # by assuming S3_WEB_IDENTITY_TEST_ROLE_ARN with it.
+      run: |
+        set -euo pipefail
+        token=$(curl -sf -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+        token_file="${RUNNER_TEMP}/web_identity_token"
+        echo "$token" > "$token_file"
+        echo "S3_WEB_IDENTITY_TEST_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
     - name: Run tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
+    - name: Clean up web identity token
+      if: always()
+      run: rm -f "${S3_WEB_IDENTITY_TEST_TOKEN_FILE}"
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
