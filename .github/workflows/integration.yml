@@ -93,6 +93,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
@@ -157,6 +159,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
@@ -222,6 +226,8 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
+          # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+          allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
@@ -265,6 +271,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
@@ -316,6 +324,8 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
+          # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+          allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
@@ -359,6 +369,8 @@ jobs:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
 
     - name: Create SRPM
       id: build-srpm

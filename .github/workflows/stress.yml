@@ -64,6 +64,8 @@ jobs:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
+          # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+          allow-unsafe-pr-checkout: true
       - name: Install operating system dependencies
         uses: ./.github/actions/install-dependencies
         with:
