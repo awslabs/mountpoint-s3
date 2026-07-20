@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784570978605,
+  "lastUpdate": 1784577473330,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Incremental Upload, Memory-Limited)": [
@@ -1224,6 +1224,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 399,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "268bd54507ff6bc26e22590ac02bcaadf79f8386",
+          "message": "Run cargo update (#1891)\n\nUpdate yanked dependency. Fixes:\n\n```\nwarning: package `spin v0.10.0` in Cargo.lock is yanked in registry `crates-io`, consider updating to a version that is not yanked\n```\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-07-20T19:00:26Z",
+          "tree_id": "431b0c25ea53840dcdb21543c3085abbca11a6ec",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/268bd54507ff6bc26e22590ac02bcaadf79f8386"
+        },
+        "date": 1784577473258,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 417,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 432.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 465,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 399.46875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 400.8359375,
             "unit": "MiB"
           }
         ]
