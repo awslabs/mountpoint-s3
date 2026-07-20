@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784569777680,
+  "lastUpdate": 1784576197935,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard)": [
-      {
-        "commit": {
-          "author": {
-            "email": "prikaru@amazon.com",
-            "name": "Priyankakarumuru1",
-            "username": "Priyankakarumuru1"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2e31ed5bca353e0b3c912c58769b040e117970dc",
-          "message": "Pass HandleId as custom_id in S3 request params (#1815)\n\nConnects the file handle ID to S3 request params, completing the link\nbetween PR #1809 (HandleId through prefetcher) and PR #1812 (custom_id\nthrough CRT buffer pool).\n\n### Does this change impact existing behavior?\n\nNo\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo. \n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Priyankakarumuru1 <prikaru@amazon.com>",
-          "timestamp": "2026-04-23T15:11:04Z",
-          "tree_id": "10430fff1d46b8832452ee6de66be30c0717b765",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/2e31ed5bca353e0b3c912c58769b040e117970dc"
-        },
-        "date": 1776965448709,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 3667.7265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 4972.98046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 8451.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 22.0390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 48.31640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 22.0234375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 48.3203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 19.8046875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 27.296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 21.30859375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 28.06640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 8225.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 50.55078125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 8176.8203125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 52.81640625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 2110.265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 24.70703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 2109.875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 2110,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 23.546875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 709.04296875,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 589.0546875,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 381.00390625,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "djonesoa@amazon.com",
+            "name": "Daniel Carl Jones",
+            "username": "dannycjones"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8338038714c728653f464cb94d09793b20ba87a7",
+          "message": "Add SHA pins for GitHub Actions dependencies (#1862)\n\nAdd SHA refs for all GitHub Action dependencies, pinning them to that\nspecific commit. This mitigates the risk of the dependency being updated\nwithout us knowing, acting a bit like a lock file. This change\nimplements the best practice for GHA dependencies.\n\nDependabot supports updating SHA pins, and thus will open PRs when\nrequired on the configured cadence.\n\n### Does this change impact existing behavior?\n\nCI only. It does not change version, only pins to the current version.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo, no customer facing changes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Daniel Carl Jones <djonesoa@amazon.com>",
+          "timestamp": "2026-07-20T17:15:40Z",
+          "tree_id": "28e45eb2570f31e169f221d04d0abe0e26132242",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/8338038714c728653f464cb94d09793b20ba87a7"
+        },
+        "date": 1784576197863,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 3372.72265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 4762.02734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 8345.51953125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 20.25390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 54.12890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 19.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 60.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 15.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 27.64453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 16.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 30.78515625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 8133.703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 48.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 7953.2890625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 48.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 2104.02734375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 21.75390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 2101.86328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 2103.55078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 22.0078125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 757.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 400.50390625,
             "unit": "MiB"
           }
         ]
