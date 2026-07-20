@@ -1,7 +1,9 @@
-## Unreleased (v0.17.0)
+## Unreleased
 
-* Update to latest CRT dependencies.
+## v0.17.0 (July 20, 2026)
+
 * Include `aws/io/tls_channel_handler.h` in the generated bindings so TLS context API symbols are available to consumers. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Update to latest CRT dependencies.
 
 ## v0.16.3 (April 28, 2026)
 
