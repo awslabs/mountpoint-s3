@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784289319146,
+  "lastUpdate": 1784564735810,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Incremental Upload, Memory-Limited)": [
@@ -1126,6 +1126,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 399.48046875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "226d1d84c239f14620336dcbc2ce8ff3a543f995",
+          "message": "Update changelogs to prepare v1.23.0 release (#1890)\n\nUpdate changelogs for all crates.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-07-20T15:26:39Z",
+          "tree_id": "2e4c043996dec3b485b8018ce802c68dc021be13",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/226d1d84c239f14620336dcbc2ce8ff3a543f995"
+        },
+        "date": 1784564735739,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 417,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 433.5,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 450.75,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 399.15234375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 399,
             "unit": "MiB"
           }
         ]
