@@ -131,6 +131,7 @@ impl Executor {
             AccessPattern::Random => self.execute_random_read(config).await,
             AccessPattern::MultiCursorSequential => self.execute_multi_cursor_read(config).await,
             AccessPattern::OverlappingCursors => self.execute_overlapping_cursors_read(config).await,
+            AccessPattern::SequentialWithSeeks => self.execute_sequential_with_seeks(config).await,
         }
     }
 
@@ -359,6 +360,149 @@ impl Executor {
             }
 
             if !had_error && iteration_bytes == expected_bytes {
+                iterations_completed += 1;
+            }
+        }
+
+        let duration = job_start.elapsed();
+
+        Ok(JobResult {
+            job_name: config.name.clone(),
+            workload_type: "read".to_string(),
+            iterations_completed,
+            total_bytes,
+            elapsed_seconds: duration,
+            errors,
+        })
+    }
+
+    /// A dominant sequential stream, confined to the first `1/dominant_fraction` of the object,
+    /// sharing one file handle with periodic bursts of random look-aside reads in the remaining
+    /// region. Every `seek_interval` dominant reads, a burst of `distant_per_burst` reads is issued
+    /// at random `read_size`-aligned offsets in the `[size/dominant_fraction, size)` region. All
+    /// reads share one prefetch request, so each random look-aside tends to spawn its own transient
+    /// cursor alongside the dominant stream, exercising the prefetcher's ability to protect the
+    /// dominant stream while occasional distant readers come and go.
+    ///
+    /// The dominant stream is confined to the first region (rather than running to EOF) so it never
+    /// collides with the look-aside region; an iteration completes when it reaches the end of that
+    /// region. Distant-read bytes are added to `total_bytes` but do not affect completion.
+    async fn execute_sequential_with_seeks(&self, config: &ResolvedJobConfig) -> Result<JobResult, ExecutionError> {
+        let client = &self.client;
+        let prefetcher = &self.prefetcher;
+        let bucket = &config.bucket;
+        let object_key = &config.object_key;
+
+        let head_result = client
+            .head_object(bucket, object_key, &HeadObjectParams::new())
+            .await
+            .map_err(|e| ExecutionError::S3Error(format!("HeadObject failed: {}", e)))?;
+
+        let object_id = ObjectId::new(object_key.to_string(), head_result.etag);
+        let size = head_result.size;
+
+        let read_size = config.read_size as u64;
+        let seek_interval = config.seek_interval;
+        let distant_per_burst = config.distant_per_burst;
+
+        // Split the object: the dominant sequential stream runs over the first region
+        // `[0, dominant_end)`; look-aside reads land at random offsets in `[dominant_end, size)`.
+        // Both regions must hold at least one full read.
+        let dominant_end = size / config.dominant_fraction as u64;
+        if dominant_end < read_size || size - dominant_end < read_size {
+            return Err(ExecutionError::ExecutionFailed(format!(
+                "Object size ({}) is too small for sequential_with_seeks with dominant_fraction ({}) and read_size ({}): both the dominant and look-aside regions must hold at least one read",
+                size, config.dominant_fraction, read_size
+            )));
+        }
+        // Random look-aside offsets are chosen from the read_size-aligned slots in the look-aside
+        // region. Deterministic RNG mirrors execute_random_read.
+        let distant_slots = (size - dominant_end) / read_size;
+        let randseed = config.randseed;
+        let mut hasher = DefaultHasher::new();
+        randseed.hash(&mut hasher);
+        object_id.hash(&mut hasher);
+        let mut rng = Pcg64::seed_from_u64(hasher.finish());
+
+        let mut total_bytes = 0u64;
+        let mut errors = Vec::new();
+        let mut iterations_completed = 0usize;
+
+        let job_start = Instant::now();
+        let max_duration = config.max_duration;
+
+        for _iteration in 0..config.iterations {
+            if let Some(max_dur) = max_duration
+                && job_start.elapsed() >= max_dur
+            {
+                break;
+            }
+
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
+            let mut offset = 0u64;
+            let mut dominant_reads = 0usize;
+            let mut had_error = false;
+
+            while offset < dominant_end {
+                if let Some(max_dur) = max_duration
+                    && job_start.elapsed() >= max_dur
+                {
+                    break;
+                }
+
+                // Dominant sequential read from the current frontier.
+                let dominant_len = min(read_size, dominant_end - offset);
+                match request.read(offset, dominant_len as usize).await {
+                    Ok(bytes) => {
+                        let n = bytes.len() as u64;
+                        offset += n;
+                        total_bytes += n;
+                    }
+                    Err(e) => {
+                        errors.push(ErrorInfo {
+                            error_type: "ReadError".to_string(),
+                            message: format!("Dominant read failed at offset {}: {}", offset, e),
+                        });
+                        had_error = true;
+                        break;
+                    }
+                }
+
+                dominant_reads += 1;
+
+                // Every `seek_interval` dominant reads, fire a burst of random look-aside reads.
+                if dominant_reads.is_multiple_of(seek_interval) {
+                    for _ in 0..distant_per_burst {
+                        if let Some(max_dur) = max_duration
+                            && job_start.elapsed() >= max_dur
+                        {
+                            break;
+                        }
+
+                        // A random read at a read_size-aligned offset in the look-aside region.
+                        let distant_offset = dominant_end + rng.random_range(0..distant_slots) * read_size;
+                        match request.read(distant_offset, read_size as usize).await {
+                            Ok(bytes) => {
+                                total_bytes += bytes.len() as u64;
+                            }
+                            Err(e) => {
+                                errors.push(ErrorInfo {
+                                    error_type: "ReadError".to_string(),
+                                    message: format!("Distant read failed at offset {}: {}", distant_offset, e),
+                                });
+                                had_error = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if had_error {
+                        break;
+                    }
+                }
+            }
+
+            if !had_error && offset >= dominant_end {
                 iterations_completed += 1;
             }
         }

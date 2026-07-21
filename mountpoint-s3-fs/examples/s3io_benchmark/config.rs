@@ -68,6 +68,16 @@ pub struct JobConfig {
     /// Bytes to read from each cursor before advancing to the next
     /// (multi_cursor_sequential only).
     pub bytes_per_cursor_visit: Option<usize>,
+    /// Number of dominant sequential reads between distant bursts
+    /// (sequential_with_seeks only). Default: 8.
+    pub seek_interval: Option<usize>,
+    /// Number of random look-aside reads issued in each burst (sequential_with_seeks only).
+    /// Default: 7.
+    pub distant_per_burst: Option<usize>,
+    /// Denominator of the fraction of the object the dominant stream is confined to
+    /// (sequential_with_seeks only): the dominant stream runs over `[0, size/dominant_fraction)`
+    /// and look-aside reads land in the rest. Default: 2 (dominant reads the first half).
+    pub dominant_fraction: Option<usize>,
 }
 
 /// Configuration for a single job execution
@@ -90,6 +100,9 @@ pub struct ResolvedJobConfig {
     pub generate_object: bool,
     pub num_cursors: usize,
     pub bytes_per_cursor_visit: usize,
+    pub seek_interval: usize,
+    pub distant_per_burst: usize,
+    pub dominant_fraction: usize,
 }
 
 /// Workload type: read or write
@@ -113,6 +126,12 @@ pub enum AccessPattern {
     /// to the *end of the file* (unlike `MultiCursorSequential`, where each cursor is confined to
     /// its own region).
     OverlappingCursors,
+    /// A single dominant cursor reading sequentially from offset 0, interrupted every
+    /// `seek_interval` dominant reads by a burst of `distant_per_burst` reads to fresh,
+    /// ever-advancing offsets in the second half of the object. All reads share one prefetch
+    /// request, so each distant offset spawns its own transient cursor while the dominant stream
+    /// keeps advancing.
+    SequentialWithSeeks,
 }
 
 /// Server-side encryption type
@@ -305,6 +324,40 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         )));
     }
 
+    // seek_interval: Optional with default of 8
+    let seek_interval = job.seek_interval.or(global.job_defaults.seek_interval).unwrap_or(8);
+    if seek_interval < 1 {
+        return Err(ConfigError::Validation(format!(
+            "Job '{}': Invalid value for 'seek_interval': must be at least 1",
+            job_name
+        )));
+    }
+
+    // distant_per_burst: Optional with default of 7
+    let distant_per_burst = job
+        .distant_per_burst
+        .or(global.job_defaults.distant_per_burst)
+        .unwrap_or(7);
+    if distant_per_burst < 1 {
+        return Err(ConfigError::Validation(format!(
+            "Job '{}': Invalid value for 'distant_per_burst': must be at least 1",
+            job_name
+        )));
+    }
+
+    // dominant_fraction: Optional with default of 2 (dominant stream reads the first half).
+    // Must be at least 2 so the look-aside region is non-empty.
+    let dominant_fraction = job
+        .dominant_fraction
+        .or(global.job_defaults.dominant_fraction)
+        .unwrap_or(2);
+    if dominant_fraction < 2 {
+        return Err(ConfigError::Validation(format!(
+            "Job '{}': Invalid value for 'dominant_fraction': must be at least 2",
+            job_name
+        )));
+    }
+
     Ok(ResolvedJobConfig {
         name: job_name.to_string(),
         workload_type,
@@ -322,5 +375,121 @@ fn merge_and_resolve(job_name: &str, job: &JobConfig, global: &GlobalConfig) -> 
         generate_object,
         num_cursors,
         bytes_per_cursor_visit,
+        seek_interval,
+        distant_per_burst,
+        dominant_fraction,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Parse a TOML config and resolve the single job named `job`, exercising the same
+    /// merge/default/validation path used at runtime (without the S3 object generation in
+    /// `prepare_jobs`).
+    fn resolve_single_job(toml: &str) -> Result<ResolvedJobConfig, ConfigError> {
+        let config = parse_config_string(toml)?;
+        let job = config
+            .jobs
+            .get("job")
+            .expect("test config must define a job named 'job'");
+        merge_and_resolve("job", job, &config.global)
+    }
+
+    #[test]
+    fn sequential_with_seeks_parses_and_defaults() {
+        let resolved = resolve_single_job(
+            r#"
+            [global]
+            bucket = "test-bucket"
+
+            [jobs.job]
+            workload_type = "read"
+            access_pattern = "sequential_with_seeks"
+            "#,
+        )
+        .expect("config should resolve");
+
+        assert_eq!(resolved.access_pattern, AccessPattern::SequentialWithSeeks);
+        assert_eq!(resolved.seek_interval, 8);
+        assert_eq!(resolved.distant_per_burst, 7);
+        assert_eq!(resolved.dominant_fraction, 2);
+    }
+
+    #[test]
+    fn seek_params_override_defaults() {
+        let resolved = resolve_single_job(
+            r#"
+            [global]
+            bucket = "test-bucket"
+
+            [jobs.job]
+            workload_type = "read"
+            access_pattern = "sequential_with_seeks"
+            seek_interval = 4
+            distant_per_burst = 12
+            "#,
+        )
+        .expect("config should resolve");
+
+        assert_eq!(resolved.seek_interval, 4);
+        assert_eq!(resolved.distant_per_burst, 12);
+    }
+
+    #[test]
+    fn seek_params_inherit_from_global_defaults() {
+        let resolved = resolve_single_job(
+            r#"
+            [global]
+            bucket = "test-bucket"
+            seek_interval = 3
+            distant_per_burst = 5
+
+            [jobs.job]
+            workload_type = "read"
+            access_pattern = "sequential_with_seeks"
+            "#,
+        )
+        .expect("config should resolve");
+
+        assert_eq!(resolved.seek_interval, 3);
+        assert_eq!(resolved.distant_per_burst, 5);
+    }
+
+    #[test]
+    fn zero_seek_interval_is_rejected() {
+        let err = resolve_single_job(
+            r#"
+            [global]
+            bucket = "test-bucket"
+
+            [jobs.job]
+            workload_type = "read"
+            access_pattern = "sequential_with_seeks"
+            seek_interval = 0
+            "#,
+        )
+        .expect_err("seek_interval = 0 should fail validation");
+
+        assert!(matches!(err, ConfigError::Validation(msg) if msg.contains("seek_interval")));
+    }
+
+    #[test]
+    fn zero_distant_per_burst_is_rejected() {
+        let err = resolve_single_job(
+            r#"
+            [global]
+            bucket = "test-bucket"
+
+            [jobs.job]
+            workload_type = "read"
+            access_pattern = "sequential_with_seeks"
+            distant_per_burst = 0
+            "#,
+        )
+        .expect_err("distant_per_burst = 0 should fail validation");
+
+        assert!(matches!(err, ConfigError::Validation(msg) if msg.contains("distant_per_burst")));
+    }
 }
