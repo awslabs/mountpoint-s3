@@ -16,6 +16,7 @@ use crate::auth::auth_library_init;
 use crate::common::allocator::Allocator;
 use crate::common::error::Error;
 use crate::io::channel_bootstrap::ClientBootstrap;
+use crate::io::tls::TlsContext;
 use crate::{CrtError as _, ToAwsByteCursor as _};
 
 /// Options for creating a default credentials provider
@@ -23,6 +24,10 @@ use crate::{CrtError as _, ToAwsByteCursor as _};
 pub struct CredentialsProviderChainDefaultOptions<'a> {
     /// The client bootstrap this credentials provider should use to setup channels
     pub bootstrap: &'a mut ClientBootstrap,
+    /// Optional custom TLS context for HTTPS calls made by sub-providers of the default
+    /// credentials chain — principally STS (`AssumeRole` and `AssumeRoleWithWebIdentity`).
+    /// When `None`, the CRT's default trust store is used.
+    pub tls_ctx: Option<&'a TlsContext>,
 }
 
 /// Options for creating a profile credentials provider
@@ -32,6 +37,8 @@ pub struct CredentialsProviderProfileOptions<'a> {
     pub bootstrap: &'a mut ClientBootstrap,
     /// The name of profile to use.
     pub profile_name_override: &'a str,
+    /// Optional custom TLS context. See [`CredentialsProviderChainDefaultOptions::tls_ctx`].
+    pub tls_ctx: Option<&'a TlsContext>,
 }
 
 /// Options for creating a static credentials provider
@@ -76,10 +83,16 @@ impl CredentialsProvider {
 
         let inner_options = aws_credentials_provider_chain_default_options {
             bootstrap: options.bootstrap.inner.as_ptr(),
+            tls_ctx: options
+                .tls_ctx
+                .map(|t| t.inner.as_ptr())
+                .unwrap_or(std::ptr::null_mut()),
             ..Default::default()
         };
 
-        // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options.
+        // SAFETY: aws_credentials_provider_new_chain_default makes a copy of the bootstrap options
+        // and acquires a reference to tls_ctx when non-null, so it is safe for `options.tls_ctx`
+        // to be dropped after this call returns.
         let inner = unsafe {
             aws_credentials_provider_new_chain_default(allocator.inner.as_ptr(), &inner_options).ok_or_last_error()?
         };
@@ -105,13 +118,17 @@ impl CredentialsProvider {
         auth_library_init(allocator);
 
         // SAFETY: aws_credentials_provider_new_profile makes a copy of bootstrap
-        // and contents of profile_name_override.
+        // and contents of profile_name_override, and acquires a reference to tls_ctx when non-null.
         // SAFETY: aws_credentials_provider_new_cached increments the reference counter of
         // profile_provider.
         let inner = unsafe {
             let inner_options = aws_credentials_provider_profile_options {
                 bootstrap: options.bootstrap.inner.as_ptr(),
                 profile_name_override: options.profile_name_override.as_aws_byte_cursor(),
+                tls_ctx: options
+                    .tls_ctx
+                    .map(|t| t.inner.as_ptr())
+                    .unwrap_or(std::ptr::null_mut()),
                 ..Default::default()
             };
 

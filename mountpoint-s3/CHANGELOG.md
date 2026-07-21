@@ -1,9 +1,14 @@
 ## Unreleased
 
-* Add support for CRC64NVME full-object checksums on uploads. The `--upload-checksums` argument now accepts `crc64nvme` in addition to the existing `crc32c` and `off` values. CRC32C continues to use S3's composite (checksum-of-checksums) format on multipart uploads; CRC64NVME uses S3's `FULL_OBJECT` mode. Both algorithms work end-to-end on atomic and incremental upload paths. Note for downstream consumers: on multipart objects, `GetObjectAttributes` reports `ChecksumType: FULL_OBJECT` for CRC64NVME (vs. `COMPOSITE` for CRC32C), and the `x-amz-checksum-crc64nvme` header value is the full-object hash with no `-<part-count>` suffix. Tooling that strips the composite `-N` suffix or assumes `COMPOSITE` should branch on the algorithm.
-* Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806))
-* Add support for automatic content type detection on file uploads. When the `--infer-content-type` flag is specified, Mountpoint will infer the `Content-Type` of new objects based on their file extension instead of using the default `binary/octet-stream`. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790))
-* Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718))
+## v1.23.0 (July 20, 2026)
+
+* Add `--ca-bundle` flag (and `AWS_CA_BUNDLE` environment variable fallback) for trusting a custom certificate authority when Mountpoint makes HTTPS calls. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834) by @yerzhan7)
+* Add support for CRC64NVME full-object checksums on uploads. The `--upload-checksums` argument now accepts `crc64nvme` in addition to the existing `crc32c` and `off` values. CRC32C continues to use S3's composite (checksum-of-checksums) format on multipart uploads; CRC64NVME uses S3's `FULL_OBJECT` mode. Both algorithms work end-to-end on atomic and incremental upload paths. Note for downstream consumers: on multipart objects, `GetObjectAttributes` reports `ChecksumType: FULL_OBJECT` for CRC64NVME (vs. `COMPOSITE` for CRC32C), and the `x-amz-checksum-crc64nvme` header value is the full-object hash with no `-<part-count>` suffix. Tooling that strips the composite `-N` suffix or assumes `COMPOSITE` should branch on the algorithm. ([#1838](https://github.com/awslabs/mountpoint-s3/pull/1838) by @alecrubin)
+* Add support for automatic content type detection on file uploads. When the `--infer-content-type` flag is specified, Mountpoint will infer the `Content-Type` of new objects based on their file extension instead of using the default `binary/octet-stream`. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790) by @Zxilly)
+* Fix credential resolution when using a source profile with STS Web Identity. ([#1889](https://github.com/awslabs/mountpoint-s3/pull/1889) by @passaro)
+* Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806) by @yerzhan7)
+* Reduce peak memory usage of incremental (append) uploads by removing an unnecessary buffer copy in the internal S3 client. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882) by @yerzhan7)
+* Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718) by @mansi153)
 
 ## v1.22.3 (April 28, 2026)
 

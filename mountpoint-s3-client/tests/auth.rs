@@ -11,6 +11,8 @@ use bytes::Bytes;
 use rusty_fork::rusty_fork_test;
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "web_identity_tests")]
+use common::creds::get_web_identity_test_role;
 use common::creds::{get_sdk_default_chain_creds, get_subsession_iam_role};
 use common::*;
 
@@ -228,6 +230,107 @@ async fn test_profile_provider_assume_role_async() {
     check_get_result(result, None, &body[..]).await;
 }
 
+/// Test creating a client with a profile using `web_identity_token_file`.
+#[cfg(feature = "web_identity_tests")]
+async fn test_profile_provider_web_identity_async() {
+    let sdk_client = get_test_sdk_client().await;
+    let web_identity_role = get_web_identity_test_role();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider_web_identity");
+
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let profile_name = "mountpoint-profile";
+    let token_file = common::creds::get_web_identity_token_file();
+    let mut config_file = NamedTempFile::new().unwrap();
+
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
+    writeln!(config_file, "role_arn = {web_identity_role}").unwrap();
+    writeln!(config_file, "web_identity_token_file = {token_file}").unwrap();
+
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+        std::env::remove_var("AWS_ACCESS_KEY_ID");
+        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+        std::env::remove_var("AWS_SESSION_TOKEN");
+    }
+
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
+        .endpoint_config(get_test_endpoint_config());
+    let client = get_test_client_with_config(config);
+
+    let result = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
+}
+
+/// Test creating a client with a profile that chains through a `source_profile` using
+/// `web_identity_token_file`, i.e. `AssumeRoleWithWebIdentity` followed by `AssumeRole`.
+#[cfg(feature = "web_identity_tests")]
+async fn test_profile_provider_web_identity_source_profile_async() {
+    let sdk_client = get_test_sdk_client().await;
+    let subsession_role = get_subsession_iam_role();
+    let web_identity_role = get_web_identity_test_role();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_profile_provider_web_identity_source_profile");
+
+    let key = format!("{prefix}/hello");
+    let body = b"hello world!";
+    sdk_client
+        .put_object()
+        .bucket(&bucket)
+        .key(&key)
+        .body(ByteStream::from(Bytes::from_static(body)))
+        .send()
+        .await
+        .unwrap();
+
+    let profile_name = "mountpoint-profile";
+    let source_profile = "web-identity-source";
+    let token_file = common::creds::get_web_identity_token_file();
+    let mut config_file = NamedTempFile::new().unwrap();
+
+    writeln!(config_file, "[profile {source_profile}]").unwrap();
+    writeln!(config_file, "role_arn = {web_identity_role}").unwrap();
+    writeln!(config_file, "web_identity_token_file = {token_file}").unwrap();
+
+    writeln!(config_file, "[profile {profile_name}]").unwrap();
+    writeln!(config_file, "role_arn = {subsession_role}").unwrap();
+    writeln!(config_file, "source_profile = {source_profile}").unwrap();
+
+    // Set up the environment variables to use this new config file.
+    // SAFETY: This test is run in a forked process, so won't affect any other concurrently running tests.
+    unsafe {
+        std::env::set_var("AWS_CONFIG_FILE", config_file.path().as_os_str());
+        std::env::remove_var("AWS_ACCESS_KEY_ID");
+        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+        std::env::remove_var("AWS_SESSION_TOKEN");
+    }
+
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Profile(profile_name.to_owned()))
+        .endpoint_config(get_test_endpoint_config());
+    let client = get_test_client_with_config(config);
+
+    let result = client
+        .get_object(&bucket, &key, &GetObjectParams::new())
+        .await
+        .expect("get_object should succeed");
+    check_get_result(result, None, &body[..]).await;
+}
+
 async fn test_credential_process_behind_source_profile_async() {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_credential_process_behind_source_profile");
 
@@ -374,6 +477,22 @@ rusty_fork_test! {
         // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         runtime.block_on(test_credential_process_behind_source_profile_async());
+    }
+
+    #[test]
+    #[cfg(feature = "web_identity_tests")]
+    fn test_profile_provider_web_identity() {
+        // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_profile_provider_web_identity_async());
+    }
+
+    #[test]
+    #[cfg(feature = "web_identity_tests")]
+    fn test_profile_provider_web_identity_source_profile() {
+        // rusty_fork doesn't support async tests, so build an SDK-usable runtime manually
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(test_profile_provider_web_identity_source_profile_async());
     }
 }
 

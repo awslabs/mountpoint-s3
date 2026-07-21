@@ -149,6 +149,7 @@ impl ConfigOptions {
             part_config: PartConfig::with_part_size(self.part_size())
                 .validate(MemoryLimitSetting::Default(mem_limit))?,
             user_agent: UserAgent::new(Some(user_agent_string)),
+            tls_config: None,
         })
     }
 

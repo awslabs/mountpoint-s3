@@ -58,13 +58,13 @@ jobs:
           - many_readers_held_budget
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
         with:
           role-to-assume: ${{ vars.ACTIONS_BENCH_IAM_ROLE }}
           aws-region: ${{ vars.S3_BENCH_REGION }}
           role-duration-seconds: 21600
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ inputs.ref }}
           submodules: true
@@ -75,7 +75,7 @@ jobs:
           fuseVersion: 2
           libunwind: true
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
       - name: Install cargo-nextest

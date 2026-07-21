@@ -18,9 +18,47 @@ pub mod io;
 pub mod s3;
 
 use std::ptr::NonNull;
+use std::sync::Once;
 use std::{ffi::OsStr, os::unix::prelude::OsStrExt};
 
 use crate::common::error::Error;
+
+static CRT_CLEANUP_REGISTER: Once = Once::new();
+
+/// Register a process-exit handler that cleans up every CRT library.
+///
+/// CRT library init is a demand-driven, boolean-guarded singleton with no automatic cleanup. Cleanup
+/// is what joins the CRT's managed worker threads; without it, a worker thread can still be running
+/// native code when the process runs its C runtime destructors, which aborts the process under the
+/// aws-lc FIPS RNG. Called from every `*_library_init` so we register regardless of entry point.
+fn register_crt_cleanup_at_exit() {
+    CRT_CLEANUP_REGISTER.call_once(|| {
+        // SAFETY: `crt_cleanup_at_exit` is a `'static` `extern "C"` function. Called at most once,
+        // and only from an init path, so the CRT libraries are initialized before it could run.
+        unsafe {
+            libc::atexit(crt_cleanup_at_exit);
+        }
+    });
+}
+
+/// Runs at process exit to tear down every CRT library that was initialized.
+extern "C" fn crt_cleanup_at_exit() {
+    // Each `aws_*_library_clean_up` is self-guarded and idempotent, so the full sequence is safe
+    // regardless of which libraries were initialized; top-down order lets higher layers release
+    // their references before lower layers tear down. The first step of each is
+    // `aws_thread_join_all_managed`, which blocks until CRT worker threads exit — so this must run
+    // on a non-CRT thread, which `atexit` guarantees (it runs on the thread that calls `exit`).
+    //
+    // SAFETY: each cleanup is safe whether or not its library was initialized (see above); they take
+    // no arguments and touch only process-global CRT state.
+    unsafe {
+        aws_s3_library_clean_up();
+        aws_auth_library_clean_up();
+        aws_http_library_clean_up();
+        aws_io_library_clean_up();
+        aws_common_library_clean_up();
+    }
+}
 
 pub(crate) mod private {
     /// Seals a trait to prevent clients from implementing it for their own types, since this trait

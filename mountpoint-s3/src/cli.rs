@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};
 use clap::{ArgGroup, Parser, ValueEnum, value_parser};
-use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig, TlsConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::content_type::ContentTypeDetection;
@@ -221,6 +221,21 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         conflicts_with = "part_size",
     )]
     pub write_part_size: Option<u64>,
+
+    #[clap(
+        long,
+        env = "AWS_CA_BUNDLE",
+        help = "The CA certificate bundle used to verify HTTPS connections.",
+        long_help = "\
+The CA certificate bundle used to verify HTTPS connections made by Mountpoint.
+
+When set, this bundle is used in place of the operating-system default trust \
+store.\
+        ",
+        value_name = "PATH",
+        help_heading = CLIENT_OPTIONS_HEADER,
+    )]
+    pub ca_bundle: Option<PathBuf>,
 
     #[clap(
         long,
@@ -815,6 +830,10 @@ impl CliArgs {
             bind: self.bind.clone(),
             part_config: self.part_config().validate(memory_limit)?,
             user_agent,
+            tls_config: self
+                .ca_bundle
+                .clone()
+                .map(|p| TlsConfig::new().with_trust_store_path(p)),
         })
     }
 }
@@ -942,6 +961,27 @@ mod tests {
         assert!(cli_args.infer_content_type);
         let filesystem_config = cli_args.filesystem_config(ServerSideEncryption::default(), S3Personality::Standard);
         assert_eq!(filesystem_config.content_type_detection, ContentTypeDetection::Auto);
+    }
+
+    #[test]
+    fn ca_bundle_flag_threads_through_to_client_config() {
+        let ca = PathBuf::from("/some/path/flag-ca.pem");
+        let cli_args = CliArgs::try_parse_from([
+            "mount-s3",
+            "bucket",
+            "test/location",
+            "--ca-bundle",
+            ca.to_str().unwrap(),
+        ])
+        .expect("parse succeeds");
+
+        let memory_limit = cli_args.memory_limit_setting();
+        let tls = cli_args
+            .client_config("test", memory_limit)
+            .expect("client config should build")
+            .tls_config
+            .expect("Some");
+        assert_eq!(tls.trust_store_path.as_deref(), Some(ca.as_path()));
     }
 
     #[test_case("crc32c", S3Personality::Standard, Some(UploadChecksumAlgorithm::Crc32c); "crc32c flag")]

@@ -11,7 +11,7 @@ pub mod event_loop;
 pub mod futures;
 pub mod host_resolver;
 pub mod retry_strategy;
-pub mod stream;
+pub mod tls;
 
 static IO_LIBRARY_INIT: Once = Once::new();
 
@@ -22,5 +22,6 @@ pub fn io_library_init(allocator: &Allocator) {
         unsafe {
             aws_io_library_init(allocator.inner.as_ptr());
         }
+        crate::register_crt_cleanup_at_exit();
     });
 }
