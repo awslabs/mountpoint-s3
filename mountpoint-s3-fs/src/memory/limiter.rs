@@ -449,30 +449,28 @@ impl MemoryLimiter {
     ///
     /// Returns `true` if a window was cleared and freed at least one byte.
     pub(super) fn clear_one_seek_window(&self) -> bool {
-        let cleared = self
-            .cursors
-            .iter()
-            .filter_map(|entry| entry.value().upgrade())
-            .filter(|state| matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }))
-            .find_map(|state| {
-                let freed = state.clear_seek_window_fn.lock().unwrap().as_ref().map(|f| f())?;
-                (freed > 0).then_some((state.cursor_id, freed))
-            });
+        for entry in self.cursors.iter() {
+            let Some(state) = entry.value().upgrade() else {
+                continue;
+            };
+            if !matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }) {
+                continue;
+            }
 
-        match cleared {
-            Some((cursor_id, freed)) => {
+            let Some(freed) = state.clear_seek_window_fn.lock().unwrap().as_ref().map(|f| f()) else {
+                continue;
+            };
+            if freed > 0 {
                 debug!(
-                    ?cursor_id,
+                    cursor_id = ?state.cursor_id,
                     window_bytes_cleared = freed,
                     "cleared backward seek window under memory pressure"
                 );
-                true
-            }
-            None => {
-                trace!("no active seek window eligible for clearing");
-                false
+                return true;
             }
         }
+        trace!("no active seek window eligible for clearing");
+        false
     }
 }
 
