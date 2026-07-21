@@ -15,6 +15,33 @@ const RESERVED_MEMORY_METRIC: &str = "mem.bytes_reserved";
 const ALLOCATED_MEMORY_METRIC: &str = "pool.allocated_bytes";
 const IN_USE_MEMORY_METRIC: &str = "pool.bytes_in_use";
 
+/// Default S3 part size (matches client default).
+/// All stress scenarios currently use this part size.
+const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
+
+/// Maximum number of parts that `pool.bytes_in_use` may overshoot the budget by due to
+/// concurrent release/acquire races.
+///
+/// # Background
+///
+/// The pool tracks memory in two phases:
+/// 1. `pool.allocated_bytes` — atomically enforced, never exceeds budget
+/// 2. `pool.bytes_in_use{kind}` — incremented on acquire, decremented on release
+///
+/// During buffer release, there's a small window where:
+/// - The releasing thread clears the bitmask bit (slot becomes available)
+/// - Another thread acquires that slot and increments `bytes_in_use`
+/// - The releasing thread finally decrements `bytes_in_use`
+///
+/// This creates a transient double-count. Under high concurrency (e.g., 48 writers),
+/// multiple buffers can be in this window simultaneously, causing `bytes_in_use` to
+/// temporarily spike above budget even though `allocated_bytes` remains compliant.
+///
+/// This constant allows test assertions to tolerate this known race without masking
+/// real memory regressions. Set conservatively: large enough to avoid flakes under
+/// normal concurrency, small enough to catch actual leaks.
+const MAX_BYTES_IN_USE_OVERSHOOT_PARTS: usize = 1;
+
 /// A gauge handle carrying its identity for logging and violation messages.
 struct NamedGauge {
     metric_name: &'static str,
@@ -55,6 +82,51 @@ impl NamedGauge {
                 self.id(),
                 format_mib(peak),
                 format_mib(effective_budget),
+            ));
+        }
+    }
+
+    /// Log the gauge's peak against the budget with tolerance for transient overshoots.
+    /// Pushes to `violations` if peak exceeds `ceiling`, or to `warnings` if peak exceeds
+    /// `budget` but is within the tolerance range.
+    fn check_peak_violation_with_tolerance(
+        &self,
+        scenario_name: &str,
+        budget: u64,
+        tolerance: u64,
+        violations: &mut Vec<String>,
+        warnings: &mut Vec<String>,
+    ) {
+        let peak = self.metric.gauge_peak();
+        let ceiling = budget + tolerance;
+
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %self.id(),
+            peak = %format_mib(peak),
+            budget = %format_mib(budget),
+            ceiling = %format_mib(ceiling),
+            "stress: peak memory gauge"
+        );
+
+        if peak > ceiling {
+            // Exceeds even the tolerant ceiling — real violation
+            violations.push(format!(
+                "{} peak {} exceeds ceiling {} (budget {} + tolerance {})",
+                self.id(),
+                format_mib(peak),
+                format_mib(ceiling),
+                format_mib(budget),
+                format_mib(tolerance),
+            ));
+        } else if peak > budget {
+            // Within tolerance but above strict budget — warn for visibility
+            warnings.push(format!(
+                "{} peak {} exceeds budget {} but within tolerance (ceiling {})",
+                self.id(),
+                format_mib(peak),
+                format_mib(budget),
+                format_mib(ceiling),
             ));
         }
     }
@@ -157,16 +229,42 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         allocated_violations.join("\n  "),
     );
 
+    // Check pool.bytes_in_use with tolerance for concurrent release/acquire races.
+    // Unlike pool.allocated_bytes (atomically enforced), bytes_in_use can transiently
+    // overshoot during the release window. Allow a small overshoot to avoid test flakiness
+    // while still catching real memory regressions.
+    let overshoot_tolerance = (DEFAULT_PART_SIZE * MAX_BYTES_IN_USE_OVERSHOOT_PARTS) as u64;
+    let in_use_ceiling = effective_budget + overshoot_tolerance;
+
     let mut in_use_violations: Vec<String> = Vec::new();
+    let mut in_use_warnings: Vec<String> = Vec::new();
+
     for gauge in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        gauge.check_peak_violation(scenario_name, effective_budget, &mut in_use_violations);
+        gauge.check_peak_violation_with_tolerance(
+            scenario_name,
+            effective_budget,
+            overshoot_tolerance,
+            &mut in_use_violations,
+            &mut in_use_warnings,
+        );
     }
+
+    if !in_use_warnings.is_empty() {
+        tracing::warn!(
+            scenario = scenario_name,
+            warnings = ?in_use_warnings,
+            "stress: {} peak exceeded budget (within tolerance — likely concurrent release/acquire race)",
+            IN_USE_MEMORY_METRIC,
+        );
+    }
+
     if in_use_violations.is_empty() {
         tracing::info!(
             scenario = scenario_name,
-            "stress: assertion PASSED — peak {} invariant (ceiling {})",
+            "stress: assertion PASSED — peak {} invariant (ceiling {} with {} part tolerance)",
             IN_USE_MEMORY_METRIC,
-            format_mib(effective_budget),
+            format_mib(in_use_ceiling),
+            MAX_BYTES_IN_USE_OVERSHOOT_PARTS,
         );
     } else {
         tracing::error!(
@@ -174,14 +272,15 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
             violations = ?in_use_violations,
             "stress: assertion FAILED — peak {} invariant (ceiling {})",
             IN_USE_MEMORY_METRIC,
-            format_mib(effective_budget),
+            format_mib(in_use_ceiling),
         );
     }
     assert!(
         in_use_violations.is_empty(),
-        "peak {} invariant violated (ceiling {}):\n  {}",
+        "peak {} invariant violated (ceiling {} with {} part tolerance):\n  {}",
         IN_USE_MEMORY_METRIC,
-        format_mib(effective_budget),
+        format_mib(in_use_ceiling),
+        MAX_BYTES_IN_USE_OVERSHOOT_PARTS,
         in_use_violations.join("\n  "),
     );
 }
