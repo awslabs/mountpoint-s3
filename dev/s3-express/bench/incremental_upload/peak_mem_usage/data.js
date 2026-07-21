@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784578259092,
+  "lastUpdate": 1784621569210,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Incremental Upload)": [
@@ -1224,6 +1224,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 2094.171875,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "alexpax@amazon.co.uk",
+            "name": "Alessandro Passaro",
+            "username": "passaro"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f38ff8b6ef0bdee9cc6f9852a6cc8de0041439b",
+          "message": "Include aws-ls/generated-src in crt-sys crate (#1892)\n\nFix build issue on macOS when running:\n\n```\ncargo package -p mountpoint-s3-crt-sys  \n```\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Alessandro Passaro <alexpax@amazon.co.uk>",
+          "timestamp": "2026-07-21T07:06:45Z",
+          "tree_id": "c9a67b149210b63f2f89627133fe54271c593b31",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/4f38ff8b6ef0bdee9cc6f9852a6cc8de0041439b"
+        },
+        "date": 1784621569138,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 10430.3359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 8322.7265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 10378.296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 2096.42578125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 2096.328125,
             "unit": "MiB"
           }
         ]
