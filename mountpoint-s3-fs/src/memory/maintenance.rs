@@ -26,8 +26,9 @@ enum PruningOutcome {
 /// Period of the pruning loop's inner tick while under memory pressure.
 pub const PRUNING_TICK: Duration = Duration::from_millis(1);
 /// If the head of the allocation queue has been waiting longer than this, the pruner
-/// will reset an idle cursor even if uploads/active reads are in flight.
-/// Acts as a starvation backstop.
+/// escalates past the natural-release path even while uploads/active reads are in flight:
+/// it resets an idle cursor, or — if none is eligible — clears one active cursor's backward
+/// seek window. Acts as a starvation backstop.
 const PRUNING_STARVATION_THRESHOLD: Duration = Duration::from_millis(5);
 
 /// Spawn the background maintenance thread. Must be called once after constructing
@@ -74,7 +75,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
             let Some(strong) = pool_inner.upgrade() else {
                 return; // pool dropped — exit
             };
-            let outcome = run_pruning_round(&strong);
+            let outcome = run_pruning_round(&strong, PRUNING_STARVATION_THRESHOLD);
             trace!(?outcome, "pruning round complete");
             drop(strong);
 
@@ -99,7 +100,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///   4. Otherwise reset one idle cursor.
 ///   5. If no idle cursor was available and a waiter is starving, clear one active cursor's
 ///      backward seek window.
-fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
+fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Duration) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
     //    by a different SizePool after a future allocation.
     //    TODO: Consider doing trim cooldown (i.e. invoke trim less often)
@@ -111,9 +112,7 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>) -> PruningOutcome {
         return PruningOutcome::Idle;
     }
 
-    let starving = pool_inner
-        .head_waited()
-        .is_some_and(|d| d >= PRUNING_STARVATION_THRESHOLD);
+    let starving = pool_inner.head_waited().is_some_and(|d| d >= starvation_threshold);
 
     // 3. Natural release path: in-flight uploads or active reads will free
     //    buffers without our help — defer to that path.
@@ -170,6 +169,8 @@ mod tests {
 
     use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
 
+    const FORCE_STARVING: Duration = Duration::ZERO;
+    const NEVER_STARVING: Duration = Duration::from_secs(3600);
     const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
     /// Long idle interval used in tests where we want the loop to stay
     /// parked unless explicitly notified or the pool is dropped.
@@ -242,7 +243,7 @@ mod tests {
             .with_minimum_memory_limit()
             .build();
 
-        let outcome = run_pruning_round(pool.inner());
+        let outcome = run_pruning_round(pool.inner(), PRUNING_STARVATION_THRESHOLD);
         assert_eq!(outcome, PruningOutcome::Idle);
         assert!(
             !pool.inner().is_memory_pressure(),
@@ -258,7 +259,7 @@ mod tests {
         let pool = tight_pool_no_spawn();
         let _blockers = fill_and_enqueue_waiter(&pool);
 
-        let outcome = run_pruning_round(pool.inner());
+        let outcome = run_pruning_round(pool.inner(), PRUNING_STARVATION_THRESHOLD);
         assert_eq!(outcome, PruningOutcome::WaitingForRelease);
     }
 
@@ -324,10 +325,7 @@ mod tests {
 
         let _blockers = fill_and_enqueue_waiter(&pool);
 
-        // Wait past the starvation threshold, with margin.
-        std::thread::sleep(PRUNING_STARVATION_THRESHOLD + Duration::from_millis(2));
-
-        let outcome = run_pruning_round(pool.inner());
+        let outcome = run_pruning_round(pool.inner(), FORCE_STARVING);
         assert_eq!(
             outcome,
             PruningOutcome::ResetIdleCursor,
@@ -359,10 +357,7 @@ mod tests {
 
         let _blockers = fill_and_enqueue_waiter(&pool);
 
-        // Wait past the starvation threshold so the pruner escalates past the natural-release path.
-        std::thread::sleep(PRUNING_STARVATION_THRESHOLD + Duration::from_millis(2));
-
-        let outcome = run_pruning_round(pool.inner());
+        let outcome = run_pruning_round(pool.inner(), FORCE_STARVING);
         assert_eq!(
             outcome,
             PruningOutcome::ClearedSeekWindow,
@@ -389,9 +384,7 @@ mod tests {
 
         let _blockers = fill_and_enqueue_waiter(&pool);
 
-        // Run immediately, before the starvation threshold — the active read should defer to the
-        // natural-release path, not clear.
-        let outcome = run_pruning_round(pool.inner());
+        let outcome = run_pruning_round(pool.inner(), NEVER_STARVING);
         assert_eq!(
             outcome,
             PruningOutcome::WaitingForRelease,
