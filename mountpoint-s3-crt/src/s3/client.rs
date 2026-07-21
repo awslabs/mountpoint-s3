@@ -9,6 +9,7 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
+use crate::io::tls::TlsConnectionOptions;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
@@ -73,6 +74,11 @@ pub struct ClientConfig {
 
     /// Holds the custom pool implementation factory if set.
     pool_factory: Option<CrtBufferPoolFactory>,
+
+    /// Custom TLS connection options for S3 requests. When set, [`ClientConfig::tls_connection_options`]
+    /// stores a raw pointer to this value into `inner.tls_connection_options`, so the allocation
+    /// must outlive [`Client::new`] (which is guaranteed while this [`ClientConfig`] is alive).
+    tls_connection_options: Option<TlsConnectionOptions>,
 }
 
 /// This struct bundles together the list of owned strings for the network interfaces, and the
@@ -167,6 +173,16 @@ impl ClientConfig {
         self
     }
 
+    /// Custom TLS connection options to use for S3 connections. When set, the S3 client will use
+    /// these options for each connection instead of the CRT defaults. The options must have been
+    /// built from a [`crate::io::tls::TlsContext`] configured with the desired trust store.
+    pub fn tls_connection_options(&mut self, tls_connection_options: TlsConnectionOptions) -> &mut Self {
+        let stored = self.tls_connection_options.insert(tls_connection_options);
+        self.inner.tls_mode = aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED;
+        self.inner.tls_connection_options = stored.as_inner_ptr();
+        self
+    }
+
     /// Enable S3 Express One Zone
     pub fn express_support(&mut self, express_support: bool) -> &mut Self {
         self.inner.enable_s3express = express_support;
@@ -252,12 +268,12 @@ type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
 /// Options for meta requests to S3. This is not a public interface, since clients should always
 /// be using the [MetaRequestOptions] wrapper, which pins this struct behind a pointer.
-struct MetaRequestOptionsInner<'a> {
+struct MetaRequestOptionsInner {
     /// Inner struct to pass to CRT functions.
     inner: aws_s3_meta_request_options,
 
     /// Owned copy of the message, if provided.
-    message: Option<Message<'a>>,
+    message: Option<Message>,
 
     /// Owned copy of the endpoint URI, if provided
     endpoint: Option<Uri>,
@@ -270,6 +286,9 @@ struct MetaRequestOptionsInner<'a> {
 
     /// Owned source uri for copy request, if provided.
     copy_source_uri: Option<String>,
+
+    /// Owned request body, if provided.
+    request_body: Option<Box<dyn AsRef<[u8]> + Send>>,
 
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
@@ -294,7 +313,7 @@ struct MetaRequestOptionsInner<'a> {
     _pinned: PhantomPinned,
 }
 
-impl<'a> MetaRequestOptionsInner<'a> {
+impl MetaRequestOptionsInner {
     /// Convert from user_data in a callback to a reference to this struct.
     ///
     /// ## Safety
@@ -302,7 +321,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     /// Don't use except in a MetaRequest callback. The lifetime 'a of the returned
     /// [MetaRequestOptionsInner] is unconstrained, so the caller must make sure that the lifetime
     /// of the returned reference does not outlive the [MetaRequestOptionsInner].
-    unsafe fn from_user_data_ptr(user_data: *mut libc::c_void) -> &'a mut Self {
+    unsafe fn from_user_data_ptr<'a>(user_data: *mut libc::c_void) -> &'a mut Self {
         // SAFETY: `user_data` is initialized in `MetaRequestOptions::new`.
         unsafe { (user_data as *mut Self).as_mut().unwrap() }
     }
@@ -319,7 +338,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     }
 }
 
-impl Debug for MetaRequestOptionsInner<'_> {
+impl Debug for MetaRequestOptionsInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetaRequestOptionsInner")
             .field("inner", &self.inner)
@@ -332,9 +351,9 @@ impl Debug for MetaRequestOptionsInner<'_> {
 /// Options for a meta request to S3.
 // Implementation details: this wraps the inner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
-pub struct MetaRequestOptions<'a>(Pin<Box<MetaRequestOptionsInner<'a>>>);
+pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
 
-impl<'a> MetaRequestOptions<'a> {
+impl MetaRequestOptions {
     /// Create a new default options struct. It follows the builder pattern so clients can use
     /// methods to set various options.
     pub fn new() -> Self {
@@ -357,6 +376,7 @@ impl<'a> MetaRequestOptions<'a> {
             signing_config: None,
             checksum_config: None,
             copy_source_uri: None,
+            request_body: None,
             on_telemetry: None,
             on_headers: None,
             on_body_ex: None,
@@ -390,7 +410,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Set the message of the request.
-    pub fn message(&mut self, message: Message<'a>) -> &mut Self {
+    pub fn message(&mut self, message: Message) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
@@ -504,6 +524,22 @@ impl<'a> MetaRequestOptions<'a> {
         self
     }
 
+    /// Send the request body directly from the given buffer (zero-copy). See the `request_body`
+    /// field docs in `aws/s3/s3_client.h` for more details.
+    ///
+    /// Ownership of `body` is moved into these options, which are only dropped once the meta request
+    /// is fully torn down (in the shutdown callback).
+    pub fn request_body(&mut self, body: impl AsRef<[u8]> + Send + 'static) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        let body = options.request_body.insert(Box::new(body));
+        // SAFETY: `body` is owned by these options and only dropped in the shutdown callback, so it
+        // outlives every read the CRT makes; the CRT only reads it (never writes/frees). The cursor
+        // is not invalidated by later `self` moves because the box owns the heap buffer, not `self`.
+        options.inner.request_body = unsafe { (**body).as_ref().as_aws_byte_cursor() };
+        self
+    }
+
     /// Set the URI of source bucket/key for COPY request only
     pub fn copy_source_uri(&mut self, source_uri: String) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
@@ -526,7 +562,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 }
 
-impl Default for MetaRequestOptions<'_> {
+impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
     }
@@ -1895,7 +1931,10 @@ mod tests {
     use test_case::test_case;
 
     use crate::aws_s3_request_type;
-    use crate::s3::client::RequestType;
+    use crate::common::allocator::Allocator;
+    use crate::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions};
+    use crate::s3::client::{ClientConfig, RequestType};
+    use mountpoint_s3_crt_sys::aws_s3_meta_request_tls_mode;
 
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]
@@ -1903,5 +1942,21 @@ mod tests {
     fn request_type_from_aws_s3_request_type(c_request_type: aws_s3_request_type, expected_request_type: RequestType) {
         // Simple, but was previously broken.
         assert_eq!(expected_request_type, RequestType::from(c_request_type));
+    }
+
+    /// Verify that [`ClientConfig::tls_connection_options`] sets the raw pointer on the inner
+    /// struct and flips the TLS mode to ENABLED.
+    #[test]
+    fn tls_connection_options_wiring() {
+        let allocator = Allocator::default();
+        let opts = TlsContextOptions::new_default_client(&allocator);
+        let ctx = TlsContext::new(&allocator, &opts).expect("build TlsContext");
+        let conn_opts = TlsConnectionOptions::new(&ctx);
+
+        let mut config = ClientConfig::new();
+        assert!(config.inner.tls_connection_options.is_null());
+        config.tls_connection_options(conn_opts);
+        assert!(!config.inner.tls_connection_options.is_null());
+        assert_eq!(config.inner.tls_mode, aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED);
     }
 }

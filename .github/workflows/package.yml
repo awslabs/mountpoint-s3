@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           submodules: true
       - name: Install operating system dependencies
@@ -34,7 +34,7 @@ jobs:
         with:
           fuseVersion: 2
       - name: Build Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           tags: mountpoint-builder
           context: ./package
@@ -45,7 +45,7 @@ jobs:
       - name: Check release binary
         run: mkdir ./pkg-out && tar -xzf ./out/mount-s3*.tar.gz -C ./pkg-out && ./pkg-out/bin/mount-s3 --version
       - name: Upload unofficial packages
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: packages-${{ matrix.runner.name }}
           path:  ./out/*

@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use anyhow::Context as _;
 use humansize::{BINARY, format_size};
 use mountpoint_s3_client::config::{
-    AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, Uri,
+    AddressingStyle, Allocator, EndpointConfig, S3ClientAuthConfig, S3ClientConfig, TlsConfig, Uri,
 };
 use mountpoint_s3_client::error::ObjectClientError;
 use mountpoint_s3_client::user_agent::UserAgent;
@@ -52,6 +52,9 @@ pub struct ClientConfig {
 
     /// Value for the user-agent header
     pub user_agent: UserAgent,
+
+    /// Optional TLS configuration (for example, a custom CA trust store).
+    pub tls_config: Option<TlsConfig>,
 }
 
 #[derive(Debug)]
@@ -219,6 +222,9 @@ impl ClientConfig {
         }
         if let Some(owner) = &self.expected_bucket_owner {
             client_config = client_config.bucket_owner(owner);
+        }
+        if let Some(tls_config) = self.tls_config {
+            client_config = client_config.tls_config(tls_config);
         }
         // Transient errors are really bad for file systems (applications don't usually expect them), so
         // let's be more stubborn than the SDK default. With the CRT defaults of 500ms backoff, full
@@ -402,6 +408,7 @@ mod tests {
             bind: None,
             part_config,
             user_agent: UserAgent::new(None),
+            tls_config: None,
         };
 
         let client = config.create_client(pool, None).unwrap();
