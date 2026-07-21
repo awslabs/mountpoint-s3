@@ -56,6 +56,9 @@ jobs:
           - many_readers_budget_part
           - single_reader_held_budget
           - many_readers_held_budget
+          - single_reader_held_budget_direct_io
+          - many_readers_held_budget_direct_io
+          - single_reader_held_budget_misaligned_part
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
@@ -90,4 +93,4 @@ jobs:
             --test-threads=1 \
             --success-output final \
             --failure-output final \
-            'stress::scenarios::${{ matrix.scenario }}'
+            -E 'test(=stress::scenarios::${{ matrix.scenario }}::${{ matrix.scenario }})'

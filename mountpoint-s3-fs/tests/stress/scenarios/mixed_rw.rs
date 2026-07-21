@@ -21,6 +21,7 @@ fn mixed_rw() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
+        direct_io: false,
     });
     let writer: Arc<dyn Worker> = Arc::new(Writer {
         scope: "mixed_rw",
