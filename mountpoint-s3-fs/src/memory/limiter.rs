@@ -444,6 +444,34 @@ impl MemoryLimiter {
         }
         false
     }
+
+    /// Clear one *active* cursor's backward seek window to release the part buffers it pins.
+    ///
+    /// Returns `true` if a window was cleared and freed at least one byte.
+    pub(super) fn clear_one_seek_window(&self) -> bool {
+        for entry in self.cursors.iter() {
+            let Some(state) = entry.value().upgrade() else {
+                continue;
+            };
+            if !matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }) {
+                continue;
+            }
+
+            let Some(freed) = state.clear_seek_window_fn.lock().unwrap().as_ref().map(|f| f()) else {
+                continue;
+            };
+            if freed > 0 {
+                debug!(
+                    cursor_id = ?state.cursor_id,
+                    window_bytes_cleared = freed,
+                    "cleared backward seek window under memory pressure"
+                );
+                return true;
+            }
+        }
+        trace!("no active seek window eligible for clearing");
+        false
+    }
 }
 
 impl Drop for MemoryLimiter {
@@ -505,6 +533,7 @@ impl ReadState {
 }
 
 type ResetFn = Box<dyn Fn() -> bool + Send + Sync>;
+type ClearSeekWindowFn = Box<dyn Fn() -> usize + Send + Sync>;
 
 /// Per-cursor state shared between the memory pool's limiter,
 /// the BackpressureController, and the Cursor.
@@ -521,6 +550,9 @@ pub struct CursorState {
     /// Callback that drops the cursor's expensive inner resources.
     /// `None` before registration.
     reset_fn: Mutex<Option<ResetFn>>,
+    /// Callback that clears the cursor's backward seek window,
+    /// without dropping the cursor. `None` before registration.
+    clear_seek_window_fn: Mutex<Option<ClearSeekWindowFn>>,
 }
 
 impl CursorState {
@@ -531,6 +563,7 @@ impl CursorState {
             mem_reserved: Default::default(),
             read_state: Mutex::new(ReadState::Last { tick: 0 }),
             reset_fn: Mutex::new(None),
+            clear_seek_window_fn: Mutex::new(None),
         }
     }
 
@@ -567,6 +600,10 @@ impl std::fmt::Debug for CursorState {
             .field("mem_reserved", &self.mem_reserved)
             .field("read_state", &self.read_state)
             .field("has_reset_fn", &self.reset_fn.lock().unwrap().is_some())
+            .field(
+                "has_clear_seek_window_fn",
+                &self.clear_seek_window_fn.lock().unwrap().is_some(),
+            )
             .finish()
     }
 }
@@ -612,6 +649,12 @@ impl CursorHandle {
     /// inner resources (RequestTask + SeekWindow) on a limiter-initiated reset.
     pub fn register_reset_fn(&self, f: ResetFn) {
         *self.state.reset_fn.lock().unwrap() = Some(f);
+    }
+
+    /// Register a callback that clears the cursor's backward seek window
+    /// and returns the number of bytes freed.
+    pub fn register_clear_seek_window_fn(&self, f: ClearSeekWindowFn) {
+        *self.state.clear_seek_window_fn.lock().unwrap() = Some(f);
     }
 }
 
@@ -1040,5 +1083,80 @@ mod tests {
 
         assert!(!limiter.reset_one_idle_cursor());
         assert!(!live_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn clear_one_seek_window_returns_false_when_no_callbacks_registered() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        // Cursor with an active read but no clear callback registered — nothing to clear.
+        let cursor = pool.create_cursor();
+        let _guard = cursor.set_active_read(0, 1);
+
+        assert!(!limiter.clear_one_seek_window());
+    }
+
+    #[test]
+    fn clear_one_seek_window_clears_active_cursor() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let cursor = pool.create_cursor();
+        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = cleared.clone();
+        // Report a non-zero freed count once, then zero (window already empty).
+        cursor.register_clear_seek_window_fn(Box::new(
+            move || {
+                if flag.swap(true, Ordering::SeqCst) { 0 } else { 4096 }
+            },
+        ));
+        let _guard = cursor.set_active_read(0, 1);
+
+        assert!(
+            limiter.clear_one_seek_window(),
+            "should clear the active cursor's window"
+        );
+        assert!(cleared.load(Ordering::SeqCst));
+
+        // Second call frees nothing (window already empty) → returns false.
+        assert!(!limiter.clear_one_seek_window());
+    }
+
+    /// A cursor whose window is empty (clear frees 0 bytes) should not be reported as cleared, so the
+    /// pruner keeps looking / waiting rather than spuriously counting progress.
+    #[test]
+    fn clear_one_seek_window_skips_empty_windows() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let cursor = pool.create_cursor();
+        cursor.register_clear_seek_window_fn(Box::new(|| 0)); // always empty
+        let _guard = cursor.set_active_read(0, 1);
+
+        assert!(!limiter.clear_one_seek_window());
+    }
+
+    /// Idle cursors are reclaimed via `reset_one_idle_cursor` (which drops the whole cursor,
+    /// window included), so `clear_one_seek_window` must skip them and never invoke their callback.
+    #[test]
+    fn clear_one_seek_window_skips_idle_cursors() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let idle = pool.create_cursor();
+        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = cleared.clone();
+        idle.register_clear_seek_window_fn(Box::new(move || {
+            flag.store(true, Ordering::SeqCst);
+            4096
+        }));
+        // No active read — cursor is idle, so clear must leave it alone.
+
+        assert!(!limiter.clear_one_seek_window());
+        assert!(
+            !cleared.load(Ordering::SeqCst),
+            "idle cursor's window must not be cleared"
+        );
     }
 }

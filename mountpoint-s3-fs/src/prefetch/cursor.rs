@@ -6,7 +6,7 @@ use crate::checksums::ChecksummedBytes;
 use crate::memory::CursorHandle;
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
-use crate::sync::{Arc, AsyncMutex};
+use crate::sync::{Arc, AsyncMutex, Mutex};
 
 use super::seek_window::SeekWindow;
 use super::task::RequestTask;
@@ -40,7 +40,7 @@ struct CursorInner<Client: ObjectClient + Clone + Send + Sync + 'static> {
     /// Holds data for backward seeks
     ///
     /// **Invariant**: the offset of the last byte in this window is always `self.current_offset - 1`.
-    backward_seek_window: SeekWindow,
+    backward_seek_window: Arc<Mutex<SeekWindow>>,
     /// Current offset of this cursor
     current_offset: u64,
     /// Per-cursor state (reservation + active read tracking)
@@ -61,9 +61,16 @@ where
         initial_read_length: usize,
     ) -> Result<(Self, (ChecksummedBytes, bool)), PrefetchReadError<Client::ClientError>> {
         let cursor_id = cursor_handle.id();
+        let backward_seek_window = Arc::new(Mutex::new(SeekWindow::new(config.max_backward_seek_distance as usize)));
+        {
+            let window = Arc::downgrade(&backward_seek_window);
+            cursor_handle.register_clear_seek_window_fn(Box::new(move || {
+                window.upgrade().map(|w| w.lock().unwrap().clear()).unwrap_or(0)
+            }));
+        }
         let cursor_inner = CursorInner {
             request_task,
-            backward_seek_window: SeekWindow::new(config.max_backward_seek_distance as usize),
+            backward_seek_window,
             current_offset: offset,
             cursor_handle,
         };
@@ -162,7 +169,7 @@ where
 
             let part = self.request_task.read(to_read as usize).await?;
             all_parts_from_cache &= part.is_from_cache();
-            self.backward_seek_window.push(part.clone());
+            self.backward_seek_window.lock().unwrap().push(part.clone());
             let part_bytes = part.into_bytes(&cursor.object_id, self.current_offset)?;
 
             self.current_offset += part_bytes.len() as u64;
@@ -228,7 +235,7 @@ where
             let part = self.request_task.read(seek_distance as usize).await?;
             seek_distance -= part.len() as u64;
             self.current_offset += part.len() as u64;
-            self.backward_seek_window.push(part);
+            self.backward_seek_window.lock().unwrap().push(part);
         }
         Ok(true)
     }
@@ -238,7 +245,12 @@ where
         let backwards_length_needed = self.current_offset - offset;
         histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
 
-        let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize) else {
+        let Some(parts) = self
+            .backward_seek_window
+            .lock()
+            .unwrap()
+            .read_back(backwards_length_needed as usize)
+        else {
             trace!("seek failed: not enough data in backwards seek window");
             return Ok(false);
         };
