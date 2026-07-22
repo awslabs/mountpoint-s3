@@ -17,6 +17,10 @@ pub struct Scenario {
     /// FUSE/Mountpoint session configuration (memory limit, part size, etc.).
     pub session_config: TestSessionConfig,
 
+    /// When `true`, the harness mounts with a caching prefetcher backed by a temporary on-disk data
+    /// cache.
+    pub cache: bool,
+
     /// Optional setup step run to completion after mount and before workers start. Its returned
     /// [`SetupGuard`] is held for the entire run, so anything it establishes (pinned memory, a warmed
     /// cache, …) stays in effect while the workers execute. `None` for scenarios that need no setup.

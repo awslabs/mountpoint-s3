@@ -15,6 +15,12 @@ pub const LARGE_READ_OBJECT: SharedObject = SharedObject {
     size: 100 * 1024 * 1024 * 1024,
 };
 
+/// The canonical 1 GiB shared object used by the `cache_hit_vs_miss_held_budget` scenario.
+pub const MEDIUM_READ_OBJECT: SharedObject = SharedObject {
+    key: "read_1gib.bin",
+    size: 1024 * 1024 * 1024,
+};
+
 /// A worker that repeatedly opens `target` and reads it front-to-back.
 pub struct SequentialReader {
     pub target: SharedObject,

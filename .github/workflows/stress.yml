@@ -59,6 +59,7 @@ jobs:
           - single_reader_held_budget_direct_io
           - many_readers_held_budget_direct_io
           - single_reader_held_budget_misaligned_part
+          - cache_hit_vs_miss_held_budget
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1

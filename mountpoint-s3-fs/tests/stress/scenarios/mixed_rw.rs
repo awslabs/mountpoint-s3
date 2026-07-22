@@ -32,6 +32,7 @@ fn mixed_rw() {
     harness::run(Scenario {
         name: "mixed_rw",
         session_config: TestSessionConfig::default().with_mem_limit(MINIMUM_MEM_LIMIT),
+        cache: false,
         setup: None,
         workers,
         max_latency: default_max_latency,
