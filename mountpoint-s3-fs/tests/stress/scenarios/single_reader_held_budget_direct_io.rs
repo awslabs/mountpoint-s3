@@ -1,6 +1,3 @@
-//! `single_reader_held_budget`: a single reader against a default 8 MiB part, with the setup phase
-//! hard-pinning the entire write budget so only the read reserve (one 8 MiB part) is free.
-
 use std::iter::repeat_n;
 use std::path::Path;
 use std::sync::Arc;
@@ -13,10 +10,14 @@ use crate::stress::harness::{
 };
 use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 
-const SCOPE: &str = "single_reader_held_budget";
+const SCOPE: &str = "single_reader_held_budget_direct_io";
 const NUM_READERS: usize = 1;
 const PART_SIZE: usize = 8 * 1024 * 1024; // 8 MiB — the default, realistic part size
-const READ_CHUNK: usize = PART_SIZE;
+/// Size of each `O_DIRECT` read. 1 MiB is the largest single FUSE read the Linux kernel delivers
+/// (`FUSE_MAX_MAX_PAGES` = 256 pages × 4 KiB) — a larger buffer is just split into 1 MiB FUSE ops —
+/// and it is comfortably larger than the 128 KiB request tail it must span to cross into the next
+/// prefetch request, which is what forces the multi-buffer `do_read`.
+const READ_CHUNK: usize = 1024 * 1024;
 
 /// Setup phase: pin the entire write budget before the reader starts, leaving only the read
 /// reserve (one 8 MiB part) free.
@@ -26,11 +27,11 @@ fn hold(mount_path: &Path) -> Box<dyn SetupGuard> {
 }
 
 #[test]
-fn single_reader_held_budget() {
+fn single_reader_held_budget_direct_io() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
-        direct_io: false,
+        direct_io: true,
     });
     let workers = repeat_n(reader, NUM_READERS).collect();
     harness::run(Scenario {

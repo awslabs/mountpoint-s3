@@ -23,6 +23,7 @@ fn many_readers_budget_part() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
+        direct_io: false,
     });
     let workers = repeat_n(reader, NUM_WORKERS).collect();
     harness::run(Scenario {
