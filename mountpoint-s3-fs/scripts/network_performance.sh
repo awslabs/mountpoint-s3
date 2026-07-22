@@ -1,5 +1,9 @@
 #!/bin/bash
 # Please ensure 'jq' and AWS CLI v2 are installed before executing this script.
+# 
+# To run: 
+# cd mountpoint-s3-fs/scripts/
+# ./network_performance.sh
 
 set -euo pipefail
 
