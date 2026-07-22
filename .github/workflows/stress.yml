@@ -59,6 +59,7 @@ jobs:
           - single_reader_held_budget_direct_io
           - many_readers_held_budget_direct_io
           - single_reader_held_budget_misaligned_part
+          - cache_hit_vs_miss_held_budget
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
@@ -83,6 +84,17 @@ jobs:
           rustflags: ""
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
+      - name: Set up local NVMe cache storage
+        if: contains(matrix.scenario, 'cache')
+        run: |
+          local_storage=/localstorage
+          sudo mkfs -t ext4 /dev/nvme1n1
+          sudo mkdir -p $local_storage
+          sudo mount /dev/nvme1n1 $local_storage
+          sudo chown -R "$(id -u)" $local_storage
+          echo "mounted local file system at $local_storage"
+          df -hT $local_storage
+          echo "S3_STRESS_CACHE_DIR=$local_storage" >> "$GITHUB_ENV"
       - name: Run stress scenario
         run: |
           cargo nextest run \

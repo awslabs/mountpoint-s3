@@ -1,5 +1,6 @@
 //! Stress-test scenarios.
 
+mod cache_hit_vs_miss_held_budget;
 mod held_writes_vs_reads;
 mod idle_and_churn;
 mod many_readers_budget_part;

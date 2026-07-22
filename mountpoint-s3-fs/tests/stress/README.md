@@ -20,6 +20,7 @@ deadlocks, per-worker stalls, tail-latency regressions, and memory issues.
 | `S3_BUCKET_TEST_PREFIX` | no       | Defaults to `mountpoint-test/`; must end in `/`     |
 | AWS credentials         | yes      | Standard SDK resolution (`AWS_PROFILE`, static keys, instance role, etc.) |
 | `STRESS_DURATION_SECS`  | no       | Per-scenario duration in seconds; default 30        |
+| `S3_STRESS_CACHE_DIR`   | no       | Root dir for cached scenarios' on-disk cache; defaults to system temp |
 
 ## How to run
 

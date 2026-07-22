@@ -37,6 +37,7 @@ fn single_reader_held_budget_misaligned_part() {
         session_config: TestSessionConfig::default()
             .with_mem_limit(MINIMUM_MEM_LIMIT)
             .with_part_size(PART_SIZE),
+        cache: false,
         setup: Some(hold),
         workers,
         max_latency: default_max_latency,

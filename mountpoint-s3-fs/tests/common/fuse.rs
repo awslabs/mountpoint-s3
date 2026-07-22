@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
 use std::os::fd::AsFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use fuser::{Mount, MountOption, Session};
@@ -535,12 +535,40 @@ pub mod s3_session {
 
     /// Create a FUSE mount backed by a real S3 client, session will use a test client provided by the caller
     pub fn new_with_test_client(test_config: TestSessionConfig, sdk_client: Client, s3_path: S3Path) -> TestSession {
+        new_with_test_client_inner(test_config, sdk_client, s3_path, None)
+    }
+
+    /// Like [`new_with_test_client`], but mounts with an on-disk data cache rooted at `cache_dir`.
+    pub fn new_with_test_client_and_disk_cache(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        s3_path: S3Path,
+        cache_dir: PathBuf,
+    ) -> TestSession {
+        new_with_test_client_inner(test_config, sdk_client, s3_path, Some(cache_dir))
+    }
+
+    /// Shared implementation for [`new_with_test_client`] and
+    /// [`new_with_test_client_and_disk_cache`].
+    fn new_with_test_client_inner(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        s3_path: S3Path,
+        cache_dir: Option<PathBuf>,
+    ) -> TestSession {
+        use mountpoint_s3_fs::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+
         let mount_dir = tempfile::tempdir().unwrap();
 
+        let mut candidate_sizes = vec![CandidateSize::prunable(test_config.part_size)];
+        if cache_dir.is_some() {
+            candidate_sizes.push(CandidateSize::prunable(test_config.cache_block_size));
+        }
         let pool = PagedPool::config()
-            .with_candidate_sizes([CandidateSize::prunable(test_config.part_size)])
+            .with_candidate_sizes(candidate_sizes)
             .with_memory_limit(test_config.mem_limit)
             .build();
+
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(get_test_endpoint_config())
@@ -550,7 +578,22 @@ pub mod s3_session {
             .memory_pool(pool.clone());
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = Runtime::new(client.event_loop_group());
-        let prefetcher_builder = Prefetcher::default_builder(client.clone());
+
+        let prefetcher_builder = match cache_dir {
+            Some(cache_dir) => {
+                let cache = DiskDataCache::new(
+                    DiskDataCacheConfig {
+                        cache_directory: cache_dir,
+                        block_size: test_config.cache_block_size as u64,
+                        limit: CacheLimit::default(),
+                    },
+                    pool.clone(),
+                );
+                Prefetcher::caching_builder(cache, client.clone())
+            }
+            None => Prefetcher::default_builder(client.clone()),
+        };
+
         let mounted_session = create_fuse_session(
             client,
             prefetcher_builder,
