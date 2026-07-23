@@ -25,7 +25,6 @@ echo "Querying ${#regions[@]} regions: ${regions[*]}"
 # Special case handling for Mult-NIC instances
 # i.e. dll.24xlarge  --> 4x 100 Gbps
 declare -r -A THROUGHPUT_OVERRIDE=(
-    ["dl1.24xlarge"]=400
     ["p4d.24xlarge"]=400
     ["p4de.24xlarge"]=400
     ["trn1.32xlarge"]=800
