@@ -75,7 +75,7 @@ mod tests {
     #[test_case("p4d.24xlarge", Some(400.0))] // 4x 100 Gigabit
     #[test_case("trn1.32xlarge", Some(800.0))] // 8x 100 Gigabit
     #[test_case("trn1n.32xlarge", Some(1600.0))] // 16x 100 Gigabit
-    #[test_case("trn2.48xlarge", Some(32000.0))]
+    #[test_case("trn2.48xlarge", Some(3200.0))] // 16x 200 Gigabit
     fn test_get_maximum_network_throughput(instance_type: &str, throughput: Option<f64>) {
         let actual = get_maximum_network_throughput(instance_type).ok();
         assert_eq!(actual, throughput);

@@ -29,7 +29,7 @@ declare -r -A THROUGHPUT_OVERRIDE=(
     ["p4de.24xlarge"]=400
     ["trn1.32xlarge"]=800
     ["trn1n.32xlarge"]=1600
-    ["trn2.48xlarge"]=32000
+    ["trn2.48xlarge"]=3200
 )
 
 # Create temporary directory for region results
