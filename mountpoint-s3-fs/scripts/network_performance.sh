@@ -7,6 +7,13 @@
 
 set -euo pipefail
 
+# Requires bash 4.0+ for the `declare -A THROUGHPUT_OVERRIDE` associative array.
+# macOS ships bash 3.2, so run `brew install bash` and use that bash there.
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "Error: this script requires bash 4.0 or newer (found ${BASH_VERSION})" >&2
+    exit 1
+fi
+
 output_file="../src/autoconfigure/instance_throughput.rs"
 timestamp="$(date --utc +%FT%TZ)"
 
@@ -84,7 +91,7 @@ echo "${merged_json}" | \
     while read line; do
         instance_type=$(echo $line | cut -d ',' -f1 | sed 's/\[//' | sed 's/\"//g')
 
-        if [ -v THROUGHPUT_OVERRIDE[$instance_type] ]; then
+        if [[ -n "${THROUGHPUT_OVERRIDE[$instance_type]+x}" ]]; then
             throughput=${THROUGHPUT_OVERRIDE[$instance_type]}
             printf "        \"%s\" => Some(%.2f),\n" "${instance_type}" "${throughput}" >> "${output_file}"
         else

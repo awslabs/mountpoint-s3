@@ -3,7 +3,7 @@
 //!
 //! Generated from AWS EC2 API
 //! Regions: us-east-1 us-east-2 us-west-2
-//! Timestamp: 2026-07-22T15:20:32Z
+//! Timestamp: 2026-07-23T16:20:27Z
 
 /// Instance throughput for an EC2 instance type, if known.
 pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
@@ -406,7 +406,7 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "g7.24xlarge" => Some(350.00),
         "g7.2xlarge" => Some(60.00),
         "g7.48xlarge" => Some(700.00),
-        "g7.4xlarge" => Some(60.00),
+        "g7.4xlarge" => Some(100.00),
         "g7.8xlarge" => Some(80.00),
         "g7e.12xlarge" => Some(400.00),
         "g7e.24xlarge" => Some(800.00),
@@ -914,8 +914,8 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "mac2-m2pro.metal" => Some(10.00),
         "mac2.metal" => Some(10.00),
         "p3dn.24xlarge" => Some(100.00),
-        "p4d.24xlarge" => Some(4100.00),
-        "p4de.24xlarge" => Some(4100.00),
+        "p4d.24xlarge" => Some(400.00),
+        "p4de.24xlarge" => Some(400.00),
         "p5.48xlarge" => Some(3200.00),
         "p5.4xlarge" => Some(100.00),
         "p5e.48xlarge" => Some(3200.00),
@@ -1289,9 +1289,9 @@ pub fn get_instance_throughput(instance_type: &str) -> Option<f64> {
         "t4g.small" => Some(5.00),
         "t4g.xlarge" => Some(5.00),
         "trn1.2xlarge" => Some(12.50),
-        "trn1.32xlarge" => Some(8100.00),
-        "trn1n.32xlarge" => Some(16100.00),
-        "trn2.48xlarge" => Some(16200.00),
+        "trn1.32xlarge" => Some(800.00),
+        "trn1n.32xlarge" => Some(1600.00),
+        "trn2.48xlarge" => Some(32000.00),
         "u-3tb1.56xlarge" => Some(50.00),
         "u-6tb1.112xlarge" => Some(100.00),
         "u-6tb1.56xlarge" => Some(100.00),
