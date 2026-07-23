@@ -49,6 +49,8 @@ pub fn run(client_builder: impl ClientBuilder, args: CliArgs) -> anyhow::Result<
         args.mount_point.display()
     );
 
+    cleanup_cache_on_startup(&args)?;
+
     if args.foreground {
         let _logging = init_logging(args.make_logging_config()).context("failed to initialize logging")?;
         let otlp_endpoint = args.otlp_endpoint.clone();
@@ -290,6 +292,22 @@ pub fn create_s3_client(
         personality.unwrap_or_else(|| S3Personality::infer_from_bucket(&s3_path.bucket, &client.endpoint_config()));
 
     Ok((client, runtime, s3_personality))
+}
+
+/// Remove any existing cache sub-directory before forking.
+///
+/// This runs in the parent process (or before mount in foreground mode) so that
+/// the potentially slow cleanup is not bounded by the 30-second child readiness timeout.
+fn cleanup_cache_on_startup(args: &CliArgs) -> anyhow::Result<()> {
+    if let Some(cache_dir) = &args.cache
+        && should_cleanup_cache_dir()
+    {
+        // Logging is not yet initialized (happens after fork), so this won't appear in
+        // --log-directory or syslog. Users who capture stdout (e.g. CSI Driver) will see it.
+        println!("Removing stale cache sub-directory and any contents, this may take some time...");
+        ManagedCacheDir::cleanup(cache_dir).context("failed to clean up cache directory")?;
+    }
+    Ok(())
 }
 
 fn setup_disk_cache_directory(cache_config: &mut DataCacheConfig) -> anyhow::Result<Option<ManagedCacheDir>> {
