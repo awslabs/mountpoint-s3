@@ -1,0 +1,22 @@
+[global]
+bucket = "amzn-s3-demo-bucket"
+region = "us-east-1"
+read_size = 131072
+iterations = 3
+
+# Sequential baseline for comparison
+[jobs.sequential_baseline]
+workload_type = "read"
+object_key = "benchmark-1GiB.bin"
+object_size = 1073741824  # 1 GiB
+access_pattern = "sequential"
+
+# Multi-cursor: 8 cursors, 1 MiB per visit
+[jobs.multi_cursor]
+workload_type = "read"
+object_key = "benchmark-1GiB.bin"
+object_size = 1073741824  # 1 GiB
+access_pattern = "multi_cursor_sequential"
+num_cursors = 8
+bytes_per_cursor_visit = 1048576  # 1 MiB
+generate_object = false  # already created by sequential_baseline
