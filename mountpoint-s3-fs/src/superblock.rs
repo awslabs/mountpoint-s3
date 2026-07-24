@@ -353,6 +353,10 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
         inode: Inode,
         fh: u64,
     ) -> Result<Option<PendingUploadHook>, InodeError> {
+        if locked_inode.unlinked {
+            debug!(ino = inode.ino(), "cannot read an unlinked inode");
+            return Err(InodeError::InodeDoesNotExist(inode.ino()));
+        }
         match locked_inode.write_status {
             WriteStatus::LocalUnopened => Err(InodeError::InodeNotReadableWhileWriting(inode.err())),
             WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename | WriteStatus::Remote => {
@@ -389,6 +393,10 @@ impl<OC: ObjectClient + Send + Sync> Superblock<OC> {
             locked_inode.write_status = WriteStatus::LocalOpenForWriting;
             Ok(())
         };
+        if locked_inode.unlinked {
+            debug!(ino = inode.ino(), "cannot write to an unlinked inode");
+            return Err(InodeError::InodeDoesNotExist(inode.ino()));
+        }
         match locked_inode.write_status {
             WriteStatus::LocalUnopened => {
                 setup_inode_for_writing(locked_inode)?;
@@ -695,42 +703,54 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             return Err(InodeError::IsDirectory(inode.err()));
         }
 
-        let write_status = {
-            let inode_state = inode.get_inode_state()?;
-            inode_state.write_status
+        // Decide what cleanup is needed, and for local files mark the inode `unlinked` while we
+        // still hold the state lock. `LocalUnopened` has no object in S3, so there is no remote
+        // call between reading the write status and recording the unlink, which closes the window
+        // where a concurrent `open` could transition the inode to `LocalOpenForWriting` and later
+        // flush an object we would never clean up.
+        let needs_remote_delete = {
+            let mut inode_state = inode.get_mut_inode_state()?;
+            match inode_state.write_status {
+                WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename => {
+                    // In the future, we may permit `unlink` and cancel any in-flight uploads.
+                    warn!(
+                        parent = parent_ino,
+                        ?name,
+                        write_status = ?inode_state.write_status,
+                        "unlink on local file not allowed until write is complete",
+                    );
+                    return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
+                }
+                WriteStatus::LocalUnopened => {
+                    // The object was never uploaded to S3, so there is nothing to delete remotely.
+                    debug!(parent=?parent_ino, ?name, "unlink on LocalUnopened file, no S3 cleanup needed");
+                    inode_state.unlinked = true;
+                    false
+                }
+                WriteStatus::Remote => true,
+            }
         };
 
-        match write_status {
-            WriteStatus::LocalUnopened | WriteStatus::LocalOpenForWriting | WriteStatus::PendingRename => {
-                // In the future, we may permit `unlink` and cancel any in-flight uploads.
-                warn!(
-                    parent = parent_ino,
-                    ?name,
-                    "unlink on local file not allowed until write is complete",
-                );
-                return Err(InodeError::UnlinkNotPermittedWhileWriting(inode.err()));
-            }
-            WriteStatus::Remote => {
-                let bucket = &self.inner.s3_path.bucket;
-                let s3_key = self.inner.full_key_for_inode(&inode);
-                debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
-                let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
+        if needs_remote_delete {
+            let bucket = &self.inner.s3_path.bucket;
+            let s3_key = self.inner.full_key_for_inode(&inode);
+            debug!(parent=?parent_ino, ?name, "unlink on remote file will delete key {}", s3_key);
+            let delete_obj_result = self.inner.client.delete_object(bucket, &s3_key).await;
 
-                match delete_obj_result {
-                    Ok(_res) => (),
-                    Err(e) => {
-                        error!(
-                            inode=%inode.err(),
-                            error=?e,
-                            "DeleteObject failed for unlink",
-                        );
-                        Err(InodeError::client_error(e, "DeleteObject failed", bucket, &s3_key))?;
-                    }
-                };
-            }
+            match delete_obj_result {
+                Ok(_res) => (),
+                Err(e) => {
+                    error!(
+                        inode=%inode.err(),
+                        error=?e,
+                        "DeleteObject failed for unlink",
+                    );
+                    Err(InodeError::client_error(e, "DeleteObject failed", bucket, &s3_key))?;
+                }
+            };
         }
 
-        // Now that the entry was deleted from S3, we need to delete it from the superblock.
+        // Now that any S3 object was deleted, we need to delete the entry from the superblock.
         // The Linux Kernel's VFS should lock both the parent and child (https://www.kernel.org/doc/html/next/filesystems/directory-locking.html).
         // However, the superblock is still subject to concurrent changes as we don't hold this lock over remote calls.
         let mut parent_state = parent.get_mut_inode_state()?;
@@ -3007,6 +3027,140 @@ mod tests {
             .expect_err("lookup should no longer find deleted file")
             .to_errno();
         assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
+    }
+
+    #[test_case(""; "unprefixed")]
+    #[test_case("test_prefix/"; "prefixed")]
+    #[tokio::test]
+    async fn test_unlink_local_unopened_file(prefix: &str) {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .part_size(1024 * 1024)
+                .build(),
+        );
+        let prefix = Prefix::new(prefix).expect("valid prefix");
+        let superblock = Superblock::new(client.clone(), S3Path::new(bucket, prefix.clone()), Default::default());
+
+        let file_name = "file.txt";
+        let parent_ino = FUSE_ROOT_INODE;
+
+        // A file created but never opened is left in `LocalUnopened` state (e.g. a process killed
+        // between `mknod` and `open`). It has no object in S3.
+        let lookup = superblock
+            .create(parent_ino, file_name.as_ref(), InodeKind::File)
+            .await
+            .expect("create should succeed");
+        let ino = lookup.ino();
+        assert_eq!(
+            superblock
+                .inner
+                .get(ino)
+                .unwrap()
+                .get_inode_state()
+                .unwrap()
+                .write_status,
+            WriteStatus::LocalUnopened,
+        );
+
+        // Previously this returned `UnlinkNotPermittedWhileWriting`; now it should succeed and
+        // clean up the local bookkeeping without any S3 call.
+        superblock
+            .unlink(parent_ino, file_name.as_ref())
+            .await
+            .expect("unlink of a LocalUnopened file should succeed");
+
+        let err: i32 = superblock
+            .lookup(parent_ino, file_name.as_ref())
+            .await
+            .expect_err("lookup should no longer find the unlinked file")
+            .to_errno();
+        assert_eq!(libc::ENOENT, err, "lookup should return no existing entry error");
+    }
+
+    #[tokio::test]
+    async fn test_unlink_local_open_for_writing_not_permitted() {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .part_size(1024 * 1024)
+                .build(),
+        );
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        let file_name = "file.txt";
+        let parent_ino = FUSE_ROOT_INODE;
+
+        let lookup = superblock
+            .create(parent_ino, file_name.as_ref(), InodeKind::File)
+            .await
+            .expect("create should succeed");
+        superblock
+            .open_handle(lookup.ino(), 0, &Default::default(), OpenFlags::O_WRONLY)
+            .await
+            .expect("should be able to open for writing");
+
+        // A file that is actively open for writing must still refuse unlink.
+        let err = superblock
+            .unlink(parent_ino, file_name.as_ref())
+            .await
+            .expect_err("unlink of a file open for writing should be rejected");
+        assert!(matches!(err, InodeError::UnlinkNotPermittedWhileWriting(_)));
+        assert_eq!(libc::EPERM, err.to_errno());
+    }
+
+    #[tokio::test]
+    async fn test_open_after_unlink_local_unopened_rejected() {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .part_size(1024 * 1024)
+                .build(),
+        );
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        let file_name = "file.txt";
+        let parent_ino = FUSE_ROOT_INODE;
+
+        let lookup = superblock
+            .create(parent_ino, file_name.as_ref(), InodeKind::File)
+            .await
+            .expect("create should succeed");
+        let ino = lookup.ino();
+
+        superblock
+            .unlink(parent_ino, file_name.as_ref())
+            .await
+            .expect("unlink of a LocalUnopened file should succeed");
+
+        // A lingering kernel reference can still reach the inode by number. Reopening it for
+        // writing must be rejected, otherwise a subsequent flush would create an orphaned object
+        // in S3 that this Mountpoint process would never clean up.
+        let write_err: i32 = superblock
+            .open_handle(ino, 0, &Default::default(), OpenFlags::O_WRONLY)
+            .await
+            .expect_err("opening an unlinked inode for writing should be rejected")
+            .to_errno();
+        assert_eq!(libc::ENOENT, write_err);
+
+        // Reopening for reading is rejected too.
+        let read_err: i32 = superblock
+            .open_handle(ino, 1, &Default::default(), OpenFlags::empty())
+            .await
+            .expect_err("opening an unlinked inode for reading should be rejected")
+            .to_errno();
+        assert_eq!(libc::ENOENT, read_err);
     }
 
     #[tokio::test]

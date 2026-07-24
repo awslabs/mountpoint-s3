@@ -1,5 +1,7 @@
 ## Unreleased
 
+* Allow `unlink` of files in the `LocalUnopened` state (created but never opened, for example when a process is killed between the `mknod` and `open` calls), so they are no longer permanently stuck. ([#1743](https://github.com/awslabs/mountpoint-s3/issues/1743))
+
 ## v0.10.0 (July 20, 2026)
 
 * Add `tls_config` field on `s3::config::ClientConfig` so callers can configure a custom CA trust store through to the underlying S3 client. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
