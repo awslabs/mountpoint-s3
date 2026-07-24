@@ -1,7 +1,18 @@
 #!/bin/bash
 # Please ensure 'jq' and AWS CLI v2 are installed before executing this script.
+# 
+# To run: 
+# cd mountpoint-s3-fs/scripts/
+# ./network_performance.sh
 
 set -euo pipefail
+
+# Requires bash 4.0+ for the `declare -A THROUGHPUT_OVERRIDE` associative array.
+# macOS ships bash 3.2, so run `brew install bash` and use that bash there.
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "Error: this script requires bash 4.0 or newer (found ${BASH_VERSION})"
+    exit 1
+fi
 
 output_file="../src/autoconfigure/instance_throughput.rs"
 timestamp="$(date --utc +%FT%TZ)"
@@ -14,12 +25,11 @@ echo "Querying ${#regions[@]} regions: ${regions[*]}"
 # Special case handling for Mult-NIC instances
 # i.e. dll.24xlarge  --> 4x 100 Gbps
 declare -r -A THROUGHPUT_OVERRIDE=(
-    ["dl1.24xlarge"]=400
     ["p4d.24xlarge"]=400
     ["p4de.24xlarge"]=400
     ["trn1.32xlarge"]=800
     ["trn1n.32xlarge"]=1600
-    ["trn2.48xlarge"]=32000
+    ["trn2.48xlarge"]=3200
 )
 
 # Create temporary directory for region results
@@ -78,14 +88,24 @@ merged_json=$(jq -s 'add | unique_by(.[0])' "${temp_dir}"/*.json)
 echo "${merged_json}" | \
     jq -c 'sort_by(.[0]) | .[]' | \
     while read line; do
+        # Starting line: ["c5.large","Up to 10 Gigabit"]
+        # Split on comma and take field 1, delete [, delete " -> c5.large
         instance_type=$(echo $line | cut -d ',' -f1 | sed 's/\[//' | sed 's/\"//g')
+        # Split on comma and take field 2, delete ], delete " -> Up to 10 Gigabit
+        network_performance=$(echo $line | cut -d ',' -f2 | sed 's/\]//' | sed 's/\"//g')
 
-        if [ -v THROUGHPUT_OVERRIDE[$instance_type] ]; then
+        if [[ -n "${THROUGHPUT_OVERRIDE[$instance_type]+x}" ]]; then
             throughput=${THROUGHPUT_OVERRIDE[$instance_type]}
             printf "        \"%s\" => Some(%.2f),\n" "${instance_type}" "${throughput}" >> "${output_file}"
+        elif [[ "$network_performance" =~ [0-9]+x[[:space:]] ]]; then
+            # Multi-NIC notation like "4x 100 Gigabit": emit None and prompt adding THROUGHPUT_OVERRIDE entry
+            echo "Warning: ${instance_type} reports multi-card network performance (\"${network_performance}\") with no override; emitting None"
+            printf "        \"%s\" => None,\n" "${instance_type}" >> "${output_file}"
         else
-            throughput=$(echo $line | cut -d ',' -f2 | sed 's/\s*[a-zA-Z]\s*//g' | sed 's/\]//' | sed 's/\"//g')
+            # Delete letters and whitespace, leaving the number
+            throughput=$(echo $network_performance | sed 's/\s*[a-zA-Z]\s*//g')
             if [[ -z "$throughput" ]]; then
+                # Qualitative ratings like "Moderate"/"High" have no number; emit None
                 printf "        \"%s\" => None,\n" "${instance_type}" >> "${output_file}"
             else
                 printf "        \"%s\" => Some(%.2f),\n" "${instance_type}" "${throughput}" >> "${output_file}"
