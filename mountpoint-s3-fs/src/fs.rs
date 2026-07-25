@@ -299,22 +299,42 @@ where
         Ok(Attr { ttl, attr })
     }
 
+    #[allow(clippy::too_many_arguments)] // We don't get to choose this interface
     pub async fn setattr(
         &self,
         ino: InodeNo,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
         atime: Option<OffsetDateTime>,
         mtime: Option<OffsetDateTime>,
         size: Option<u64>,
         _flags: Option<u32>,
     ) -> Result<Attr, Error> {
         tracing::debug!(
-            "fs:setattr with ino {:?} flags {:?} atime {:?} mtime {:?} size {:?}",
+            "fs:setattr with ino {:?} flags {:?} mode {:?} uid {:?} gid {:?} atime {:?} mtime {:?} size {:?}",
             ino,
             _flags,
+            mode,
+            uid,
+            gid,
             atime,
             mtime,
             size
         );
+
+        // Mountpoint does not emulate POSIX ownership or permissions, so it can never persist a
+        // change to them. Reject the request rather than reporting a success we won't honor.
+        if mode.is_some() || uid.is_some() || gid.is_some() {
+            return Err(err!(
+                libc::EPERM,
+                "file mode and ownership are not supported, requested mode {:?} uid {:?} gid {:?}",
+                mode,
+                uid,
+                gid
+            ));
+        }
+
         let setattr_result = self.metablock.setattr(ino, atime, mtime).await;
         let lookup = match (setattr_result, size) {
             (Ok(lookup), _) => lookup,

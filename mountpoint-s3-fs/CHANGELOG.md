@@ -1,5 +1,7 @@
 ## Unreleased
 
+* `setattr` now fails with `EPERM` when asked to change a file's mode, owner, or group, rather than reporting success and ignoring the request. `S3Filesystem::setattr` takes the requested `mode`, `uid`, and `gid` as new arguments to support this. ([#600](https://github.com/awslabs/mountpoint-s3/issues/600))
+
 ## v0.10.0 (July 20, 2026)
 
 * Add `tls_config` field on `s3::config::ClientConfig` so callers can configure a custom CA trust store through to the underlying S3 client. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
