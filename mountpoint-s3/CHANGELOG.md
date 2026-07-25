@@ -1,6 +1,6 @@
 ## Unreleased
 
-* `chmod`, `chown`, and `chgrp` now consistently fail with `EPERM`. Previously they failed on files already uploaded to S3, but silently reported success on files that had not been uploaded yet, even though Mountpoint never persists the change. ([#600](https://github.com/awslabs/mountpoint-s3/issues/600))
+* `chmod`, `chown`, and `chgrp` now consistently fail with `EPERM`. Previously they failed on files already uploaded to S3, but silently reported success on files that had not been uploaded yet, even though Mountpoint never persists the change. ([#1897](https://github.com/awslabs/mountpoint-s3/pull/1897) by @akhileshvattumilli)
 
 ## v1.23.0 (July 20, 2026)
 
