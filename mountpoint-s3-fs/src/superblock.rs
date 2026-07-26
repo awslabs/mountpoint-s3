@@ -739,7 +739,15 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
                 debug_assert!(false, "inodes never change kind");
                 return Err(InodeError::NotADirectory(parent.err()));
             }
-            InodeKindData::Directory { children, .. } => {
+            InodeKindData::Directory {
+                children,
+                unlinked_children,
+                ..
+            } => {
+                // Record that we removed an entry from this directory, so that we keep serving our
+                // local view of it if this turns out to have been the last object under its prefix.
+                *unlinked_children = true;
+
                 // We want to remove the original child.
                 // If there is a mismatch in inode number between the existing inode and the deleted inode, we invalidate the existing inode's stat.
                 // If for some reason the child with the specified name was already removed, we do nothing as this is the desired state.
@@ -1743,6 +1751,29 @@ impl<OC: ObjectClient + Send + Sync> SuperblockInner<OC> {
                         stat,
                         path: self.s3_path.clone(),
                         write_status,
+                    })
+                } else if existing_inode.get_inode_state().is_ok_and(|state| {
+                    matches!(&state.kind_data, InodeKindData::Directory { unlinked_children, .. } if *unlinked_children)
+                }) {
+                    // An implicit directory only exists in S3 while there are objects under its
+                    // prefix, so deleting the last of them makes it disappear remotely even though
+                    // the user never asked for the directory itself to be removed. Keep serving our
+                    // local view of it, as a local directory so that `rmdir` is what removes it.
+                    // Directories that went away for any other reason, such as another client
+                    // deleting the objects, are still removed below.
+                    let mut existing_state = existing_inode.get_mut_inode_state()?;
+                    existing_state.write_status = WriteStatus::LocalUnopened;
+                    existing_state.stat.update_validity(self.config.cache_config.dir_ttl);
+                    let stat = existing_state.stat.clone();
+                    drop(existing_state);
+
+                    writing_children.insert(existing_inode.ino());
+
+                    Ok(LookedUpInode {
+                        inode: existing_inode,
+                        stat,
+                        path: self.s3_path.clone(),
+                        write_status: WriteStatus::LocalUnopened,
                     })
                 } else {
                     // This existing inode is local-only (because `remote` is None), but is not
@@ -3291,5 +3322,117 @@ mod tests {
             !cache.should_try_rename(),
             "Success after failure should not modify cache state"
         );
+    }
+
+    /// An implicit directory should remain visible after its last child is deleted, until it is
+    /// explicitly removed with `rmdir`.
+    #[tokio::test]
+    async fn test_lookup_implicit_directory_after_deleting_all_children() {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .part_size(1024 * 1024)
+                .build(),
+        );
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        for key in [
+            "colors/blue/image1.jpg",
+            "colors/blue/image2.jpg",
+            "colors/red/image.jpg",
+            "colors/list.txt",
+        ] {
+            client.add_object(key, MockObject::constant(0xaa, 30, ETag::for_tests()));
+        }
+
+        let colors_ino = superblock
+            .lookup(FUSE_ROOT_INODE, "colors".as_ref())
+            .await
+            .expect("colors should exist")
+            .ino();
+        let blue_ino = superblock
+            .lookup(colors_ino, "blue".as_ref())
+            .await
+            .expect("blue should exist")
+            .ino();
+
+        superblock.unlink(blue_ino, "image1.jpg".as_ref()).await.unwrap();
+        superblock.unlink(blue_ino, "image2.jpg".as_ref()).await.unwrap();
+
+        // The prefix is now empty in S3, but the directory should still be there, and stay there
+        // across repeated lookups.
+        for _ in 0..2 {
+            superblock
+                .lookup(colors_ino, "blue".as_ref())
+                .await
+                .expect("blue should still be visible after its last child is deleted");
+        }
+
+        // ...including in its parent's readdir, alongside the entries that still exist remotely.
+        let entries = collect_dir_entries(&superblock, colors_ino, false, 3).await;
+        assert!(
+            entries.contains(&OsString::from("blue")),
+            "blue should be listed in its parent's readdir, got {entries:?}"
+        );
+
+        // `rmdir` is what actually removes it.
+        superblock
+            .rmdir(colors_ino, "blue".as_ref())
+            .await
+            .expect("rmdir should remove the now-empty directory");
+
+        let err = superblock
+            .lookup(colors_ino, "blue".as_ref())
+            .await
+            .expect_err("blue should be gone after rmdir")
+            .to_errno();
+        assert_eq!(libc::ENOENT, err);
+    }
+
+    /// A directory whose objects were deleted by something other than this Mountpoint process
+    /// should still disappear, rather than being retained as a local directory.
+    #[tokio::test]
+    async fn test_lookup_implicit_directory_emptied_out_of_band() {
+        let bucket = Bucket::new("test_bucket").unwrap();
+        let client = Arc::new(
+            MockClient::config()
+                .bucket(bucket.to_string())
+                .part_size(1024 * 1024)
+                .build(),
+        );
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            Default::default(),
+        );
+
+        client.add_object(
+            "colors/blue/image1.jpg",
+            MockObject::constant(0xaa, 30, ETag::for_tests()),
+        );
+
+        let colors_ino = superblock
+            .lookup(FUSE_ROOT_INODE, "colors".as_ref())
+            .await
+            .expect("colors should exist")
+            .ino();
+        superblock
+            .lookup(colors_ino, "blue".as_ref())
+            .await
+            .expect("blue should exist");
+
+        client.remove_object("colors/blue/image1.jpg");
+
+        let err = superblock
+            .lookup(colors_ino, "blue".as_ref())
+            .await
+            .expect_err("blue should not be retained when emptied out of band")
+            .to_errno();
+        assert_eq!(libc::ENOENT, err);
     }
 }
