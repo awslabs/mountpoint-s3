@@ -194,12 +194,9 @@ pub fn run(scenario: Scenario) {
         }
         if Instant::now() >= unmount_deadline {
             eprintln!("stress: unmount hung after 30s, aborting FUSE connection and failing test");
-            // Abort FUSE connection - fails all in-flight requests with EIO
+            // Abort FUSE connection - fails all in-flight requests with EIO, then exit immediately.
             abort_fuse_connections(&mount_path);
-            thread::sleep(Duration::from_secs(2));
-            let _ = session_thread.join();
-            // Unmount hanging for 30s is a test failure even if FUSE abort unblocked it.
-            std::process::exit(1);
+            unsafe { libc::_exit(1) };
         }
         thread::sleep(Duration::from_millis(100));
     }
