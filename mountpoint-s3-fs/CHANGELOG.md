@@ -1,6 +1,6 @@
 ## Unreleased
 
-* Keep serving an implicit directory after Mountpoint deletes the last file in it, until it is removed with `rmdir`. ([#PRNUM](https://github.com/awslabs/mountpoint-s3/pull/PRNUM))
+* Keep serving an implicit directory after Mountpoint deletes the last file in it, until it is removed with `rmdir`. ([#1898](https://github.com/awslabs/mountpoint-s3/pull/1898))
 
 ## v0.10.0 (July 20, 2026)
 

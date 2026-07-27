@@ -1,6 +1,6 @@
 ## Unreleased
 
-* Deleting the last file in a directory no longer makes the directory itself disappear. The directory stays visible until it is removed with `rmdir`, matching how other file systems behave. Directories that are emptied by something other than this Mountpoint process are unaffected. ([#PRNUM](https://github.com/awslabs/mountpoint-s3/pull/PRNUM) by @akhileshvattumilli)
+* Deleting the last file in a directory no longer makes the directory itself disappear. The directory stays visible until it is removed with `rmdir`, matching how other file systems behave. Directories that are emptied by something other than this Mountpoint process are unaffected. ([#1898](https://github.com/awslabs/mountpoint-s3/pull/1898) by @akhileshvattumilli)
 
 ## v1.23.0 (July 20, 2026)
 
