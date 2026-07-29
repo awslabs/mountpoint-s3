@@ -99,3 +99,15 @@ Below is an example of varying both network interfaces alongside the target netw
 uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket \
     "network={interface_names:['eth0'],maximum_throughput_gbps:100},{interface_names:['eth0','eth1'],maximum_throughput_gbps:200}"
 ```
+
+### Failing fast on errors
+
+By default, the benchmark runner executes all parameter combinations even if some fail.
+This is useful for production runs where you want to collect all results,
+but during development it can waste time waiting for hundreds of jobs when there's a configuration error.
+
+To stop execution immediately on the first failure, enable `fail_fast`:
+
+```sh
+uv run benchmark.py -- s3_bucket=amzn-s3-demo-bucket hydra.sweeper.fail_fast=true
+```
