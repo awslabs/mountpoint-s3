@@ -2,8 +2,6 @@
 
 use std::fmt::Write as _;
 
-use smallstr::SmallString;
-
 use crate::common::allocator::Allocator;
 use crate::common::logging::{Level, Logger, LoggerImpl, LoggerInitError, Subject};
 
@@ -31,12 +29,61 @@ impl RustLogAdapter {
 
 impl LoggerImpl for RustLogAdapter {
     fn log(&self, log_level: Level, subject: Subject, message: &str) {
-        let mut target = SmallString::<[u8; 64]>::new();
+        let mut target = LogTarget::new();
         let _ = write!(target, "{}::{}", AWSCRT_LOG_TARGET, subject.name());
         log::log!(target: target.as_str(), log_level.into(), "{message}");
     }
     fn get_log_level(&self, _subject: Subject) -> Level {
         log::max_level().to_level().map(|l| l.into()).unwrap_or(Level::None)
+    }
+}
+
+/// Buffer for building the log target `{AWSCRT_LOG_TARGET}::{subject}`. Holds the common case
+/// inline on the stack; spills to the heap if the target exceeds [`INLINE_CAPACITY`].
+enum LogTarget {
+    Inline { buf: [u8; INLINE_CAPACITY], len: usize },
+    Spilled(String),
+}
+
+const INLINE_CAPACITY: usize = 64;
+
+impl LogTarget {
+    fn new() -> Self {
+        Self::Inline {
+            buf: [0; INLINE_CAPACITY],
+            len: 0,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        match self {
+            // Only whole `&str`s are ever appended to `buf`, so the populated prefix is valid UTF-8.
+            Self::Inline { buf, len } => std::str::from_utf8(&buf[..*len]).unwrap_or_default(),
+            Self::Spilled(s) => s,
+        }
+    }
+}
+
+impl std::fmt::Write for LogTarget {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        match self {
+            Self::Inline { buf, len } if *len + s.len() <= INLINE_CAPACITY => {
+                buf[*len..*len + s.len()].copy_from_slice(s.as_bytes());
+                *len += s.len();
+                Ok(())
+            }
+            Self::Inline { buf, len } => {
+                let mut spilled = String::with_capacity(*len + s.len());
+                spilled.push_str(std::str::from_utf8(&buf[..*len]).unwrap_or_default());
+                spilled.push_str(s);
+                *self = Self::Spilled(spilled);
+                Ok(())
+            }
+            Self::Spilled(spilled) => {
+                spilled.push_str(s);
+                Ok(())
+            }
+        }
     }
 }
 
@@ -66,5 +113,34 @@ impl From<log::Level> for Level {
             log::Level::Debug => Level::Debug,
             log::Level::Trace => Level::Trace,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_target_boundary() {
+        let mut exact = LogTarget::new();
+        write!(exact, "{}", "a".repeat(INLINE_CAPACITY)).unwrap();
+        assert!(matches!(exact, LogTarget::Inline { .. }));
+        assert_eq!(exact.as_str(), "a".repeat(INLINE_CAPACITY));
+
+        let mut over = LogTarget::new();
+        write!(over, "{}", "a".repeat(INLINE_CAPACITY + 1)).unwrap();
+        assert!(matches!(over, LogTarget::Spilled(_)));
+        assert_eq!(over.as_str(), "a".repeat(INLINE_CAPACITY + 1));
+    }
+
+    #[test]
+    fn log_target_spills_across_multiple_writes() {
+        let mut target = LogTarget::new();
+        let head = "h".repeat(INLINE_CAPACITY - 1);
+        write!(target, "{head}").unwrap();
+        assert!(matches!(target, LogTarget::Inline { .. }));
+        write!(target, "tail").unwrap();
+        assert!(matches!(target, LogTarget::Spilled(_)));
+        assert_eq!(target.as_str(), format!("{head}tail"));
     }
 }
