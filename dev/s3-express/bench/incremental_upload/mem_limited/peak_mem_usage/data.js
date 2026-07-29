@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1784620775207,
+  "lastUpdate": 1785331940938,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Express One Zone, Incremental Upload, Memory-Limited)": [
@@ -1322,6 +1322,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 400.5,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "renanmag@amazon.co.uk",
+            "name": "Renan Magagnin",
+            "username": "renanmagagnin"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8af889f07c38d387d555a25eb92f0d88048d91d",
+          "message": "Remove unmaintained `smallstr` dependency from `mountpoint-s3-crt` (#1906)\n\nRemoves the `smallstr` dependency, which is flagged unmaintained by\n`RUSTSEC-2026-0215` and fails the `cargo deny` Licenses check ([example\nrun](https://github.com/awslabs/mountpoint-s3/actions/runs/30344994989/job/90229022750?pr=1904#step:4:1754)).\nIts only use was building the `awscrt::<subject>` log target string; it\nis replaced with a small internal `LogTarget` that keeps the same\nsmall-string optimization (inline on the stack, spilling to the heap\nonly if the target exceeds 64 bytes).\n\n### Does this change impact existing behavior?\n\nNo. The log target string is identical, only the backing buffer changes.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nNo.\n\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>",
+          "timestamp": "2026-07-29T11:08:49Z",
+          "tree_id": "d13e5aba3fcbebacd46de511e906049f675bd878",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/a8af889f07c38d387d555a25eb92f0d88048d91d"
+        },
+        "date": 1785331940864,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 433.23046875,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 450.58203125,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 470.6796875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 411.19140625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 410.8984375,
             "unit": "MiB"
           }
         ]
