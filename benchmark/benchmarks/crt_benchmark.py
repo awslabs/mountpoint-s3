@@ -135,6 +135,6 @@ class CrtBenchmark(BaseBenchmark):
             if self.crt_cfg_file and os.path.exists(self.crt_cfg_file):
                 log.info(f"Remove CRT benchmark configuration: {self.crt_cfg_file}")
                 os.remove(self.crt_cfg_file)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning(f"Failed to clean up CRT config file: {e}")
         return self.metadata

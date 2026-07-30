@@ -1,6 +1,5 @@
 import logging
 from contextlib import contextmanager
-from typing import List
 
 from .base import MonitoringTool
 

@@ -59,7 +59,7 @@ def write_metadata(metadata: dict[str, Any]) -> None:
             json.dump(metadata, f, default=str)
         log.debug("Metadata written to metadata.json")
     except Exception:
-        log.error("Failed to write metadata", exc_info=True)
+        log.error("Failed to write metadata", exc_info=True)  # noqa: G201
 
 
 def upload_results_to_s3(bucket_name: str, region: str) -> None:
@@ -87,7 +87,7 @@ def upload_results_to_s3(bucket_name: str, region: str) -> None:
             "--region",
             region,
         ]
-        result = subprocess.run(aws_cmd, capture_output=True, text=True)
+        result = subprocess.run(aws_cmd, capture_output=True, text=True)  # noqa: PLW1510
         if result.returncode == 0:
             log.info("Successfully uploaded benchmark results to S3")
         else:
@@ -165,14 +165,14 @@ def run_experiment(cfg: DictConfig) -> None:
         metadata["success"] = True
 
     except Exception:
-        log.error("Benchmark execution failed:", exc_info=True)
+        log.error("Benchmark execution failed:", exc_info=True)  # noqa: G201
         raise
     finally:
         try:
             if result is not None:
                 benchmark.post_process(result)
         except Exception:
-            log.error("Post-processing failed:", exc_info=True)
+            log.error("Post-processing failed:", exc_info=True)  # noqa: G201
         finally:
             result_bucket_name = cfg.s3_result_bucket
             region = cfg.region

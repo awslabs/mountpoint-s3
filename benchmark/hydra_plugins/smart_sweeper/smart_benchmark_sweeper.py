@@ -49,7 +49,7 @@ class SmartBenchmarkSweeper(Sweeper):
                 params = benchmark_config.get("params", {})
                 return [f"{key}={value}" for key, value in params.items()]
             return []
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"Failed to load config for {benchmark_type}: {e}")
             return []
 

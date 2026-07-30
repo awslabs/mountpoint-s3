@@ -33,7 +33,7 @@ class ClientBenchmark(BaseBenchmark):
     def get_command(self) -> Command:
         subprocess_args = [self.executable_path]
 
-        if self.backpressure:
+        if self.backpressure:  # noqa: SIM102
             if (backpressure_window_size := self.cfg.benchmarks.client_bp.backpressure_window_size) is not None:
                 subprocess_args.extend(["--backpressure-window-size", str(backpressure_window_size)])
 
@@ -60,7 +60,7 @@ class ClientBenchmark(BaseBenchmark):
 
         if len(objects) >= self.cfg.application_workers:
             for obj in objects:
-                subprocess_args.append(obj)
+                subprocess_args.append(obj)  # noqa: PERF402
         else:
             raise ValueError("Seeing fewer objects than app workers. So cannot proceed with the run.")
 

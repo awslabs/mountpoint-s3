@@ -103,7 +103,7 @@ def parse_benchmark_file(file_path: str) -> float | None:
                 warnings.warn(f"Unknown format in {file_path}")
                 return None
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         warnings.warn(f"Warning: Error parsing {file_path}: {e}")
         return None
 
