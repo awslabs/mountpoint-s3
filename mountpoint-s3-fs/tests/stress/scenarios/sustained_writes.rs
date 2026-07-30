@@ -1,4 +1,4 @@
-//! `sustained_writes`: 48 writers concurrently writing 100 MiB objects under the 512 MiB
+//! `sustained_writes`: 47 writers concurrently writing 100 MiB objects under the 512 MiB
 //! memory limit.
 
 use std::iter::repeat_n;
@@ -10,7 +10,7 @@ use crate::common::fuse::TestSessionConfig;
 use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
 use crate::stress::workers::Writer;
 
-const NUM_WORKERS: usize = 48;
+const NUM_WORKERS: usize = 47; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT memory target
 const WRITE_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB — matches default part size
 const OBJECT_SIZE: usize = 100 * 1024 * 1024; // 100 MiB
 
