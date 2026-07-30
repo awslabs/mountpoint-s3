@@ -8,13 +8,13 @@ directory in the root of the Mountpoint repository.
 """
 
 import argparse
-from dataclasses import dataclass
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 
 
 def log(msg: str):

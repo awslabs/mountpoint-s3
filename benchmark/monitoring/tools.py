@@ -2,7 +2,6 @@ import logging
 import os
 import signal
 import subprocess
-from typing import Optional
 
 import psutil
 
@@ -100,7 +99,7 @@ class PerfStatTool(MonitoringTool):
 
 
 class FlamegraphTool(MonitoringTool):
-    def __init__(self, target_pid: int, flamegraph_scripts_path: Optional[str] = None):
+    def __init__(self, target_pid: int, flamegraph_scripts_path: str | None = None):
         self.target_pid = target_pid
         self.flamegraph_scripts_path = flamegraph_scripts_path
         self.process = None
@@ -148,7 +147,7 @@ class FlamegraphTool(MonitoringTool):
                 )
             else:
                 log.info("verified that kernel.kptr_restrict=0 (for flamegraphing)")
-        except (OSError, IOError) as e:
+        except OSError as e:
             log.warning(f"Could not check kernel.kptr_restrict: {e}")
 
         try:
@@ -161,7 +160,7 @@ class FlamegraphTool(MonitoringTool):
                 )
             else:
                 log.info(f"verified that kernel.perf_event_paranoid={paranoid_value} for flamegraphing")
-        except (OSError, IOError) as e:
+        except OSError as e:
             log.warning(f"Could not check kernel.perf_event_paranoid: {e}")
 
     def _generate_inverted_flamegraph(self):

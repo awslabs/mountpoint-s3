@@ -2,24 +2,22 @@ import json
 import logging
 import os
 import subprocess
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 import hydra
-from hydra.core.hydra_config import HydraConfig
-from hydra.types import RunMode
-from omegaconf import DictConfig, OmegaConf
-import urllib.request
-
 from benchmarks.client_benchmark import ClientBenchmark
 from benchmarks.command import CommandResult
 from benchmarks.crt_benchmark import CrtBenchmark
 from benchmarks.fio_benchmark import FioBenchmark
 from benchmarks.prefetch_benchmark import PrefetchBenchmark
-
+from hydra.core.hydra_config import HydraConfig
+from hydra.types import RunMode
 from monitoring import ResourceMonitoring
-from monitoring.tools import MonitoringTool, MpstatTool, BwmNgTool, PerfStatTool, FlamegraphTool
+from monitoring.tools import BwmNgTool, FlamegraphTool, MonitoringTool, MpstatTool, PerfStatTool
+from omegaconf import DictConfig, OmegaConf
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 
@@ -31,7 +29,7 @@ OmegaConf.register_new_resolver(
 )
 
 
-def get_ec2_instance_id() -> Optional[str]:
+def get_ec2_instance_id() -> str | None:
     """Get the EC2 instance ID if running on EC2."""
     if os.getenv("AWS_EC2_METADATA_DISABLED") == "true":
         return None
@@ -54,7 +52,7 @@ def get_ec2_instance_id() -> Optional[str]:
         return None
 
 
-def write_metadata(metadata: Dict[str, Any]) -> None:
+def write_metadata(metadata: dict[str, Any]) -> None:
     """Write metadata to a file."""
     try:
         with open("metadata.json", "w") as f:
@@ -146,7 +144,7 @@ def run_experiment(cfg: DictConfig) -> None:
         metadata["target_pid"] = target_pid
 
         # Construct monitoring tools
-        tools: List[MonitoringTool] = [MpstatTool()]
+        tools: list[MonitoringTool] = [MpstatTool()]
         if cfg.monitoring.with_bwm:
             tools.append(BwmNgTool())
         if cfg.monitoring.with_perf_stat:

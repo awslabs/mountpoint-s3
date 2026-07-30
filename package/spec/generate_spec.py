@@ -8,10 +8,11 @@ and outputs a complete RPM spec file ready for rpmbuild.
 
 import argparse
 import subprocess
-from pathlib import Path
 from datetime import datetime
-from jinja2 import Environment, FileSystemLoader
+from pathlib import Path
+
 import tomllib
+from jinja2 import Environment, FileSystemLoader
 
 script_dir = Path(__file__).parent
 project_root = script_dir.parent.parent

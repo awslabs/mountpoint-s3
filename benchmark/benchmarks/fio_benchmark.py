@@ -1,21 +1,20 @@
 import logging
 import subprocess
 import tempfile
-from typing import Dict, Any
 from datetime import datetime, timezone
+from typing import Any
 
+import hydra
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
-import hydra
+from benchmarks.mountpoint import cleanup_mp, mount_mp
 from omegaconf import DictConfig
-
-from benchmarks.mountpoint import mount_mp, cleanup_mp
 
 log = logging.getLogger(__name__)
 
 
 class FioBenchmark(BaseBenchmark):
-    def __init__(self, cfg: DictConfig, metadata: Dict[str, Any]):
+    def __init__(self, cfg: DictConfig, metadata: dict[str, Any]):
         self.cfg = cfg
         self.metadata = metadata  # Use the metadata passed from benchmark.py
         self.mount_dir = None
@@ -39,7 +38,7 @@ class FioBenchmark(BaseBenchmark):
         subprocess.run(['sudo', 'sh', '-c', cmd], check=True, capture_output=True)
         log.info(f"Set read_ahead_kb to {bytes} for device {dev_id}")
 
-    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> dict[str, Any]:
         self.mount_dir = tempfile.mkdtemp(suffix=".mountpoint-s3")
         mount_metadata = mount_mp(self.cfg, self.mount_dir, with_flamegraph)
         self.metadata.update(mount_metadata)
@@ -78,7 +77,7 @@ class FioBenchmark(BaseBenchmark):
 
         return Command(args=subprocess_args, env=fio_env)
 
-    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+    def post_process(self, result: CommandResult) -> dict[str, Any]:
         cleanup_mp(self.mount_dir)
         if result.returncode != 0:
             log.error(f"FIO process failed with exit code {result.returncode}")

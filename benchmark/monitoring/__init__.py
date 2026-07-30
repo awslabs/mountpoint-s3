@@ -1,5 +1,5 @@
-from contextlib import contextmanager
 import logging
+from contextlib import contextmanager
 from typing import List
 
 from .base import MonitoringTool
@@ -21,7 +21,7 @@ class ResourceMonitoring:
             pass
     """
 
-    def __init__(self, tools: List[MonitoringTool]):
+    def __init__(self, tools: list[MonitoringTool]):
         """Resource monitoring setup.
 
         tools: List of MonitoringTool instances to manage
@@ -40,7 +40,7 @@ class ResourceMonitoring:
 
     @staticmethod
     @contextmanager
-    def managed(tools: List[MonitoringTool]):
+    def managed(tools: list[MonitoringTool]):
         resource = ResourceMonitoring(tools)
         try:
             resource._start()
