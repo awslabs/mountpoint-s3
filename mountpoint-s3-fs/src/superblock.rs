@@ -786,7 +786,13 @@ impl<OC: ObjectClient + Send + Sync + Clone> Metablock for Superblock<OC> {
             let stat = sync.stat.clone();
             drop(sync);
             let path = self.inner.s3_path.clone();
-            return Ok(LookedUpInode { inode, stat, path }.into());
+            return Ok(LookedUpInode {
+                inode,
+                stat,
+                path,
+                write_status: WriteStatus::Remote,
+            }
+            .into());
         }
 
         let validity = match inode.kind() {
