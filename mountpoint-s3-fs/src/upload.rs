@@ -2,12 +2,12 @@ use std::fmt::Debug;
 
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::error::{HeadObjectError, ObjectClientError, PutObjectError};
+use mountpoint_s3_client::error_metadata::{ClientErrorMetadata, ProvideErrorMetadata};
 use mountpoint_s3_client::types::{ChecksumAlgorithm, ETag};
-
 use thiserror::Error;
-use tracing::error;
 
 use crate::async_util::Runtime;
+use crate::content_type::ContentTypeDetection;
 use crate::fs::{ServerSideEncryption, SseCorruptedError};
 use crate::mem_limiter::MemoryLimiter;
 use crate::memory::PagedPool;
@@ -42,6 +42,8 @@ pub struct Uploader<Client: ObjectClient> {
     /// Only [ChecksumAlgorithm::Crc32c] is supported for multi-part uploads.
     /// For existing objects, Mountpoint will instead append using the existing checksum algorithm on the object.
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
+    /// Content type inference mode for uploaded objects
+    content_type_detection: ContentTypeDetection,
 }
 
 #[derive(Debug, Error)]
@@ -70,12 +72,30 @@ pub enum UploadError<E> {
     ObjectTooBig { maximum_size: usize },
 }
 
+impl<E> ProvideErrorMetadata for UploadError<E>
+where
+    E: ProvideErrorMetadata,
+{
+    fn meta(&self) -> ClientErrorMetadata {
+        match self {
+            UploadError::ObjectTooBig { .. }
+            | UploadError::ChecksumComputationFailed(_)
+            | UploadError::SseCorruptedError(_)
+            | UploadError::UploadAlreadyTerminated
+            | UploadError::OutOfOrderWrite { .. } => Default::default(),
+            UploadError::PutRequestFailed(object_client_error) => object_client_error.meta(),
+            UploadError::HeadObjectFailed(object_client_error) => object_client_error.meta(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct UploaderConfig {
     storage_class: Option<String>,
     server_side_encryption: ServerSideEncryption,
     buffer_size: usize,
     default_checksum_algorithm: Option<ChecksumAlgorithm>,
+    content_type_detection: ContentTypeDetection,
 }
 
 impl UploaderConfig {
@@ -85,6 +105,7 @@ impl UploaderConfig {
             server_side_encryption: Default::default(),
             buffer_size,
             default_checksum_algorithm: None,
+            content_type_detection: ContentTypeDetection::Disabled,
         }
     }
 
@@ -100,6 +121,11 @@ impl UploaderConfig {
 
     pub fn default_checksum_algorithm(mut self, default_checksum_algorithm: Option<ChecksumAlgorithm>) -> Self {
         self.default_checksum_algorithm = default_checksum_algorithm;
+        self
+    }
+
+    pub fn content_type_detection(mut self, content_type_detection: ContentTypeDetection) -> Self {
+        self.content_type_detection = content_type_detection;
         self
     }
 }
@@ -125,6 +151,7 @@ where
             server_side_encryption: config.server_side_encryption,
             buffer_size: config.buffer_size,
             default_checksum_algorithm: config.default_checksum_algorithm,
+            content_type_detection: config.content_type_detection,
         }
     }
 
@@ -140,6 +167,7 @@ where
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             storage_class: self.storage_class.clone(),
+            content_type_detection: self.content_type_detection,
         };
         UploadRequest::new(&self.runtime, self.client.clone(), params)
     }
@@ -163,6 +191,7 @@ where
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
             capacity,
+            content_type_detection: self.content_type_detection,
         };
         AppendUploadRequest::new(
             &self.runtime,

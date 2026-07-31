@@ -1,5 +1,39 @@
 ## Unreleased
 
+## v0.15.0 (July 20, 2026)
+
+* Add `io::tls` module with safe wrappers around `aws-c-io`'s TLS primitives (`TlsContextOptions`, `TlsContext`, `TlsConnectionOptions`). ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Add `s3::client::ClientConfig::tls_connection_options()` builder to pass a custom `TlsConnectionOptions` into the S3 client. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Add `tls_ctx` field to `CredentialsProviderChainDefaultOptions` and `CredentialsProviderProfileOptions`. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Add `MetaRequestOptions::request_body`. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882))
+* Remove the `io::stream` module (`InputStream`) and `Message::set_body_stream`, which are superseded by `MetaRequestOptions::request_body`. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882))
+* `Message` and `MetaRequestOptions` are no longer generic over a lifetime. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882))
+* Run cleanup for CRT libraries on process exit. ([#1850](https://github.com/awslabs/mountpoint-s3/pull/1850))
+* Update to latest CRT dependencies.
+
+## v0.14.0 (April 28, 2026)
+
+* Expose the originating `MetaRequest` in `MemoryPool` trait methods. ([#1812](https://github.com/awslabs/mountpoint-s3/pull/1812))
+* Update to latest CRT dependencies.
+
+## v0.13.8 (March 20, 2026)
+
+* Update to latest CRT dependencies.
+
+## v0.13.7 (March 9, 2026)
+
+* Add `'static + Send` bounds to `MemoryPool` trait, and add `get_buffer_async` method to `MemoryPool`. ([#1768](https://github.com/awslabs/mountpoint-s3/pull/1768))
+* Upgrade cargo dependencies.
+
+## v0.13.6 (January 22, 2026)
+
+* Upgrade cargo dependencies.
+* Update to latest CRT dependencies.
+
+## v0.13.5 (December 22, 2025)
+
+* Add new CRT request metrics to telemetry data. ([#1701](https://github.com/awslabs/mountpoint-s3/pull/1701))
+
 ## v0.13.4 (October 30, 2025)
 
 * Update to latest `mountpoint-s3-crt-sys` dependency. ([#1683](https://github.com/awslabs/mountpoint-s3/pull/1683))

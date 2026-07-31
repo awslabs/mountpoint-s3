@@ -7,7 +7,6 @@ use regex::Regex;
 use thiserror::Error;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc2822;
-use tracing::error;
 
 use crate::object_client::{HeadObjectError, HeadObjectParams, HeadObjectResult, ObjectClientResult, RestoreStatus};
 

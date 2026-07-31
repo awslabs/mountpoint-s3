@@ -31,10 +31,10 @@ struct PageInner {
     stats: Arc<SizePoolStats>,
 }
 
-// SAFETY: access to mutable state in `PageInner` is synchonized internally.
+// SAFETY: access to mutable state in `PageInner` is synchronized internally.
 unsafe impl Send for PageInner {}
 
-// SAFETY: access to mutable state in `PageInner` is synchonized internally.
+// SAFETY: access to mutable state in `PageInner` is synchronized internally.
 unsafe impl Sync for PageInner {}
 
 impl Drop for PageInner {

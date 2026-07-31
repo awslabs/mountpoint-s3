@@ -32,9 +32,8 @@ impl ETag {
 
         let mut hasher = md5::Md5::new();
         hasher.update(data);
-
         let hash = hasher.finalize();
-        let result = format!("{hash:x}");
+        let result = hex::encode(hash);
         Self(result)
     }
 }

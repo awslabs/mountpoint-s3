@@ -109,12 +109,12 @@ pub trait ObjectClient {
     ) -> ObjectClientResult<Self::PutObjectRequest, PutObjectError, Self::ClientError>;
 
     /// Put an object into the object store.
-    async fn put_object_single<'a>(
+    async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 
     /// Retrieves all the metadata from an object without returning the object contents.
@@ -210,6 +210,12 @@ impl ProvideErrorMetadata for RenameObjectError {
     }
 }
 
+impl ProvideErrorMetadata for PutObjectError {
+    fn meta(&self) -> ClientErrorMetadata {
+        Default::default()
+    }
+}
+
 /// Shorthand type for the result of an object client request
 pub type ObjectClientResult<T, S, C> = Result<T, ObjectClientError<S, C>>;
 
@@ -234,6 +240,9 @@ pub struct GetObjectParams {
     pub range: Option<Range<u64>>,
     pub if_match: Option<ETag>,
     pub checksum_mode: Option<ChecksumMode>,
+    /// An optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub custom_id: Option<u64>,
 }
 
 impl GetObjectParams {
@@ -257,6 +266,13 @@ impl GetObjectParams {
     /// Set option to retrieve checksum as part of the GetObject request
     pub fn checksum_mode(mut self, value: Option<ChecksumMode>) -> Self {
         self.checksum_mode = value;
+        self
+    }
+
+    /// Set an optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub fn custom_id(mut self, value: Option<u64>) -> Self {
+        self.custom_id = value;
         self
     }
 }
@@ -534,7 +550,8 @@ pub type ObjectMetadata = HashMap<String, String>;
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct PutObjectParams {
-    /// Enable Crc32c trailing checksums.
+    /// Trailing-checksum mode for the upload. Each non-`Disabled` variant carries its algorithm,
+    /// so invalid states like "Disabled + algorithm" are unrepresentable.
     pub trailing_checksums: PutObjectTrailingChecksums,
     /// Storage class to be used when creating new S3 object
     pub storage_class: Option<String>,
@@ -547,6 +564,9 @@ pub struct PutObjectParams {
     pub custom_headers: Vec<(String, String)>,
     /// User-defined object metadata
     pub object_metadata: ObjectMetadata,
+    /// An optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub custom_id: Option<u64>,
 }
 
 impl PutObjectParams {
@@ -555,7 +575,7 @@ impl PutObjectParams {
         Self::default()
     }
 
-    /// Set Crc32c trailing checksums.
+    /// Set trailing checksum mode.
     pub fn trailing_checksums(mut self, value: PutObjectTrailingChecksums) -> Self {
         self.trailing_checksums = value;
         self
@@ -590,18 +610,47 @@ impl PutObjectParams {
         self.object_metadata = value;
         self
     }
+
+    /// Set an optional caller-supplied identifier passed through to the memory pool on buffer
+    /// allocations for this request. Not related to the S3 request ID returned by the service.
+    pub fn custom_id(mut self, value: Option<u64>) -> Self {
+        self.custom_id = value;
+        self
+    }
 }
 
-/// How CRC32c checksums are used for parts of a multi-part PutObject request
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// How additional checksums are computed and sent for a multi-part PutObject request. Each
+/// non-`Disabled` variant carries the checksum algorithm.
+#[derive(Debug, Default, Clone)]
 pub enum PutObjectTrailingChecksums {
-    /// Checksums are computed, passed to upload review, and also sent to S3
-    Enabled,
-    /// Checksums are computed, passed to upload review, but not sent to S3
-    ReviewOnly,
-    /// Checksums are not computed on the client side
+    /// Checksums are not computed on the client side. S3 may still compute its own
+    /// (CRC64NVME by default).
     #[default]
     Disabled,
+    /// S3 composite mode. Per-part trailers are sent; the object-level checksum on the response
+    /// is `composite(part_checksums)`. Supported for algorithms S3 composes (CRC32C, CRC32, SHA1,
+    /// SHA256). For CRC64NVME, use [`Self::FullObject`] instead — S3 rejects composite for it.
+    Composite(ChecksumAlgorithm),
+    /// S3 FULL_OBJECT mode. Per-part trailers are still sent (so upload review works), but the
+    /// object-level checksum sent on `CompleteMultipartUpload` is the one the
+    /// [`review_and_complete`](PutObjectRequest::review_and_complete) callback returns via
+    /// [`UploadReviewOutcome::Proceed`]. Required for CRC64NVME.
+    FullObject(ChecksumAlgorithm),
+    /// Per-part trailing checksums are computed and passed to upload review, but no checksum is
+    /// sent to S3.
+    ReviewOnly(ChecksumAlgorithm),
+}
+
+impl PutObjectTrailingChecksums {
+    /// The algorithm carried by this variant, if any. Returns `None` only for `Disabled`.
+    pub fn algorithm(&self) -> Option<&ChecksumAlgorithm> {
+        match self {
+            Self::Disabled => None,
+            Self::Composite(algorithm) => Some(algorithm),
+            Self::FullObject(algorithm) => Some(algorithm),
+            Self::ReviewOnly(algorithm) => Some(algorithm),
+        }
+    }
 }
 
 /// Info for the caller to review before an upload completes.
@@ -612,6 +661,19 @@ pub type UploadReviewPart = mountpoint_s3_crt::s3::client::UploadReviewPart;
 
 /// A checksum algorithm used by the object client for integrity checks on uploads and downloads.
 pub type ChecksumAlgorithm = mountpoint_s3_crt::s3::client::ChecksumAlgorithm;
+
+/// Outcome of an upload-review callback passed to
+/// [`review_and_complete`](PutObjectRequest::review_and_complete).
+#[derive(Debug)]
+pub enum UploadReviewOutcome {
+    /// Proceed with completing the upload. For full-object checksum mode
+    /// ([`PutObjectTrailingChecksums::FullObject`], e.g. CRC64NVME on a multipart upload), carry
+    /// the object-level [`UploadChecksum`] to send on `CompleteMultipartUpload`; `None` for
+    /// composite and review-only modes, which derive the object checksum from the per-part trailers.
+    Proceed(Option<UploadChecksum>),
+    /// Abort the upload without completing it.
+    Abort,
+}
 
 /// Parameters to a [`put_object_single`](ObjectClient::put_object_single) request
 #[derive(Debug, Default, Clone)]
@@ -718,6 +780,17 @@ impl UploadChecksum {
             UploadChecksum::Sha256(_) => ChecksumAlgorithm::Sha256,
         }
     }
+
+    /// The base64-encoded value of this checksum, as sent to S3 in `x-amz-checksum-*` headers.
+    pub fn to_base64(&self) -> String {
+        match self {
+            UploadChecksum::Crc64nvme(crc) => crc64nvme_to_base64(crc),
+            UploadChecksum::Crc32c(crc) => crc32c_to_base64(crc),
+            UploadChecksum::Crc32(crc) => crc32_to_base64(crc),
+            UploadChecksum::Sha1(sha) => sha1_to_base64(sha),
+            UploadChecksum::Sha256(sha) => sha256_to_base64(sha),
+        }
+    }
 }
 
 /// A handle for controlling backpressure enabled requests.
@@ -811,10 +884,12 @@ pub trait PutObjectRequest: Send {
     /// Complete the put request and return a [`PutObjectResult`].
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 
-    /// Review and complete the put request and return a [`PutObjectResult`].
+    /// Review and complete the put request and return a [`PutObjectResult`]. The callback inspects
+    /// the [`UploadReview`] and returns an [`UploadReviewOutcome`] deciding whether to proceed (and,
+    /// in full-object checksum mode, supplying the object-level checksum) or abort.
     async fn review_and_complete(
         self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError>;
 }
 
@@ -913,7 +988,7 @@ pub struct ObjectInfo {
     pub checksum_algorithms: Vec<ChecksumAlgorithm>,
 }
 
-/// All possible object attributes that can be retrived from [ObjectClient::get_object_attributes].
+/// All possible object attributes that can be retrieved from [ObjectClient::get_object_attributes].
 /// Fields that you do not specify are not returned.
 #[derive(Debug)]
 pub enum ObjectAttribute {
@@ -985,7 +1060,7 @@ impl Checksum {
         // We assume that at most one checksum will be set.
         let mut algorithms = Vec::with_capacity(1);
 
-        // Pattern match forces us to accomodate any new fields when added.
+        // Pattern match forces us to accommodate any new fields when added.
         let Self {
             checksum_crc64nvme,
             checksum_crc32,

@@ -1,4 +1,41 @@
-## Unreleased
+## Unreleased (v0.21.0)
+
+## v0.21.0 (July 20, 2026)
+
+### Breaking changes
+
+* `ObjectClient::put_object_single` now requires `contents: impl AsRef<[u8]> + Send + 'static` (was `+ 'a`), so the body can be held until the request is fully torn down. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882))
+
+### Other changes
+
+* Add `TlsConfig` type and `S3ClientConfig::tls_config()` builder for configuring a custom CA trust store. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
+* Run cleanup for CRT libraries on process exit. ([#1850](https://github.com/awslabs/mountpoint-s3/pull/1850))
+* Fix credential resolution when using a source profile with STS Web Identity. ([#1889](https://github.com/awslabs/mountpoint-s3/pull/1889))
+* Update to latest CRT dependencies.
+
+## v0.20.0 (April 28, 2026)
+
+* Add S3 client error covering failures to create S3 Express session. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+* Expose the originating `MetaRequest` in `MemoryPool` trait methods. ([#1812](https://github.com/awslabs/mountpoint-s3/pull/1812))
+* Update to latest CRT dependencies.
+
+## v0.19.8 (March 20, 2026)
+
+* Update to latest CRT dependencies.
+
+## v0.19.7 (March 9, 2026)
+
+* Add `'static + Send` bounds to `MemoryPool` trait, and add `get_buffer_async` method to `MemoryPool`. ([#1768](https://github.com/awslabs/mountpoint-s3/pull/1768))
+* Upgrade cargo dependencies.
+
+## v0.19.6 (January 22, 2026)
+
+* Upgrade cargo dependencies.
+* Update to latest CRT dependencies.
+
+## v0.19.5 (December 22, 2025)
+
+* Add new CRT request metrics to telemetry data. ([#1701](https://github.com/awslabs/mountpoint-s3/pull/1701))
 
 ## v0.19.4 (October 30, 2025)
 

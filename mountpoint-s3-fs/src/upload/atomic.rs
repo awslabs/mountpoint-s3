@@ -1,18 +1,22 @@
 use std::fmt::Debug;
 
-use mountpoint_s3_client::checksums::{Crc32c, crc32c, crc32c_from_base64};
+use mountpoint_s3_client::checksums::{Crc32c, crc32c_from_base64, crc64nvme, crc64nvme_from_base64};
 use mountpoint_s3_client::error::{ObjectClientError, PutObjectError};
 use mountpoint_s3_client::types::{
-    ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadReview,
+    ChecksumAlgorithm, PutObjectParams, PutObjectResult, PutObjectTrailingChecksums, UploadChecksum, UploadReview,
+    UploadReviewOutcome,
 };
 use mountpoint_s3_client::{ObjectClient, PutObjectRequest};
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::ServerSideEncryption;
 use crate::async_util::{RemoteResult, Runtime};
 use crate::checksums::combine_checksums;
+use crate::content_type::{ContentTypeDetection, infer_content_type};
 
 use super::UploadError;
+use super::hasher::AtomicUploadHasher;
+use crate::fs::UploadChecksumAlgorithm;
 
 const MAX_S3_MULTIPART_UPLOAD_PARTS: usize = 10000;
 
@@ -24,7 +28,7 @@ pub struct UploadRequest<Client: ObjectClient> {
     bucket: String,
     key: String,
     next_request_offset: u64,
-    hasher: crc32c::Hasher,
+    hasher: AtomicUploadHasher,
     maximum_upload_size: usize,
     sse: ServerSideEncryption,
 }
@@ -36,6 +40,7 @@ pub struct UploadRequestParams {
     pub server_side_encryption: ServerSideEncryption,
     pub default_checksum_algorithm: Option<ChecksumAlgorithm>,
     pub storage_class: Option<String>,
+    pub content_type_detection: ContentTypeDetection,
 }
 
 impl<Client> UploadRequest<Client>
@@ -49,20 +54,40 @@ where
     ) -> Result<Self, UploadError<Client::ClientError>> {
         let mut put_object_params = PutObjectParams::new();
 
-        match &params.default_checksum_algorithm {
-            Some(ChecksumAlgorithm::Crc32c) => {
-                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::Enabled);
-            }
+        // Construct the trailing-checksums variant for this upload. The second element is the
+        // algorithm in the narrow `UploadChecksumAlgorithm` form so the local hasher can be
+        // constructed totally (no `expect`-chain on infallible operations).
+        let (trailing_checksums, hasher_algorithm) = match &params.default_checksum_algorithm {
+            Some(ChecksumAlgorithm::Crc32c) => (
+                PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c),
+                UploadChecksumAlgorithm::Crc32c,
+            ),
+            Some(ChecksumAlgorithm::Crc64nvme) => (
+                // S3 requires FULL_OBJECT for CRC64NVME on multipart uploads.
+                PutObjectTrailingChecksums::FullObject(ChecksumAlgorithm::Crc64nvme),
+                UploadChecksumAlgorithm::Crc64nvme,
+            ),
             Some(unsupported) => {
+                // Defense in depth: the FS-config boundary (`UploadChecksumAlgorithm`) only
+                // admits Crc32c/Crc64nvme, so reaching here means an internal caller
+                // constructed an `UploaderConfig` with an unsupported algorithm.
                 unimplemented!("checksum algorithm not supported: {:?}", unsupported);
             }
-            None => {
-                put_object_params = put_object_params.trailing_checksums(PutObjectTrailingChecksums::ReviewOnly);
-            }
-        }
+            None => (
+                // Default to CRC32C upload review so the client can verify what S3 received.
+                PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c),
+                UploadChecksumAlgorithm::Crc32c,
+            ),
+        };
+        put_object_params = put_object_params.trailing_checksums(trailing_checksums);
+        let hasher = AtomicUploadHasher::new(hasher_algorithm);
 
         if let Some(storage_class) = &params.storage_class {
             put_object_params = put_object_params.storage_class(storage_class.clone());
+        }
+        if let Some(content_type) = infer_content_type(&params.key, params.content_type_detection) {
+            trace!(key=%params.key, content_type, "detected content type by extension for atomic upload");
+            put_object_params = put_object_params.add_custom_header("Content-Type".to_owned(), content_type);
         }
         // If we have detected corruption of SSE settings, we return an error, which will currently be reported as
         // `libc::EIO` on `open()`. MP won't be able to open files for write from this point, but this is a relatively
@@ -84,7 +109,7 @@ where
             bucket: params.bucket,
             key: params.key,
             next_request_offset: 0,
-            hasher: crc32c::Hasher::new(),
+            hasher,
             maximum_upload_size,
             sse: params.server_side_encryption,
         })
@@ -109,7 +134,12 @@ where
         }
 
         self.hasher.update(data);
-        self.request.get_mut().await?.unwrap().write(data).await?;
+        self.request
+            .get_mut()
+            .await?
+            .ok_or(UploadError::UploadAlreadyTerminated)?
+            .write(data)
+            .await?;
 
         self.next_request_offset += data.len() as u64;
         Ok(data.len())
@@ -122,8 +152,20 @@ where
             .request
             .into_inner()
             .await?
-            .unwrap()
-            .review_and_complete(move |review| verify_checksums(review, size, checksum))
+            .ok_or(UploadError::UploadAlreadyTerminated)?
+            .review_and_complete(move |review| {
+                if !verify_checksums(&review, size, &checksum) {
+                    return UploadReviewOutcome::Abort;
+                }
+                // S3 full-object mode (CRC64NVME on multipart) needs the object-level checksum on
+                // CompleteMultipartUpload. Composite algorithms derive it from the part trailers, so
+                // there's nothing to send.
+                if matches!(checksum, UploadChecksum::Crc64nvme(_)) {
+                    UploadReviewOutcome::Proceed(Some(checksum))
+                } else {
+                    UploadReviewOutcome::Proceed(None)
+                }
+            })
             .await?;
         if let Err(err) = self
             .sse
@@ -152,27 +194,8 @@ impl<Client: ObjectClient> Debug for UploadRequest<Client> {
     }
 }
 
-fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum: Crc32c) -> bool {
-    let mut uploaded_size = 0u64;
-    let mut uploaded_checksum = Crc32c::new(0);
-    for (i, part) in review.parts.iter().enumerate() {
-        uploaded_size += part.size;
-
-        let Some(checksum) = &part.checksum else {
-            error!(part_number = i + 1, "missing part checksum");
-            return false;
-        };
-        let checksum = match crc32c_from_base64(checksum) {
-            Ok(checksum) => checksum,
-            Err(error) => {
-                error!(part_number = i + 1, ?error, "error decoding part checksum");
-                return false;
-            }
-        };
-
-        uploaded_checksum = combine_checksums(uploaded_checksum, checksum, part.size as usize);
-    }
-
+fn verify_checksums(review: &UploadReview, expected_size: u64, expected_checksum: &UploadChecksum) -> bool {
+    let uploaded_size: u64 = review.parts.iter().map(|part| part.size).sum();
     if uploaded_size != expected_size {
         error!(
             uploaded_size,
@@ -181,15 +204,70 @@ fn verify_checksums(review: UploadReview, expected_size: u64, expected_checksum:
         return false;
     }
 
-    if uploaded_checksum != expected_checksum {
+    match expected_checksum {
+        UploadChecksum::Crc32c(expected) => verify_crc32c(review, expected),
+        UploadChecksum::Crc64nvme(expected) => verify_crc64nvme(review, expected),
+        other => {
+            error!(
+                ?other,
+                "atomic upload verification not implemented for this checksum algorithm"
+            );
+            false
+        }
+    }
+}
+
+fn verify_crc32c(review: &UploadReview, expected: &Crc32c) -> bool {
+    let mut combined = Crc32c::new(0);
+    for (i, part) in review.parts.iter().enumerate() {
+        let Some(checksum) = &part.checksum else {
+            error!(part_number = i + 1, "missing part checksum");
+            return false;
+        };
+        let part_checksum = match crc32c_from_base64(checksum) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                error!(part_number = i + 1, ?error, "error decoding CRC32C part checksum");
+                return false;
+            }
+        };
+        combined = combine_checksums(combined, part_checksum, part.size as usize);
+    }
+    if combined != *expected {
         error!(
-            ?uploaded_checksum,
-            ?expected_checksum,
-            "Combined checksum of all uploaded parts differs from expected checksum"
+            ?combined,
+            ?expected,
+            "Combined CRC32C checksum of parts differs from expected"
         );
         return false;
     }
+    true
+}
 
+fn verify_crc64nvme(review: &UploadReview, expected: &crc64nvme::Crc64nvme) -> bool {
+    let mut combined = crc64nvme::Crc64nvme::new(0);
+    for (i, part) in review.parts.iter().enumerate() {
+        let Some(checksum) = &part.checksum else {
+            error!(part_number = i + 1, "missing part checksum");
+            return false;
+        };
+        let part_checksum = match crc64nvme_from_base64(checksum) {
+            Ok(checksum) => checksum,
+            Err(error) => {
+                error!(part_number = i + 1, ?error, "error decoding CRC64NVME part checksum");
+                return false;
+            }
+        };
+        combined = crc64nvme::combine(combined, part_checksum, part.size as usize);
+    }
+    if combined != *expected {
+        error!(
+            ?combined,
+            ?expected,
+            "Combined CRC64NVME checksum of parts differs from expected"
+        );
+        return false;
+    }
     true
 }
 
@@ -306,6 +384,7 @@ mod tests {
         let mut put_failures = HashMap::new();
         put_failures.insert(1, Ok((1, MockClientError("error".to_owned().into()))));
         put_failures.insert(2, Ok((2, MockClientError("error".to_owned().into()))));
+        put_failures.insert(3, Err(MockClientError("error".to_owned().into()).into()));
 
         let failure_client = Arc::new(countdown_failure_client(
             client.clone(),
@@ -335,6 +414,25 @@ mod tests {
             _ = request.write(0, data).await.unwrap();
 
             request.complete().await.expect_err("complete should fail");
+        }
+        assert!(!client.is_upload_in_progress(key));
+        assert!(!client.contains_key(key));
+
+        // Third request fails on first write (because CreateMPU returns an error).
+        {
+            let mut request = uploader.start_atomic_upload(bucket.to_owned(), key.to_owned()).unwrap();
+
+            let data = b"foo";
+            request.write(0, data).await.expect_err("first write should fail");
+
+            let err = request
+                .write(0, data)
+                .await
+                .expect_err("subsequent writes should also fail");
+            assert!(matches!(err, UploadError::UploadAlreadyTerminated));
+
+            let err = request.complete().await.expect_err("complete should also fail");
+            assert!(matches!(err, UploadError::UploadAlreadyTerminated));
         }
         assert!(!client.is_upload_in_progress(key));
         assert!(!client.contains_key(key));

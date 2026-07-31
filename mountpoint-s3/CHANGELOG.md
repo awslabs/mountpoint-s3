@@ -1,4 +1,42 @@
-## Unreleased (v1.22.0)
+## Unreleased
+
+## v1.23.0 (July 20, 2026)
+
+* Add `--ca-bundle` flag (and `AWS_CA_BUNDLE` environment variable fallback) for trusting a custom certificate authority when Mountpoint makes HTTPS calls. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834) by @yerzhan7)
+* Add support for CRC64NVME full-object checksums on uploads. The `--upload-checksums` argument now accepts `crc64nvme` in addition to the existing `crc32c` and `off` values. CRC32C continues to use S3's composite (checksum-of-checksums) format on multipart uploads; CRC64NVME uses S3's `FULL_OBJECT` mode. Both algorithms work end-to-end on atomic and incremental upload paths. Note for downstream consumers: on multipart objects, `GetObjectAttributes` reports `ChecksumType: FULL_OBJECT` for CRC64NVME (vs. `COMPOSITE` for CRC32C), and the `x-amz-checksum-crc64nvme` header value is the full-object hash with no `-<part-count>` suffix. Tooling that strips the composite `-N` suffix or assumes `COMPOSITE` should branch on the algorithm. ([#1838](https://github.com/awslabs/mountpoint-s3/pull/1838) by @alecrubin)
+* Add support for automatic content type detection on file uploads. When the `--infer-content-type` flag is specified, Mountpoint will infer the `Content-Type` of new objects based on their file extension instead of using the default `binary/octet-stream`. ([#1790](https://github.com/awslabs/mountpoint-s3/pull/1790) by @Zxilly)
+* Fix credential resolution when using a source profile with STS Web Identity. ([#1889](https://github.com/awslabs/mountpoint-s3/pull/1889) by @passaro)
+* Fix memory limiter ignoring container cgroup memory limits, which could cause out-of-memory issues in memory-constrained containers. ([#1806](https://github.com/awslabs/mountpoint-s3/pull/1806) by @yerzhan7)
+* Reduce peak memory usage of incremental (append) uploads by removing an unnecessary buffer copy in the internal S3 client. ([#1882](https://github.com/awslabs/mountpoint-s3/pull/1882) by @yerzhan7)
+* Add additional debug information to FUSE operation logs including the ID of the process triggering the file system operation. ([#1718](https://github.com/awslabs/mountpoint-s3/pull/1718) by @mansi153)
+
+## v1.22.3 (April 28, 2026)
+
+* Improve error message when S3 Express session creation fails. ([#1793](https://github.com/awslabs/mountpoint-s3/pull/1793))
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1819](https://github.com/awslabs/mountpoint-s3/pull/1819))
+
+## v1.22.2 (Mar 20, 2026)
+
+* Signing key rotation: We have updated the GnuPG key used to sign new Mountpoint for Amazon S3 releases. If you are following the [Verifying the signature of the Mountpoint for Amazon S3 package](https://github.com/awslabs/mountpoint-s3/blob/main/doc/INSTALL.md#optional-verifying-the-signature-of-the-mountpoint-for-amazon-s3-package) instructions, make sure to use the latest version of the KEYS file.
+* Update the internal S3 client to use the latest release of the AWS Common Runtime (CRT) libraries. ([#1778](https://github.com/awslabs/mountpoint-s3/pull/1778))
+
+## v1.22.1 (March 9, 2026)
+
+* Fix a race condition where concurrent operations after closing a truncated file could result in I/O errors on subsequent reads. The issue was introduced in v1.22.0. ([#1781](https://github.com/awslabs/mountpoint-s3/pull/1781))
+* Fix incorrect validation of default data cache limit which would cause Mountpoint to preserve less than 5% of available space ([#1779](https://github.com/awslabs/mountpoint-s3/pull/1779))
+
+## v1.22.0 (January 22, 2026)
+
+### Breaking changes
+
+* Address an issue where opening a file for reading/writing immediately after the file had been closed would occasionally fail. Since this release, opening a new file handle after close will succeed and trigger the completion of a deferred upload if required. As a consequence, duplicate references to the closed file handle will become invalid and read or write operations on them will fail. See [this section in the semantics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/SEMANTICS.md#close-and-re-open) for details. ([#1704](https://github.com/awslabs/mountpoint-s3/pull/1704))
+
+### Other changes
+
+* Add metric to track cache hit rate in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716))
+* Remove redundant cache metrics in logs. ([#1716](https://github.com/awslabs/mountpoint-s3/pull/1716), [#1721](https://github.com/awslabs/mountpoint-s3/pull/1721))
+* Update cache metrics for consistency. ([#1721](https://github.com/awslabs/mountpoint-s3/pull/1721), [#1738](https://github.com/awslabs/mountpoint-s3/pull/1738))
+* Add cache metrics for OTLP export. ([#1724](https://github.com/awslabs/mountpoint-s3/pull/1724))
 
 ## v1.21.0 (Oct 30, 2025)
 
@@ -20,6 +58,7 @@
 * Fix issue preventing incremental upload to handle very large write part sizes. ([#1538](https://github.com/awslabs/mountpoint-s3/pull/1538))
 * Fix race condition that could cause Mountpoint to panic on unlink. ([#1596](https://github.com/awslabs/mountpoint-s3/pull/1596))
 * Downgrade ioctl operation logging level from WARN to DEBUG to reduce log noise. ([#1598](https://github.com/awslabs/mountpoint-s3/pull/1598))
+* Support NO_PROXY environment variable similar to curl. ([#1520](https://github.com/awslabs/mountpoint-s3/pull/1520), [#532](https://github.com/awslabs/aws-c-http/pull/532), [#322](https://github.com/awslabs/mountpoint-s3/issues/322))
 
 ## v1.19.0 (Jun 19, 2025)
 

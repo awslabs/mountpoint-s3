@@ -188,6 +188,7 @@ impl ToErrno for InodeError {
             InodeError::OperationNotSupportedOnSyntheticInode { .. } => libc::EIO,
             InodeError::OutOfOrderReadDir { .. } => libc::EBADF,
             InodeError::NoSuchDirHandle { .. } => libc::EINVAL,
+            InodeError::FlexibleRetrievalObjectNotAccessible(_) => libc::EACCES,
         }
     }
 }

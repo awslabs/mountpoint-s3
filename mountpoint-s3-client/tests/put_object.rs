@@ -5,10 +5,11 @@ pub mod common;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use common::memory_pool::RecordingMemoryPool;
 use common::*;
 
 use futures::{FutureExt, StreamExt, pin_mut};
-use rand::Rng;
+use rand::RngExt;
 use test_case::test_case;
 
 use mountpoint_s3_client::checksums::{crc32c, crc32c_to_base64};
@@ -16,9 +17,9 @@ use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::types::{
     ChecksumAlgorithm, GetObjectParams, HeadObjectParams, ObjectClientResult, PutObjectParams, PutObjectResult,
-    PutObjectTrailingChecksums,
+    PutObjectTrailingChecksums, UploadReviewOutcome,
 };
-use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3RequestError};
+use mountpoint_s3_client::{ObjectClient, PutObjectRequest, S3CrtClient, S3RequestError};
 
 // Simple test for PUT object. Puts a single, small object as a single part and checks that the
 // contents are correct with a GET.
@@ -55,6 +56,36 @@ async fn test_put_object(
 }
 
 object_client_test!(test_put_object);
+
+#[tokio::test]
+async fn test_put_object_custom_id_propagates_to_memory_pool() {
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_put_object_custom_id_propagates_to_memory_pool");
+    let key = format!("{prefix}hello");
+
+    let recording_pool = RecordingMemoryPool::default();
+    let client_config = S3ClientConfig::new()
+        .endpoint_config(get_test_endpoint_config())
+        .memory_pool(recording_pool.clone());
+    // Constructing the client directly instead of using get_test_client_with_config,
+    // which would override our RecordingMemoryPool in some test configurations.
+    let client = S3CrtClient::new(client_config).expect("could not create test client");
+
+    let custom_id = 31337;
+    let mut request = client
+        .put_object(&bucket, &key, &PutObjectParams::new().custom_id(Some(custom_id)))
+        .await
+        .expect("put_object should succeed");
+
+    let body = vec![0x7f; 1024];
+    request.write(&body).await.expect("write should succeed");
+    let _ = request.complete().await.expect("complete should succeed");
+
+    let observed = recording_pool.observed_custom_ids();
+    assert!(
+        observed.contains(&Some(custom_id)),
+        "expected to observe custom id {custom_id}, observed: {observed:?}"
+    );
+}
 
 // Simple test for PUT object. Puts a single, empty object and checks that the (empty)
 // contents are correct with a GET.
@@ -308,8 +339,8 @@ async fn test_put_object_initiate_failure() {
     assert_eq!(uploads_in_progress, 0);
 }
 
-#[test_case(PutObjectTrailingChecksums::Enabled; "enabled")]
-#[test_case(PutObjectTrailingChecksums::ReviewOnly; "review only")]
+#[test_case(PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c); "composite")]
+#[test_case(PutObjectTrailingChecksums::ReviewOnly(ChecksumAlgorithm::Crc32c); "review only")]
 #[test_case(PutObjectTrailingChecksums::Disabled; "disabled")]
 #[tokio::test]
 async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
@@ -326,23 +357,24 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(trailing_checksums);
+    let params = PutObjectParams::new().trailing_checksums(trailing_checksums.clone());
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await
         .expect("put_object should succeed");
 
     request.write(&contents).await.unwrap();
+    let trailing_for_review = trailing_checksums.clone();
     request
         .review_and_complete(move |review| {
             let parts = review.parts;
-            if trailing_checksums == PutObjectTrailingChecksums::Disabled {
+            if matches!(trailing_for_review, PutObjectTrailingChecksums::Disabled) {
                 assert!(review.checksum_algorithm.is_none());
                 assert!(parts.iter().all(|p| p.checksum.is_none()));
             } else {
                 assert_eq!(review.checksum_algorithm, Some(ChecksumAlgorithm::Crc32c));
             }
-            true
+            UploadReviewOutcome::Proceed(None)
         })
         .await
         .unwrap();
@@ -358,12 +390,12 @@ async fn test_put_checksums(trailing_checksums: PutObjectTrailingChecksums) {
         .unwrap();
     let parts = attributes.object_parts().unwrap().parts();
 
-    if trailing_checksums == PutObjectTrailingChecksums::Enabled {
+    if matches!(trailing_checksums, PutObjectTrailingChecksums::Composite(_)) {
         let checksums: Vec<_> = parts.iter().map(|p| p.checksum_crc32_c().unwrap()).collect();
         let expected_checksums: Vec<_> = contents.chunks(PART_SIZE).map(crc32c::checksum).collect();
 
         assert_eq!(checksums.len(), expected_checksums.len());
-        for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums.into_iter()) {
+        for (checksum, expected_checksum) in checksums.into_iter().zip(expected_checksums) {
             let encoded = crc32c_to_base64(&expected_checksum);
             assert_eq!(checksum, encoded);
         }
@@ -442,7 +474,8 @@ async fn test_put_review(pass_review: bool) {
     let mut contents = vec![0u8; PART_SIZE * 2];
     rng.fill(&mut contents[..]);
 
-    let params = PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Enabled);
+    let params =
+        PutObjectParams::new().trailing_checksums(PutObjectTrailingChecksums::Composite(ChecksumAlgorithm::Crc32c));
     let mut request = client
         .put_object(&bucket, &key, &params)
         .await
@@ -455,7 +488,11 @@ async fn test_put_review(pass_review: bool) {
         .review_and_complete(move |review| {
             let total_size: u64 = review.parts.iter().map(|p| p.size).sum();
             assert_eq!(total_size, contents_size as u64);
-            pass_review
+            if pass_review {
+                UploadReviewOutcome::Proceed(None)
+            } else {
+                UploadReviewOutcome::Abort
+            }
         })
         .await;
 

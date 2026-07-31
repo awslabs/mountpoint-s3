@@ -7,14 +7,16 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::channel::oneshot::{self, Receiver};
 use mountpoint_s3_crt::http::request_response::{Header, Headers, HeadersError};
-use mountpoint_s3_crt::io::stream::InputStream;
-use mountpoint_s3_crt::s3::client::{ChecksumConfig, MetaRequestResult, RequestType, UploadReview};
+use mountpoint_s3_crt::s3::client::{
+    ChecksumConfig, MetaRequestResult, RequestType, UploadReview, UploadReviewOutcome as CrtUploadReviewOutcome,
+};
 use thiserror::Error;
 use tracing::error;
 use xmltree::Element;
 
 use crate::object_client::{
     ObjectClientResult, PutObjectError, PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams,
+    UploadReviewOutcome,
 };
 
 use super::{
@@ -48,10 +50,13 @@ impl S3CrtClient {
                 params.ssekms_key_id.as_deref(),
             )?;
 
-            let checksum_config = match params.trailing_checksums {
-                PutObjectTrailingChecksums::Enabled => Some(ChecksumConfig::trailing_crc32c()),
-                PutObjectTrailingChecksums::ReviewOnly => Some(ChecksumConfig::upload_review_crc32c()),
+            let checksum_config = match &params.trailing_checksums {
                 PutObjectTrailingChecksums::Disabled => None,
+                PutObjectTrailingChecksums::Composite(algorithm) => Some(ChecksumConfig::trailing(algorithm)),
+                PutObjectTrailingChecksums::FullObject(algorithm) => {
+                    Some(ChecksumConfig::trailing_full_object(algorithm))
+                }
+                PutObjectTrailingChecksums::ReviewOnly(algorithm) => Some(ChecksumConfig::upload_review(algorithm)),
             };
             message.set_checksum_config(checksum_config);
 
@@ -73,6 +78,9 @@ impl S3CrtClient {
             options.send_using_async_writes(true);
             options.on_upload_review(move |review| callback.invoke(review));
             options.part_size(self.inner.write_part_size as u64);
+            if let Some(id) = params.custom_id {
+                options.custom_id(id);
+            }
 
             let on_mpu_created_sender = Arc::new(Mutex::new(Some(mpu_created_sender)));
             let on_failure_sender = on_mpu_created_sender.clone();
@@ -123,18 +131,17 @@ impl S3CrtClient {
         })
     }
 
-    pub(super) async fn put_object_single<'a>(
+    pub(super) async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, S3RequestError> {
         let span = request_span!(self.inner, "put_object_single", bucket, key);
         let start_time = Instant::now();
 
-        let slice = contents.as_ref();
-        let content_length = slice.len();
+        let content_length = contents.as_ref().len();
         let request = {
             let mut message = self.new_put_request(
                 bucket,
@@ -173,15 +180,17 @@ impl S3CrtClient {
                     .map_err(S3RequestError::construction_failure)?;
             }
 
-            let body_input_stream =
-                InputStream::new_from_slice(&self.inner.allocator, slice).map_err(S3RequestError::CrtError)?;
-            message.set_body_stream(Some(body_input_stream));
+            let mut options = message.into_options(S3Operation::PutObjectSingle);
+            if content_length > 0 {
+                // Zero-copy: move `contents` into the options so the CRT uploads directly from it
+                // with no extra allocation or copy. Ownership lives with the (leaked) options until
+                // the meta request is fully torn down, so the buffer stays valid across every send
+                // and retry even if this request future is dropped/cancelled first.
+                options.request_body(contents);
+            }
 
-            self.inner.meta_request_with_headers_payload(
-                message.into_options(S3Operation::PutObjectSingle),
-                span,
-                parse_put_object_single_error,
-            )?
+            self.inner
+                .meta_request_with_headers_payload(options, span, parse_put_object_single_error)?
         };
 
         let headers = request.await?;
@@ -199,7 +208,7 @@ impl S3CrtClient {
         storage_class: Option<&str>,
         server_side_encryption: Option<&str>,
         ssekms_key_id: Option<&str>,
-    ) -> Result<S3Message<'_>, S3RequestError> {
+    ) -> Result<S3Message, S3RequestError> {
         let mut message = self
             .inner
             .new_request_template("PUT", bucket)
@@ -231,7 +240,7 @@ impl S3CrtClient {
     }
 }
 
-type ReviewCallback = dyn FnOnce(UploadReview) -> bool + Send;
+type ReviewCallback = dyn FnOnce(UploadReview) -> UploadReviewOutcome + Send;
 
 /// Holder for the upload review callback.
 /// Used to set the callback when initiating the PutObject request on the CRT client,
@@ -248,19 +257,27 @@ impl std::fmt::Debug for ReviewCallbackBox {
 }
 
 impl ReviewCallbackBox {
-    fn set(&mut self, callback: impl FnOnce(UploadReview) -> bool + Send + 'static) {
+    fn set(&mut self, callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static) {
         let previous = self.callback.lock().unwrap().replace(Box::new(callback));
         assert!(previous.is_none(), "review callback set twice");
     }
 
-    fn invoke(self, review: UploadReview) -> bool {
+    /// Invoke the caller's review callback and translate its outcome into the CRT's. The optional
+    /// full-object [`UploadChecksum`](crate::object_client::UploadChecksum) is rendered to its
+    /// base64 wire form for the CRT to send on `CompleteMultipartUpload`.
+    fn invoke(self, review: UploadReview) -> CrtUploadReviewOutcome {
         let mut callback = self.callback.lock().unwrap();
         let Some(callback) = callback.take() else {
             error!("review callback was either never set or invoked twice");
-            return false;
+            return CrtUploadReviewOutcome::Abort;
         };
 
-        (callback)(review)
+        match (callback)(review) {
+            UploadReviewOutcome::Proceed(checksum) => {
+                CrtUploadReviewOutcome::Proceed(checksum.map(|checksum| checksum.to_base64().into_bytes()))
+            }
+            UploadReviewOutcome::Abort => CrtUploadReviewOutcome::Abort,
+        }
     }
 }
 
@@ -408,12 +425,12 @@ impl PutObjectRequest for S3PutObjectRequest {
     }
 
     async fn complete(self) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
-        self.review_and_complete(|_| true).await
+        self.review_and_complete(|_| UploadReviewOutcome::Proceed(None)).await
     }
 
     async fn review_and_complete(
         mut self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         if matches!(self.state, S3PutObjectRequestState::PendingWrite) {
             // Fail if a previous write was not completed.

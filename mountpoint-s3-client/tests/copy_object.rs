@@ -3,8 +3,9 @@
 pub mod common;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
+use common::creds::{assert_no_permissions_error, get_no_permissions_provider};
 use common::*;
-use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{CopyObjectError, ObjectClientError};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 
@@ -43,20 +44,22 @@ async fn test_copy_objects() {
 
 #[tokio::test]
 async fn test_copy_object_no_permission() {
-    let (_bucket, prefix) = get_test_bucket_and_prefix("test_copy_object_no_permission");
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, prefix) = get_test_bucket_and_prefix("test_copy_object_no_permission");
+
+    let provider = get_no_permissions_provider().await;
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client: S3CrtClient = get_test_client_with_config(config);
+
     let key = format!("{prefix}/hello");
     let copy_key = format!("{prefix}/hello2");
 
-    let client: S3CrtClient = get_test_client();
-    let result = client
+    let err = client
         .copy_object(&bucket, &key, &bucket, &copy_key, &Default::default())
-        .await;
-
-    assert!(matches!(
-        result,
-        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)))
-    ));
+        .await
+        .expect_err("should fail if no permission to access S3");
+    assert_no_permissions_error!(err);
 }
 
 #[tokio::test]

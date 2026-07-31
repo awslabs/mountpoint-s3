@@ -26,7 +26,7 @@ ignore = [
     "RUSTSEC-2026-0046", # AWS-LC: PKCS7_verify Certificate Chain Validation Bypass
     "RUSTSEC-2026-0047", # AWS-LC: PKCS7_verify Signature Validation Bypass
     "RUSTSEC-2026-0048", # AWS-LC: CRL Distribution Point Scope Check Logic Error
-    "RUSTSEC-2025-0141", # Bincode is unmaintained
+    { id = "RUSTSEC-2025-0141", reason = "bincode is unmaintained (https://rustsec.org/advisories/RUSTSEC-2025-0141). Ignore unmaintained warning until we remove the dependency." },
     "RUSTSEC-2026-0007", # Integer overflow in BytesMut::reserve
     "RUSTSEC-2026-0097", # Rand is unsound with custom logger
     "RUSTSEC-2025-0134", # rustls-pemfile is unmaintained

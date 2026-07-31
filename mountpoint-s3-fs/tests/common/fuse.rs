@@ -53,6 +53,8 @@ pub trait TestClient: Send {
 
     fn get_object_size(&self, key: &str) -> Result<usize, Box<dyn std::error::Error>>;
 
+    fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>>;
+
     fn restore_object(&self, key: &str, expedited: bool) -> Result<(), Box<dyn std::error::Error>>;
 
     fn is_object_restored(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>>;
@@ -74,15 +76,17 @@ pub struct TestSessionConfig {
     pub cache_block_size: usize,
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
+    pub fail_on_non_aligned_read_window: bool,
 }
 
 impl Default for TestSessionConfig {
     fn default() -> Self {
         let part_size = 8 * 1024 * 1024;
+        let initial_read_window_size = 1024 * 1024 + 128 * 1024;
         let cache_block_size = 1024 * 1024;
         Self {
             part_size,
-            initial_read_window_size: part_size,
+            initial_read_window_size,
             filesystem_config: Default::default(),
             auth_config: Default::default(),
             pass_fuse_fd: false,
@@ -91,6 +95,7 @@ impl Default for TestSessionConfig {
             cache_block_size,
             #[cfg(feature = "manifest")]
             manifest: None,
+            fail_on_non_aligned_read_window: false,
         }
     }
 }
@@ -105,50 +110,38 @@ impl TestSessionConfig {
         self.pass_fuse_fd = pass_fuse_fd;
         self
     }
+
+    /// Enable a check to ensure all read window increments are aligned with part boundaries
+    ///
+    /// Warning: A failed check on one request will result in all other requests from the client to fail.
+    pub fn fail_on_non_aligned_read_window(mut self, enable: bool) -> Self {
+        self.fail_on_non_aligned_read_window = enable;
+        self
+    }
+
+    /// Override the memory limit for this test session.
+    pub fn with_mem_limit(mut self, mem_limit: u64) -> Self {
+        self.filesystem_config.mem_limit = mem_limit;
+        self
+    }
 }
 
-// Holds resources for the testing session and cleans them on drop.
-pub struct TestSession {
+/// A mounted FUSE session that unmounts and joins its worker threads when dropped.
+pub struct MountedSession {
     mount_dir: TempDir,
-    test_client: Box<dyn TestClient>,
-    prefix: String,
     // Option so we can explicitly unmount
     session: Option<FuseSession>,
     // Only set if `pass_fuse_fd` is true, will unmount the filesystem on drop.
     mount: Option<Mount>,
 }
 
-impl TestSession {
-    pub fn new(
-        mount_dir: TempDir,
-        session: FuseSession,
-        test_client: impl TestClient + 'static,
-        prefix: String,
-        mount: Option<Mount>,
-    ) -> Self {
-        Self {
-            mount_dir,
-            test_client: Box::new(test_client),
-            session: Some(session),
-            mount,
-            prefix,
-        }
-    }
-
-    pub fn mount_path(&self) -> &Path {
+impl MountedSession {
+    pub fn path(&self) -> &Path {
         self.mount_dir.path()
-    }
-
-    pub fn client(&self) -> &dyn TestClient {
-        self.test_client.as_ref()
-    }
-
-    pub fn prefix(&self) -> &str {
-        &self.prefix
     }
 }
 
-impl Drop for TestSession {
+impl Drop for MountedSession {
     fn drop(&mut self) {
         // If the session created with a pre-existing mount (e.g., with `pass_fuse_fd`),
         // this will unmount it explicitly...
@@ -160,6 +153,35 @@ impl Drop for TestSession {
                 tracing::warn!(?error, "error while unmounting");
             }
         }
+    }
+}
+
+/// Holds resources for the testing session and cleans them on drop.
+pub struct TestSession {
+    mounted_session: MountedSession,
+    test_client: Box<dyn TestClient>,
+    prefix: String,
+}
+
+impl TestSession {
+    fn new(mounted_session: MountedSession, test_client: impl TestClient + 'static, prefix: String) -> Self {
+        Self {
+            mounted_session,
+            test_client: Box::new(test_client),
+            prefix,
+        }
+    }
+
+    pub fn mount_path(&self) -> &Path {
+        self.mounted_session.path()
+    }
+
+    pub fn client(&self) -> &dyn TestClient {
+        self.test_client.as_ref()
+    }
+
+    pub fn prefix(&self) -> &str {
+        &self.prefix
     }
 }
 
@@ -219,9 +241,9 @@ pub fn create_fuse_session<Client>(
     pool: PagedPool,
     runtime: Runtime,
     s3_path: S3Path,
-    mount_dir: &Path,
+    mount_dir: TempDir,
     test_config: TestSessionConfig,
-) -> (FuseSession, Option<Mount>)
+) -> MountedSession
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
@@ -246,17 +268,18 @@ where
     );
     let fs = S3FuseFilesystem::new(fs, test_config.error_logger);
     let (session, mount) = if test_config.pass_fuse_fd {
-        let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
+        let (fd, mount) = mount_for_passing_fuse_fd(mount_dir.path(), &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
         (Session::from_fd(fs, owned_fd, session_acl), Some(mount))
     } else {
-        (Session::new(fs, mount_dir, &options).unwrap(), None)
+        (Session::new(fs, mount_dir.path(), &options).unwrap(), None)
     };
 
-    (
-        FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap(),
+    MountedSession {
+        mount_dir,
+        session: Some(FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap()),
         mount,
-    )
+    }
 }
 
 /// Open `/dev/fuse` and call `mount` syscall with given `mount_point`.
@@ -307,22 +330,23 @@ pub mod mock_session {
                 .enable_backpressure(true)
                 .initial_read_window_size(test_config.initial_read_window_size)
                 .enable_rename(test_config.filesystem_config.allow_rename)
+                .fail_on_non_aligned_read_window(test_config.fail_on_non_aligned_read_window)
                 .build(),
         );
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
-        let (session, mount) = create_fuse_session(
+        let mounted_session = create_fuse_session(
             client.clone(),
             prefetcher_builder,
             pool,
             runtime,
             s3_path,
-            mount_dir.path(),
+            mount_dir,
             test_config,
         );
         let test_client = create_test_client(client, &prefix);
 
-        TestSession::new(mount_dir, session, test_client, prefix, mount)
+        TestSession::new(mounted_session, test_client, prefix)
     }
 
     /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
@@ -353,18 +377,18 @@ pub mod mock_session {
             );
             let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
             let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
-            let (session, mount) = create_fuse_session(
+            let mounted_session = create_fuse_session(
                 client.clone(),
                 prefetcher_builder,
                 pool,
                 runtime,
                 s3_path,
-                mount_dir.path(),
+                mount_dir,
                 test_config,
             );
             let test_client = create_test_client(client, &prefix);
 
-            TestSession::new(mount_dir, session, test_client, prefix, mount)
+            TestSession::new(mounted_session, test_client, prefix)
         }
     }
 
@@ -388,7 +412,10 @@ pub mod mock_session {
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            _ = tokio_block_on(self.client.put_object_single(BUCKET_NAME, &full_key, &params, value))?;
+            _ = tokio_block_on(
+                self.client
+                    .put_object_single(BUCKET_NAME, &full_key, &params, value.to_vec()),
+            )?;
             Ok(())
         }
 
@@ -449,6 +476,11 @@ pub mod mock_session {
             Ok(head_object.size as usize)
         }
 
+        fn get_object_content_type(&self, _key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+            // MockClient's HeadObject does not expose Content-Type headers.
+            Ok(None)
+        }
+
         fn restore_object(&self, key: &str, _expedited: bool) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
             Ok(self.client.restore_object(&full_key)?)
@@ -499,13 +531,13 @@ pub mod s3_session {
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = Runtime::new(client.event_loop_group());
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
-        let (session, mount) = create_fuse_session(
+        let mounted_session = create_fuse_session(
             client,
             prefetcher_builder,
             pool,
             runtime,
             s3_path.clone(),
-            mount_dir.path(),
+            mount_dir,
             test_config,
         );
 
@@ -514,7 +546,7 @@ pub mod s3_session {
             bucket: s3_path.bucket.to_string(),
             sdk_client,
         };
-        TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
+        TestSession::new(mounted_session, test_client, s3_path.prefix.to_string())
     }
 
     /// Create a FUSE mount backed by a real S3 client, with caching
@@ -539,18 +571,18 @@ pub mod s3_session {
             );
             let runtime = Runtime::new(client.event_loop_group());
             let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
-            let (session, mount) = create_fuse_session(
+            let mounted_session = create_fuse_session(
                 client,
                 prefetcher_builder,
                 pool,
                 runtime,
                 s3_path.clone(),
-                mount_dir.path(),
+                mount_dir,
                 test_config,
             );
             let test_client = create_test_client(&region, s3_path.bucket.as_str(), s3_path.prefix.as_str());
 
-            TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
+            TestSession::new(mounted_session, test_client, s3_path.prefix.to_string())
         }
     }
 
@@ -722,6 +754,12 @@ pub mod s3_session {
             let full_key = format!("{}{}", self.prefix, key);
             let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
             Ok(head_object.content_length().unwrap() as usize)
+        }
+
+        fn get_object_content_type(&self, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+            let full_key = format!("{}{}", self.prefix, key);
+            let head_object = tokio_block_on(self.sdk_client.head_object().bucket(&self.bucket).key(&full_key).send())?;
+            Ok(head_object.content_type().map(|s| s.to_owned()))
         }
 
         // Schedule restoration of an object, do not wait until completion. Expidited restoration completes within 1-5 min for GLACIER and is not available for DEEP_ARCHIVE.

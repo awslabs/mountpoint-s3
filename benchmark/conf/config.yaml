@@ -73,7 +73,7 @@ benchmarks:
     # None
 
   client_bp:
-    read_window_size: !!null #2147483648
+    backpressure_window_size: !!null #2147483648
 
 
 hydra:

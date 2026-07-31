@@ -1,7 +1,7 @@
 [package]
 name = "mountpoint-s3-crt-sys"
 # See `/doc/PUBLISHING_CRATES.md` to read how to publish new versions.
-version = "0.15.3"
+version = "0.17.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/mountpoint-s3"
@@ -40,9 +40,6 @@ exclude = [
     "crt/aws-lc/crypto/ocsp/test/*",
     "crt/aws-lc/crypto/hpke/test-vectors.json",
     "crt/aws-lc/fuzz/*",
-    "crt/aws-lc/generated-src/ios-*",
-    "crt/aws-lc/generated-src/mac-*",
-    "crt/aws-lc/generated-src/win-*",
     "crt/aws-lc/generated-src/crypto_test_data.cc.tar.bz2",
     "crt/aws-lc/ssl/ssl_test.cc",
     "crt/aws-lc/ssl/test/*",
@@ -77,13 +74,13 @@ exclude = [
 bindgen = { version = "0.72.1", default-features = false, features = [
     "runtime",
 ] }
-cc = "1.2.40"
-cmake = "0.1.54"
+cc = "1.2.65"
+cmake = "0.1.58"
 rustflags = "0.1.7"
-which = "8.0.0"
+which = "8.0.4"
 
 [dependencies]
-libc = "0.2.176"
+libc = "0.2.186"
 
 [lib]
 # this prevents C docs being interpreted as rustdoc tests after bindgen

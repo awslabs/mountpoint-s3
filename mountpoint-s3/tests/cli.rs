@@ -1,3 +1,4 @@
+use assert_cmd::cargo;
 use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*; // Used for writing assertions
 use std::{fs, os::unix::prelude::PermissionsExt, process::Command}; // Run programs
@@ -9,7 +10,7 @@ const VALID_VERSION_OUTPUT_PATTERN: &str = "^mount-s3 (0|[1-9]\\d*)\\.(0|[1-9]\\
 
 #[test]
 fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg("test/dir");
     let error_message = "mount point test/dir does not exist";
@@ -22,7 +23,7 @@ fn mount_point_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
 fn mount_point_isnt_dir() -> Result<(), Box<dyn std::error::Error>> {
     let file = assert_fs::NamedTempFile::new("file.txt")?;
     fs::write(file.path(), b"hello")?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(file.path());
     let error_message = format!("mount point {} is not a directory", file.path().display());
@@ -34,7 +35,7 @@ fn mount_point_isnt_dir() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn prefix_doesnt_end_in_slash() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     let prefix = "foo";
     cmd.arg("test-bucket").arg(dir.path()).arg(format!("--prefix={prefix}"));
@@ -47,7 +48,7 @@ fn prefix_doesnt_end_in_slash() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn max_dir_mode_exceeded() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("--dir-mode=7755");
     let error_message = "'--dir-mode <DIR_MODE>': only user/group/other permissions are supported";
@@ -59,7 +60,7 @@ fn max_dir_mode_exceeded() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn invalid_dir_mode() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("--dir-mode=800");
     let error_message = "'--dir-mode <DIR_MODE>': must be a valid octal number";
@@ -71,7 +72,7 @@ fn invalid_dir_mode() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn max_file_mode_exceeded() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("--file-mode=7644");
     let error_message = "'--file-mode <FILE_MODE>': only user/group/other permissions are supported";
@@ -83,7 +84,7 @@ fn max_file_mode_exceeded() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn invalid_file_mode() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("--file-mode=900");
     let error_message = "'--file-mode <FILE_MODE>': must be a valid octal number";
@@ -94,7 +95,7 @@ fn invalid_file_mode() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn print_version_long() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg("--version");
 
     cmd.assert()
@@ -106,7 +107,7 @@ fn print_version_long() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn print_version_short() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg("-V");
 
     cmd.assert()
@@ -118,7 +119,7 @@ fn print_version_short() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn bucket_name_and_directory_swapped() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test/dir").arg("my-bucket-name");
     let error_message = "the bucket must have a valid name (only letters, numbers, . and -) or a valid ARN";
@@ -130,7 +131,7 @@ fn bucket_name_and_directory_swapped() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn invalid_profile() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("--profile").arg("INVALID");
     let error_message = "invalid AWS credentials";
@@ -141,7 +142,7 @@ fn invalid_profile() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     let dir = assert_fs::TempDir::new()?;
     let log_dir = assert_fs::TempDir::new()?;
     let log_dir = log_dir.path().join("logs");
@@ -182,7 +183,7 @@ fn validate_log_files_permissions() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn allow_other_conflict() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket")
         .arg(dir.path())
@@ -197,7 +198,7 @@ fn allow_other_conflict() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn max_ttl_exceeded() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     const INVALID_TTL: u64 = 150 * 365 * 24 * 60 * 60;
     cmd.arg("test-bucket")
@@ -215,7 +216,7 @@ fn max_ttl_exceeded() -> Result<(), Box<dyn std::error::Error>> {
 #[test_case("infinite")]
 fn invalid_ttl(invalid_ttl: &str) -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket")
         .arg(dir.path())
@@ -230,12 +231,12 @@ fn invalid_ttl(invalid_ttl: &str) -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg("test-bucket").arg(dir.path()).arg("--sse=");
     let error_message = "a value is required for '--sse <SSE>' but none was supplied";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg("test-bucket")
         .arg(dir.path())
         .arg("--sse=aws:kms")
@@ -249,7 +250,7 @@ fn sse_args_non_empty() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn sse_key_not_allowed_with_aes256() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg("test-bucket")
         .arg(dir.path())
         .arg("--sse=AES256")
@@ -268,7 +269,7 @@ fn verify_new_part_size_config_conflict_with_old_one(
     write_part_size: Option<u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
     cmd.arg("test-bucket").arg(dir.path()).arg("--part-size=1024");
 
     if let Some(read_part_size) = read_part_size {
@@ -287,7 +288,7 @@ fn verify_new_part_size_config_conflict_with_old_one(
 #[test]
 fn fstab_rw_conflicts_with_ro() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("ro,rw");
     let error_message = "Cannot use 'ro' flag combined with 'rw' flag";
@@ -299,7 +300,7 @@ fn fstab_rw_conflicts_with_ro() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn fstab_cannot_use_foreground() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("foreground");
     let error_message = "Cannot use 'foreground' flag when using fstab style arguments";
@@ -311,7 +312,7 @@ fn fstab_cannot_use_foreground() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn fstab_cannot_use_read_only() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("read-only");
     let error_message = "Cannot use 'read-only' flag when using fstab style arguments";
@@ -323,7 +324,7 @@ fn fstab_cannot_use_read_only() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn fstab_cannot_use_multiple_prefixes() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("s3://test-bucket/prefix/")
         .arg(dir.path())
@@ -338,7 +339,7 @@ fn fstab_cannot_use_multiple_prefixes() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn fstab_no_options() -> Result<(), Box<dyn std::error::Error>> {
     let dir = assert_fs::TempDir::new()?;
-    let mut cmd = Command::cargo_bin("mount-s3")?;
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
 
     cmd.arg("test-bucket").arg(dir.path()).arg("-o").arg("--");
     let error_message = "a value is required for '-o <OPTIONS>' but none was supplied";

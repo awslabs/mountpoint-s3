@@ -19,7 +19,7 @@ pub struct CacheTestWrapper<Cache> {
 
 struct CacheTestWrapperInner<Cache> {
     cache: Cache,
-    /// Number of times the `get_block` succeded and returned data
+    /// Number of times the `get_block` succeeded and returned data
     get_block_hit_count: AtomicU64,
     /// Number of times the `get_block` failed because of an invalid block
     get_block_invalid_count: AtomicU64,
@@ -63,7 +63,7 @@ impl<Cache> CacheTestWrapper<Cache> {
         }
     }
 
-    /// Number of times the `get_block` succeded and returned data
+    /// Number of times the `get_block` succeeded and returned data
     pub fn get_block_hit_count(&self) -> u64 {
         self.inner.get_block_hit_count.load(Ordering::SeqCst)
     }

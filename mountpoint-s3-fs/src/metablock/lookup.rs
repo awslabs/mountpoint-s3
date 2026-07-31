@@ -15,8 +15,8 @@ pub struct Lookup {
 
 impl Lookup {
     /// Creates a new Lookup instance
-    pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind, is_remote: bool, location: Option<S3Location>) -> Self {
-        Self::new_from_info_and_loc(InodeInformation::new(ino, stat, kind, is_remote), location)
+    pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind, location: Option<S3Location>) -> Self {
+        Self::new_from_info_and_loc(InodeInformation::new(ino, stat, kind), location)
     }
 
     pub fn new_from_info_and_loc(information: InodeInformation, location: Option<S3Location>) -> Self {
@@ -40,10 +40,6 @@ impl Lookup {
 
     pub fn ino(&self) -> InodeNo {
         self.information.ino()
-    }
-
-    pub fn is_remote(&self) -> bool {
-        self.information.is_remote()
     }
 
     /// How much longer this lookup will be valid for
@@ -89,17 +85,11 @@ pub struct InodeInformation {
     ino: InodeNo,
     stat: InodeStat,
     kind: InodeKind,
-    is_remote: bool,
 }
 
 impl InodeInformation {
-    pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind, is_remote: bool) -> Self {
-        InodeInformation {
-            ino,
-            stat,
-            kind,
-            is_remote,
-        }
+    pub fn new(ino: InodeNo, stat: InodeStat, kind: InodeKind) -> Self {
+        InodeInformation { ino, stat, kind }
     }
 
     pub fn kind(&self) -> InodeKind {
@@ -112,10 +102,6 @@ impl InodeInformation {
 
     pub fn ino(&self) -> InodeNo {
         self.ino
-    }
-
-    pub fn is_remote(&self) -> bool {
-        self.is_remote
     }
 
     pub fn validity(&self) -> Duration {

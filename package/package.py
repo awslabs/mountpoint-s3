@@ -135,7 +135,7 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     target_dir = os.path.join(metadata.buildroot, "cargo-target")
     env["CARGO_TARGET_DIR"] = target_dir
     if args.official:
-        # Set empty value to indicate official AWS release without specifc release target
+        # Set empty value to indicate official AWS release without specific release target
         env["MOUNTPOINT_S3_AWS_RELEASE_TARGET"] = ""
     for var in ["CC", "CXX", "LD_LIBRARY_PATH"]:
         if var in os.environ:

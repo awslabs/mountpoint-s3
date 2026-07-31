@@ -9,6 +9,7 @@ use crate::common::uri::Uri;
 use crate::http::request_response::{Headers, Message};
 use crate::io::channel_bootstrap::ClientBootstrap;
 use crate::io::retry_strategy::RetryStrategy;
+use crate::io::tls::TlsConnectionOptions;
 use crate::{CrtError, ToAwsByteCursor, aws_byte_cursor_as_slice};
 use futures::Future;
 use mountpoint_s3_crt_sys::*;
@@ -20,7 +21,7 @@ use std::mem::MaybeUninit;
 use std::os::unix::prelude::OsStrExt;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::Waker;
 use std::time::Duration;
 
@@ -73,6 +74,11 @@ pub struct ClientConfig {
 
     /// Holds the custom pool implementation factory if set.
     pool_factory: Option<CrtBufferPoolFactory>,
+
+    /// Custom TLS connection options for S3 requests. When set, [`ClientConfig::tls_connection_options`]
+    /// stores a raw pointer to this value into `inner.tls_connection_options`, so the allocation
+    /// must outlive [`Client::new`] (which is guaranteed while this [`ClientConfig`] is alive).
+    tls_connection_options: Option<TlsConnectionOptions>,
 }
 
 /// This struct bundles together the list of owned strings for the network interfaces, and the
@@ -167,6 +173,16 @@ impl ClientConfig {
         self
     }
 
+    /// Custom TLS connection options to use for S3 connections. When set, the S3 client will use
+    /// these options for each connection instead of the CRT defaults. The options must have been
+    /// built from a [`crate::io::tls::TlsContext`] configured with the desired trust store.
+    pub fn tls_connection_options(&mut self, tls_connection_options: TlsConnectionOptions) -> &mut Self {
+        let stored = self.tls_connection_options.insert(tls_connection_options);
+        self.inner.tls_mode = aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED;
+        self.inner.tls_connection_options = stored.as_inner_ptr();
+        self
+    }
+
     /// Enable S3 Express One Zone
     pub fn express_support(&mut self, express_support: bool) -> &mut Self {
         self.inner.enable_s3express = express_support;
@@ -218,7 +234,9 @@ impl ClientConfig {
     ///
     /// When not set, the client will use the default pool with the configured memory limit.
     pub fn buffer_pool_factory(&mut self, pool_factory: CrtBufferPoolFactory) -> &mut Self {
-        let (factory_fn, user_data) = pool_factory.as_inner();
+        // SAFETY: `pool_factory` is stored in `self.pool_factory` below so that it
+        // remains alive until the client is initialized.
+        let (factory_fn, user_data) = unsafe { pool_factory.as_inner() };
         self.inner.buffer_pool_factory_fn = factory_fn;
         self.inner.buffer_pool_user_data = user_data;
         self.pool_factory = Some(pool_factory);
@@ -243,19 +261,19 @@ type HeadersCallback = Box<dyn FnMut(&Headers, i32) + Send>;
 type BodyExCallback = Box<dyn FnMut(u64, &Buffer) + Send>;
 
 /// Callback for reviewing an upload before it completes.
-type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> bool + Send>;
+type UploadReviewCallback = Box<dyn FnOnce(UploadReview) -> UploadReviewOutcome + Send>;
 
 /// Callback for when the request is finished. Given (error_code, optional_error_body).
 type FinishCallback = Box<dyn FnOnce(MetaRequestResult) + Send>;
 
 /// Options for meta requests to S3. This is not a public interface, since clients should always
 /// be using the [MetaRequestOptions] wrapper, which pins this struct behind a pointer.
-struct MetaRequestOptionsInner<'a> {
+struct MetaRequestOptionsInner {
     /// Inner struct to pass to CRT functions.
     inner: aws_s3_meta_request_options,
 
     /// Owned copy of the message, if provided.
-    message: Option<Message<'a>>,
+    message: Option<Message>,
 
     /// Owned copy of the endpoint URI, if provided
     endpoint: Option<Uri>,
@@ -268,6 +286,9 @@ struct MetaRequestOptionsInner<'a> {
 
     /// Owned source uri for copy request, if provided.
     copy_source_uri: Option<String>,
+
+    /// Owned request body, if provided.
+    request_body: Option<Box<dyn AsRef<[u8]> + Send>>,
 
     /// Telemetry callback, if provided
     on_telemetry: Option<TelemetryCallback>,
@@ -284,11 +305,15 @@ struct MetaRequestOptionsInner<'a> {
     /// Finish callback, if provided (and not already called, since it's FnOnce).
     on_finish: Option<FinishCallback>,
 
+    /// Opaque caller-supplied identifier for this meta request, readable from the buffer pool
+    /// reserve path. Not related to the S3 request ID returned by the service.
+    custom_id: Option<u64>,
+
     /// Pin this struct because inner.user_data will be a pointer to this object.
     _pinned: PhantomPinned,
 }
 
-impl<'a> MetaRequestOptionsInner<'a> {
+impl MetaRequestOptionsInner {
     /// Convert from user_data in a callback to a reference to this struct.
     ///
     /// ## Safety
@@ -296,7 +321,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     /// Don't use except in a MetaRequest callback. The lifetime 'a of the returned
     /// [MetaRequestOptionsInner] is unconstrained, so the caller must make sure that the lifetime
     /// of the returned reference does not outlive the [MetaRequestOptionsInner].
-    unsafe fn from_user_data_ptr(user_data: *mut libc::c_void) -> &'a mut Self {
+    unsafe fn from_user_data_ptr<'a>(user_data: *mut libc::c_void) -> &'a mut Self {
         // SAFETY: `user_data` is initialized in `MetaRequestOptions::new`.
         unsafe { (user_data as *mut Self).as_mut().unwrap() }
     }
@@ -313,7 +338,7 @@ impl<'a> MetaRequestOptionsInner<'a> {
     }
 }
 
-impl Debug for MetaRequestOptionsInner<'_> {
+impl Debug for MetaRequestOptionsInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetaRequestOptionsInner")
             .field("inner", &self.inner)
@@ -326,9 +351,9 @@ impl Debug for MetaRequestOptionsInner<'_> {
 /// Options for a meta request to S3.
 // Implementation details: this wraps the inner struct in a pinned box to enforce we don't move out of it.
 #[derive(Debug)]
-pub struct MetaRequestOptions<'a>(Pin<Box<MetaRequestOptionsInner<'a>>>);
+pub struct MetaRequestOptions(Pin<Box<MetaRequestOptionsInner>>);
 
-impl<'a> MetaRequestOptions<'a> {
+impl MetaRequestOptions {
     /// Create a new default options struct. It follows the builder pattern so clients can use
     /// methods to set various options.
     pub fn new() -> Self {
@@ -351,11 +376,13 @@ impl<'a> MetaRequestOptions<'a> {
             signing_config: None,
             checksum_config: None,
             copy_source_uri: None,
+            request_body: None,
             on_telemetry: None,
             on_headers: None,
             on_body_ex: None,
             on_upload_review: None,
             on_finish: None,
+            custom_id: None,
             _pinned: Default::default(),
         });
 
@@ -383,7 +410,7 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Set the message of the request.
-    pub fn message(&mut self, message: Message<'a>) -> &mut Self {
+    pub fn message(&mut self, message: Message) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.message = Some(message);
@@ -454,7 +481,10 @@ impl<'a> MetaRequestOptions<'a> {
     }
 
     /// Provide a callback to run when the upload request is ready to complete.
-    pub fn on_upload_review(&mut self, callback: impl FnOnce(UploadReview) -> bool + Send + 'static) -> &mut Self {
+    pub fn on_upload_review(
+        &mut self,
+        callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
+    ) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
         let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
         options.on_upload_review = Some(Box::new(callback));
@@ -494,6 +524,22 @@ impl<'a> MetaRequestOptions<'a> {
         self
     }
 
+    /// Send the request body directly from the given buffer (zero-copy). See the `request_body`
+    /// field docs in `aws/s3/s3_client.h` for more details.
+    ///
+    /// Ownership of `body` is moved into these options, which are only dropped once the meta request
+    /// is fully torn down (in the shutdown callback).
+    pub fn request_body(&mut self, body: impl AsRef<[u8]> + Send + 'static) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        let body = options.request_body.insert(Box::new(body));
+        // SAFETY: `body` is owned by these options and only dropped in the shutdown callback, so it
+        // outlives every read the CRT makes; the CRT only reads it (never writes/frees). The cursor
+        // is not invalidated by later `self` moves because the box owns the heap buffer, not `self`.
+        options.inner.request_body = unsafe { (**body).as_ref().as_aws_byte_cursor() };
+        self
+    }
+
     /// Set the URI of source bucket/key for COPY request only
     pub fn copy_source_uri(&mut self, source_uri: String) -> &mut Self {
         // SAFETY: we aren't moving out of the struct.
@@ -504,9 +550,19 @@ impl<'a> MetaRequestOptions<'a> {
         options.inner.copy_source_uri = unsafe { options.copy_source_uri.as_mut().unwrap().as_aws_byte_cursor() };
         self
     }
+
+    /// Set an opaque caller-supplied identifier for this meta request.
+    ///
+    /// Not related to the S3 request ID returned by the service.
+    pub fn custom_id(&mut self, id: u64) -> &mut Self {
+        // SAFETY: we aren't moving out of the struct.
+        let options = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.0)) };
+        options.custom_id = Some(id);
+        self
+    }
 }
 
-impl Default for MetaRequestOptions<'_> {
+impl Default for MetaRequestOptions {
     fn default() -> Self {
         Self::new()
     }
@@ -514,7 +570,7 @@ impl Default for MetaRequestOptions<'_> {
 
 /// What transformation to apply to a single [MetaRequest] to transform it into a collection of
 /// requests to S3.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaRequestType {
     /// Send the request as-is (no transformation)
     Default,
@@ -636,7 +692,7 @@ unsafe extern "C" fn meta_request_shutdown_callback(user_data: *mut libc::c_void
     // in MetaRequestOptions::new.
     let user_data = unsafe { MetaRequestOptionsInner::from_user_data_ptr_owned(user_data) };
 
-    // SAFETY: at this point, we shouldn't receieve any more callbacks for this request.
+    // SAFETY: at this point, we shouldn't receive any more callbacks for this request.
     std::mem::drop(user_data);
 }
 
@@ -660,11 +716,21 @@ unsafe extern "C" fn meta_request_upload_review_callback(
             .as_ref()
             .expect("CRT should provide a valid upload_review")
     };
-    if callback(UploadReview::new(upload_review)) {
-        AWS_OP_SUCCESS
-    } else {
+    match callback(UploadReview::new(upload_review)) {
+        UploadReviewOutcome::Proceed(full_object_checksum) => {
+            // In full-object mode the review callback returns the object-level checksum. The CRT
+            // runs this review callback in the same prepare step that is about to invoke the
+            // full-object checksum callback (on this thread), so stashing the value here makes it
+            // available to `full_object_checksum_shim` before `CompleteMultipartUpload` is issued.
+            if let Some(checksum) = full_object_checksum
+                && let Some(config) = user_data.checksum_config.as_ref()
+            {
+                config.set_full_object_checksum(checksum);
+            }
+            AWS_OP_SUCCESS
+        }
         // SAFETY: we are returning from the CRT callback.
-        unsafe { aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32) }
+        UploadReviewOutcome::Abort => unsafe { aws_raise_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32) },
     }
 }
 
@@ -677,6 +743,36 @@ pub struct MetaRequest {
 }
 
 impl MetaRequest {
+    /// Creates a new instance from an `aws_s3_meta_request` raw pointer, incrementing its ref-count.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a valid, non-null pointer to an `aws_s3_meta_request` whose `user_data`
+    /// was initialised by [`MetaRequestOptions`].
+    pub(crate) unsafe fn from_raw_acquire(raw: *mut aws_s3_meta_request) -> Self {
+        // SAFETY: caller guarantees `raw` is valid and non-null.
+        // `aws_s3_meta_request_acquire` always returns its input, which is non-null.
+        let inner = unsafe { NonNull::new_unchecked(aws_s3_meta_request_acquire(raw)) };
+        Self { inner }
+    }
+
+    /// Returns the type of this meta request.
+    pub fn meta_request_type(&self) -> MetaRequestType {
+        // SAFETY: `self.inner` is a valid `aws_s3_meta_request` since we hold a ref count to it.
+        unsafe { (*self.inner.as_ptr()).type_ }.into()
+    }
+
+    /// Returns the caller-supplied custom identifier, or `None` if not set.
+    pub fn custom_id(&self) -> Option<u64> {
+        // SAFETY: self.inner is a valid aws_s3_meta_request whose user_data was set
+        // to point to a valid MetaRequestOptionsInner in MetaRequestOptions::new.
+        let user_data = unsafe { (*self.inner.as_ptr()).user_data };
+        debug_assert!(!user_data.is_null());
+        // SAFETY: `user_data` points to a valid `MetaRequestOptionsInner` set in `MetaRequestOptions::new`.
+        let options = unsafe { &*(user_data as *const MetaRequestOptionsInner) };
+        options.custom_id
+    }
+
     /// Cancel the meta request. Does nothing (but does not fail/panic) if the request has already
     /// completed. If the request has not already completed, parts may still be delivered to the
     /// `body_callback` after this method completes, and the `finish_callback` will still be
@@ -1242,6 +1338,78 @@ impl RequestMetrics {
         Some(out)
     }
 
+    /// Get the time when the request started being signed
+    pub fn sign_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_sign_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    ///Get the time when the request finished being signed
+    pub fn sign_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_sign_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request started to acquire memory
+    pub fn mem_acquire_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_mem_acquire_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request finished acquiring memory
+    pub fn mem_acquire_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_mem_acquire_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the request started to be delivered (i.e. on body callback is invoked)
+    pub fn delivery_start_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_delivery_start_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
+    /// Get the time when the response finished being delivered
+    pub fn delivery_end_timestamp_ns(&self) -> Option<u64> {
+        let mut out: u64 = 0;
+        // SAFETY: `inner` is a valid aws_s3_request_metrics
+        unsafe {
+            aws_s3_request_metrics_get_delivery_end_timestamp_ns(self.inner.as_ptr(), &mut out)
+                .ok_or_last_error()
+                .ok()?;
+        }
+        Some(out)
+    }
+
     /// Return the response status code for this request, or None if unavailable (e.g. the
     /// request failed before sending).
     pub fn status_code(&self) -> Option<i32> {
@@ -1426,6 +1594,12 @@ impl Debug for RequestMetrics {
             .field("send_end_timestamp_ns", &self.send_end_timestamp_ns())
             .field("receive_start_timestamp_ns", &self.receive_start_timestamp_ns())
             .field("receive_end_timestamp_ns", &self.receive_end_timestamp_ns())
+            .field("sign_start_timestamp_ns", &self.sign_start_timestamp_ns())
+            .field("sign_end_timestamp_ns", &self.sign_end_timestamp_ns())
+            .field("mem_acquire_start_timestamp_ns", &self.mem_acquire_start_timestamp_ns())
+            .field("mem_acquire_end_timestamp_ns", &self.mem_acquire_end_timestamp_ns())
+            .field("delivery_start_timestamp_ns", &self.delivery_start_timestamp_ns())
+            .field("delivery_end_timestamp_ns", &self.delivery_end_timestamp_ns())
             .field("response_status_code", &self.status_code())
             .field("response_headers", &self.response_headers())
             .field("request_path_query", &self.request_path_query())
@@ -1512,40 +1686,119 @@ pub fn init_signing_config(
     SigningConfig(Box::into_pin(signing_config))
 }
 
-/// The checksum configuration.
-#[derive(Debug, Clone, Default)]
+/// Checksum configuration for a single S3 request.
+///
+/// **Lifetime contract (full-object mode only):** `inner.user_data` is a raw pointer derived from
+/// `full_object_state`, the [`Arc`] this struct holds in that field. `inner` is **private** and
+/// only escapes via [`Self::to_inner_ptr`], whose returned `*const` is borrow-bound to `&self` —
+/// meaning the CRT cannot observe the pointer without an outstanding borrow of the whole
+/// `ChecksumConfig`. The struct is intentionally non-`Clone` to keep the (`inner`,
+/// `full_object_state`) pair from being split apart.
+#[derive(Debug, Default)]
 pub struct ChecksumConfig {
-    /// The struct we can pass into the CRT's functions.
+    /// The C struct passed to the CRT. Private so its `user_data` pointer cannot be observed
+    /// independently of the `Arc` in `full_object_state`.
     inner: aws_s3_checksum_config,
+    /// In full-object mode, the OnceLock that backs `inner.user_data`. The upload-review callback
+    /// writes the object-level checksum into it (via [`Self::set_full_object_checksum`]) and
+    /// `full_object_checksum_shim` reads it just before `CompleteMultipartUpload`. Holding the
+    /// `Arc` here keeps the allocation behind that raw pointer alive for as long as this
+    /// `ChecksumConfig` exists, and therefore for as long as the CRT holds the pointer. Dropping
+    /// this `Arc` while the CRT might still call back is UB.
+    full_object_state: Option<Arc<OnceLock<Vec<u8>>>>,
 }
 
 impl ChecksumConfig {
-    /// Create a [ChecksumConfig] enabling Crc32c trailing checksums in PUT requests.
-    pub fn trailing_crc32c() -> Self {
+    /// Create a [ChecksumConfig] enabling trailing checksums of the given algorithm in PUT requests.
+    pub fn trailing(algorithm: &ChecksumAlgorithm) -> Self {
         Self {
             inner: aws_s3_checksum_config {
                 location: aws_s3_checksum_location::AWS_SCL_TRAILER,
-                checksum_algorithm: aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
+                checksum_algorithm: algorithm.to_aws_s3_checksum_algorithm(),
                 ..Default::default()
             },
+            full_object_state: None,
         }
     }
 
-    /// Create a [ChecksumConfig] enabling Crc32c trailing checksums only for upload review.
-    pub fn upload_review_crc32c() -> Self {
+    /// Create a [ChecksumConfig] enabling trailing checksums of the given algorithm for upload review only.
+    pub fn upload_review(algorithm: &ChecksumAlgorithm) -> Self {
         Self {
             inner: aws_s3_checksum_config {
                 location: aws_s3_checksum_location::AWS_SCL_NONE,
-                checksum_algorithm: aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
+                checksum_algorithm: algorithm.to_aws_s3_checksum_algorithm(),
                 ..Default::default()
             },
+            full_object_state: None,
         }
     }
 
-    /// Get out the inner pointer to the checksum config
+    /// Create a [ChecksumConfig] that uses S3's "full-object" checksum mode for multipart uploads.
+    /// Per-part trailing checksums are still sent (for the CRT's upload review), but the object-level
+    /// checksum sent on `CompleteMultipartUpload` is supplied by the upload-review callback's
+    /// return value — see [`UploadReviewOutcome::Proceed`].
+    pub fn trailing_full_object(algorithm: &ChecksumAlgorithm) -> Self {
+        let state = Arc::new(OnceLock::new());
+        let user_data = Arc::as_ptr(&state) as *mut libc::c_void;
+        Self {
+            inner: aws_s3_checksum_config {
+                location: aws_s3_checksum_location::AWS_SCL_TRAILER,
+                checksum_algorithm: algorithm.to_aws_s3_checksum_algorithm(),
+                full_object_checksum_callback: Some(full_object_checksum_shim),
+                user_data,
+                ..Default::default()
+            },
+            full_object_state: Some(state),
+        }
+    }
+
+    /// Stash the base64-encoded object-level checksum for `full_object_checksum_shim` to send on
+    /// `CompleteMultipartUpload`. Called from the upload-review callback, which the CRT runs on the
+    /// same thread immediately before the full-object checksum callback. A no-op if this config is
+    /// not in full-object mode, or if a value was already set (the [`OnceLock`] is write-once).
+    fn set_full_object_checksum(&self, base64: Vec<u8>) {
+        if let Some(state) = &self.full_object_state {
+            let _ = state.set(base64);
+        }
+    }
+
+    /// Raw pointer to the underlying C struct, for FFI handoff to the CRT.
+    ///
+    /// The pointer is valid for as long as `&self` is — the caller must ensure the
+    /// `ChecksumConfig` is kept alive for the duration of any CRT operation that uses the
+    /// pointer (e.g. by storing the `ChecksumConfig` on the owning message struct). In
+    /// full-object mode this is also how `inner.user_data`'s backing allocation stays alive.
     pub(crate) fn to_inner_ptr(&self) -> *const aws_s3_checksum_config {
         &self.inner
     }
+}
+
+/// SAFETY:
+/// - Not called from Rust code. Invoked only by the CRT during a multipart-upload meta-request
+///   that has this function installed as its `full_object_checksum_callback`.
+/// - `user_data` must be the pointer returned by `Arc::as_ptr(&Arc<OnceLock<Vec<u8>>>)` for an
+///   `Arc` that is currently kept alive by the owning [`ChecksumConfig`] (via its
+///   `full_object_state` field). [`ChecksumConfig`] is non-`Clone` and its `inner` field is
+///   private, so the only way the CRT obtains this pointer is through
+///   [`ChecksumConfig::to_inner_ptr`], whose borrow lifetime keeps the `Arc` alive. The OnceLock is
+///   populated by the upload-review callback via [`ChecksumConfig::set_full_object_checksum`].
+/// - The returned `aws_string` is owned by the CRT after this function returns; it is freed by
+///   the CRT.
+unsafe extern "C" fn full_object_checksum_shim(
+    _meta_request: *mut aws_s3_meta_request,
+    user_data: *mut libc::c_void,
+) -> *mut aws_string {
+    // SAFETY: see function-level safety contract.
+    let state = unsafe { &*(user_data as *const OnceLock<Vec<u8>>) };
+    let Some(bytes) = state.get() else {
+        // The upload-review callback didn't supply a full-object checksum (see
+        // `UploadReviewOutcome::Proceed`). NULL signals an error to the CRT, which aborts the
+        // multipart upload.
+        return std::ptr::null_mut();
+    };
+    // SAFETY: aws_default_allocator returns a non-null allocator; aws_string_new_from_array copies
+    // the bytes and returns a heap-allocated aws_string for the CRT to consume and destroy.
+    unsafe { aws_string_new_from_array(aws_default_allocator(), bytes.as_ptr(), bytes.len()) }
 }
 
 /// Checksum algorithm.
@@ -1581,6 +1834,19 @@ impl ChecksumAlgorithm {
             _ => unreachable!("unknown aws_s3_checksum_algorithm"),
         }
     }
+
+    fn to_aws_s3_checksum_algorithm(&self) -> aws_s3_checksum_algorithm {
+        match self {
+            ChecksumAlgorithm::Crc64nvme => aws_s3_checksum_algorithm::AWS_SCA_CRC64NVME,
+            ChecksumAlgorithm::Crc32c => aws_s3_checksum_algorithm::AWS_SCA_CRC32C,
+            ChecksumAlgorithm::Crc32 => aws_s3_checksum_algorithm::AWS_SCA_CRC32,
+            ChecksumAlgorithm::Sha1 => aws_s3_checksum_algorithm::AWS_SCA_SHA1,
+            ChecksumAlgorithm::Sha256 => aws_s3_checksum_algorithm::AWS_SCA_SHA256,
+            ChecksumAlgorithm::Unknown(algorithm) => {
+                panic!("cannot send unknown checksum algorithm to CRT: {algorithm}")
+            }
+        }
+    }
 }
 
 impl Display for ChecksumAlgorithm {
@@ -1594,6 +1860,18 @@ impl Display for ChecksumAlgorithm {
             ChecksumAlgorithm::Unknown(algorithm) => write!(f, "Unknown algorithm: {algorithm:?}"),
         }
     }
+}
+
+/// Outcome of an [`on_upload_review`](MetaRequestOptions::on_upload_review) callback.
+#[derive(Debug)]
+pub enum UploadReviewOutcome {
+    /// Proceed with completing the upload. In full-object checksum mode (a multipart upload
+    /// configured with [`ChecksumConfig::trailing_full_object`]) the payload is the base64-encoded
+    /// object-level checksum the CRT sends on `CompleteMultipartUpload`; `None` for composite and
+    /// review-only modes, which derive the object checksum from the per-part trailers.
+    Proceed(Option<Vec<u8>>),
+    /// Abort the upload without completing it.
+    Abort,
 }
 
 /// Info for the caller to review before an upload completes.
@@ -1653,7 +1931,10 @@ mod tests {
     use test_case::test_case;
 
     use crate::aws_s3_request_type;
-    use crate::s3::client::RequestType;
+    use crate::common::allocator::Allocator;
+    use crate::io::tls::{TlsConnectionOptions, TlsContext, TlsContextOptions};
+    use crate::s3::client::{ClientConfig, RequestType};
+    use mountpoint_s3_crt_sys::aws_s3_meta_request_tls_mode;
 
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_UNKNOWN, RequestType::Unknown)]
     #[test_case(aws_s3_request_type::AWS_S3_REQUEST_TYPE_HEAD_OBJECT, RequestType::HeadObject)]
@@ -1661,5 +1942,21 @@ mod tests {
     fn request_type_from_aws_s3_request_type(c_request_type: aws_s3_request_type, expected_request_type: RequestType) {
         // Simple, but was previously broken.
         assert_eq!(expected_request_type, RequestType::from(c_request_type));
+    }
+
+    /// Verify that [`ClientConfig::tls_connection_options`] sets the raw pointer on the inner
+    /// struct and flips the TLS mode to ENABLED.
+    #[test]
+    fn tls_connection_options_wiring() {
+        let allocator = Allocator::default();
+        let opts = TlsContextOptions::new_default_client(&allocator);
+        let ctx = TlsContext::new(&allocator, &opts).expect("build TlsContext");
+        let conn_opts = TlsConnectionOptions::new(&ctx);
+
+        let mut config = ClientConfig::new();
+        assert!(config.inner.tls_connection_options.is_null());
+        config.tls_connection_options(conn_opts);
+        assert!(!config.inner.tls_connection_options.is_null());
+        assert_eq!(config.inner.tls_mode, aws_s3_meta_request_tls_mode::AWS_MR_TLS_ENABLED);
     }
 }

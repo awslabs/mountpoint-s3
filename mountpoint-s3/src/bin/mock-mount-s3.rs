@@ -20,7 +20,7 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::memory::PagedPool;
-use mountpoint_s3_fs::s3::config::{ClientConfig, INITIAL_READ_WINDOW_SIZE, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::config::{ClientConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{S3Path, S3Personality};
 
 fn main() -> anyhow::Result<()> {
@@ -54,10 +54,10 @@ pub fn create_mock_client(
 
     let config = MockClient::config()
         .bucket(s3_path.bucket.to_string())
-        .part_size(part_size as usize)
+        .part_size(part_size)
         .unordered_list_seed(None)
         .enable_backpressure(true)
-        .initial_read_window_size(INITIAL_READ_WINDOW_SIZE) // matching real MP
+        .initial_read_window_size(part_size) // matching real MP
         .enable_rename(s3_personality.supports_rename_object());
 
     let client = if let TargetThroughputSetting::User {
