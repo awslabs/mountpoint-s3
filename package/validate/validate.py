@@ -24,7 +24,7 @@ def validate(args: argparse.Namespace) -> str:
     elif package == "rpm-centos8":
         image = "public.ecr.aws/docker/library/centos:8"
     else:
-        raise Exception(
+        raise Exception(  # noqa: TRY002
             f"unsupported OS {args.os} for {args.artifact}. Supported combinations are: deb-ubuntu, rpm-al2, gzip-al2, rpm-suse"
         )
 
@@ -39,8 +39,8 @@ def validate(args: argparse.Namespace) -> str:
     validate_script = f"validate-{package}.sh"
     scripts_dir = os.path.dirname(os.path.realpath(__file__))
 
-    subprocess.run(["docker", "pull", image])
-    subprocess.run(
+    subprocess.run(["docker", "pull", image])  # noqa: PLW1510
+    subprocess.run(  # noqa: PLW1510
         [
             "docker",
             "run",

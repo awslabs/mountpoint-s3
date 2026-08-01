@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional
 import os
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -8,16 +7,16 @@ class CommandResult:
     """Result of command execution."""
 
     returncode: int
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
+    stdout: str | None = None
+    stderr: str | None = None
 
 
 @dataclass
 class Command:
     """Represents a command to be executed with its environment."""
 
-    args: List[str]
-    env: Dict[str, str] = field(default_factory=dict)
+    args: list[str]
+    env: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         """Merge command environment with current environment."""
