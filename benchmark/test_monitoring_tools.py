@@ -1,8 +1,8 @@
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
 from monitoring import ResourceMonitoring
 from monitoring.base import MonitoringTool
-from monitoring.tools import MpstatTool, BwmNgTool, PerfStatTool, FlamegraphTool
+from monitoring.tools import BwmNgTool, FlamegraphTool, MpstatTool, PerfStatTool
 
 
 class TestMpstatTool:

@@ -6,21 +6,21 @@
 # ]
 # ///
 
-import os
-import json
 import argparse
-import glob
 import csv
-import warnings
+import glob
+import json
+import os
 import statistics
-
-from tabulate import tabulate
+import warnings
 from collections import defaultdict
-from typing import Dict, Any, Optional, Tuple, List, Set, Union
+from typing import Any
+
 from omegaconf import OmegaConf
+from tabulate import tabulate
 
 
-def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
+def parse_hydra_config(iteration_dir: str) -> dict[str, Any]:
     """Parse Hydra config and overrides for an iteration using OmegaConf and flattens the result"""
     hydra_dir = os.path.join(iteration_dir, '.hydra')
 
@@ -50,8 +50,8 @@ def parse_hydra_config(iteration_dir: str) -> Dict[str, Any]:
 
 
 def to_gigabits_per_second(
-    bytes: Union[int, float],
-    seconds: Union[int, float],
+    bytes: float,
+    seconds: float,
 ) -> float:
     """
     Converts bytes to gigabits per second
@@ -61,7 +61,7 @@ def to_gigabits_per_second(
     return gigabits / float(seconds)
 
 
-def flatten_config(config: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
+def flatten_config(config: dict[str, Any], parent_key: str = '', sep: str = '.') -> dict[str, Any]:
     """Flatten nested configuration dictionary."""
     result = {}
     for k, v in config.items():
@@ -73,7 +73,7 @@ def flatten_config(config: Dict[str, Any], parent_key: str = '', sep: str = '.')
     return result
 
 
-def parse_benchmark_file(file_path: str) -> Optional[float]:
+def parse_benchmark_file(file_path: str) -> float | None:
     """Parse benchmark output file and return throughput."""
     try:
         with open(file_path, 'r') as f:
@@ -103,12 +103,12 @@ def parse_benchmark_file(file_path: str) -> Optional[float]:
                 warnings.warn(f"Unknown format in {file_path}")
                 return None
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         warnings.warn(f"Warning: Error parsing {file_path}: {e}")
         return None
 
 
-def process_iteration(iteration_dir: str) -> Tuple[Dict[str, Any], Optional[float]]:
+def process_iteration(iteration_dir: str) -> tuple[dict[str, Any], float | None]:
     """Process a single iteration directory."""
     config = parse_hydra_config(iteration_dir)
 
@@ -127,7 +127,7 @@ def process_iteration(iteration_dir: str) -> Tuple[Dict[str, Any], Optional[floa
     return config, throughput
 
 
-def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
+def find_varying_parameters(all_configs: list[dict[str, Any]]) -> set[str]:
     """Identify parameters that vary across configurations, ignoring run-specific parameters."""
     if not all_configs:
         return set()
@@ -152,7 +152,7 @@ def find_varying_parameters(all_configs: List[Dict[str, Any]]) -> Set[str]:
     return varying
 
 
-def combine_raw_values(all_results: List[Tuple[Dict[str, Any], float, str]]) -> List[Dict[str, Any]]:
+def combine_raw_values(all_results: list[tuple[dict[str, Any], float, str]]) -> list[dict[str, Any]]:
     varying_params = sorted(find_varying_parameters([config for config, _, _ in all_results]))
 
     grouped_results = defaultdict(list)
@@ -237,7 +237,7 @@ def main() -> None:
         return benchmark_order.get(value, 999)  # Unknown types go to end
 
     # Sort rows by all columns
-    def sort_key(row: List[str]) -> List[Union[int, float, str]]:
+    def sort_key(row: list[str]) -> list[int | float | str]:
         key_parts = []
         for value, header in zip(row, aggregated_headers):
             if header == 'benchmark_type':

@@ -2,7 +2,6 @@ import logging
 import os
 import signal
 import subprocess
-from typing import Optional
 
 import psutil
 
@@ -17,7 +16,7 @@ class MpstatTool(MonitoringTool):
         self.output_file = None
 
     def start(self) -> None:
-        self.output_file = open('mpstat.json', 'w')
+        self.output_file = open('mpstat.json', 'w')  # noqa: SIM115
         log.info("Starting mpstat monitoring")
         # fmt: off
         self.process = subprocess.Popen([
@@ -34,12 +33,12 @@ class MpstatTool(MonitoringTool):
                 self.process.send_signal(signal.SIGINT)
                 self.process.wait()
             except Exception:
-                log.error("Error shutting down mpstat:", exc_info=True)
+                log.error("Error shutting down mpstat:", exc_info=True)  # noqa: G201
         if self.output_file:
             try:
                 self.output_file.close()
             except Exception:
-                log.error("Error closing mpstat output file:", exc_info=True)
+                log.error("Error closing mpstat output file:", exc_info=True)  # noqa: G201
 
 
 class BwmNgTool(MonitoringTool):
@@ -48,7 +47,7 @@ class BwmNgTool(MonitoringTool):
         self.output_file = None
 
     def start(self) -> None:
-        self.output_file = open('bwm-ng.csv', 'w')
+        self.output_file = open('bwm-ng.csv', 'w')  # noqa: SIM115
         log.info("Starting bwm-ng monitoring")
         # fmt: off
         self.process = subprocess.Popen([
@@ -62,12 +61,12 @@ class BwmNgTool(MonitoringTool):
                 self.process.send_signal(signal.SIGINT)
                 self.process.wait()
             except Exception:
-                log.error("Error shutting down bwm-ng:", exc_info=True)
+                log.error("Error shutting down bwm-ng:", exc_info=True)  # noqa: G201
         if self.output_file:
             try:
                 self.output_file.close()
             except Exception:
-                log.error("Error closing bwm-ng output file:", exc_info=True)
+                log.error("Error closing bwm-ng output file:", exc_info=True)  # noqa: G201
 
 
 class PerfStatTool(MonitoringTool):
@@ -96,11 +95,11 @@ class PerfStatTool(MonitoringTool):
                 self.process.send_signal(signal.SIGINT)
                 self.process.wait()
             except Exception:
-                log.error("Error shutting down perf stat:", exc_info=True)
+                log.error("Error shutting down perf stat:", exc_info=True)  # noqa: G201
 
 
 class FlamegraphTool(MonitoringTool):
-    def __init__(self, target_pid: int, flamegraph_scripts_path: Optional[str] = None):
+    def __init__(self, target_pid: int, flamegraph_scripts_path: str | None = None):
         self.target_pid = target_pid
         self.flamegraph_scripts_path = flamegraph_scripts_path
         self.process = None
@@ -125,7 +124,7 @@ class FlamegraphTool(MonitoringTool):
             except psutil.NoSuchProcess:
                 log.warning(f"Process {self.process.pid} no longer exists")
             except Exception:
-                log.error("Error shutting down flamegraph:", exc_info=True)
+                log.error("Error shutting down flamegraph:", exc_info=True)  # noqa: G201
 
             if self.flamegraph_scripts_path and os.path.exists("perf.data"):
                 self._generate_inverted_flamegraph()
@@ -148,7 +147,7 @@ class FlamegraphTool(MonitoringTool):
                 )
             else:
                 log.info("verified that kernel.kptr_restrict=0 (for flamegraphing)")
-        except (OSError, IOError) as e:
+        except OSError as e:
             log.warning(f"Could not check kernel.kptr_restrict: {e}")
 
         try:
@@ -161,7 +160,7 @@ class FlamegraphTool(MonitoringTool):
                 )
             else:
                 log.info(f"verified that kernel.perf_event_paranoid={paranoid_value} for flamegraphing")
-        except (OSError, IOError) as e:
+        except OSError as e:
             log.warning(f"Could not check kernel.perf_event_paranoid: {e}")
 
     def _generate_inverted_flamegraph(self):
@@ -177,7 +176,7 @@ class FlamegraphTool(MonitoringTool):
             log.info("Generating inverted flamegraph...")
 
             with open("perf.txt", "w") as perf_txt:
-                result = subprocess.run(
+                result = subprocess.run(  # noqa: PLW1510
                     ["perf", "script", "-i", "perf.data"], stdout=perf_txt, stderr=subprocess.PIPE, text=True
                 )
                 if result.returncode != 0:
@@ -185,7 +184,7 @@ class FlamegraphTool(MonitoringTool):
                     return
 
             with open("perf.txt", "r") as perf_txt, open("stacks.txt", "w") as stacks_txt:
-                result = subprocess.run(
+                result = subprocess.run(  # noqa: PLW1510
                     [stackcollapse_script], stdin=perf_txt, stdout=stacks_txt, stderr=subprocess.PIPE, text=True
                 )
                 if result.returncode != 0:
@@ -193,7 +192,7 @@ class FlamegraphTool(MonitoringTool):
                     return
 
             with open("stacks.txt", "r") as stacks_txt, open("inverted-flamegraph.svg", "w") as flamegraph_svg:
-                result = subprocess.run(
+                result = subprocess.run(  # noqa: PLW1510
                     [flamegraph_script, "--inverted", "--reverse", "--colors", "blue"],
                     stdin=stacks_txt,
                     stdout=flamegraph_svg,
@@ -210,8 +209,8 @@ class FlamegraphTool(MonitoringTool):
                 try:
                     if os.path.exists(temp_file):
                         os.remove(temp_file)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     log.debug(f"Failed to remove temporary file {temp_file}: {e}")
 
         except Exception:
-            log.error("Error generating inverted flamegraph:", exc_info=True)
+            log.error("Error generating inverted flamegraph:", exc_info=True)  # noqa: G201

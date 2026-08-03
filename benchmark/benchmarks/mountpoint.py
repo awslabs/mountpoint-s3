@@ -1,11 +1,10 @@
 import logging
 import os
 import subprocess
-from typing import Dict, Any
-
-from omegaconf import DictConfig
+from typing import Any
 
 from benchmarks.cargo_helper import build_binary
+from omegaconf import DictConfig
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 log = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ def cleanup_mp(mount_dir):
         os.remove(f"{mount_dir}.pid")
 
 
-def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> Dict[str, Any]:
+def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> dict[str, Any]:
     """
     Mount an S3 bucket using Mountpoint,
     using the configuration to apply Mountpoint arguments.
@@ -37,7 +36,7 @@ def mount_mp(cfg: DictConfig, mount_dir: str, with_flamegraph: bool = False) -> 
 
         if stub_mode == "s3_client":
             # `mock-mount-s3` requires bucket to be prefixed with `sthree-` to verify we're not actually reaching S3
-            logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")
+            logging.debug("using mock-mount-s3 due to `stub_mode`, bucket will be prefixed with \"sthree-\"")  # noqa: LOG015
             bucket = f"sthree-{bucket}"
             binary_name = "mock-mount-s3"
         elif stub_mode == "fs_handler":
