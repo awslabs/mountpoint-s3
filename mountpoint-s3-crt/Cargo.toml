@@ -13,7 +13,6 @@ mountpoint-s3-crt-sys = { workspace = true }
 futures = "0.3.32"
 libc = "0.2.186"
 log = "0.4.33"
-smallstr = "0.3.1"
 static_assertions = "1.1.0"
 thiserror = "2.0.18"
 

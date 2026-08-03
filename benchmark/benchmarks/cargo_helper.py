@@ -1,16 +1,15 @@
 import json
 import logging
-import subprocess
-from typing import List, Optional, Dict
 import os
+import subprocess
 
 log = logging.getLogger(__name__)
 
 
 def build_example(
     name: str,
-    features: Optional[List[str]] = None,
-    build_env: Optional[Dict[str, str]] = None,
+    features: list[str] | None = None,
+    build_env: dict[str, str] | None = None,
     with_flamegraph: bool = False,
 ) -> str:
     """
@@ -32,8 +31,8 @@ def build_example(
 
 def build_binary(
     name: str,
-    features: Optional[List[str]] = None,
-    build_env: Optional[Dict[str, str]] = None,
+    features: list[str] | None = None,
+    build_env: dict[str, str] | None = None,
     with_flamegraph: bool = False,
 ) -> str:
     """
@@ -54,10 +53,10 @@ def build_binary(
 
 
 def _build_and_get_executable(
-    binary_name: Optional[str] = None,
-    example_name: Optional[str] = None,
-    features: Optional[List[str]] = None,
-    build_env: Optional[Dict[str, str]] = None,
+    binary_name: str | None = None,
+    example_name: str | None = None,
+    features: list[str] | None = None,
+    build_env: dict[str, str] | None = None,
     with_flamegraph: bool = False,
 ) -> str:
     """Build and get executable path."""

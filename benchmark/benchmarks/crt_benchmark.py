@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
-from typing import Dict, Any
+from typing import Any
 
 from benchmarks.base_benchmark import BaseBenchmark
 from benchmarks.command import Command, CommandResult
@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class CrtBenchmark(BaseBenchmark):
-    def __init__(self, cfg: DictConfig, metadata: Dict[str, Any]):
+    def __init__(self, cfg: DictConfig, metadata: dict[str, Any]):
         self.cfg = cfg
         self.metadata = metadata
 
@@ -47,7 +47,7 @@ class CrtBenchmark(BaseBenchmark):
 
         return config
 
-    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> dict[str, Any]:
         # Setup the benchmark configuration files
         object_size_in_gib = self.cfg.object_size_in_gib
         app_workers = self.cfg.application_workers
@@ -114,7 +114,7 @@ class CrtBenchmark(BaseBenchmark):
             return metrics
         return {}
 
-    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+    def post_process(self, result: CommandResult) -> dict[str, Any]:
         if result.returncode != 0:
             log.error(f"CRT benchmark failed with exit code {result.returncode}")
             if result.stderr:
@@ -135,6 +135,6 @@ class CrtBenchmark(BaseBenchmark):
             if self.crt_cfg_file and os.path.exists(self.crt_cfg_file):
                 log.info(f"Remove CRT benchmark configuration: {self.crt_cfg_file}")
                 os.remove(self.crt_cfg_file)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.warning(f"Failed to clean up CRT config file: {e}")
         return self.metadata

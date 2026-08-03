@@ -1,16 +1,16 @@
-from dataclasses import dataclass
 import itertools
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from hydra.types import HydraContext
+from typing import Any
+
 from hydra.core.config_store import ConfigStore
 from hydra.core.override_parser.overrides_parser import OverridesParser
 from hydra.core.override_parser.types import Override
 from hydra.core.plugins import Plugins
 from hydra.plugins.launcher import Launcher
 from hydra.plugins.sweeper import Sweeper
-from hydra.types import TaskFunction
+from hydra.types import HydraContext, TaskFunction
 from omegaconf import DictConfig, OmegaConf
 
 log = logging.getLogger(__name__)
@@ -19,20 +19,20 @@ log = logging.getLogger(__name__)
 @dataclass
 class SmartBenchmarkSweeperConf:
     _target_: str = "hydra_plugins.smart_sweeper.smart_benchmark_sweeper.SmartBenchmarkSweeper"
-    max_batch_size: Optional[int] = None
-    params: Optional[Dict[str, str]] = None
+    max_batch_size: int | None = None
+    params: dict[str, str] | None = None
 
 
 ConfigStore.instance().store(group="hydra/sweeper", name="smart_benchmark", node=SmartBenchmarkSweeperConf)
 
 
 class SmartBenchmarkSweeper(Sweeper):
-    def __init__(self, max_batch_size: Optional[int] = None, params: Optional[Dict[str, str]] = None):
+    def __init__(self, max_batch_size: int | None = None, params: dict[str, str] | None = None):
         self.max_batch_size = max_batch_size
         self.params = params or {}
-        self.config: Optional[DictConfig] = None
-        self.launcher: Optional[Launcher] = None
-        self.hydra_context: Optional[HydraContext] = None
+        self.config: DictConfig | None = None
+        self.launcher: Launcher | None = None
+        self.hydra_context: HydraContext | None = None
 
     def setup(self, *, hydra_context: HydraContext, task_function: TaskFunction, config: DictConfig) -> None:
         self.config = config
@@ -41,7 +41,7 @@ class SmartBenchmarkSweeper(Sweeper):
         )
         self.hydra_context = hydra_context
 
-    def _load_benchmark_params(self, benchmark_type: str) -> List[str]:
+    def _load_benchmark_params(self, benchmark_type: str) -> list[str]:
         try:
             config_path = Path("conf") / "hydra" / "sweeper" / f"{benchmark_type}.yaml"
             if config_path.exists():
@@ -49,11 +49,11 @@ class SmartBenchmarkSweeper(Sweeper):
                 params = benchmark_config.get("params", {})
                 return [f"{key}={value}" for key, value in params.items()]
             return []
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log.error(f"Failed to load config for {benchmark_type}: {e}")
             return []
 
-    def sweep(self, arguments: List[str]) -> Any:
+    def sweep(self, arguments: list[str]) -> Any:
         benchmark_types = self._extract_benchmark_types(arguments)
         log.info(f"Running benchmark types: {benchmark_types}")
 
@@ -91,14 +91,14 @@ class SmartBenchmarkSweeper(Sweeper):
 
         return returns
 
-    def _extract_benchmark_types(self, arguments: List[str]) -> List[str]:
+    def _extract_benchmark_types(self, arguments: list[str]) -> list[str]:
         for arg in arguments:
             if arg.startswith("benchmark_type="):
                 benchmark_type_str = arg.split("=", 1)[1]
                 return [bt.strip() for bt in benchmark_type_str.split(",")]
         return ["fio"]
 
-    def _generate_combinations_for_type(self, benchmark_type: str, parsed_overrides: List[Override]) -> List[List[str]]:
+    def _generate_combinations_for_type(self, benchmark_type: str, parsed_overrides: list[Override]) -> list[list[str]]:
         param_lists = [[f"benchmark_type={benchmark_type}"]]
 
         for param_override in parsed_overrides:
