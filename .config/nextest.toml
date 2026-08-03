@@ -1,3 +1,11 @@
 [profile.ci]
 # Do not cancel the test run on the first failure.
 fail-fast = false
+
+[[profile.default.overrides]]
+# Terminate stress tests that exceed 45 minutes. Stress tests run for 900s (15 min, see
+# STRESS_DURATION_SECS in .github/workflows/stress.yml); 45 min timeout allows buffer for
+# setup/cleanup phases that might take longer.
+# grace-period = 0 sends SIGKILL immediately (SIGTERM can't kill processes in uninterruptible state).
+filter = 'test(/stress::scenarios/)'
+slow-timeout = { period = "60s", terminate-after = 45, grace-period = "0s" }

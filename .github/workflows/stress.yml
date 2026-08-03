@@ -28,6 +28,7 @@ env:
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
   S3_ENDPOINT_URL: ${{ vars.S3_BENCH_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_BENCH_REGION }}
+  # Stress test duration. If changed, also update slow-timeout in .config/nextest.toml
   STRESS_DURATION_SECS: "900"
 
 jobs:

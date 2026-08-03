@@ -1,6 +1,8 @@
 //! Core harness for stress scenarios.
 
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
@@ -159,18 +161,15 @@ pub fn run(scenario: Scenario) {
                 .enumerate()
                 .filter_map(|(id, h)| (!h.is_finished()).then_some(labels[id].as_str()))
                 .collect();
-            // Workers are wedged (likely in uninterruptible FUSE syscalls). Clean unmount
-            // would hang in fuse_session_unmount waiting for the FUSE session thread, which
-            // is stuck waiting for the workers. Skip cleanup and panic immediately.
-            // TODO: Avoid resource leak
-            tracing::warn!(
-                scenario = scenario_name,
-                "stress: workers wedged after stop; skipping clean unmount to avoid a deadlocked \
-                 teardown. Leaking the mount dir, FUSE mount entry, and setup-guard objects"
+            // Workers are wedged (likely in uninterruptible FUSE syscalls). Abort FUSE connection
+            // to fail in-flight operations with EIO, then terminate immediately.
+            eprintln!(
+                "stress: workers wedged after stop; aborting FUSE connection and exiting. \
+                 Workers {stuck:?} did not finish within {max_join_wait:?} after stop"
             );
-            std::mem::forget(setup_guard);
-            std::mem::forget(session);
-            panic!("stress: workers {stuck:?} did not finish within {max_join_wait:?} after stop");
+            abort_fuse_connections(&mount_path);
+            // _exit() terminates immediately without waiting for threads or running atexit handlers.
+            unsafe { libc::_exit(1) };
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -184,7 +183,23 @@ pub fn run(scenario: Scenario) {
     }
 
     drop(setup_guard);
-    drop(session);
+
+    // Attempt unmount with timeout. If it hangs, abort FUSE connection.
+    let session_thread = thread::spawn(move || drop(session));
+    let unmount_deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if session_thread.is_finished() {
+            let _ = session_thread.join();
+            break;
+        }
+        if Instant::now() >= unmount_deadline {
+            eprintln!("stress: unmount hung after 30s, aborting FUSE connection and failing test");
+            // Abort FUSE connection - fails all in-flight requests with EIO, then exit immediately.
+            abort_fuse_connections(&mount_path);
+            unsafe { libc::_exit(1) };
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 
     let stalled = stalled_worker.load(Ordering::SeqCst);
     if stalled != NO_STALL {
@@ -260,4 +275,44 @@ fn read_duration_env() -> Duration {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_DURATION_SECS);
     Duration::from_secs(secs)
+}
+
+/// Abort the FUSE connection for the given mount path by writing to
+/// /sys/fs/fuse/connections/<minor>/abort. This fails all in-flight FUSE
+/// operations on that mount with EIO, unblocking stuck threads.
+fn abort_fuse_connections(mount_path: &Path) {
+    // Find the FUSE minor number for our mount by parsing /proc/self/mountinfo.
+    // Each line has format: "id parent major:minor root mount_point ..."
+    let minor = (|| -> Option<String> {
+        let mountinfo = fs::read_to_string("/proc/self/mountinfo").ok()?;
+        let mount_path_str = mount_path.to_str()?;
+        for line in mountinfo.lines() {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 5 && fields[4] == mount_path_str {
+                // Field 2 is "major:minor"
+                let dev = fields[2];
+                let minor = dev.split(':').nth(1)?;
+                return Some(minor.to_string());
+            }
+        }
+        None
+    })();
+
+    match minor {
+        Some(minor) => {
+            let abort_file = Path::new("/sys/fs/fuse/connections").join(&minor).join("abort");
+            if let Err(e) = fs::write(&abort_file, b"1") {
+                eprintln!(
+                    "stress: failed to abort FUSE connection {}: {}",
+                    abort_file.display(),
+                    e
+                );
+            } else {
+                eprintln!("stress: aborted FUSE connection (minor={})", minor);
+            }
+        }
+        None => {
+            eprintln!("stress: could not find FUSE minor number for {:?}", mount_path);
+        }
+    }
 }
