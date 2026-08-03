@@ -233,6 +233,13 @@ impl ChecksummedBytes {
         Ok((self.buffer, self.checksum))
     }
 
+    /// Copy the bytes into a freshly allocated buffer sharing no storage with the original, e.g. to
+    /// release a pooled buffer while this data lives on. Reuses the checksum, so no CRC is recomputed.
+    pub fn into_detached(self) -> Result<Self, IntegrityError> {
+        let (bytes, checksum) = self.into_inner()?;
+        Ok(Self::new_from_inner_data(Bytes::copy_from_slice(&bytes), checksum))
+    }
+
     /// Return the slice of `buffer` corresponding to `range`.
     ///
     /// Note that no data is copied: the returned `Bytes` still points to a subslice of `buffer`.
@@ -376,6 +383,34 @@ mod tests {
 
         let actual = checksummed_bytes.into_bytes();
         assert!(matches!(actual, Err(IntegrityError::ChecksumMismatch(_, _))));
+    }
+
+    #[test]
+    fn test_into_detached() {
+        let bytes = Bytes::from_static(b"some bytes");
+        let checksummed_bytes = ChecksummedBytes::new(bytes.clone());
+        let expected_checksum = checksummed_bytes.checksum;
+
+        let detached = checksummed_bytes.into_detached().unwrap();
+
+        // Content and checksum are preserved, and the checksum is reused (not recomputed).
+        assert_eq!(bytes, detached.buffer);
+        assert_eq!(expected_checksum, detached.checksum);
+        assert_eq!(bytes, detached.into_bytes().unwrap());
+    }
+
+    #[test]
+    fn test_into_detached_severs_shared_storage() {
+        // A slice of a larger buffer shares its allocation; `into_detached` must not.
+        let full = Bytes::from_static(b"some bytes");
+        let mut checksummed_bytes = ChecksummedBytes::new(full.clone());
+        let tail = checksummed_bytes.split_off(4); // "bytes", still backed by `full`
+
+        let detached = tail.into_detached().unwrap();
+        assert_eq!(&detached.buffer[..], b" bytes");
+        // The detached buffer is a fresh, full-range allocation, not a subslice of `full`.
+        assert_eq!(detached.buffer.len(), detached.len());
+        assert_eq!(detached.range, 0..detached.len());
     }
 
     #[test]
