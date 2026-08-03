@@ -181,7 +181,14 @@ where
             }
 
             let part_len = part_bytes.len() as u64;
-            response.extend(part_bytes)?;
+            if response.is_empty() {
+                // Copy off the pool buffer instead of letting `extend` alias it: this read spans
+                // parts, and holding a pool buffer across the next allocation below deadlocks under
+                // memory pressure.
+                response = part_bytes.into_detached()?;
+            } else {
+                response.extend(part_bytes)?;
+            }
             to_read -= part_len;
         }
 

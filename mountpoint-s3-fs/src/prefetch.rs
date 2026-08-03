@@ -536,6 +536,27 @@ mod tests {
         run_sequential_read_test(prefetcher_type, 256 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
+    /// Each read is larger than a part, so `do_read` must stitch multiple parts together (the
+    /// multi-part path that copies the first part off its pool buffer). Guards read correctness
+    /// across that path.
+    #[test_case(PrefetcherType::Default)]
+    #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
+    fn sequential_read_size_larger_than_part(prefetcher_type: PrefetcherType) {
+        let config = TestConfig {
+            initial_request_size: 256 * 1024,
+            max_read_window_size: 64 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 1 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
+            max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
+        };
+
+        // read_size (4 MiB + 111) > client_part_size (1 MiB), and the odd tail crosses part
+        // boundaries so reads straddle rather than align.
+        run_sequential_read_test(prefetcher_type, 16 * 1024 * 1024 + 111, 4 * 1024 * 1024 + 111, config);
+    }
+
     fn fail_with_backpressure_precondition_test(
         prefetcher_type: PrefetcherType,
         test_config: TestConfig,
