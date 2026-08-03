@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any
 
 from .command import Command, CommandResult
 
@@ -13,7 +13,7 @@ class BaseBenchmark(ABC):
     """
 
     @abstractmethod
-    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> dict[str, Any]:
         """
         Set up the environment for the benchmark.
 
@@ -23,7 +23,6 @@ class BaseBenchmark(ABC):
         Returns:
             Dict containing setup metadata
         """
-        pass
 
     @abstractmethod
     def get_command(self) -> Command:
@@ -33,10 +32,9 @@ class BaseBenchmark(ABC):
         Returns:
             Command object containing the subprocess arguments and environment.
         """
-        pass
 
     @abstractmethod
-    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+    def post_process(self, result: CommandResult) -> dict[str, Any]:
         """
         Process results and output, collect logs, and clean up resources.
 
@@ -46,4 +44,3 @@ class BaseBenchmark(ABC):
         Returns:
             Dict containing post-processing metadata
         """
-        pass

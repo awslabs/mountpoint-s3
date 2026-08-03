@@ -8,13 +8,13 @@ directory in the root of the Mountpoint repository.
 """
 
 import argparse
-from dataclasses import dataclass
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 
 
 def log(msg: str):
@@ -56,22 +56,22 @@ def check_dependencies(args: argparse.Namespace):
     log("Checking dependencies")
 
     deps = ["cargo", "cargo-about", "tar", "whereis"]
-    if any(map(lambda ext: ext.endswith("rpm"), args.pkg_extensions)):
+    if any(map(lambda ext: ext.endswith("rpm"), args.pkg_extensions)):  # noqa: C417
         deps.extend(["rpm", "rpmbuild"])
-    if any(map(lambda ext: ext.endswith("deb"), args.pkg_extensions)):
+    if any(map(lambda ext: ext.endswith("deb"), args.pkg_extensions)):  # noqa: C417
         deps.extend(["fakeroot", "dpkg-deb"])
 
     for dep in deps:
         if shutil.which(dep) is None:
-            raise Exception(f"`{dep}` must be installed")
+            raise Exception(f"`{dep}` must be installed")  # noqa: TRY002
 
     output = run(["whereis", "libfuse"])
     if b"libfuse.so" not in output:
-        raise Exception(f"libfuse not found (whereis output: {output})")
+        raise Exception(f"libfuse not found (whereis output: {output})")  # noqa: TRY002
 
     output = run(["whereis", "libfuse3"])
     if b"libfuse3.so" in output:
-        raise Exception(f"libfuse3 should not be installed (whereis output: {output})")
+        raise Exception(f"libfuse3 should not be installed (whereis output: {output})")  # noqa: TRY002
 
 
 def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
@@ -89,10 +89,10 @@ def get_build_metadata(args: argparse.Namespace) -> BuildMetadata:
             version = package["version"]
             break
     if version is None:
-        raise Exception(f"couldn't find mountpoint-s3 in Cargo metadata in {root_dir}")
-    if args.expected_version is not None:
+        raise Exception(f"couldn't find mountpoint-s3 in Cargo metadata in {root_dir}")  # noqa: TRY002
+    if args.expected_version is not None:  # noqa: SIM102
         if args.expected_version != version:
-            raise Exception(f"version mismatch: expected {args.expected_version} but found {version} in Cargo metadata")
+            raise Exception(f"version mismatch: expected {args.expected_version} but found {version} in Cargo metadata")  # noqa: TRY002
     version_string = version
     if not args.official:
         version_string += "+unofficial"
@@ -147,7 +147,7 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     run(cmd, cwd=metadata.cargoroot, env=env)
     binary_path = os.path.join(target_dir, "release/mount-s3")
     if not os.path.exists(binary_path):
-        raise Exception(f"binary wasn't found at path {binary_path}")
+        raise Exception(f"binary wasn't found at path {binary_path}")  # noqa: TRY002
 
     # Validate the binary runs and is the right version
     log(f"Validating binary at {binary_path}")
@@ -155,11 +155,11 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     output = output.decode("ascii").strip()
     if args.official:
         if output != f"mount-s3 {metadata.version}":
-            raise Exception(f"unexpected compiled version {output}")
+            raise Exception(f"unexpected compiled version {output}")  # noqa: TRY002
     else:
         # Might not have a known Git hash available, so just check for the 'unofficial' part
         if not output.startswith(f"mount-s3 {metadata.version}-unofficial"):
-            raise Exception(f"unexpected compiled version {output}")
+            raise Exception(f"unexpected compiled version {output}")  # noqa: TRY002
 
     log(f"Built binary for {output} at {binary_path}")
 
@@ -280,7 +280,7 @@ def build_deb(metadata: BuildMetadata, package_dir: str) -> str:
     elif metadata.arch == "aarch64":
         deb_arch = "arm64"
     else:
-        raise Exception(f"unknown architecture {metadata.args} for DEB package")
+        raise Exception(f"unknown architecture {metadata.args} for DEB package")  # noqa: TRY002
     control_file = control_file.replace("__ARCH__", deb_arch)
     control_file_path = os.path.join(deb_DEBIAN_dir, "control")
     with open(control_file_path, "w") as f:
@@ -349,7 +349,7 @@ def build(args: argparse.Namespace) -> str:
         elif ext.endswith("tar.gz"):
             artifacts.append(build_package_archive(metadata, package_dir))
         else:
-            raise Exception(f"unable to infer package type from extension {ext}")
+            raise Exception(f"unable to infer package type from extension {ext}")  # noqa: TRY002
 
     for path in artifacts:
         os.chmod(path, 0o755)
