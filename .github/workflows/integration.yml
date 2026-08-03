@@ -72,12 +72,12 @@ jobs:
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: AL2 arm
+        - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
         exclude:
           # fuse3 is not available on Amazon Linux 2
           - runner:
-              name: AL2 arm
+              name: AL2023 arm
               tags: [self-hosted, linux, arm64]
             fuseVersion: 3
 
@@ -112,7 +112,7 @@ jobs:
     - name: Run tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2023 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   client-test:
@@ -135,7 +135,7 @@ jobs:
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: AL2 arm
+        - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
         pool:
         - name: Default Pool
@@ -191,7 +191,7 @@ jobs:
       if: always()
       run: rm -f "${S3_WEB_IDENTITY_TEST_TOKEN_FILE}"
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2023 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   fstab:
@@ -207,7 +207,7 @@ jobs:
         runner:
           - name: Ubuntu x86
             tags: [ubuntu-22.04] # GitHub-hosted
-          - name: AL2 arm
+          - name: AL2023 arm
             tags: [self-hosted, linux, arm64]
 
     steps:
@@ -301,7 +301,7 @@ jobs:
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04]
-        - name: AL2 arm
+        - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
 
     steps:
