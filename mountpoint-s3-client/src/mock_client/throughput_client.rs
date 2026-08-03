@@ -202,12 +202,12 @@ impl ObjectClient for ThroughputMockClient {
         self.inner.put_object(bucket, key, params).await
     }
 
-    async fn put_object_single<'a>(
+    async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         self.inner.put_object_single(bucket, key, params, contents).await
     }

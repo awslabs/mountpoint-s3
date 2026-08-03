@@ -111,6 +111,7 @@ impl CrtClient {
 
         let credentials_chain_default_options = CredentialsProviderChainDefaultOptions {
             bootstrap: &mut client_bootstrap,
+            tls_ctx: None,
         };
         let credentials_provider =
             CredentialsProvider::new_chain_default(&allocator, credentials_chain_default_options)?;
@@ -222,7 +223,7 @@ struct CliArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    RustLogAdapter::try_init().context("failed to inititalize RustLogAdapter")?;
+    RustLogAdapter::try_init().context("failed to initialize RustLogAdapter")?;
     tracing_subscriber::fmt::try_init().map_err(|e| anyhow!("failed to initialize tracing subscriber: {:?}", e))?;
 
     let args = CliArgs::parse();

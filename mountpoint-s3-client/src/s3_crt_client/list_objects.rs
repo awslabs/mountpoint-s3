@@ -7,7 +7,6 @@ use mountpoint_s3_crt::s3::client::MetaRequestResult;
 use thiserror::Error;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use tracing::error;
 
 use crate::object_client::{
     ChecksumAlgorithm, ListObjectsError, ListObjectsResult, ObjectClientError, ObjectClientResult, ObjectInfo,

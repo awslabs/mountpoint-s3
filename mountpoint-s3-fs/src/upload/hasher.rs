@@ -3,6 +3,40 @@ use mountpoint_s3_client::config::Allocator;
 use mountpoint_s3_client::types::{ChecksumAlgorithm, UploadChecksum};
 use thiserror::Error;
 
+use crate::fs::UploadChecksumAlgorithm;
+
+/// Hasher for the atomic upload path: always produces a non-empty `UploadChecksum`, can't fail to
+/// construct or update. Restricted to the algorithms the FS layer actually computes locally
+/// (CRC32C and CRC64NVME) so the call sites in `upload/atomic.rs` don't need `expect`-chains.
+#[derive(Debug)]
+pub enum AtomicUploadHasher {
+    Crc32c(crc32c::Hasher),
+    Crc64nvme(crc64nvme::Crc64nvmeHasher),
+}
+
+impl AtomicUploadHasher {
+    pub fn new(algorithm: UploadChecksumAlgorithm) -> Self {
+        match algorithm {
+            UploadChecksumAlgorithm::Crc32c => Self::Crc32c(crc32c::Hasher::new()),
+            UploadChecksumAlgorithm::Crc64nvme => Self::Crc64nvme(crc64nvme::Crc64nvmeHasher::new()),
+        }
+    }
+
+    pub fn update(&mut self, data: &[u8]) {
+        match self {
+            Self::Crc32c(hasher) => hasher.update(data),
+            Self::Crc64nvme(hasher) => hasher.update(data),
+        }
+    }
+
+    pub fn finalize(self) -> UploadChecksum {
+        match self {
+            Self::Crc32c(hasher) => UploadChecksum::Crc32c(hasher.finalize()),
+            Self::Crc64nvme(hasher) => UploadChecksum::Crc64nvme(hasher.finalize()),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub enum ChecksumHasher {
     #[default]

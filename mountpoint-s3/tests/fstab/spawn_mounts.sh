@@ -16,7 +16,7 @@ function spawn_mounts() {
   # systemd-fstab-generator takes two environment variables as input: 'SYSTEMD_FSTAB' and 'SYSTEMD_PROC_CMDLINE'
   # SYSTEMD_FSTAB is the path to the fstab file to use, if we don't want to use the system-wide one
   # SYSTEMD_PROC_CMDLINE is an alternative to the kernal's command line arguments.
-  # We don't want the state of the kernal arguments to impact our generation, so we mock it out
+  # We don't want the state of the kernel arguments to impact our generation, so we mock it out
   export SYSTEMD_FSTAB=$(mktemp)
   echo "$FSTAB_CONTENT" > "$SYSTEMD_FSTAB"
   export SYSTEMD_PROC_CMDLINE=""

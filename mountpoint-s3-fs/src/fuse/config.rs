@@ -187,7 +187,7 @@ impl MountPoint {
             // some reason.
             match Process::myself().and_then(|me| me.mountinfo()) {
                 Ok(mounts) => {
-                    if mounts.0.iter().any(|mount| mount.mount_point == path) {
+                    if is_mount_point_in_use(&mounts.0, path) {
                         return Err(anyhow!("mount point {} is already mounted", path.display()));
                     }
                 }
@@ -209,6 +209,17 @@ impl std::fmt::Display for MountPoint {
             MountPoint::FileDescriptor(fd) => write!(f, "/dev/fd/{}", fd.as_raw_fd()),
         }
     }
+}
+
+/// Returns true if the given path is already mounted with a non-autofs filesystem.
+///
+/// Directories mounted with `autofs` are not considered in-use because `autofs` is an
+/// automounter that will unmount and remount as needed.
+#[cfg(target_os = "linux")]
+fn is_mount_point_in_use(mounts: &[procfs::process::MountInfo], path: &Path) -> bool {
+    mounts
+        .iter()
+        .any(|mount| mount.mount_point == path && mount.fs_type != "autofs")
 }
 
 /// Parses file descriptor from given mount point.
@@ -237,5 +248,70 @@ mod tests {
     #[test_case("", None; "empty")]
     fn test_parsing_fuse_fd_from_mount_point(mount_point: &str, expected: Option<RawFd>) {
         assert_eq!(expected, parse_fd_from_mount_point(mount_point));
+    }
+
+    #[cfg(target_os = "linux")]
+    mod mount_point_validation {
+        use super::super::*;
+        use procfs::process::MountInfo;
+        use std::path::Path;
+
+        fn mount_info_from_line(line: &str) -> MountInfo {
+            MountInfo::from_line(line).expect("valid mountinfo line")
+        }
+
+        #[test]
+        fn should_not_reject_autofs_mount() {
+            let mounts = vec![mount_info_from_line(
+                "100 1 0:100 / /mnt/auto rw,relatime - autofs systemd-1 rw",
+            )];
+            assert!(
+                !is_mount_point_in_use(&mounts, Path::new("/mnt/auto")),
+                "autofs mount should not be considered in-use"
+            );
+        }
+
+        #[test]
+        fn should_reject_non_autofs_mount() {
+            let mounts = vec![mount_info_from_line(
+                "200 1 0:200 / /mnt/data rw,relatime - ext4 /dev/sda1 rw",
+            )];
+            assert!(
+                is_mount_point_in_use(&mounts, Path::new("/mnt/data")),
+                "non-autofs mount should be considered in-use"
+            );
+        }
+
+        #[test]
+        fn should_not_reject_unrelated_mount() {
+            let mounts = vec![mount_info_from_line(
+                "200 1 0:200 / /mnt/other rw,relatime - ext4 /dev/sda1 rw",
+            )];
+            assert!(
+                !is_mount_point_in_use(&mounts, Path::new("/mnt/data")),
+                "mount at a different path should not affect the target"
+            );
+        }
+
+        #[test]
+        fn should_not_reject_when_no_mounts() {
+            let mounts: Vec<MountInfo> = vec![];
+            assert!(
+                !is_mount_point_in_use(&mounts, Path::new("/mnt/data")),
+                "empty mount list should not reject any path"
+            );
+        }
+
+        #[test]
+        fn should_reject_non_autofs_even_when_autofs_also_present() {
+            let mounts = vec![
+                mount_info_from_line("100 1 0:100 / /mnt/data rw,relatime - autofs systemd-1 rw"),
+                mount_info_from_line("200 1 0:200 / /mnt/data rw,relatime - ext4 /dev/sda1 rw"),
+            ];
+            assert!(
+                is_mount_point_in_use(&mounts, Path::new("/mnt/data")),
+                "should reject when a non-autofs mount exists at the same path"
+            );
+        }
     }
 }

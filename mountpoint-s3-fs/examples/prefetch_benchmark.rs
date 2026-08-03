@@ -12,13 +12,11 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
+use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
-use mountpoint_s3_fs::s3::config::INITIAL_READ_WINDOW_SIZE;
+use mountpoint_s3_fs::prefetch::{HandleId, PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
-use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -128,9 +126,8 @@ impl CliArgs {
         if let Some(target) = self.max_memory_target {
             target * 1024 * 1024
         } else {
-            // Default to 95% of total system memory
-            let sys = System::new_with_specifics(RefreshKind::everything());
-            (sys.total_memory() as f64 * 0.95) as u64
+            // Default to 95% of total system memory (cgroup-aware)
+            (effective_total_memory() as f64 * 0.95) as u64
         }
     }
 
@@ -138,13 +135,13 @@ impl CliArgs {
         // Set up backpressure with the same initial window used in Mountpoint.
         let mut client_config = S3ClientConfig::new()
             .read_backpressure(true)
-            .initial_read_window(INITIAL_READ_WINDOW_SIZE)
             .endpoint_config(EndpointConfig::new(self.region.as_str()));
         if let Some(throughput_target_gbps) = self.maximum_throughput_gbps {
             client_config = client_config.throughput_target_gbps(throughput_target_gbps as f64);
         }
         if let Some(part_size) = self.part_size {
             client_config = client_config.part_size(part_size as usize);
+            client_config = client_config.initial_read_window(part_size as usize);
         }
         if let Some(nics) = &self.bind {
             client_config = client_config.network_interface_names(nics.to_vec());
@@ -205,10 +202,11 @@ fn main() -> anyhow::Result<()> {
         thread::scope(|scope| {
             let mut download_tasks = Vec::new();
 
-            for (object_id, size) in &object_metadata {
+            for (idx, (object_id, size)) in object_metadata.iter().enumerate() {
                 let received_bytes = received_bytes.clone();
                 let object_id = object_id.clone();
-                let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
+                let handle_id = HandleId::new(idx as u64);
+                let request = manager.prefetch(bucket.to_string(), object_id.clone(), handle_id, *size);
                 let read_size = args.read_size;
 
                 let task = scope.spawn(move || {

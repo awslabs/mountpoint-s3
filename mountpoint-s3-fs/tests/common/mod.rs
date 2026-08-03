@@ -139,7 +139,7 @@ pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfi
 }
 
 /// Enable tracing and CRT logging when running unit tests.
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_tracing_subscriber() {
     let _ = RustLogAdapter::try_init();
 
@@ -152,8 +152,31 @@ fn init_tracing_subscriber() {
         .try_init();
 }
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_crt() {
     mountpoint_s3_client::config::io_library_init(&mountpoint_s3_client::config::Allocator::default());
     mountpoint_s3_client::config::s3_library_init(&mountpoint_s3_client::config::Allocator::default());
+}
+
+#[cfg(feature = "stress_tests")]
+pub mod stress_recorder {
+    use super::test_recorder::stress::HdrRecorder;
+    use std::sync::OnceLock;
+
+    static RECORDER: OnceLock<HdrRecorder> = OnceLock::new();
+
+    pub fn install() {
+        let recorder = HdrRecorder::default();
+        RECORDER
+            .set(recorder.clone())
+            .map_err(|_| ())
+            .expect("stress_recorder::install() called more than once in this process");
+        metrics::set_global_recorder(recorder)
+            .map_err(|_| ())
+            .expect("a `metrics` global recorder was already installed in this process");
+    }
+
+    pub fn recorder() -> Option<&'static HdrRecorder> {
+        RECORDER.get()
+    }
 }

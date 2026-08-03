@@ -15,7 +15,9 @@ use thiserror::Error;
 
 pub use crate::checksums::ChecksummedBytes;
 pub use crate::data_cache::cache_directory::ManagedCacheDir;
-pub use crate::data_cache::disk_data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+pub use crate::data_cache::disk_data_cache::{
+    CacheLimit, DEFAULT_CACHE_MIN_AVAILABLE_RATIO, DiskDataCache, DiskDataCacheConfig,
+};
 pub use crate::data_cache::express_data_cache::{ExpressDataCache, ExpressDataCacheConfig, build_prefix, get_s3_key};
 pub use crate::data_cache::in_memory_data_cache::InMemoryDataCache;
 pub use crate::data_cache::multilevel_cache::MultilevelDataCache;
@@ -40,19 +42,6 @@ pub enum DataCacheError {
     InvalidBlockOffset,
     #[error("Error while trying to evict cache content")]
     EvictionFailure,
-}
-
-impl DataCacheError {
-    fn reason(&self) -> &'static str {
-        match self {
-            DataCacheError::IoFailure(_) => "io_failure",
-            DataCacheError::InvalidBlockHeader(_) => "invalid_block_header",
-            DataCacheError::InvalidBlockChecksum => "invalid_block_checksum",
-            DataCacheError::InvalidBlockContent => "invalid_block_content",
-            DataCacheError::InvalidBlockOffset => "invalid_block_offset",
-            DataCacheError::EvictionFailure => "eviction_failure",
-        }
-    }
 }
 
 pub type DataCacheResult<Value> = Result<Value, DataCacheError>;

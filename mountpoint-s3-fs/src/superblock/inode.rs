@@ -2,14 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use crate::metablock::{
-    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, ROOT_INODE_NO, ValidKey,
-};
-use crate::s3::Prefix;
-use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use mountpoint_s3_client::checksums::crc32c::{self, Crc32c};
 use time::OffsetDateTime;
 use tracing::debug;
+
+use crate::metablock::{
+    InodeError, InodeErrorInfo, InodeKind, InodeNo, InodeStat, NEVER_EXPIRE_TTL, PendingUploadHook, ROOT_INODE_NO,
+    ValidKey,
+};
+use crate::s3::Prefix;
+use crate::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug, Clone)]
 pub struct Inode {
@@ -101,11 +103,6 @@ impl Inode {
         &self.inner.valid_key
     }
 
-    pub fn is_remote(&self) -> Result<bool, InodeError> {
-        let state = self.get_inode_state()?;
-        Ok(state.write_status == WriteStatus::Remote)
-    }
-
     /// return Inode State with read lock after checking whether the directory inode is deleted or not.
     pub fn get_inode_state(&self) -> Result<InodeLockedForReading<'_>, InodeError> {
         let inode_state = self.inner.sync.read().unwrap();
@@ -162,6 +159,7 @@ impl Inode {
                 stat: InodeStat::for_directory(mount_time, NEVER_EXPIRE_TTL),
                 write_status: WriteStatus::Remote,
                 kind_data: InodeKindData::default_for(InodeKind::Directory),
+                pending_upload_hook: None,
             },
         )
     }
@@ -191,6 +189,7 @@ impl Inode {
             ),
             write_status: WriteStatus::Remote,
             kind_data: InodeKindData::default_for(InodeKind::File),
+            pending_upload_hook: None,
         };
 
         Ok(Self::new(self.ino(), new_parent, new_key, prefix, new_inode_state))
@@ -245,6 +244,7 @@ pub struct InodeState {
     pub stat: InodeStat,
     pub write_status: WriteStatus,
     pub kind_data: InodeKindData,
+    pub pending_upload_hook: Option<PendingUploadHook>,
 }
 
 impl InodeState {
@@ -253,6 +253,7 @@ impl InodeState {
             stat: stat.clone(),
             kind_data: InodeKindData::default_for(kind),
             write_status,
+            pending_upload_hook: None,
         }
     }
 }
@@ -294,11 +295,11 @@ impl InodeKindData {
 pub enum WriteStatus {
     /// Local inode created but not yet opened
     LocalUnopened,
-    /// Local inode already opened
-    LocalOpen,
-    /// Remote inode
+    /// Local inode currently opened for writing
+    LocalOpenForWriting,
+    /// Remote inode - already exists in S3 with internal state in sync with the S3 state
     Remote,
-    /// Pending rename for indoe
+    /// Originally remote inode now pending a rename (as the source or destination)
     PendingRename,
 }
 
@@ -342,6 +343,7 @@ mod tests {
                 write_status: WriteStatus::Remote,
                 stat: InodeStat::for_file(0, OffsetDateTime::now_utc(), None, None, None, Default::default()),
                 kind_data: InodeKindData::File {},
+                pending_upload_hook: None,
             },
         );
         superblock.inner.inodes.write().unwrap().insert(ino, inode.clone(), 5);
@@ -484,6 +486,7 @@ mod tests {
                     ),
                     write_status: WriteStatus::Remote,
                     kind_data: InodeKindData::File {},
+                    pending_upload_hook: None,
                 }),
             }),
         };
@@ -538,9 +541,10 @@ mod tests {
                     .unwrap(),
                 checksum,
                 sync: RwLock::new(InodeState {
-                    write_status: WriteStatus::LocalOpen,
+                    write_status: WriteStatus::LocalOpenForWriting,
                     stat: InodeStat::for_file(0, OffsetDateTime::UNIX_EPOCH, None, None, None, Default::default()),
                     kind_data: InodeKindData::File {},
+                    pending_upload_hook: None,
                 }),
             }),
         };
@@ -576,8 +580,9 @@ mod tests {
 
         #[test]
         fn test_create_and_forget_race_condition() {
-            async fn test_helper() {
-                let bucket = Bucket::new("test_bucket").unwrap();
+            let bucket = Bucket::new("test_bucket").unwrap();
+
+            async fn test_helper(bucket: &Bucket) {
                 let client = Arc::new(
                     MockClient::config()
                         .bucket(bucket.to_string())
@@ -590,7 +595,7 @@ mod tests {
 
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
-                    S3Path::new(bucket, Default::default()),
+                    S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
 
@@ -616,14 +621,16 @@ mod tests {
                 assert_eq!(lookup_count, 0);
             }
 
-            check_random(|| block_on(test_helper()), 1000);
-            check_pct(|| block_on(test_helper()), 1000, 3);
+            let bucket_clone = bucket.clone();
+            check_random(move || block_on(test_helper(&bucket_clone)), 1000);
+            check_pct(move || block_on(test_helper(&bucket)), 1000, 3);
         }
 
         #[test]
         fn test_concurrent_rename_different_files() {
-            async fn test_helper() {
-                let bucket = Bucket::new("test_bucket").unwrap();
+            let bucket = Bucket::new("test_bucket").unwrap();
+
+            async fn test_helper(bucket: &Bucket) {
                 let client = Arc::new(
                     MockClient::config()
                         .bucket(bucket.to_string())
@@ -639,7 +646,7 @@ mod tests {
                 };
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
-                    S3Path::new(bucket, Default::default()),
+                    S3Path::new(bucket.clone(), Default::default()),
                     config,
                 ));
 
@@ -720,13 +727,14 @@ mod tests {
             }
 
             // Run the test multiple times with different interleavings
-            check_dfs(|| block_on(test_helper()), Some(100000));
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
         }
 
         #[test]
         fn test_concurrent_rename_and_lookup() {
-            async fn test_helper() {
-                let bucket = Bucket::new("test_bucket").unwrap();
+            let bucket = Bucket::new("test_bucket").unwrap();
+
+            async fn test_helper(bucket: &Bucket) {
                 let client = MockClient::config()
                     .bucket(bucket.to_string())
                     .part_size(1024 * 1024)
@@ -743,7 +751,11 @@ mod tests {
                     s3_personality: S3Personality::ExpressOneZone,
                     ..Default::default()
                 };
-                let superblock = Arc::new(Superblock::new(client, S3Path::new(bucket, Default::default()), config));
+                let superblock = Arc::new(Superblock::new(
+                    client,
+                    S3Path::new(bucket.clone(), Default::default()),
+                    config,
+                ));
                 // Create two threads, one that renames and one that tries to open the destination
                 let superblock_clone1 = superblock.clone();
                 let dest_lookup = superblock.lookup(ROOT_INODE_NO, dest_name.as_ref()).await.unwrap();
@@ -788,7 +800,7 @@ mod tests {
                 //);
             }
 
-            check_pct(|| block_on(test_helper()), 10000, 3);
+            check_pct(move || block_on(test_helper(&bucket)), 10000, 3);
         }
     }
 }

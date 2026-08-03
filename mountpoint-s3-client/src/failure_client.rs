@@ -19,7 +19,7 @@ use crate::object_client::{
     HeadObjectError, HeadObjectParams, HeadObjectResult, ListObjectsError, ListObjectsResult, ObjectAttribute,
     ObjectChecksumError, ObjectClient, ObjectClientError, ObjectClientResult, ObjectMetadata, PutObjectError,
     PutObjectParams, PutObjectRequest, PutObjectResult, PutObjectSingleParams, RenameObjectError, RenameObjectParams,
-    RenameObjectResult, UploadReview,
+    RenameObjectResult, UploadReview, UploadReviewOutcome,
 };
 
 // Wrapper for injecting failures into a get stream or a put request
@@ -177,12 +177,12 @@ where
         })
     }
 
-    async fn put_object_single<'a>(
+    async fn put_object_single(
         &self,
         bucket: &str,
         key: &str,
         params: &PutObjectSingleParams,
-        contents: impl AsRef<[u8]> + Send + 'a,
+        contents: impl AsRef<[u8]> + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         (self.put_object_single_cb)(&mut *self.state.lock().unwrap(), bucket, key, params, contents.as_ref())?;
         self.client.put_object_single(bucket, key, params, contents).await
@@ -249,21 +249,17 @@ impl<Client: ObjectClient> Stream for FailureGetResponse<Client> {
         *this.poll_count += 1;
 
         match this.failure_mode {
-            Some(GetObjectFailureMode::StreamShortCircuit(pos)) => {
-                if this.poll_count >= pos {
-                    return Poll::Ready(None);
-                }
+            Some(GetObjectFailureMode::StreamShortCircuit(pos)) if *this.poll_count >= *pos => {
+                return Poll::Ready(None);
             }
-            Some(GetObjectFailureMode::StreamPositionError(pos, _)) => {
-                if this.poll_count >= pos {
-                    let GetObjectFailureMode::StreamPositionError(_, err) = this.failure_mode.take().unwrap() else {
-                        unreachable!()
-                    };
-                    return Poll::Ready(Some(Err(err)));
-                }
+            Some(GetObjectFailureMode::StreamPositionError(pos, _)) if *this.poll_count >= *pos => {
+                let GetObjectFailureMode::StreamPositionError(_, err) = this.failure_mode.take().unwrap() else {
+                    unreachable!()
+                };
+                return Poll::Ready(Some(Err(err)));
             }
             Some(GetObjectFailureMode::OperationError(_)) => unreachable!(),
-            None => {}
+            _ => {}
         }
 
         this.request.poll_next(cx)
@@ -296,7 +292,7 @@ where
 
     async fn review_and_complete(
         mut self,
-        review_callback: impl FnOnce(UploadReview) -> bool + Send + 'static,
+        review_callback: impl FnOnce(UploadReview) -> UploadReviewOutcome + Send + 'static,
     ) -> ObjectClientResult<PutObjectResult, PutObjectError, Self::ClientError> {
         (self.result_fn)(&mut self.state)?;
         self.request.review_and_complete(review_callback).await
@@ -435,8 +431,10 @@ pub fn countdown_failure_client<Client: ObjectClient>(
                 },
                 result_fn: |state| {
                     state.count += 1;
-                    if state.count >= state.fail_count {
-                        Err(state.error.take().unwrap())
+                    if state.count >= state.fail_count
+                        && let Some(error) = state.error.take()
+                    {
+                        Err(error)
                     } else {
                         Ok(())
                     }

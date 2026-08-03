@@ -85,6 +85,18 @@ libc_flags! {
     }
 }
 
+impl OpenFlags {
+    #[cfg(not(target_os = "linux"))]
+    pub fn direct_io(&self) -> bool {
+        false
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn direct_io(&self) -> bool {
+        self.contains(OpenFlags::O_DIRECT)
+    }
+}
+
 /// Flags used in [rename](super::S3Filesystem::rename).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RenameFlags(u32);

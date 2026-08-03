@@ -2,8 +2,11 @@
 
 pub mod common;
 
+use common::creds::{assert_no_permissions_error, get_no_permissions_provider};
 use common::*;
+#[cfg(not(feature = "s3express_tests"))]
 use mountpoint_s3_client::S3RequestError;
+use mountpoint_s3_client::config::{S3ClientAuthConfig, S3ClientConfig};
 use mountpoint_s3_client::error::{HeadBucketError, ObjectClientError};
 
 #[tokio::test]
@@ -36,15 +39,19 @@ async fn test_head_bucket_wrong_region() {
 
 #[tokio::test]
 async fn test_head_bucket_forbidden() {
-    let client = get_test_client();
-    let bucket = get_test_bucket_without_permissions();
+    let (bucket, _prefix) = get_test_bucket_and_prefix("test_head_bucket_forbidden");
 
-    let result = client.head_bucket(&bucket).await;
+    let provider = get_no_permissions_provider().await;
+    let config = S3ClientConfig::new()
+        .auth_config(S3ClientAuthConfig::Provider(provider))
+        .endpoint_config(get_test_endpoint_config());
+    let client = get_test_client_with_config(config);
 
-    assert!(matches!(
-        result,
-        Err(ObjectClientError::ClientError(S3RequestError::Forbidden(_, _)))
-    ));
+    let err = client
+        .head_bucket(&bucket)
+        .await
+        .expect_err("should fail if no permission to access S3");
+    assert_no_permissions_error!(err);
 }
 
 #[tokio::test]

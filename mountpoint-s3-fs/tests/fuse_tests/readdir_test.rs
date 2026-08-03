@@ -1,10 +1,12 @@
-use crate::common::fuse::{self, TestClient, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
+use std::collections::HashMap;
+use std::fs;
+
 use mountpoint_s3_fs::S3FilesystemConfig;
 use rand::distr::{Alphanumeric, SampleString};
 use rand::rngs::{SmallRng, StdRng};
-use rand::{Rng, SeedableRng};
-use std::collections::HashMap;
-use std::fs;
+use rand::{RngExt, SeedableRng};
+
+use crate::common::fuse::{self, TestClient, TestSessionConfig, TestSessionCreator, read_dir_to_entry_names};
 
 // Unit Tests
 // Generate a filesystem with many entries

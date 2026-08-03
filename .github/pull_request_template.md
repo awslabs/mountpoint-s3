@@ -1,4 +1,4 @@
-**TODO: Remove all TODO messages in desc. For PR description guidance, review https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONTRIBUTING.md#pull-request-title-and-description**.
+**TODO: Remove all TODO messages in desc. For PR description guidance, review [Contributing via Pull Requests](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONTRIBUTING.md#contributing-via-pull-requests)**.
 
 **TODO: What changed and why?**
 

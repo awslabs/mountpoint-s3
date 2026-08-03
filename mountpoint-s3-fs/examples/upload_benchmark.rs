@@ -5,11 +5,10 @@ use clap::Parser;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::mem_limiter::MemoryLimiter;
+use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
-use sysinfo::{RefreshKind, System};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -111,9 +110,8 @@ fn main() {
         let max_memory_target = if let Some(target) = args.max_memory_target {
             target * 1024 * 1024
         } else {
-            // Default to 95% of total system memory
-            let sys = System::new_with_specifics(RefreshKind::everything());
-            (sys.total_memory() as f64 * 0.95) as u64
+            // Default to 95% of total system memory (cgroup-aware)
+            (effective_total_memory() as f64 * 0.95) as u64
         };
         let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), max_memory_target));
 

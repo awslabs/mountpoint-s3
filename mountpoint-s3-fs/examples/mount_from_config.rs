@@ -85,6 +85,9 @@ struct ConfigOptions {
 
     /// Disk cache configuration
     disk_cache: Option<DiskCacheConfig>,
+
+    /// Limits the number of concurrent FUSE requests that the kernel may send, default: 64
+    max_background_fuse_requests: Option<u16>,
 }
 
 impl ConfigOptions {
@@ -103,6 +106,7 @@ impl ConfigOptions {
     fn build_filesystem_config(&self) -> Result<S3FilesystemConfig> {
         let mut fs_config = S3FilesystemConfig {
             cache_config: CacheConfig::new(mountpoint_s3_fs::fs::TimeToLive::Indefinite),
+            max_background_fuse_requests: self.max_background_fuse_requests,
             ..Default::default()
         };
 
@@ -122,6 +126,9 @@ impl ConfigOptions {
         if let Some(memory_limit_bytes) = self.memory_limit_bytes {
             fs_config.mem_limit = memory_limit_bytes;
         }
+        // For this binary we expect sequential read pattern. Thus, opt-out from the 1MB-initial request,
+        // trading-off latency for throughput and more accurate memory limiting.
+        fs_config.prefetcher_config.initial_request_size = 0;
         Ok(fs_config)
     }
 
@@ -142,8 +149,9 @@ impl ConfigOptions {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: None,
-            part_config: PartConfig::with_part_size(self.part_size.unwrap_or(8388608)),
+            part_config: PartConfig::with_part_size(self.part_size()),
             user_agent: UserAgent::new(Some(user_agent_string)),
+            tls_config: None,
         })
     }
 
@@ -214,6 +222,10 @@ impl ConfigOptions {
                 Ok(TargetThroughputSetting::Instance { gbps: target })
             }
         }
+    }
+
+    fn part_size(&self) -> usize {
+        self.part_size.unwrap_or(8388608)
     }
 }
 

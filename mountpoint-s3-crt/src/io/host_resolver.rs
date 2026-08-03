@@ -1,4 +1,4 @@
-//! An asychronous DNS resolver
+//! An asynchronous DNS resolver
 
 use crate::CrtError as _;
 use crate::common::allocator::Allocator;

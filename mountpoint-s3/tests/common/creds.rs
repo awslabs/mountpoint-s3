@@ -1,10 +1,7 @@
 use aws_credential_types::Credentials;
 
-#[cfg(not(feature = "s3express_tests"))]
 use crate::common::s3::get_test_region;
-#[cfg(not(feature = "s3express_tests"))]
 use aws_config::{Region, sts::AssumeRoleProvider};
-#[cfg(not(feature = "s3express_tests"))]
 use aws_credential_types::provider::ProvideCredentials;
 
 /// Detect if running on GitHub Actions (GHA) and if so,
@@ -50,7 +47,6 @@ pub fn get_subsession_iam_role() -> String {
 /// See the [session policies section of the AWS IAM User Guide][session_policies] for more detail.
 ///
 /// [session_policies]: https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies.html#policies_session
-#[cfg(not(feature = "s3express_tests"))]
 pub async fn get_scoped_down_credentials<Policy: AsRef<str>>(policy: Policy) -> Credentials {
     let provider = AssumeRoleProvider::builder(get_subsession_iam_role())
         .region(Region::new(get_test_region()))
@@ -64,4 +60,23 @@ pub async fn get_scoped_down_credentials<Policy: AsRef<str>>(policy: Policy) -> 
         .expect("default chain credentials should be available");
     mask_aws_creds_if_on_gha(&credentials);
     credentials
+}
+
+/// Assume a set of Rust SDK [Credentials] that has no S3 permissions.
+///
+/// Uses a deny-all IAM policy to ensure all S3 actions (including `s3express:CreateSession`) are denied.
+pub async fn get_credentials_no_permissions() -> Credentials {
+    let policy = r#"{"Statement": [
+        { "Effect": "Deny", "Action": ["*"], "Resource": "*" }
+    ]}"#;
+    get_scoped_down_credentials(policy).await
+}
+
+/// Setup environment variables on the command to use the specified AWS credentials
+pub fn apply_creds_to_command(cmd: &mut std::process::Command, creds: &Credentials) {
+    cmd.env("AWS_ACCESS_KEY_ID", creds.access_key_id());
+    cmd.env("AWS_SECRET_ACCESS_KEY", creds.secret_access_key());
+    if let Some(token) = creds.session_token() {
+        cmd.env("AWS_SESSION_TOKEN", token);
+    }
 }
