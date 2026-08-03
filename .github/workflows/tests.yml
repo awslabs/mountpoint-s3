@@ -393,7 +393,9 @@ jobs:
     needs:
       - test
       - doc-tests
-      - macos-test
+      # No `macos-test`: the Modal fork does not run a macOS job (removed in 03ee112).
+      # Upstream lists it here, but a `needs` entry for a non-existent job
+      # fails workflow validation, so no jobs run at all.
       - check
       - bench
       - shuttle
