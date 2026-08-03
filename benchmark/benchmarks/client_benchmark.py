@@ -1,10 +1,10 @@
 import logging
 import subprocess
-from typing import Dict, Any
+from typing import Any
 
 from benchmarks.base_benchmark import BaseBenchmark
-from benchmarks.command import Command, CommandResult
 from benchmarks.cargo_helper import build_example
+from benchmarks.command import Command, CommandResult
 from benchmarks.config_utils import get_s3_keys
 from omegaconf import DictConfig
 
@@ -12,12 +12,12 @@ log = logging.getLogger(__name__)
 
 
 class ClientBenchmark(BaseBenchmark):
-    def __init__(self, cfg: DictConfig, metadata: Dict[str, Any], backpressure=False):
+    def __init__(self, cfg: DictConfig, metadata: dict[str, Any], backpressure=False):
         self.cfg = cfg
         self.metadata = metadata
         self.backpressure = backpressure
 
-    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> dict[str, Any]:
         # Compile the client_benchmark example
         features = None
         if self.backpressure:
@@ -33,7 +33,7 @@ class ClientBenchmark(BaseBenchmark):
     def get_command(self) -> Command:
         subprocess_args = [self.executable_path]
 
-        if self.backpressure:
+        if self.backpressure:  # noqa: SIM102
             if (backpressure_window_size := self.cfg.benchmarks.client_bp.backpressure_window_size) is not None:
                 subprocess_args.extend(["--backpressure-window-size", str(backpressure_window_size)])
 
@@ -60,7 +60,7 @@ class ClientBenchmark(BaseBenchmark):
 
         if len(objects) >= self.cfg.application_workers:
             for obj in objects:
-                subprocess_args.append(obj)
+                subprocess_args.append(obj)  # noqa: PERF402
         else:
             raise ValueError("Seeing fewer objects than app workers. So cannot proceed with the run.")
 
@@ -74,7 +74,7 @@ class ClientBenchmark(BaseBenchmark):
 
         return Command(args=subprocess_args, env=client_env)
 
-    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+    def post_process(self, result: CommandResult) -> dict[str, Any]:
         if result.returncode != 0:
             log.error(f"Client benchmark failed with exit code {result.returncode}")
             if result.stderr:

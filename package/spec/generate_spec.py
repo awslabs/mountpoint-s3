@@ -8,10 +8,11 @@ and outputs a complete RPM spec file ready for rpmbuild.
 
 import argparse
 import subprocess
-from pathlib import Path
 from datetime import datetime
-from jinja2 import Environment, FileSystemLoader
+from pathlib import Path
+
 import tomllib
+from jinja2 import Environment, FileSystemLoader
 
 script_dir = Path(__file__).parent
 project_root = script_dir.parent.parent
@@ -33,7 +34,7 @@ def get_rust_version() -> str:
 
 
 def get_submodule_versions() -> dict[str, str]:
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: PLW1510
         'git submodule foreach -q \'echo $name `git describe --tags`\'', capture_output=True, text=True, shell=True
     )
     versions = {}
@@ -68,7 +69,7 @@ def main() -> None:
     version = get_version()
     rust_version = get_rust_version()
     submodule_versions = get_submodule_versions()
-    current_date = datetime.now().strftime("%a %b %d %Y")
+    current_date = datetime.now().strftime("%a %b %d %Y")  # noqa: DTZ005
 
     env = Environment(loader=FileSystemLoader(templates_dir), trim_blocks=True, lstrip_blocks=True)
 
