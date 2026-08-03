@@ -28,6 +28,7 @@ env:
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_BENCH_PREFIX || 'mountpoint-benchmark/' }}
   S3_ENDPOINT_URL: ${{ vars.S3_BENCH_ENDPOINT_URL }}
   S3_REGION: ${{ vars.S3_BENCH_REGION }}
+  # Stress test duration. If changed, also update slow-timeout in .config/nextest.toml
   STRESS_DURATION_SECS: "900"
 
 jobs:
@@ -60,6 +61,11 @@ jobs:
           - many_readers_held_budget_direct_io
           - single_reader_held_budget_misaligned_part
           - cache_hit_vs_miss_held_budget
+          - sustained_writes_incremental_upload
+        include:
+          - scenario: sustained_writes_incremental_upload
+            s3_bucket_name: ${{ vars.S3_EXPRESS_ONE_ZONE_BENCH_BUCKET_NAME }}
+            s3_endpoint_url: ${{ vars.S3_EXPRESS_ONE_ZONE_BENCH_ENDPOINT_URL }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
@@ -96,6 +102,9 @@ jobs:
           df -hT $local_storage
           echo "S3_STRESS_CACHE_DIR=$local_storage" >> "$GITHUB_ENV"
       - name: Run stress scenario
+        env:
+          S3_BUCKET_NAME: ${{ matrix.s3_bucket_name || vars.S3_BENCH_BUCKET_NAME }}
+          S3_ENDPOINT_URL: ${{ matrix.s3_endpoint_url || vars.S3_BENCH_ENDPOINT_URL }}
         run: |
           cargo nextest run \
             --release \
