@@ -9,8 +9,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
+use tempfile::TempDir;
 
-use crate::common::fuse;
+use crate::common::fuse::{self, TestSession};
 use crate::common::stress_recorder;
 use crate::stress::test_objects::ensure_shared_objects;
 
@@ -29,7 +30,7 @@ pub use latency::{FileOp, FileOpLatencies};
 use memory_monitor::spawn_memory_monitor;
 use report::dump_summary;
 pub use scenario::{Scenario, default_max_latency};
-pub use setup::{SetupGuard, budget_parts, hold_budget_parts};
+pub use setup::{SetupGuard, budget_parts, hold_budget_parts, warm_cache};
 use watchdog::{NO_STALL, spawn_watchdog};
 pub use worker::Worker;
 
@@ -52,6 +53,7 @@ pub fn run(scenario: Scenario) {
     let Scenario {
         name: scenario_name,
         mut session_config,
+        cache,
         setup,
         workers,
         max_latency,
@@ -79,13 +81,24 @@ pub fn run(scenario: Scenario) {
     let shared_refs: Vec<(&str, usize)> = shared_objects.iter().map(|(k, s)| (k.as_str(), *s)).collect();
     ensure_shared_objects(&shared_refs);
 
-    let session = {
+    // The cache directory (if any) must outlive the session — hold it here.
+    let _cache_dir: Option<TempDir>;
+
+    let session: TestSession = {
         session_config.filesystem_config.allow_delete = true;
         session_config.filesystem_config.allow_overwrite = true;
         let s3_path = stress_mount_s3_path();
         let region = crate::common::s3::get_test_region();
         let sdk_client = crate::common::tokio_block_on(async { crate::common::s3::get_test_sdk_client(&region).await });
-        fuse::s3_session::new_with_test_client(session_config, sdk_client, s3_path)
+        if cache {
+            let dir = new_cache_dir();
+            let cache_dir_path = dir.path().to_path_buf();
+            _cache_dir = Some(dir);
+            fuse::s3_session::new_with_test_client_and_disk_cache(session_config, sdk_client, s3_path, cache_dir_path)
+        } else {
+            _cache_dir = None;
+            fuse::s3_session::new_with_test_client(session_config, sdk_client, s3_path)
+        }
     };
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -267,6 +280,18 @@ fn collect_shared_objects(workers: &[Arc<dyn Worker>], scenario_name: &str) -> V
         }
     }
     out
+}
+
+/// Create the temporary directory backing a cached scenario's on-disk data cache.
+///
+/// When `S3_STRESS_CACHE_DIR` is set (in CI it points at a freshly-formatted local NVMe mount, the
+/// same fast disk the cache benchmark uses) the cache is rooted there; otherwise it falls back to
+/// the system temp dir for local runs. The returned [`TempDir`] is deleted on drop.
+fn new_cache_dir() -> TempDir {
+    match std::env::var_os("S3_STRESS_CACHE_DIR") {
+        Some(dir) => tempfile::tempdir_in(dir).expect("failed to create cache dir under S3_STRESS_CACHE_DIR"),
+        None => tempfile::tempdir().expect("failed to create cache dir"),
+    }
 }
 
 fn read_duration_env() -> Duration {
