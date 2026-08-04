@@ -2,8 +2,8 @@ use metrics::{counter, histogram};
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
-use crate::checksums::ChecksummedBytes;
-use crate::memory::CursorHandle;
+use crate::checksums::{ChecksummedBytes, ChecksummedBytesBuilder};
+use crate::memory::{BufferKind, CursorHandle, PoolBuffer};
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
 use crate::sync::{Arc, AsyncMutex, Mutex};
@@ -161,9 +161,12 @@ where
             return Ok((ChecksummedBytes::default(), false));
         }
 
-        let mut to_read = (length as u64).min(remaining);
+        let total_to_read = (length as u64).min(remaining);
+        let mut to_read = total_to_read;
         let mut all_parts_from_cache = true;
-        let mut response = ChecksummedBytes::default();
+        // `None` until we know the read spans more than one part, at which point we allocate the
+        // whole response up front and copy each part into it exactly once.
+        let mut response: Option<ChecksummedBytesBuilder<PoolBuffer>> = None;
         while to_read > 0 {
             debug_assert!(self.request_task.remaining() > 0);
 
@@ -176,23 +179,29 @@ where
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
-            if response.is_empty() && part_bytes.len() == to_read as usize {
+            if response.is_none() && part_bytes.len() == to_read as usize {
                 return Ok((part_bytes, all_parts_from_cache));
             }
 
             let part_len = part_bytes.len() as u64;
-            if response.is_empty() {
-                // Copy off the pool buffer instead of letting `extend` alias it: this read spans
-                // parts, and holding a pool buffer across the next allocation below deadlocks under
-                // memory pressure.
-                response = part_bytes.into_detached()?;
-            } else {
-                response.extend(part_bytes)?;
-            }
+            // The read spans parts. Allocate the whole response now and copy every part into it,
+            // including this first one: accumulating by aliasing a part's pool buffer would pin that
+            // buffer while we block on the next part's allocation below, which deadlocks under
+            // memory pressure. The allocation is forced and page-free so it cannot itself block or
+            // consume a page buffer the in-flight request needs.
+            let response = response.get_or_insert_with(|| {
+                let buffer = self
+                    .cursor_handle
+                    .pool()
+                    .get_exact_buffer_forced(total_to_read as usize, BufferKind::GetObject);
+                ChecksummedBytesBuilder::new(buffer)
+            });
+            response.append(part_bytes)?;
             to_read -= part_len;
         }
 
-        Ok((response, all_parts_from_cache))
+        let response = response.expect("multi-part reads build a response, single-part reads return early");
+        Ok((response.finish(), all_parts_from_cache))
     }
 
     /// Try to seek within the current inflight requests without restarting them.
