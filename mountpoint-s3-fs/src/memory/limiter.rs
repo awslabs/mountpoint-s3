@@ -633,6 +633,11 @@ impl CursorHandle {
         self.state.clone()
     }
 
+    /// The memory pool tracking this cursor.
+    pub fn pool(&self) -> &PagedPool {
+        &self.state.pool
+    }
+
     /// Record an active FUSE read. Returns a guard that clears it on drop and
     /// stamps the cursor's LRU tick at that point.
     ///

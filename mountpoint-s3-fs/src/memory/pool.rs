@@ -121,6 +121,21 @@ impl PagedPool {
         PoolBufferMut::new(buffer)
     }
 
+    /// Get a buffer of exactly `size` bytes, allocated outside the pool's pages and without waiting
+    /// for or respecting the memory limit.
+    ///
+    /// Unlike [Self::get_buffer_mut], this never occupies a page buffer, so it cannot consume a
+    /// scarce page slot that an in-flight request is waiting on, and it wastes no slack when `size`
+    /// is much smaller than the pool's buffer sizes. The allocation is still tracked against `kind`,
+    /// and is released when the buffer is dropped.
+    ///
+    /// Reserved for buffers that must be obtained while the caller already holds pool memory, where
+    /// waiting on the limit would risk deadlock. Prefer [Self::get_buffer_mut_async] otherwise.
+    pub fn get_exact_buffer_forced(&self, size: usize, kind: BufferKind) -> PoolBuffer {
+        PoolBuffer::try_new_secondary(size, kind, self.inner.limiter.clone(), true)
+            .expect("forced allocations cannot fail")
+    }
+
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         self.inner
             .try_get_buffer(size, kind, cursor_id, true)
@@ -732,6 +747,50 @@ mod tests {
             let reserved = pool.acquired_bytes(kind);
             assert_eq!(reserved, count * buffer_size);
         }
+    }
+
+    #[test]
+    fn get_exact_buffer_forced_is_exact_sized_and_page_free() {
+        let buffer_size = 1024;
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
+            .with_no_memory_limit()
+            .build();
+
+        // Much smaller than the pool's only buffer size, so a page buffer would waste most of it.
+        let size = 10;
+        let buffer = pool.get_exact_buffer_forced(size, BufferKind::GetObject);
+
+        assert_eq!(buffer.capacity(), size, "buffer should be exactly the requested size");
+        assert_eq!(
+            pool.acquired_bytes(BufferKind::GetObject),
+            size,
+            "only the requested bytes should be tracked"
+        );
+        assert_eq!(pool.page_count(), 0, "no page should be allocated");
+        assert_eq!(pool.acquired_buffer_count(BufferKind::GetObject), 0);
+
+        drop(buffer);
+        assert_eq!(
+            pool.acquired_bytes(BufferKind::GetObject),
+            0,
+            "dropping the buffer should release the tracked bytes"
+        );
+    }
+
+    #[test]
+    fn get_exact_buffer_forced_ignores_the_memory_limit() {
+        let buffer_size = 1024;
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
+            .with_memory_limit(MINIMUM_MEM_LIMIT)
+            .build();
+
+        // Far beyond the limit: a forced allocation must still succeed rather than fail or block,
+        // which is what makes it safe to call while holding pool memory.
+        let size = 2 * MINIMUM_MEM_LIMIT;
+        let buffer = pool.get_exact_buffer_forced(size, BufferKind::GetObject);
+        assert_eq!(buffer.capacity(), size);
     }
 
     #[test_case(&[1024 * 1028, 8 * 1024 * 1028, 8 * 1024 * 1028])]
