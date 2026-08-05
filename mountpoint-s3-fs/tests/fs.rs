@@ -32,6 +32,7 @@ use nix::unistd::{getgid, getuid};
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng};
 use test_case::test_case;
+use time::OffsetDateTime;
 
 mod common;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
@@ -436,6 +437,94 @@ async fn test_mknod_cached() {
     assert_eq!(err_no, libc::EEXIST, "expected EEXIST but got {err_no:?}");
     assert_eq!(head_counter.count(), 1);
     assert_eq!(list_counter.count(), 1);
+}
+
+#[test_case(Some(libc::S_IRWXU), None, None; "mode")]
+#[test_case(None, Some(42), None; "uid")]
+#[test_case(None, None, Some(42); "gid")]
+#[test_case(Some(libc::S_IRWXU), Some(42), Some(42); "mode, uid and gid")]
+#[tokio::test]
+async fn test_setattr_unsupported_attributes(mode: Option<u32>, uid: Option<u32>, gid: Option<u32>) {
+    const BUCKET_NAME: &str = "test_setattr_unsupported_attributes";
+
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+
+    let file_mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(FUSE_ROOT_INODE, "file.bin".as_ref(), file_mode, 0, 0)
+        .await
+        .unwrap();
+    let ino = dentry.attr.ino;
+
+    let err_no = fs
+        .setattr(ino, mode, uid, gid, None, None, None, None)
+        .await
+        .expect_err("setattr should not accept ownership or permission changes")
+        .to_errno();
+    assert_eq!(err_no, libc::EPERM, "expected EPERM but got {err_no:?}");
+}
+
+/// A request combining times with an unsupported attribute is rejected as a whole, rather than
+/// applying the part we do support.
+#[tokio::test]
+async fn test_setattr_unsupported_attributes_leave_times_unchanged() {
+    const BUCKET_NAME: &str = "test_setattr_unsupported_attributes_leave_times_unchanged";
+
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+
+    let file_mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(FUSE_ROOT_INODE, "file.bin".as_ref(), file_mode, 0, 0)
+        .await
+        .unwrap();
+    let ino = dentry.attr.ino;
+    let before = fs.getattr(ino).await.unwrap();
+
+    let atime = OffsetDateTime::UNIX_EPOCH + Duration::from_secs(1);
+    let mtime = OffsetDateTime::UNIX_EPOCH + Duration::from_secs(2);
+    let err_no = fs
+        .setattr(
+            ino,
+            Some(libc::S_IRWXU),
+            None,
+            None,
+            Some(atime),
+            Some(mtime),
+            None,
+            None,
+        )
+        .await
+        .expect_err("setattr should not accept ownership or permission changes")
+        .to_errno();
+    assert_eq!(err_no, libc::EPERM, "expected EPERM but got {err_no:?}");
+
+    let after = fs.getattr(ino).await.unwrap();
+    assert_eq!(after.attr.atime, before.attr.atime);
+    assert_eq!(after.attr.mtime, before.attr.mtime);
+}
+
+#[tokio::test]
+async fn test_setattr_times_on_local_file() {
+    const BUCKET_NAME: &str = "test_setattr_times_on_local_file";
+
+    let (_client, fs) = make_test_filesystem(BUCKET_NAME, &Default::default(), Default::default());
+
+    let file_mode = libc::S_IFREG | libc::S_IRWXU; // regular file + 0700 permissions
+    let dentry = fs
+        .mknod(FUSE_ROOT_INODE, "file.bin".as_ref(), file_mode, 0, 0)
+        .await
+        .unwrap();
+    let ino = dentry.attr.ino;
+
+    let atime = OffsetDateTime::UNIX_EPOCH + Duration::from_secs(1);
+    let mtime = OffsetDateTime::UNIX_EPOCH + Duration::from_secs(2);
+    let attr = fs
+        .setattr(ino, None, None, None, Some(atime), Some(mtime), None, None)
+        .await
+        .expect("setattr should still accept times on a local file");
+
+    assert_eq!(attr.attr.atime, SystemTime::from(atime));
+    assert_eq!(attr.attr.mtime, SystemTime::from(mtime));
 }
 
 #[test_case(1024 * 1024; "small")]

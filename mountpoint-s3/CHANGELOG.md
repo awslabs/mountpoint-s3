@@ -1,5 +1,7 @@
 ## Unreleased
 
+* `chmod`, `chown`, and `chgrp` now consistently fail with `EPERM`. Previously they failed on files already uploaded to S3, but silently reported success on files that had not been uploaded yet, even though Mountpoint never persists the change. ([#1897](https://github.com/awslabs/mountpoint-s3/pull/1897) by @akhileshvattumilli)
+
 ## v1.23.0 (July 20, 2026)
 
 * Add `--ca-bundle` flag (and `AWS_CA_BUNDLE` environment variable fallback) for trusting a custom certificate authority when Mountpoint makes HTTPS calls. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834) by @yerzhan7)

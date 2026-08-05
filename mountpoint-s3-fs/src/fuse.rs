@@ -387,9 +387,9 @@ where
         &self,
         req: &Request<'_>,
         ino: u64,
-        _mode: Option<u32>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
         size: Option<u64>,
         atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
@@ -410,7 +410,11 @@ where
             TimeOrNow::SpecificTime(st) => OffsetDateTime::from(st),
             TimeOrNow::Now => OffsetDateTime::now_utc(),
         });
-        match block_on(self.fs.setattr(ino, atime, mtime, size, flags).in_current_span()) {
+        match block_on(
+            self.fs
+                .setattr(ino, mode, uid, gid, atime, mtime, size, flags)
+                .in_current_span(),
+        ) {
             Ok(attr) => reply.attr(&attr.ttl, &attr.attr),
             Err(e) => fuse_error!("setattr", reply, e, self, req),
         }
