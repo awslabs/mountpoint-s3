@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # Requires bash 4.0+ for the `declare -A THROUGHPUT_OVERRIDE` associative array.
-# macOS ships bash 3.2, so run `brew install bash` and use that bash there.
+# Noted script doesn't run correctly on macOS - please use clouddesk to run the script.
 if ((BASH_VERSINFO[0] < 4)); then
     echo "Error: this script requires bash 4.0 or newer (found ${BASH_VERSION})"
     exit 1
