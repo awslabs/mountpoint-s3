@@ -22,7 +22,8 @@ regions=(us-east-1 us-east-2  us-west-2)
 
 echo "Querying ${#regions[@]} regions: ${regions[*]}"
 
-# Special case handling for Mult-NIC instances
+# Special case handling for legacy Mult-NIC instances
+# For newer multi-NIC instances, the they stopped using the "4x 100 Gigabit" notation.
 # i.e. dll.24xlarge  --> 4x 100 Gbps
 declare -r -A THROUGHPUT_OVERRIDE=(
     ["p4d.24xlarge"]=400
