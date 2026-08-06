@@ -61,6 +61,7 @@ jobs:
           - many_readers_held_budget_direct_io
           - single_reader_held_budget_misaligned_part
           - cache_hit_vs_miss_held_budget
+          - cache_miss_held_budget_misaligned_part
           - sustained_writes_incremental_upload
         include:
           - scenario: sustained_writes_incremental_upload
