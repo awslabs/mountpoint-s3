@@ -2,7 +2,7 @@ use metrics::{counter, histogram};
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
-use crate::checksums::ChecksummedBytes;
+use crate::checksums::{ChecksummedBytes, ChecksummedBytesBuilder};
 use crate::memory::CursorHandle;
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
@@ -161,9 +161,10 @@ where
             return Ok((ChecksummedBytes::default(), false));
         }
 
-        let mut to_read = (length as u64).min(remaining);
+        let total_to_read = (length as u64).min(remaining);
+        let mut to_read = total_to_read;
         let mut all_parts_from_cache = true;
-        let mut response = ChecksummedBytes::default();
+        let mut response: Option<ChecksummedBytesBuilder<Vec<u8>>> = None;
         while to_read > 0 {
             debug_assert!(self.request_task.remaining() > 0);
 
@@ -176,16 +177,19 @@ where
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
-            if response.is_empty() && part_bytes.len() == to_read as usize {
+            if response.is_none() && part_bytes.len() == to_read as usize {
                 return Ok((part_bytes, all_parts_from_cache));
             }
 
             let part_len = part_bytes.len() as u64;
-            response.extend(part_bytes)?;
+            let response =
+                response.get_or_insert_with(|| ChecksummedBytesBuilder::new(vec![0u8; total_to_read as usize]));
+            response.append(part_bytes)?;
             to_read -= part_len;
         }
 
-        Ok((response, all_parts_from_cache))
+        let response = response.expect("multi-part reads build a response, single-part reads return early");
+        Ok((response.finish(), all_parts_from_cache))
     }
 
     /// Try to seek within the current inflight requests without restarting them.
