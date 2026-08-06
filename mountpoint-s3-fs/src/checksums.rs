@@ -249,6 +249,79 @@ impl ChecksummedBytes {
     }
 }
 
+/// Accumulates several [ChecksummedBytes] into one caller-supplied buffer, copying each piece
+/// exactly once and combining their checksums rather than recomputing one over the result.
+///
+/// The buffer must be exactly the total length of the appended pieces: [Self::finish] requires it
+/// filled, since the checksum is only exact for the whole buffer. Taking the buffer from the caller
+/// lets it come from a memory pool rather than the heap.
+#[must_use]
+pub struct ChecksummedBytesBuilder<Buffer> {
+    /// Destination buffer, filled from the front.
+    buffer: Buffer,
+    /// Bytes written into [Self::buffer] so far.
+    len: usize,
+    /// Combined checksum of the first [Self::len] bytes.
+    checksum: Crc32c,
+}
+
+impl<Buffer: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> ChecksummedBytesBuilder<Buffer> {
+    /// Create a builder writing into `buffer`, which must be sized to the exact total length of the
+    /// pieces that will be appended.
+    pub fn new(buffer: Buffer) -> Self {
+        Self {
+            buffer,
+            len: 0,
+            checksum: Crc32c::new(0),
+        }
+    }
+
+    /// Total number of bytes this builder can hold.
+    fn capacity(&self) -> usize {
+        self.buffer.as_ref().len()
+    }
+
+    /// Copy `bytes` into the buffer and fold its checksum into the running one.
+    ///
+    /// Return [IntegrityError] if data corruption is detected in `bytes`.
+    ///
+    /// Panics if `bytes` does not fit in the remaining capacity.
+    pub fn append(&mut self, bytes: ChecksummedBytes) -> Result<(), IntegrityError> {
+        if bytes.is_empty() {
+            // No op, but check that `bytes` was not corrupted.
+            bytes.validate()?;
+            return Ok(());
+        }
+
+        // Shrink to fit so `checksum` covers exactly `bytes`, as `combine_checksums` requires.
+        let (bytes, checksum) = bytes.into_inner()?;
+
+        let new_len = self.len + bytes.len();
+        assert!(
+            new_len <= self.capacity(),
+            "appending {} bytes would exceed the builder capacity of {}",
+            bytes.len(),
+            self.capacity(),
+        );
+        self.buffer.as_mut()[self.len..new_len].copy_from_slice(&bytes);
+        self.checksum = combine_checksums(self.checksum, checksum, bytes.len());
+        self.len = new_len;
+        Ok(())
+    }
+
+    /// Consume the builder and return the accumulated data.
+    ///
+    /// Panics if the buffer was not filled to its capacity.
+    pub fn finish(self) -> ChecksummedBytes {
+        assert_eq!(
+            self.len,
+            self.capacity(),
+            "builder must be filled to capacity before finishing",
+        );
+        ChecksummedBytes::new_from_inner_data(Bytes::from_owner(self.buffer), self.checksum)
+    }
+}
+
 impl Default for ChecksummedBytes {
     fn default() -> Self {
         Self {
@@ -386,32 +459,80 @@ mod tests {
         assert!(matches!(actual, Err(IntegrityError::ChecksumMismatch(_, _))));
     }
 
-    #[test]
-    fn test_into_detached() {
-        let bytes = Bytes::from_static(b"some bytes");
-        let checksummed_bytes = ChecksummedBytes::new(bytes.clone());
-        let expected_checksum = checksummed_bytes.checksum;
-
-        let detached = checksummed_bytes.into_detached().unwrap();
-
-        // Content and checksum are preserved, and the checksum is reused (not recomputed).
-        assert_eq!(bytes, detached.buffer);
-        assert_eq!(expected_checksum, detached.checksum);
-        assert_eq!(bytes, detached.into_bytes().unwrap());
+    /// Append `pieces` into a builder sized to their total length, and return the result.
+    fn build(pieces: impl IntoIterator<Item = ChecksummedBytes>) -> Result<ChecksummedBytes, IntegrityError> {
+        let pieces: Vec<_> = pieces.into_iter().collect();
+        let capacity = pieces.iter().map(|p| p.len()).sum();
+        let mut builder = ChecksummedBytesBuilder::new(vec![0u8; capacity]);
+        for piece in pieces {
+            builder.append(piece)?;
+        }
+        Ok(builder.finish())
     }
 
     #[test]
-    fn test_into_detached_severs_shared_storage() {
-        // A slice of a larger buffer shares its allocation; `into_detached` must not.
-        let full = Bytes::from_static(b"some bytes");
-        let mut checksummed_bytes = ChecksummedBytes::new(full.clone());
-        let tail = checksummed_bytes.split_off(4); // "bytes", still backed by `full`
+    fn builder_combines_pieces_into_one_buffer() {
+        let expected = Bytes::from_static(b"some bytes and some more bytes");
+        let pieces = [
+            ChecksummedBytes::new(expected.slice(..10)),
+            ChecksummedBytes::new(expected.slice(10..19)),
+            ChecksummedBytes::new(expected.slice(19..)),
+        ];
 
-        let detached = tail.into_detached().unwrap();
-        assert_eq!(&detached.buffer[..], b" bytes");
-        // The detached buffer is a fresh, full-range allocation, not a subslice of `full`.
-        assert_eq!(detached.buffer.len(), detached.len());
-        assert_eq!(detached.range, 0..detached.len());
+        let result = build(pieces).unwrap();
+
+        // The combined checksum must match one computed over the whole result, and must be exact
+        // for the buffer so `validate` (which checksums the entire buffer) passes.
+        assert_eq!(crc32c::checksum(&expected), result.checksum);
+        assert_eq!(result.range, 0..expected.len());
+        assert_eq!(expected, result.into_bytes().unwrap());
+    }
+
+    #[test]
+    fn builder_combines_pieces_whose_checksums_cover_a_larger_buffer() {
+        // `split_off` is zero-copy: each half carries the checksum of the whole parent buffer rather
+        // than its own slice. The builder must reconcile that before combining.
+        let full = Bytes::from_static(b"some bytes and some more bytes");
+        let mut first = ChecksummedBytes::new(full.clone());
+        let second = first.split_off(10);
+        assert_ne!(first.checksum, crc32c::checksum(&full.slice(..10)));
+
+        let result = build([first, second]).unwrap();
+
+        assert_eq!(crc32c::checksum(&full), result.checksum);
+        assert_eq!(full, result.into_bytes().unwrap());
+    }
+
+    #[test]
+    fn builder_skips_empty_pieces() {
+        let expected = Bytes::from_static(b"some bytes");
+        let pieces = [
+            ChecksummedBytes::default(),
+            ChecksummedBytes::new(expected.clone()),
+            ChecksummedBytes::default(),
+        ];
+
+        let result = build(pieces).unwrap();
+
+        assert_eq!(crc32c::checksum(&expected), result.checksum);
+        assert_eq!(expected, result.into_bytes().unwrap());
+    }
+
+    #[test]
+    #[should_panic(expected = "would exceed the builder capacity")]
+    fn builder_append_beyond_capacity_panics() {
+        let mut builder = ChecksummedBytesBuilder::new(vec![0u8; 4]);
+        let _ = builder.append(ChecksummedBytes::new(Bytes::from_static(b"some bytes")));
+    }
+
+    #[test]
+    #[should_panic(expected = "must be filled to capacity")]
+    fn builder_finish_underfilled_panics() {
+        let mut builder = ChecksummedBytesBuilder::new(vec![0u8; 10]);
+        builder
+            .append(ChecksummedBytes::new(Bytes::from_static(b"some")))
+            .unwrap();
+        let _ = builder.finish();
     }
 
     #[test]
