@@ -172,9 +172,10 @@ impl ChecksummedBytes {
         }
 
         if self.is_empty() {
-            // Replace with `extend`, but check that `self` was not corrupted
+            // Copy `extend` rather than alias it, so the result never keeps its backing buffer
+            // alive: a pooled buffer pinned here would deadlock allocation under memory pressure.
             self.validate()?;
-            *self = extend;
+            *self = extend.into_detached()?;
             return Ok(());
         }
 
@@ -235,7 +236,7 @@ impl ChecksummedBytes {
 
     /// Copy the bytes into a freshly allocated buffer sharing no storage with the original, e.g. to
     /// release a pooled buffer while this data lives on. Reuses the checksum, so no CRC is recomputed.
-    pub fn into_detached(self) -> Result<Self, IntegrityError> {
+    fn into_detached(self) -> Result<Self, IntegrityError> {
         let (bytes, checksum) = self.into_inner()?;
         Ok(Self::new_from_inner_data(Bytes::copy_from_slice(&bytes), checksum))
     }
@@ -578,6 +579,31 @@ mod tests {
         checksummed_bytes.extend(extend).unwrap();
         let actual = checksummed_bytes.buffer_slice();
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_extend_into_empty_severs_shared_storage() {
+        // Extending an empty accumulator must copy, not alias: the result must not keep the
+        // appended data's backing buffer alive. If it aliased, a pooled buffer accumulated here
+        // would stay pinned across later blocking allocations and deadlock under memory pressure.
+        let mut accumulator = ChecksummedBytes::default();
+        assert!(accumulator.is_empty());
+
+        // A slice of a larger buffer shares its allocation: `tail.buffer` is still the whole `full`.
+        let full = Bytes::from_static(b"some bytes");
+        let mut source = ChecksummedBytes::new(full.clone());
+        let tail = source.split_off(5); // "bytes", still backed by `full`
+        assert_eq!(tail.buffer, full);
+        assert_ne!(tail.buffer.len(), tail.len());
+
+        accumulator.extend(tail).unwrap();
+
+        // Content is preserved, but the accumulator now owns a fresh, full-range allocation that
+        // shares no storage with `full`.
+        assert_eq!(&accumulator.buffer[..], b"bytes");
+        assert_eq!(accumulator.buffer.len(), accumulator.len());
+        assert_eq!(accumulator.range, 0..accumulator.len());
+        assert_ne!(accumulator.buffer, full);
     }
 
     #[test]
