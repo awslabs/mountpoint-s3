@@ -252,12 +252,10 @@ impl AllocationQueue {
             self.has_pending.store(false, Ordering::SeqCst);
         }
 
-        let waited = entry.as_ref().map(|e| e.queued_at.elapsed());
         drop(inner);
-        if let Some(waited) = waited {
-            metrics::histogram!(ALLOCATION_QUEUE_WAIT).record(waited.as_micros() as f64);
-        }
-        entry
+        entry.inspect(|e| {
+            metrics::histogram!(ALLOCATION_QUEUE_WAIT).record(e.queued_at.elapsed().as_micros() as f64);
+        })
     }
 
     /// Moves all entries for `cursor_id` from the low-priority queue to the back
