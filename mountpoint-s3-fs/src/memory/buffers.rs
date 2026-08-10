@@ -39,7 +39,7 @@ impl PoolBuffer {
         forced: bool,
     ) -> Option<Self> {
         Some(Self(PoolBufferInner::Secondary(
-            limiter.try_allocate(size, kind, true, forced)?,
+            limiter.try_allocate(size, kind, false, forced)?,
         )))
     }
 

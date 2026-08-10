@@ -286,20 +286,36 @@ impl MemoryLimiter {
         metrics::gauge!("mem.bytes_reserved", "area" => BufferArea::Prefetch.as_str()).decrement(decremented as f64);
     }
 
+    /// The memory ceiling [`Self::try_allocate`] enforces.
+    ///
+    /// Every allocation stops `prunable_reserved` bytes short of `mem_limit` — that slice is the
+    /// headroom that lets a read still allocate when writes have taken the rest of the budget — with
+    /// one exception: a prunable ([`BufferKind::is_prunable`]) one-off allocation (`is_paged` false)
+    /// may spend it. Such an allocation is the read the reserve exists for, and it takes the reserve
+    /// in the only shape that gives it back: an exact-size buffer, freed on drop.
+    ///
+    /// Withholding the reserve from paged allocations (`is_paged` true) is what keeps it reachable. A
+    /// page holds up to [`MAX_BUFFERS_PER_PAGE`](super::pages::MAX_BUFFERS_PER_PAGE) buffers and is
+    /// freed only when wholly empty, while any [`BufferKind`] may claim a free buffer inside it. So a
+    /// page carved out of the reserve destroys it: the bytes stay committed to that one size pool,
+    /// where a non-prunable holder can pin them indefinitely.
+    fn allocation_ceiling(&self, kind: BufferKind, is_paged: bool) -> usize {
+        if kind.is_prunable() && !is_paged {
+            self.mem_limit
+        } else {
+            self.mem_limit.saturating_sub(self.prunable_reserved)
+        }
+    }
+
     /// Try to allocate `size` bytes from the pool budget.
     ///
-    /// `kind` selects the ceiling: prunable kinds (see [`BufferKind::is_prunable`]) may use the full
-    /// `mem_limit`, while non-prunable kinds stop `prunable_reserved` bytes short, keeping that slice
-    /// available for prunable allocations.
-    ///
-    /// `track` controls per-kind byte accounting: `true` records the allocation against `kind` (and
-    /// releases it on drop), `false` skips tracking. Page allocations pass `false` because their
-    /// individual buffers are tracked separately as they are acquired.
-    pub fn try_allocate(
+    /// `is_paged` distinguishes a page in a [`SizePool`](super::pool::SizePool) (`true`) from an
+    /// exact-size one-off buffer (`false`).
+    pub(super) fn try_allocate(
         self: &Arc<Self>,
         size: usize,
         kind: BufferKind,
-        track: bool,
+        is_paged: bool,
         forced: bool,
     ) -> Option<ManagedBuffer> {
         if forced {
@@ -307,12 +323,7 @@ impl MemoryLimiter {
             metrics::gauge!("pool.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
-            // Prunable kinds use the full limit; others must leave `prunable_reserved` bytes free.
-            let ceiling = if kind.is_prunable() {
-                self.mem_limit
-            } else {
-                self.mem_limit.saturating_sub(self.prunable_reserved)
-            };
+            let ceiling = self.allocation_ceiling(kind, is_paged);
             let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
             loop {
                 let new_mem_allocated = mem_allocated.saturating_add(size);
@@ -339,11 +350,11 @@ impl MemoryLimiter {
             }
         }
 
-        if track {
+        if !is_paged {
             self.acquire_bytes(size, kind);
         }
 
-        Some(ManagedBuffer::new(size, track.then_some(kind), self.clone()))
+        Some(ManagedBuffer::new(size, (!is_paged).then_some(kind), self.clone()))
     }
 
     pub fn deallocate(&self, ptr: BufferPtr, kind: Option<BufferKind>) {
@@ -886,6 +897,63 @@ mod tests {
         // Drop the buffer — available goes back up
         drop(buffer);
         assert_eq!(limiter.memory_available_for_reservation(), initial_available);
+    }
+
+    #[test]
+    fn allocation_ceiling_reserves_for_all_but_prunable_one_off() {
+        let mem_limit = 1000;
+        let prunable_buffer_size = 100;
+        let limiter = MemoryLimiter::new(mem_limit, prunable_buffer_size);
+        assert_eq!(limiter.prunable_reserved, prunable_buffer_size);
+        let reserved_ceiling = mem_limit - prunable_buffer_size;
+
+        // Prunable one-off: the read the reserve exists for — it may spend the full limit.
+        assert_eq!(limiter.allocation_ceiling(BufferKind::GetObject, false), mem_limit);
+        assert_eq!(limiter.allocation_ceiling(BufferKind::DiskCache, false), mem_limit);
+
+        // Prunable but paged: a page never gets the reserve.
+        assert_eq!(
+            limiter.allocation_ceiling(BufferKind::GetObject, true),
+            reserved_ceiling
+        );
+        assert_eq!(
+            limiter.allocation_ceiling(BufferKind::DiskCache, true),
+            reserved_ceiling
+        );
+
+        // Non-prunable, paged or one-off: always stops short of the reserve.
+        assert_eq!(
+            limiter.allocation_ceiling(BufferKind::PutObject, false),
+            reserved_ceiling
+        );
+        assert_eq!(
+            limiter.allocation_ceiling(BufferKind::PutObject, true),
+            reserved_ceiling
+        );
+        assert_eq!(limiter.allocation_ceiling(BufferKind::Append, false), reserved_ceiling);
+    }
+
+    #[test]
+    fn allocation_ceiling_without_reserve_is_always_full_limit() {
+        let mem_limit = 1000;
+        let limiter = MemoryLimiter::new(mem_limit, 0);
+        assert_eq!(limiter.prunable_reserved, 0);
+
+        for kind in [
+            BufferKind::GetObject,
+            BufferKind::DiskCache,
+            BufferKind::PutObject,
+            BufferKind::Append,
+            BufferKind::Other,
+        ] {
+            for is_paged in [false, true] {
+                assert_eq!(
+                    limiter.allocation_ceiling(kind, is_paged),
+                    mem_limit,
+                    "kind={kind:?} is_paged={is_paged}"
+                );
+            }
+        }
     }
 
     #[test]
