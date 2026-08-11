@@ -458,7 +458,7 @@ impl SizePool {
         // memory, keep retrying by halving the count.
         let mut buffer_count = MAX_BUFFERS_PER_PAGE;
         while buffer_count > 0 {
-            let Some(page) = Page::try_new(&self.stats, buffer_count, kind) else {
+            let Some(page) = Page::try_new(&self.stats, buffer_count) else {
                 buffer_count /= 2;
                 continue;
             };

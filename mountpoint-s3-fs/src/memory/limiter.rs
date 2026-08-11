@@ -290,32 +290,32 @@ impl MemoryLimiter {
     ///
     /// Every allocation stops `prunable_reserved` bytes short of `mem_limit` — that slice is the
     /// headroom that lets a read still allocate when writes have taken the rest of the budget — with
-    /// one exception: a prunable ([`BufferKind::is_prunable`]) one-off allocation (`is_paged` false)
-    /// may spend it. Such an allocation is the read the reserve exists for, and it takes the reserve
-    /// in the only shape that gives it back: an exact-size buffer, freed on drop.
+    /// one exception: a prunable ([`BufferKind::is_prunable`]) one-off allocation may spend it. Such
+    /// an allocation is the read the reserve exists for, and it takes the reserve in the only shape
+    /// that gives it back: an exact-size buffer, freed on drop.
     ///
-    /// Withholding the reserve from paged allocations (`is_paged` true) is what keeps it reachable. A
-    /// page holds up to [`MAX_BUFFERS_PER_PAGE`](super::pages::MAX_BUFFERS_PER_PAGE) buffers and is
+    /// Withholding the reserve from paged allocations (`kind` is `None`) is what keeps it reachable.
+    /// A page holds up to [`MAX_BUFFERS_PER_PAGE`](super::pages::MAX_BUFFERS_PER_PAGE) buffers and is
     /// freed only when wholly empty, while any [`BufferKind`] may claim a free buffer inside it. So a
     /// page carved out of the reserve destroys it: the bytes stay committed to that one size pool,
     /// where a non-prunable holder can pin them indefinitely.
-    fn allocation_ceiling(&self, kind: BufferKind, is_paged: bool) -> usize {
-        if kind.is_prunable() && !is_paged {
-            self.mem_limit
-        } else {
-            self.mem_limit.saturating_sub(self.prunable_reserved)
+    fn allocation_ceiling(&self, kind: Option<BufferKind>) -> usize {
+        match kind {
+            Some(kind) if kind.is_prunable() => self.mem_limit,
+            _ => self.mem_limit.saturating_sub(self.prunable_reserved),
         }
     }
 
     /// Try to allocate `size` bytes from the pool budget.
     ///
-    /// `is_paged` distinguishes a page in a [`SizePool`](super::pool::SizePool) (`true`) from an
-    /// exact-size one-off buffer (`false`).
+    /// `kind` is `Some` for an exact-size one-off buffer — the allocation is recorded against that
+    /// [`BufferKind`] and released on drop — and `None` for a page in a
+    /// [`SizePool`](super::pool::SizePool), whose individual buffers are tracked separately as they
+    /// are acquired. It also selects the ceiling; see [`Self::allocation_ceiling`].
     pub(super) fn try_allocate(
         self: &Arc<Self>,
         size: usize,
-        kind: BufferKind,
-        is_paged: bool,
+        kind: Option<BufferKind>,
         forced: bool,
     ) -> Option<ManagedBuffer> {
         if forced {
@@ -323,7 +323,7 @@ impl MemoryLimiter {
             metrics::gauge!("pool.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
-            let ceiling = self.allocation_ceiling(kind, is_paged);
+            let ceiling = self.allocation_ceiling(kind);
             let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
             loop {
                 let new_mem_allocated = mem_allocated.saturating_add(size);
@@ -350,11 +350,11 @@ impl MemoryLimiter {
             }
         }
 
-        if !is_paged {
+        if let Some(kind) = kind {
             self.acquire_bytes(size, kind);
         }
 
-        Some(ManagedBuffer::new(size, (!is_paged).then_some(kind), self.clone()))
+        Some(ManagedBuffer::new(size, kind, self.clone()))
     }
 
     pub fn deallocate(&self, ptr: BufferPtr, kind: Option<BufferKind>) {
@@ -908,29 +908,18 @@ mod tests {
         let reserved_ceiling = mem_limit - prunable_buffer_size;
 
         // Prunable one-off: the read the reserve exists for — it may spend the full limit.
-        assert_eq!(limiter.allocation_ceiling(BufferKind::GetObject, false), mem_limit);
-        assert_eq!(limiter.allocation_ceiling(BufferKind::DiskCache, false), mem_limit);
+        assert_eq!(limiter.allocation_ceiling(Some(BufferKind::GetObject)), mem_limit);
+        assert_eq!(limiter.allocation_ceiling(Some(BufferKind::DiskCache)), mem_limit);
 
-        // Prunable but paged: a page never gets the reserve.
-        assert_eq!(
-            limiter.allocation_ceiling(BufferKind::GetObject, true),
-            reserved_ceiling
-        );
-        assert_eq!(
-            limiter.allocation_ceiling(BufferKind::DiskCache, true),
-            reserved_ceiling
-        );
+        // Paged (`None`): a page never gets the reserve, whatever kind fills it.
+        assert_eq!(limiter.allocation_ceiling(None), reserved_ceiling);
 
-        // Non-prunable, paged or one-off: always stops short of the reserve.
+        // Non-prunable one-off: always stops short of the reserve.
         assert_eq!(
-            limiter.allocation_ceiling(BufferKind::PutObject, false),
+            limiter.allocation_ceiling(Some(BufferKind::PutObject)),
             reserved_ceiling
         );
-        assert_eq!(
-            limiter.allocation_ceiling(BufferKind::PutObject, true),
-            reserved_ceiling
-        );
-        assert_eq!(limiter.allocation_ceiling(BufferKind::Append, false), reserved_ceiling);
+        assert_eq!(limiter.allocation_ceiling(Some(BufferKind::Append)), reserved_ceiling);
     }
 
     #[test]
@@ -940,19 +929,14 @@ mod tests {
         assert_eq!(limiter.prunable_reserved, 0);
 
         for kind in [
-            BufferKind::GetObject,
-            BufferKind::DiskCache,
-            BufferKind::PutObject,
-            BufferKind::Append,
-            BufferKind::Other,
+            None,
+            Some(BufferKind::GetObject),
+            Some(BufferKind::DiskCache),
+            Some(BufferKind::PutObject),
+            Some(BufferKind::Append),
+            Some(BufferKind::Other),
         ] {
-            for is_paged in [false, true] {
-                assert_eq!(
-                    limiter.allocation_ceiling(kind, is_paged),
-                    mem_limit,
-                    "kind={kind:?} is_paged={is_paged}"
-                );
-            }
+            assert_eq!(limiter.allocation_ceiling(kind), mem_limit, "kind={kind:?}");
         }
     }
 
