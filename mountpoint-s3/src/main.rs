@@ -1,4 +1,8 @@
 use mountpoint_s3::{create_s3_client, parse_cli_args};
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() -> anyhow::Result<()> {
     let cli_args = parse_cli_args(true);
