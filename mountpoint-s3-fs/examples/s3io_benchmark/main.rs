@@ -15,6 +15,10 @@ use config::{WorkloadType, parse_config_file, prepare_jobs};
 use executor::Executor;
 use monitoring::MemoryMonitor;
 use results::BenchmarkResults;
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[derive(Parser, Debug)]
 #[command(name = "s3io_benchmark")]

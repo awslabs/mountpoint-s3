@@ -11,6 +11,10 @@ use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
 use rand::Rng;
 use tempfile::TempDir;
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 const BLOCK_SIZE: u64 = 1024 * 1024;
 const OBJECT_SIZE: usize = 10 * BLOCK_SIZE as usize;

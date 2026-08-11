@@ -9,9 +9,13 @@ use mountpoint_s3_fs::memory::effective_total_memory;
 use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 /// Like `tracing_subscriber::fmt::init` but sends logs to stderr
 fn init_tracing_subscriber() {

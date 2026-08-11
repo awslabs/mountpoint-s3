@@ -17,9 +17,13 @@ use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 const SECONDS_PER_DAY: u64 = 86400;
 

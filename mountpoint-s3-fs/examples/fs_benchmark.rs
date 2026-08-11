@@ -14,12 +14,16 @@ use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
 use tempfile::tempdir;
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::OpenOptionsExt;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 fn init_tracing_subscriber() {
     RustLogAdapter::try_init().expect("unable to install CRT log adapter");

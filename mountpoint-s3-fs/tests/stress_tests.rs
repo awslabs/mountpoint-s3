@@ -3,5 +3,10 @@
 // the stress harness targets the Linux CI runner.
 #![cfg(all(feature = "stress_tests", target_os = "linux"))]
 
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 mod common;
 mod stress;
