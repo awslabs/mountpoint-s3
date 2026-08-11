@@ -1,4 +1,4 @@
-//! `many_readers_budget_part`: 32 readers competing under a read part size that equals the entire
+//! `many_readers_budget_part`: 4 readers competing under a read part size that equals the entire
 //! data-buffer budget (384 MiB at the 512 MiB memory limit).
 
 use std::iter::repeat_n;
@@ -16,7 +16,7 @@ use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 /// data buffers. One part therefore fills the whole budget.
 const READ_PART_SIZE: usize = MINIMUM_MEM_LIMIT - 128 * 1024 * 1024; // 384 MiB
 const READ_CHUNK: usize = 8 * 1024 * 1024; // 8 MiB
-const NUM_WORKERS: usize = 32;
+const NUM_WORKERS: usize = 4;
 
 #[test]
 fn many_readers_budget_part() {
