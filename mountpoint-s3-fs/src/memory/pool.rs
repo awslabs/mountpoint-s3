@@ -596,11 +596,19 @@ impl PagedPoolConfig {
 
     fn ordered_sizes(&self) -> &[CandidateSize] {
         if self.ordered_sizes.is_empty() {
-            const DEFAULT: &[CandidateSize] = &[CandidateSize {
-                bytes: DEFAULT_BUFFER_SIZE,
-                prunable: false,
-            }];
-            DEFAULT
+            // Only provide a default 8 MiB pool if we don't have large part sizes configured.
+            // If the user configured part sizes > MAX_BUFFER_SIZE (filtered out from ordered_sizes),
+            // skip the default primary pool and let those requests use secondary allocation.
+            if self.largest_prunable_size <= MAX_BUFFER_SIZE {
+                const DEFAULT: &[CandidateSize] = &[CandidateSize {
+                    bytes: DEFAULT_BUFFER_SIZE,
+                    prunable: false,
+                }];
+                DEFAULT
+            } else {
+                // User configured large part sizes (> 64 MiB) - no default primary pool
+                &[]
+            }
         } else {
             &self.ordered_sizes
         }
