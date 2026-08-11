@@ -8,7 +8,7 @@ use mountpoint_s3_client::types::GetBodyPart;
 use tracing::{Instrument, debug_span, trace, warn};
 
 use crate::async_util::Runtime;
-use crate::checksums::ChecksummedBytes;
+use crate::checksums::{ChecksummedBytes, ChecksummedBytesBuilder};
 use crate::data_cache::{BlockIndex, DataCache};
 use crate::memory::PagedPool;
 use crate::object::ObjectId;
@@ -291,16 +291,19 @@ where
     ) -> Result<(), PrefetchReadError<E>> {
         let key = self.cache_key.key();
         let block_size = self.cache.block_size();
-        let mut buffer = ChecksummedBytes::default();
+        let object_size = self.original_range.object_size();
+
+        let mut block_builder: Option<ChecksummedBytesBuilder<Vec<u8>>> = None;
 
         pin_mut!(request_stream);
         while let Some(next) = request_stream.next().await {
+            let buffered_len = block_builder.as_ref().map_or(0, |builder| builder.len());
             assert!(
-                buffer.len() < block_size as usize,
-                "buffer should be flushed when we get a full block"
+                buffered_len < block_size as usize,
+                "a full block should have been flushed already"
             );
             let GetBodyPart { offset, data: mut body } = next?;
-            let expected_offset = self.block_offset + buffer.len() as u64;
+            let expected_offset = self.block_offset + buffered_len as u64;
             if offset != expected_offset {
                 warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
                 return Err(PrefetchReadError::GetRequestReturnedWrongOffset {
@@ -312,8 +315,11 @@ where
             // Split the body into blocks.
             let mut offset = offset;
             while !body.is_empty() {
-                let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
-                let chunk: ChecksummedBytes = body.split_to(remaining).into();
+                // A full block, except for the object's last one which may be shorter.
+                let block_len = (object_size.saturating_sub(self.block_offset as usize)).min(block_size as usize);
+                let buffered_len = block_builder.as_ref().map_or(0, |builder| builder.len());
+                let chunk_len = block_len.saturating_sub(buffered_len).min(body.len());
+                let chunk: ChecksummedBytes = body.split_to(chunk_len).into();
 
                 // We need to return some bytes to the part queue even before we can fill an entire caching block because
                 // we want to start the feedback loop for the flow-control window.
@@ -332,31 +338,45 @@ where
                     self.part_queue_producer.push(Ok(part));
                 }
                 offset += chunk.len() as u64;
-                buffer
-                    .extend(chunk)
-                    .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;
-                if buffer.len() < block_size as usize {
-                    break;
-                }
 
-                // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key, range);
+                let block = if block_builder.is_none() && chunk.len() == block_len {
+                    // This chunk covers the whole block on its own, so cache it as is.
+                    chunk
+                } else {
+                    let builder =
+                        block_builder.get_or_insert_with(|| ChecksummedBytesBuilder::new(vec![0u8; block_len]));
+                    builder
+                        .append(chunk)
+                        .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;
+                    if builder.len() < block_size as usize {
+                        break;
+                    }
+                    block_builder.take().expect("builder was just inserted").finish()
+                };
+
+                // We have a full block: write it to the cache and move on to the next one.
+                self.update_cache(block, self.block_index, self.block_offset, &self.cache_key, range);
                 self.block_index += 1;
                 self.block_offset += block_size;
-                buffer = ChecksummedBytes::default();
             }
         }
 
-        if !buffer.is_empty() {
-            // If we still have data in the buffer, this must be the last block for this object,
+        if let Some(block_builder) = block_builder {
+            // If we still have a partial block, this must be the last block for this object,
             // which can be smaller than block_size (and ends at the end of the object).
             assert_eq!(
-                self.block_offset as usize + buffer.len(),
+                self.block_offset as usize + block_builder.len(),
                 self.original_range.object_size(),
                 "a partial block is only allowed at the end of the object"
             );
             // Write the last block to the cache.
-            self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key, range);
+            self.update_cache(
+                block_builder.finish(),
+                self.block_index,
+                self.block_offset,
+                &self.cache_key,
+                range,
+            );
         }
         Ok(())
     }

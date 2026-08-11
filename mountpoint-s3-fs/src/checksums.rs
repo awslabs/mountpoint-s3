@@ -276,6 +276,16 @@ impl<Buffer: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> ChecksummedBytesBuilder
         }
     }
 
+    /// Number of bytes appended so far.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns true if nothing has been appended yet.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Total number of bytes this builder can hold.
     fn capacity(&self) -> usize {
         self.buffer.as_ref().len()
