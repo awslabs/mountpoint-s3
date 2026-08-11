@@ -1,6 +1,7 @@
 ## Unreleased (v0.10.1)
 
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))
+* Update EC2 instance network throughput table. ([#1895](https://github.com/awslabs/mountpoint-s3/pull/1895))
 
 ## v0.10.0 (July 20, 2026)
 
