@@ -193,53 +193,41 @@ impl ChecksummedBytes {
     }
 }
 
-/// Accumulates several [ChecksummedBytes] into one caller-supplied buffer, copying each piece
-/// exactly once and combining their checksums rather than recomputing one over the result.
+/// Accumulates several [ChecksummedBytes] into one buffer, copying each piece exactly once and
+/// combining their checksums rather than recomputing one over the result.
 ///
-/// The buffer must be exactly the total length of the appended pieces: [Self::finish] requires it
-/// filled, since the checksum is only exact for the whole buffer. Taking the buffer from the caller
-/// lets it come from a memory pool rather than the heap.
+/// [Self::new] reserves the expected total length up front, so appending that much data allocates
+/// only once. Appending more still succeeds, growing the buffer as [Vec] normally would.
 #[must_use]
-pub struct ChecksummedBytesBuilder<Buffer> {
+pub struct ChecksummedBytesBuilder {
     /// Destination buffer, filled from the front.
-    buffer: Buffer,
-    /// Bytes written into [Self::buffer] so far.
-    len: usize,
-    /// Combined checksum of the first [Self::len] bytes.
+    buffer: Vec<u8>,
+    /// Combined checksum of [Self::buffer].
     checksum: Crc32c,
 }
 
-impl<Buffer: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> ChecksummedBytesBuilder<Buffer> {
-    /// Create a builder writing into `buffer`, which must be sized to the exact total length of the
-    /// pieces that will be appended.
-    pub fn new(buffer: Buffer) -> Self {
+impl ChecksummedBytesBuilder {
+    /// Create a builder that can hold `capacity` bytes without reallocating.
+    pub fn new(capacity: usize) -> Self {
         Self {
-            buffer,
-            len: 0,
+            buffer: Vec::with_capacity(capacity),
             checksum: Crc32c::new(0),
         }
     }
 
     /// Number of bytes appended so far.
     pub fn len(&self) -> usize {
-        self.len
+        self.buffer.len()
     }
 
     /// Returns true if nothing has been appended yet.
     pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Total number of bytes this builder can hold.
-    fn capacity(&self) -> usize {
-        self.buffer.as_ref().len()
+        self.buffer.is_empty()
     }
 
     /// Copy `bytes` into the buffer and fold its checksum into the running one.
     ///
     /// Return [IntegrityError] if data corruption is detected in `bytes`.
-    ///
-    /// Panics if `bytes` does not fit in the remaining capacity.
     pub fn append(&mut self, bytes: ChecksummedBytes) -> Result<(), IntegrityError> {
         if bytes.is_empty() {
             // No op, but check that `bytes` was not corrupted.
@@ -250,28 +238,13 @@ impl<Buffer: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> ChecksummedBytesBuilder
         // Shrink to fit so `checksum` covers exactly `bytes`, as `combine_checksums` requires.
         let (bytes, checksum) = bytes.into_inner()?;
 
-        let new_len = self.len + bytes.len();
-        assert!(
-            new_len <= self.capacity(),
-            "appending {} bytes would exceed the builder capacity of {}",
-            bytes.len(),
-            self.capacity(),
-        );
-        self.buffer.as_mut()[self.len..new_len].copy_from_slice(&bytes);
+        self.buffer.extend_from_slice(&bytes);
         self.checksum = combine_checksums(self.checksum, checksum, bytes.len());
-        self.len = new_len;
         Ok(())
     }
 
     /// Consume the builder and return the accumulated data.
-    ///
-    /// Panics if the buffer was not filled to its capacity.
     pub fn finish(self) -> ChecksummedBytes {
-        assert_eq!(
-            self.len,
-            self.capacity(),
-            "builder must be filled to capacity before finishing",
-        );
         ChecksummedBytes::new_from_inner_data(Bytes::from_owner(self.buffer), self.checksum)
     }
 }
@@ -417,7 +390,7 @@ mod tests {
     fn build(pieces: impl IntoIterator<Item = ChecksummedBytes>) -> Result<ChecksummedBytes, IntegrityError> {
         let pieces: Vec<_> = pieces.into_iter().collect();
         let capacity = pieces.iter().map(|p| p.len()).sum();
-        let mut builder = ChecksummedBytesBuilder::new(vec![0u8; capacity]);
+        let mut builder = ChecksummedBytesBuilder::new(capacity);
         for piece in pieces {
             builder.append(piece)?;
         }
@@ -473,20 +446,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "would exceed the builder capacity")]
-    fn builder_append_beyond_capacity_panics() {
-        let mut builder = ChecksummedBytesBuilder::new(vec![0u8; 4]);
-        let _ = builder.append(ChecksummedBytes::new(Bytes::from_static(b"some bytes")));
-    }
+    fn builder_tolerates_a_mis_sized_capacity() {
+        // The capacity is only a hint for how much to reserve, not a limit.
+        let expected = Bytes::from_static(b"some bytes");
+        for capacity in [0, 4, expected.len(), 2 * expected.len()] {
+            let mut builder = ChecksummedBytesBuilder::new(capacity);
+            builder.append(ChecksummedBytes::new(expected.clone())).unwrap();
+            let result = builder.finish();
 
-    #[test]
-    #[should_panic(expected = "must be filled to capacity")]
-    fn builder_finish_underfilled_panics() {
-        let mut builder = ChecksummedBytesBuilder::new(vec![0u8; 10]);
-        builder
-            .append(ChecksummedBytes::new(Bytes::from_static(b"some")))
-            .unwrap();
-        let _ = builder.finish();
+            assert_eq!(crc32c::checksum(&expected), result.checksum);
+            assert_eq!(expected, result.into_bytes().unwrap());
+        }
     }
 
     #[test]

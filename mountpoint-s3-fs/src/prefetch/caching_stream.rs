@@ -293,7 +293,7 @@ where
         let block_size = self.cache.block_size();
         let object_size = self.original_range.object_size();
 
-        let mut block_builder: Option<ChecksummedBytesBuilder<Vec<u8>>> = None;
+        let mut block_builder: Option<ChecksummedBytesBuilder> = None;
 
         pin_mut!(request_stream);
         while let Some(next) = request_stream.next().await {
@@ -343,8 +343,7 @@ where
                     // This chunk covers the whole block on its own, so cache it as is.
                     chunk
                 } else {
-                    let builder =
-                        block_builder.get_or_insert_with(|| ChecksummedBytesBuilder::new(vec![0u8; block_len]));
+                    let builder = block_builder.get_or_insert_with(|| ChecksummedBytesBuilder::new(block_len));
                     builder
                         .append(chunk)
                         .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;

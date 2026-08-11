@@ -164,7 +164,7 @@ where
         let total_to_read = (length as u64).min(remaining);
         let mut to_read = total_to_read;
         let mut all_parts_from_cache = true;
-        let mut response: Option<ChecksummedBytesBuilder<Vec<u8>>> = None;
+        let mut response: Option<ChecksummedBytesBuilder> = None;
         while to_read > 0 {
             debug_assert!(self.request_task.remaining() > 0);
 
@@ -182,8 +182,7 @@ where
             }
 
             let part_len = part_bytes.len() as u64;
-            let response =
-                response.get_or_insert_with(|| ChecksummedBytesBuilder::new(vec![0u8; total_to_read as usize]));
+            let response = response.get_or_insert_with(|| ChecksummedBytesBuilder::new(total_to_read as usize));
             response.append(part_bytes)?;
             to_read -= part_len;
         }
