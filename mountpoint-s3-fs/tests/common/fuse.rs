@@ -560,12 +560,11 @@ pub mod s3_session {
 
         let mount_dir = tempfile::tempdir().unwrap();
 
-        let mut candidate_sizes = vec![CandidateSize::prunable(test_config.part_size)];
-        if cache_dir.is_some() {
-            candidate_sizes.push(CandidateSize::prunable(test_config.cache_block_size));
-        }
         let pool = PagedPool::config()
-            .with_candidate_sizes(candidate_sizes)
+            .with_candidate_sizes([
+                CandidateSize::prunable(test_config.cache_block_size),
+                CandidateSize::prunable(test_config.part_size),
+            ])
             .with_memory_limit(test_config.mem_limit)
             .build();
 
