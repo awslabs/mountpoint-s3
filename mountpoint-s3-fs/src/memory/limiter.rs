@@ -357,6 +357,8 @@ impl MemoryLimiter {
         Some(ManagedBuffer::new(size, kind, self.clone()))
     }
 
+    /// Deallocate a buffer. Note: `pool.allocated_bytes` may transiently exceed the budget due to
+    /// forced allocations (e.g., during cancellation fallback) that bypass budget checks.
     pub fn deallocate(&self, ptr: BufferPtr, kind: Option<BufferKind>) {
         let size = ptr.size();
         drop(ptr);
@@ -382,6 +384,8 @@ impl MemoryLimiter {
         metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).increment(bytes as f64);
     }
 
+    /// Release buffer bytes. Note: `pool.bytes_in_use` may transiently exceed the budget during
+    /// concurrent release/acquire due to the bitmask bit being cleared before this decrement.
     pub fn release_bytes(&self, bytes: usize, kind: BufferKind) {
         self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
         metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
