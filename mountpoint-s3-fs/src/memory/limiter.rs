@@ -413,14 +413,26 @@ impl MemoryLimiter {
         &self.pruning_signal
     }
 
+    /// Collect strong handles to every live cursor, draining the `DashMap`
+    /// iterator into a `Vec` before returning.
+    ///
+    /// A `DashMap` iterator holds shard locks while alive. Dropping the last
+    /// `Arc<CursorState>` runs its destructor → [`Self::release_cursor`] →
+    /// `self.cursors.remove(..)`; if that fired mid-iteration it would re-lock a
+    /// held shard and deadlock. Materializing the handles releases the iterator
+    /// first, so any later drop is safe.
+    fn live_cursors(&self) -> Vec<Arc<CursorState>> {
+        self.cursors
+            .iter()
+            .filter_map(|entry| entry.value().upgrade())
+            .collect()
+    }
+
     /// Returns `true` if any cursor is currently servicing a FUSE read.
     pub(super) fn has_active_reads(&self) -> bool {
-        self.cursors.iter().any(|entry| {
-            entry
-                .value()
-                .upgrade()
-                .is_some_and(|state| matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }))
-        })
+        self.live_cursors()
+            .iter()
+            .any(|state| matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }))
     }
 
     /// Reset the least-recently-read idle cursor.
@@ -428,10 +440,9 @@ impl MemoryLimiter {
     /// Returns `true` if a cursor was reset.
     pub(super) fn reset_one_idle_cursor(&self) -> bool {
         let lru = self
-            .cursors
+            .live_cursors()
             .iter()
-            .filter_map(|entry| {
-                let state = entry.value().upgrade()?;
+            .filter_map(|state| {
                 let tick = match *state.read_state.lock().unwrap() {
                     ReadState::Active { .. } => return None,
                     ReadState::Last { tick } => tick,
@@ -460,10 +471,7 @@ impl MemoryLimiter {
     ///
     /// Returns `true` if a window was cleared and freed at least one byte.
     pub(super) fn clear_one_seek_window(&self) -> bool {
-        for entry in self.cursors.iter() {
-            let Some(state) = entry.value().upgrade() else {
-                continue;
-            };
+        for state in self.live_cursors() {
             if !matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }) {
                 continue;
             }
