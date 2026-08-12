@@ -21,33 +21,6 @@ You should pass the `--expected-version` to the build script to verify that the 
 
 The container will create an `out` folder in the root of the Git repository containing the build artifacts.
 
-## Building locally
-
-If building outside Docker, your host needs the appropriate dependencies installed.
-On Amazon Linux 2, some dependencies come from EPEL, so you'll need to set that up first if you want to install a DEB:
-
-    sudo amazon-linux-extras install epel
-
-Then install the dependencies:
-
-    sudo yum install fuse fuse-devel make cmake3 clang git pkg-config dpkg fakeroot rpmdevtools tar python3
-
-You can skip `dpkg` and `fakeroot` if you don't want to compile a DEB, and `rpmdevtools` if you don't want to compile an RPM. Use the `--pkg-extensions` flag on the build script to specify which package to build.
-
-You'll also need Rust, and the [cargo-about] tool to generate third-party attribution documents:
-
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    source "$HOME/.cargo/env"
-    cargo install --locked cargo-about
-
-Now run the build script:
-
-    python3 package.py --expected-version 0.3.0
-
-By default, the script will discover the Cargo workspace by walking up the directory hierarchy starting from the current working directory. You can manually specify the workspace root with the `--root-dir` argument.
-
-The script will create an `out` folder in the root of the Git repository containing the build artifacts.
-
 ## Building Amazon Linux 2023 SRPM
 
 For Amazon Linux 2023 specifically, you can build an SRPM (Source RPM) package using the dedicated build script. **The script must be run from the repository root directory:**
