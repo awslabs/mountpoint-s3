@@ -2,7 +2,7 @@ use metrics::{counter, histogram};
 use mountpoint_s3_client::ObjectClient;
 use tracing::trace;
 
-use crate::checksums::ChecksummedBytes;
+use crate::checksums::{ChecksummedBytes, ChecksummedBytesBuilder};
 use crate::memory::CursorHandle;
 use crate::metrics::defs::PREFETCH_RESET_STATE;
 use crate::object::ObjectId;
@@ -161,9 +161,10 @@ where
             return Ok((ChecksummedBytes::default(), false));
         }
 
-        let mut to_read = (length as u64).min(remaining);
+        let total_to_read = (length as u64).min(remaining);
+        let mut to_read = total_to_read;
         let mut all_parts_from_cache = true;
-        let mut response = ChecksummedBytes::default();
+        let mut response = ChecksummedBytesBuilder::new(total_to_read as usize);
         while to_read > 0 {
             debug_assert!(self.request_task.remaining() > 0);
 
@@ -181,18 +182,11 @@ where
             }
 
             let part_len = part_bytes.len() as u64;
-            if response.is_empty() {
-                // Copy off the pool buffer instead of letting `extend` alias it: this read spans
-                // parts, and holding a pool buffer across the next allocation below deadlocks under
-                // memory pressure.
-                response = part_bytes.into_detached()?;
-            } else {
-                response.extend(part_bytes)?;
-            }
+            response.append(part_bytes)?;
             to_read -= part_len;
         }
 
-        Ok((response, all_parts_from_cache))
+        Ok((response.finish(), all_parts_from_cache))
     }
 
     /// Try to seek within the current inflight requests without restarting them.

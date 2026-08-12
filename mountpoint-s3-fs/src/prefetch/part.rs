@@ -32,12 +32,6 @@ impl Part {
         }
     }
 
-    pub fn extend(&mut self, other: &Part) -> Result<(), PartOperationError> {
-        let expected_offset = self.offset + self.checksummed_bytes.len() as u64;
-        other.check(&self.id, expected_offset)?;
-        Ok(self.checksummed_bytes.extend(other.clone().checksummed_bytes)?)
-    }
-
     pub fn into_bytes(self, id: &ObjectId, offset: u64) -> Result<ChecksummedBytes, PartOperationError> {
         self.check(id, offset).map(|_| self.checksummed_bytes)
     }
@@ -110,63 +104,17 @@ mod tests {
     use super::{Part, PartSource};
 
     #[test]
-    fn test_append() {
+    fn into_bytes_rejects_mismatched_object_id() {
         let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let first_offset = 0;
-        let first_part_len = 1024;
-        let body: Box<[u8]> = (0u8..=255)
-            .cycle()
-            .skip(first_offset as u8 as usize)
-            .take(first_part_len)
-            .collect();
+        let offset = 0;
+        let part_len = 1024;
+        let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(part_len).collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, PartSource::S3);
+        let part = Part::new(object_id.clone(), offset, checksummed_bytes, PartSource::S3);
 
-        let second_part_len = 512;
-        let second_offset = first_offset + first_part_len as u64;
-        let body: Box<[u8]> = (0u8..=255)
-            .cycle()
-            .skip(second_offset as u8 as usize)
-            .take(second_part_len)
-            .collect();
-        let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, PartSource::S3);
+        let other_object_id = ObjectId::new("other".to_owned(), ETag::for_tests());
 
-        first.extend(&second).expect("should be able to extend");
-        assert_eq!(first_part_len + second_part_len, first.len());
-        first.check(&object_id, first_offset).expect("the part should be valid");
-    }
-
-    #[test]
-    fn test_append_with_mismatch_object_id() {
-        let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let first_offset = 0;
-        let first_part_len = 1024;
-        let body: Box<[u8]> = (0u8..=255)
-            .cycle()
-            .skip(first_offset as u8 as usize)
-            .take(first_part_len)
-            .collect();
-        let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, PartSource::S3);
-
-        let second_object_id = ObjectId::new("other".to_owned(), ETag::for_tests());
-        let second_part_len = 512;
-        let second_offset = first_offset;
-        let body: Box<[u8]> = (0u8..=255)
-            .cycle()
-            .skip(second_offset as u8 as usize)
-            .take(second_part_len)
-            .collect();
-        let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(
-            second_object_id.clone(),
-            second_offset,
-            checksummed_bytes,
-            PartSource::S3,
-        );
-
-        let result = first.extend(&second);
+        let result = part.into_bytes(&other_object_id, offset);
         assert!(matches!(
             result,
             Err(PartOperationError::IdMismatch {
@@ -177,29 +125,15 @@ mod tests {
     }
 
     #[test]
-    fn test_append_with_mismatch_offset() {
+    fn into_bytes_rejects_mismatched_offset() {
         let object_id = ObjectId::new("key".to_owned(), ETag::for_tests());
-        let first_offset = 0;
-        let first_part_len = 1024;
-        let body: Box<[u8]> = (0u8..=255)
-            .cycle()
-            .skip(first_offset as u8 as usize)
-            .take(first_part_len)
-            .collect();
+        let offset = 0;
+        let part_len = 1024;
+        let body: Box<[u8]> = (0u8..=255).cycle().skip(offset as u8 as usize).take(part_len).collect();
         let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let mut first = Part::new(object_id.clone(), first_offset, checksummed_bytes, PartSource::S3);
+        let part = Part::new(object_id.clone(), offset, checksummed_bytes, PartSource::S3);
 
-        let second_part_len = 512;
-        let second_offset = first_offset;
-        let body: Box<[u8]> = (0u8..=255)
-            .cycle()
-            .skip(second_offset as u8 as usize)
-            .take(second_part_len)
-            .collect();
-        let checksummed_bytes = ChecksummedBytes::new(body.into());
-        let second = Part::new(object_id.clone(), second_offset, checksummed_bytes, PartSource::S3);
-
-        let result = first.extend(&second);
+        let result = part.into_bytes(&object_id, offset + 1);
         assert!(matches!(
             result,
             Err(PartOperationError::OffsetMismatch {
