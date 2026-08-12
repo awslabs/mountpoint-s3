@@ -60,6 +60,7 @@ pub fn run(scenario: Scenario) {
     } = scenario;
 
     let mem_limit = session_config.mem_limit as f64;
+    let part_size = session_config.part_size;
     let num_workers = workers.len();
     assert!(
         num_workers > 0,
@@ -230,7 +231,7 @@ pub fn run(scenario: Scenario) {
 
     tracing::info!("");
     tracing::info!("=== STRESS [{}] INVARIANT ASSERTIONS ===", scenario_name);
-    assert_peak_reserved_invariant(scenario_name, mem_limit);
+    assert_peak_reserved_invariant(scenario_name, mem_limit, part_size);
     assert_peak_rss_invariant(scenario_name, mem_limit, worker_io_buffer_bytes);
     assert_teardown_invariants(scenario_name);
     assert_p100_latency(scenario_name, &aggregate, max_latency);
