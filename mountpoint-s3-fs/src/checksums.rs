@@ -196,12 +196,16 @@ impl ChecksummedBytes {
 /// Accumulates several [ChecksummedBytes] into one buffer, copying each piece exactly once and
 /// combining their checksums rather than recomputing one over the result.
 ///
-/// [Self::new] reserves the expected total length up front, so appending that much data allocates
-/// only once. Appending more still succeeds, growing the buffer as [Vec] normally would.
+/// The buffer is only allocated on the first append, reserving the `capacity` given to [Self::new],
+/// so appending up to that much data allocates exactly once and a builder that is never appended to
+/// does not allocate at all. Appending more still succeeds, growing the buffer as [Vec] normally
+/// would.
 #[must_use]
 pub struct ChecksummedBytesBuilder {
-    /// Destination buffer, filled from the front.
+    /// Destination buffer, filled from the front. Empty until the first append.
     buffer: Vec<u8>,
+    /// Bytes to reserve for [Self::buffer] when it is first allocated.
+    capacity: usize,
     /// Combined checksum of [Self::buffer].
     checksum: Crc32c,
 }
@@ -210,7 +214,8 @@ impl ChecksummedBytesBuilder {
     /// Create a builder that can hold `capacity` bytes without reallocating.
     pub fn new(capacity: usize) -> Self {
         Self {
-            buffer: Vec::with_capacity(capacity),
+            buffer: Vec::new(),
+            capacity,
             checksum: Crc32c::new(0),
         }
     }
@@ -238,14 +243,19 @@ impl ChecksummedBytesBuilder {
         // Shrink to fit so `checksum` covers exactly `bytes`, as `combine_checksums` requires.
         let (bytes, checksum) = bytes.into_inner()?;
 
+        if self.buffer.is_empty() {
+            self.buffer.reserve_exact(self.capacity);
+        }
         self.buffer.extend_from_slice(&bytes);
         self.checksum = combine_checksums(self.checksum, checksum, bytes.len());
         Ok(())
     }
 
-    /// Consume the builder and return the accumulated data.
-    pub fn finish(self) -> ChecksummedBytes {
-        ChecksummedBytes::new_from_inner_data(Bytes::from_owner(self.buffer), self.checksum)
+    /// Take the accumulated data, leaving the builder empty and ready to accumulate again.
+    pub fn finish(&mut self) -> ChecksummedBytes {
+        let buffer = std::mem::take(&mut self.buffer);
+        let checksum = std::mem::replace(&mut self.checksum, Crc32c::new(0));
+        ChecksummedBytes::new_from_inner_data(Bytes::from(buffer), checksum)
     }
 }
 

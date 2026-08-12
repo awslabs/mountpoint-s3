@@ -164,7 +164,7 @@ where
         let total_to_read = (length as u64).min(remaining);
         let mut to_read = total_to_read;
         let mut all_parts_from_cache = true;
-        let mut response: Option<ChecksummedBytesBuilder> = None;
+        let mut response = ChecksummedBytesBuilder::new(total_to_read as usize);
         while to_read > 0 {
             debug_assert!(self.request_task.remaining() > 0);
 
@@ -177,17 +177,15 @@ where
             // If we can complete the read with just a single buffer, early return to avoid copying
             // into a new buffer. This should be the common case as long as part size is larger than
             // read size, which it almost always is for real S3 clients and FUSE.
-            if response.is_none() && part_bytes.len() == to_read as usize {
+            if response.is_empty() && part_bytes.len() == to_read as usize {
                 return Ok((part_bytes, all_parts_from_cache));
             }
 
             let part_len = part_bytes.len() as u64;
-            let response = response.get_or_insert_with(|| ChecksummedBytesBuilder::new(total_to_read as usize));
             response.append(part_bytes)?;
             to_read -= part_len;
         }
 
-        let response = response.expect("multi-part reads build a response, single-part reads return early");
         Ok((response.finish(), all_parts_from_cache))
     }
 
