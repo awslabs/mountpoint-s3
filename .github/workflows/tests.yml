@@ -390,9 +390,11 @@ jobs:
 
     container:
       image: ubuntu:22.04
+      # The test binary is compiled inside this cgroup, so the limit has to fit rustc's peak usage,
+      # not just the runtime memory the test inspects. Keep in sync with TEST_CGROUP_MEM_LIMIT_MB.
       options: >-
-        --memory=2g
-        --memory-swap=2g
+        --memory=4g
+        --memory-swap=4g
 
     steps:
     - name: Install prerequisites for container
@@ -430,7 +432,7 @@ jobs:
         cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo "not found"
     - name: Run cgroup-aware memory detection test
       env:
-        TEST_CGROUP_MEM_LIMIT_MB: "2048"
+        TEST_CGROUP_MEM_LIMIT_MB: "4096"
       run: cargo test -p mountpoint-s3-fs --lib memory::limiter::tests::test_effective_total_memory_respects_cgroup
 
   workflow-complete:
