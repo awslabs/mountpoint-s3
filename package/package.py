@@ -140,6 +140,11 @@ def build_mountpoint_binary(metadata: BuildMetadata, args: argparse.Namespace) -
     for var in ["CC", "CXX", "LD_LIBRARY_PATH"]:
         if var in os.environ:
             env[var] = os.environ[var]
+    if metadata.arch == "aarch64":
+        # jemalloc fixes its page size at compile time and refuses to start when the system page is
+        # larger, so a 4KiB build aborts on 64KiB-page aarch64 kernels (RHEL 8, RHEL 9 `kernel-64k`).
+        # Build for 64KiB, arm64's largest page size: it is safe on smaller-page hosts.
+        env["JEMALLOC_SYS_WITH_LG_PAGE"] = "16"
 
     # Build the binary
     cmd = ["cargo", "build", "--bin", "mount-s3", "--release"]
