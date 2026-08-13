@@ -2,11 +2,12 @@
 
 use std::time::Duration;
 
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::sync::{Arc, Weak, thread};
 use crate::util::wake_signal::WakeSignal;
 
+use super::limiter::{CursorState, MemoryLimiter};
 use super::pool::PagedPoolInner;
 
 /// Outcome of a single pruning round. Used for metrics and tracing.
@@ -114,21 +115,26 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Dur
 
     let starving = pool_inner.head_waited().is_some_and(|d| d >= starvation_threshold);
 
+    // Snapshot the live cursors once and make every decision below against it,
+    // rather than re-scanning the cursor `DashMap` in each check.
+    let limiter = pool_inner.limiter();
+    let cursors = limiter.live_cursors();
+
     // 3. Natural release path: in-flight uploads or active reads will free
     //    buffers without our help — defer to that path.
-    let in_flight = has_uploads_in_flight(pool_inner) || pool_inner.limiter().has_active_reads();
+    let in_flight = has_uploads_in_flight(pool_inner) || has_active_reads(&cursors);
     if in_flight && !starving {
         return PruningOutcome::WaitingForRelease;
     }
 
     // 4. Disruptive: reset one idle cursor.
-    if pool_inner.limiter().reset_one_idle_cursor() {
+    if reset_one_idle_cursor(limiter, &cursors) {
         metrics::counter!("mem.cursor_resets").increment(1);
         return PruningOutcome::ResetIdleCursor;
     }
 
     // 5. No idle cursor was eligible. Clear one active cursor's seek window to release the buffer.
-    if starving && pool_inner.limiter().clear_one_seek_window() {
+    if starving && clear_one_seek_window(&cursors) {
         metrics::counter!("mem.seek_window_clears").increment(1);
         return PruningOutcome::ClearedSeekWindow;
     }
@@ -136,6 +142,60 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Dur
     // Nothing reclaimable this round.
     // Wait for the next tick; a release elsewhere may unstick us.
     PruningOutcome::WaitingForRelease
+}
+
+/// Returns `true` if any cursor in the round's snapshot is currently servicing a FUSE read.
+fn has_active_reads(cursors: &[Arc<CursorState>]) -> bool {
+    cursors.iter().any(|state| state.has_active_read())
+}
+
+/// Reset the least-recently-read idle cursor in the round's snapshot.
+///
+/// Returns `true` if a cursor was reset.
+fn reset_one_idle_cursor(limiter: &MemoryLimiter, cursors: &[Arc<CursorState>]) -> bool {
+    let lru = cursors
+        .iter()
+        .filter_map(|state| Some((state.idle_tick()?, state.id())))
+        .min_by_key(|&(tick, _)| tick);
+
+    let Some((tick, cursor_id)) = lru else {
+        trace!("no idle cursor eligible for reset");
+        return false;
+    };
+
+    if limiter.request_reset(cursor_id) {
+        debug!(
+            ?cursor_id,
+            last_read_tick = tick,
+            "reset idle cursor under memory pressure"
+        );
+        return true;
+    }
+    false
+}
+
+/// Clear one *active* cursor's backward seek window to release the part buffers it pins.
+///
+/// Returns `true` if a window was cleared and freed at least one byte.
+fn clear_one_seek_window(cursors: &[Arc<CursorState>]) -> bool {
+    for state in cursors {
+        if !state.has_active_read() {
+            continue;
+        }
+        let Some(freed) = state.clear_seek_window() else {
+            continue;
+        };
+        if freed > 0 {
+            debug!(
+                cursor_id = ?state.id(),
+                window_bytes_cleared = freed,
+                "cleared backward seek window under memory pressure"
+            );
+            return true;
+        }
+    }
+    trace!("no active seek window eligible for clearing");
+    false
 }
 
 /// Returns `true` if any in-flight `UploadPart`/`PutObject` is currently
@@ -163,11 +223,14 @@ mod tests {
     use bytes::Bytes;
     use futures::executor::block_on;
 
-    use crate::memory::limiter::MemoryLimiter;
+    use crate::memory::limiter::{CursorHandle, MemoryLimiter};
     use crate::memory::pool::PagedPoolInner;
     use crate::memory::{BufferKind, CandidateSize, PagedPool};
 
-    use super::{PRUNING_STARVATION_THRESHOLD, PruningOutcome, run_pruning_round, spawn_pool_maintenance_thread};
+    use super::{
+        PRUNING_STARVATION_THRESHOLD, PruningOutcome, clear_one_seek_window, reset_one_idle_cursor, run_pruning_round,
+        spawn_pool_maintenance_thread,
+    };
 
     const FORCE_STARVING: Duration = Duration::ZERO;
     const NEVER_STARVING: Duration = Duration::from_secs(3600);
@@ -393,6 +456,186 @@ mod tests {
         assert!(
             !cleared.load(Ordering::SeqCst),
             "the seek window must not be cleared before the starvation threshold",
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Test helpers for pruner actions
+    // ---------------------------------------------------------------------
+
+    fn new_pool() -> PagedPool {
+        PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(1024)])
+            .with_minimum_memory_limit()
+            .build()
+    }
+
+    /// Simple boolean-flag reset_fn for tests: flips the flag to true on first
+    /// call and returns true; subsequent calls return false (mirroring how the
+    /// real cursor reports "nothing left to reset").
+    fn install_test_reset_fn(cursor: &CursorHandle) -> Arc<AtomicBool> {
+        let was_reset = Arc::new(AtomicBool::new(false));
+        let flag = was_reset.clone();
+        cursor.register_reset_fn(Box::new(move || !flag.swap(true, Ordering::SeqCst)));
+        was_reset
+    }
+
+    #[test]
+    fn reset_one_idle_picks_least_recently_read() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let oldest = pool.create_cursor();
+        let middle = pool.create_cursor();
+        let newest = pool.create_cursor();
+
+        // Bump each cursor's tick in order: oldest first, newest last.
+        drop(oldest.set_active_read(0, 1));
+        drop(middle.set_active_read(0, 1));
+        drop(newest.set_active_read(0, 1));
+
+        let oldest_reset = install_test_reset_fn(&oldest);
+        let middle_reset = install_test_reset_fn(&middle);
+        let newest_reset = install_test_reset_fn(&newest);
+
+        assert!(reset_one_idle_cursor(limiter, &limiter.live_cursors()));
+        assert!(oldest_reset.load(Ordering::SeqCst));
+        assert!(!middle_reset.load(Ordering::SeqCst));
+        assert!(!newest_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn reset_one_idle_skips_active_cursors() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let active = pool.create_cursor();
+        let idle = pool.create_cursor();
+
+        // Active cursor was read first — it's the LRU candidate by tick alone,
+        // but its active_read guard makes it ineligible.
+        let _active_guard = active.set_active_read(0, 1);
+        drop(idle.set_active_read(0, 1));
+
+        let active_reset = install_test_reset_fn(&active);
+        let idle_reset = install_test_reset_fn(&idle);
+
+        assert!(reset_one_idle_cursor(limiter, &limiter.live_cursors()));
+        assert!(!active_reset.load(Ordering::SeqCst));
+        assert!(idle_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn reset_one_idle_returns_false_when_all_active() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let a = pool.create_cursor();
+        let b = pool.create_cursor();
+        let _ga = a.set_active_read(0, 1);
+        let _gb = b.set_active_read(0, 1);
+
+        install_test_reset_fn(&a);
+        install_test_reset_fn(&b);
+
+        assert!(!reset_one_idle_cursor(limiter, &limiter.live_cursors()));
+    }
+
+    /// If the LRU candidate's `request_reset` fails (e.g. its inner mutex is
+    /// momentarily held by a worker), `reset_one_idle_cursor` returns false
+    /// without trying any other candidates — the maintenance loop's next
+    /// round (after `PRUNING_TICK`) will see fresh state and try again.
+    #[test]
+    fn reset_one_idle_returns_false_when_lru_reset_fails() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let stale = pool.create_cursor(); // LRU
+        let live = pool.create_cursor();
+
+        drop(stale.set_active_read(0, 1));
+        drop(live.set_active_read(0, 1));
+
+        // LRU candidate's reset_fn always returns false (e.g., already reset).
+        stale.register_reset_fn(Box::new(|| false));
+        let live_reset = install_test_reset_fn(&live);
+
+        assert!(!reset_one_idle_cursor(limiter, &limiter.live_cursors()));
+        assert!(!live_reset.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn clear_one_seek_window_returns_false_when_no_callbacks_registered() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        // Cursor with an active read but no clear callback registered — nothing to clear.
+        let cursor = pool.create_cursor();
+        let _guard = cursor.set_active_read(0, 1);
+
+        assert!(!clear_one_seek_window(&limiter.live_cursors()));
+    }
+
+    #[test]
+    fn clear_one_seek_window_clears_active_cursor() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let cursor = pool.create_cursor();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let flag = cleared.clone();
+        // Report a non-zero freed count once, then zero (window already empty).
+        cursor.register_clear_seek_window_fn(Box::new(
+            move || {
+                if flag.swap(true, Ordering::SeqCst) { 0 } else { 4096 }
+            },
+        ));
+        let _guard = cursor.set_active_read(0, 1);
+
+        assert!(
+            clear_one_seek_window(&limiter.live_cursors()),
+            "should clear the active cursor's window"
+        );
+        assert!(cleared.load(Ordering::SeqCst));
+
+        // Second call frees nothing (window already empty) → returns false.
+        assert!(!clear_one_seek_window(&limiter.live_cursors()));
+    }
+
+    /// A cursor whose window is empty (clear frees 0 bytes) should not be reported as cleared, so the
+    /// pruner keeps looking / waiting rather than spuriously counting progress.
+    #[test]
+    fn clear_one_seek_window_skips_empty_windows() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let cursor = pool.create_cursor();
+        cursor.register_clear_seek_window_fn(Box::new(|| 0)); // always empty
+        let _guard = cursor.set_active_read(0, 1);
+
+        assert!(!clear_one_seek_window(&limiter.live_cursors()));
+    }
+
+    /// Idle cursors are reclaimed via `reset_one_idle_cursor` (which drops the whole cursor,
+    /// window included), so `clear_one_seek_window` must skip them and never invoke their callback.
+    #[test]
+    fn clear_one_seek_window_skips_idle_cursors() {
+        let pool = new_pool();
+        let limiter = pool.limiter();
+
+        let idle = pool.create_cursor();
+        let cleared = Arc::new(AtomicBool::new(false));
+        let flag = cleared.clone();
+        idle.register_clear_seek_window_fn(Box::new(move || {
+            flag.store(true, Ordering::SeqCst);
+            4096
+        }));
+        // No active read — cursor is idle, so clear must leave it alone.
+
+        assert!(!clear_one_seek_window(&limiter.live_cursors()));
+        assert!(
+            !cleared.load(Ordering::SeqCst),
+            "idle cursor's window must not be cleared"
         );
     }
 }
