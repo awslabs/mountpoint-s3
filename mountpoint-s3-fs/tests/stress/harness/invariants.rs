@@ -145,6 +145,83 @@ fn collect_gauges_by_label(
     out
 }
 
+/// Log memory gauge peaks for diagnostic purposes without asserting.
+/// Useful when the test is already failing (e.g., due to a stall) but we still
+/// want to see the memory metrics to aid debugging.
+pub fn log_peak_memory_metrics(scenario_name: &str, mem_limit: f64, part_size: usize) {
+    let Some(recorder) = stress_recorder::recorder() else {
+        tracing::warn!(
+            scenario = scenario_name,
+            "stress: no recorder installed, skipping memory metrics logging"
+        );
+        return;
+    };
+    let effective_budget = data_buffer_budget_for(mem_limit as usize) as u64;
+    let tolerance = (part_size * MAX_OVERSHOOT_BUFFERS) as u64;
+
+    tracing::info!("");
+    tracing::info!("=== STRESS [{}] MEMORY METRICS (diagnostic) ===", scenario_name);
+
+    // Log all reserved memory gauges
+    for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
+        let peak = gauge.metric.gauge_peak();
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %gauge.id(),
+            peak = %format_mib(peak),
+            budget = %format_mib(effective_budget),
+            "stress: peak memory gauge"
+        );
+    }
+
+    // Log allocated bytes
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        let gauge = NamedGauge {
+            metric_name: ALLOCATED_MEMORY_METRIC,
+            label: None,
+            metric,
+        };
+        let peak = gauge.metric.gauge_peak();
+        let ceiling = effective_budget + tolerance;
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %gauge.id(),
+            peak = %format_mib(peak),
+            budget = %format_mib(effective_budget),
+            ceiling = %format_mib(ceiling),
+            "stress: peak memory gauge"
+        );
+    }
+
+    // Log bytes in use
+    for gauge in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
+        let peak = gauge.metric.gauge_peak();
+        let ceiling = effective_budget + tolerance;
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %gauge.id(),
+            peak = %format_mib(peak),
+            budget = %format_mib(effective_budget),
+            ceiling = %format_mib(ceiling),
+            "stress: peak memory gauge"
+        );
+    }
+
+    // Log RSS
+    if let Some(metric) = recorder.get("process.memory_usage", &[]) {
+        let peak = metric.gauge_peak();
+        let ceiling = mem_limit as u64;
+        tracing::info!(
+            scenario = scenario_name,
+            metric = "process.memory_usage",
+            peak = %format_mib(peak),
+            ceiling = %format_mib(ceiling),
+            "stress: peak RSS"
+        );
+    }
+    tracing::info!("");
+}
+
 /// Assert each memory gauge's peak stayed within the effective budget the limiter enforces
 /// against (`mem_limit - additional_mem_reserved`). Reservations may transiently overshoot, so
 /// `mem.bytes_reserved` is only logged. The pool metrics (`pool.allocated_bytes` and

@@ -25,6 +25,7 @@ mod watchdog;
 mod worker;
 use invariants::{
     assert_p100_latency, assert_peak_reserved_invariant, assert_peak_rss_invariant, assert_teardown_invariants,
+    log_peak_memory_metrics,
 };
 pub use latency::{FileOp, FileOpLatencies};
 use memory_monitor::spawn_memory_monitor;
@@ -181,6 +182,9 @@ pub fn run(scenario: Scenario) {
                 "stress: workers wedged after stop; aborting FUSE connection and exiting. \
                  Workers {stuck:?} did not finish within {max_join_wait:?} after stop"
             );
+            // Try to log memory metrics before exiting (best-effort)
+            eprintln!("stress: attempting to dump metrics before exit...");
+            log_peak_memory_metrics(scenario_name, mem_limit, part_size);
             abort_fuse_connections(&mount_path);
             // _exit() terminates immediately without waiting for threads or running atexit handlers.
             unsafe { libc::_exit(1) };
@@ -208,6 +212,9 @@ pub fn run(scenario: Scenario) {
         }
         if Instant::now() >= unmount_deadline {
             eprintln!("stress: unmount hung after 30s, aborting FUSE connection and failing test");
+            // Try to log memory metrics before exiting (best-effort)
+            eprintln!("stress: attempting to dump metrics before exit...");
+            log_peak_memory_metrics(scenario_name, mem_limit, part_size);
             // Abort FUSE connection - fails all in-flight requests with EIO, then exit immediately.
             abort_fuse_connections(&mount_path);
             unsafe { libc::_exit(1) };
@@ -215,14 +222,9 @@ pub fn run(scenario: Scenario) {
         thread::sleep(Duration::from_millis(100));
     }
 
-    let stalled = stalled_worker.load(Ordering::SeqCst);
-    if stalled != NO_STALL {
-        panic!(
-            "stress: scenario {scenario_name:?} failed: worker {} stalled for at least {:?}",
-            labels[stalled], max_idles[stalled],
-        );
-    }
-
+    // Always dump metrics and run invariant checks before testing for stalls, so that
+    // memory/latency data and pass/fail verdicts are visible in CI output even when the
+    // test fails due to a stall.
     dump_summary(scenario_name, &aggregate);
 
     // Workers run in this process, so their I/O buffers count toward RSS; sum them so the
@@ -236,6 +238,14 @@ pub fn run(scenario: Scenario) {
     assert_teardown_invariants(scenario_name);
     assert_p100_latency(scenario_name, &aggregate, max_latency);
     tracing::info!("");
+
+    let stalled = stalled_worker.load(Ordering::SeqCst);
+    if stalled != NO_STALL {
+        panic!(
+            "stress: scenario {scenario_name:?} failed: worker {} stalled for at least {:?}",
+            labels[stalled], max_idles[stalled],
+        );
+    }
 
     tracing::info!(scenario = scenario_name, "stress: finished");
 }
