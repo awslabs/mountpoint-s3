@@ -5,7 +5,7 @@ use std::time::Duration;
 use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
-use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
+use crate::stress::harness::{self, Scenario, Worker, default_max_idle, default_max_latency};
 use crate::stress::workers::{HoldingWriter, LARGE_READ_OBJECT, SequentialReader};
 
 const NUM_WRITERS: usize = 47; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT memory target
@@ -39,5 +39,6 @@ fn held_writes_vs_reads() {
         setup: None,
         workers,
         max_latency: default_max_latency,
+        max_idle: default_max_idle,
     });
 }

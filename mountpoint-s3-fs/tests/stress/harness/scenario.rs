@@ -30,10 +30,19 @@ pub struct Scenario {
 
     /// Maximum allowed p100 latency for each file op, aggregated across all workers.
     pub max_latency: fn(FileOp) -> Duration,
+
+    /// Maximum time a worker may idle before the watchdog declares it stalled.
+    pub max_idle: fn(&dyn Worker) -> Duration,
 }
 
 /// Default per-op latency ceiling: 20s for every op. Scenarios may provide their own
 /// function if they have a different natural profile.
 pub fn default_max_latency(_op: FileOp) -> Duration {
+    Duration::from_secs(20)
+}
+
+/// Default per-worker stall timeout: 20s. Scenarios may provide their own function if
+/// certain worker kinds legitimately need longer idle periods.
+pub fn default_max_idle(_worker: &dyn Worker) -> Duration {
     Duration::from_secs(20)
 }

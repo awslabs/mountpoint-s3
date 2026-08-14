@@ -7,7 +7,7 @@ use std::sync::Arc;
 use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
-use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
+use crate::stress::harness::{self, Scenario, Worker, default_max_idle, default_max_latency};
 use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 
 /// The read part size under test: the memory limiter's entire data-buffer budget. At
@@ -35,5 +35,6 @@ fn single_reader_budget_part() {
         setup: None,
         workers,
         max_latency: default_max_latency,
+        max_idle: default_max_idle,
     });
 }
