@@ -7,19 +7,13 @@ use std::time::Instant;
 use futures::channel::oneshot;
 use tracing::trace;
 
+use crate::metrics::defs::{POOL_ALLOCATION_QUEUE_DEPTH, POOL_ALLOCATION_QUEUE_WAIT};
 use crate::prefetch::CursorId;
 use crate::sync::atomic::{AtomicBool, Ordering};
 use crate::sync::{Mutex, MutexGuard};
 
 use super::buffers::PoolBuffer;
 use super::stats::BufferKind;
-
-/// Metric: number of pending entries in the allocation queue.
-const ALLOCATION_QUEUE_DEPTH: &str = "pool.allocation_queue_depth";
-
-/// Metric: time (microseconds) an entry spent waiting in the allocation queue
-/// before being served.
-const ALLOCATION_QUEUE_WAIT: &str = "pool.allocation_queue_wait";
 
 /// Priority for an allocation request.
 ///
@@ -82,7 +76,7 @@ struct AllocationQueueInner {
 }
 
 /// Guard around the locked [`AllocationQueueInner`] that refreshes the
-/// [`ALLOCATION_QUEUE_DEPTH`] gauge from the queue lengths when it is dropped.
+/// [`POOL_ALLOCATION_QUEUE_DEPTH`] gauge from the queue lengths when it is dropped.
 struct DepthTrackingGuard<'a> {
     inner: MutexGuard<'a, AllocationQueueInner>,
 }
@@ -103,8 +97,8 @@ impl DerefMut for DepthTrackingGuard<'_> {
 
 impl Drop for DepthTrackingGuard<'_> {
     fn drop(&mut self) {
-        metrics::gauge!(ALLOCATION_QUEUE_DEPTH, "priority" => "high").set(self.inner.high.len() as f64);
-        metrics::gauge!(ALLOCATION_QUEUE_DEPTH, "priority" => "low").set(self.inner.low.len() as f64);
+        metrics::gauge!(POOL_ALLOCATION_QUEUE_DEPTH, "priority" => "high").set(self.inner.high.len() as f64);
+        metrics::gauge!(POOL_ALLOCATION_QUEUE_DEPTH, "priority" => "low").set(self.inner.low.len() as f64);
     }
 }
 
@@ -254,7 +248,7 @@ impl AllocationQueue {
 
         drop(inner);
         entry.inspect(|e| {
-            metrics::histogram!(ALLOCATION_QUEUE_WAIT).record(e.queued_at.elapsed().as_micros() as f64);
+            metrics::histogram!(POOL_ALLOCATION_QUEUE_WAIT).record(e.queued_at.elapsed().as_micros() as f64);
         })
     }
 
