@@ -48,10 +48,8 @@ pub struct PendingAllocation {
     /// Channel sender used to deliver the allocated [PoolBuffer] to the waiter.
     /// When dropped, the receiver resolves with `Err(Canceled)`.
     sender: oneshot::Sender<PoolBuffer>,
-    /// Optional liveness predicate for requests originating from the CRT. Reports `false`
-    /// once the CRT has cancelled the underlying reservation (the buffer-ticket future was
-    /// errored). `None` for fs-internal requests, whose cancellation is observed via the
-    /// dropped `sender` instead.
+    /// Optional predicate that reports `false` once the buffer is no longer needed — for
+    /// example, when the CRT cancels the meta request this reservation was serving.
     is_alive: Option<LivenessFn>,
 }
 
