@@ -25,12 +25,11 @@ mod watchdog;
 mod worker;
 use invariants::{
     assert_p100_latency, assert_peak_reserved_invariant, assert_peak_rss_invariant, assert_teardown_invariants,
-    log_peak_memory_metrics,
 };
 pub use latency::{FileOp, FileOpLatencies};
 use memory_monitor::spawn_memory_monitor;
-use report::dump_summary;
-pub use scenario::{Scenario, default_max_latency};
+use report::{dump_metrics_snapshot, dump_summary};
+pub use scenario::{Scenario, default_max_idle, default_max_latency};
 pub use setup::{SetupGuard, budget_parts, hold_budget_parts, warm_cache};
 use watchdog::{NO_STALL, spawn_watchdog};
 pub use worker::Worker;
@@ -58,6 +57,7 @@ pub fn run(scenario: Scenario) {
         setup,
         workers,
         max_latency,
+        max_idle,
     } = scenario;
 
     let mem_limit = session_config.mem_limit as f64;
@@ -107,7 +107,7 @@ pub fn run(scenario: Scenario) {
     let progress: Vec<Arc<AtomicU64>> = (0..num_workers).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let stalled_worker = Arc::new(AtomicUsize::new(NO_STALL));
 
-    let max_idles: Vec<Duration> = workers.iter().map(|w| w.max_idle()).collect();
+    let max_idles: Vec<Duration> = workers.iter().map(|w| max_idle(w.as_ref())).collect();
     let max_join_wait = max_idles
         .iter()
         .copied()
@@ -182,9 +182,8 @@ pub fn run(scenario: Scenario) {
                 "stress: workers wedged after stop; aborting FUSE connection and exiting. \
                  Workers {stuck:?} did not finish within {max_join_wait:?} after stop"
             );
-            // Try to log memory metrics before exiting (best-effort)
-            eprintln!("stress: attempting to dump metrics before exit...");
-            log_peak_memory_metrics(scenario_name, mem_limit, part_size);
+            // Best-effort metrics dump before hard exit
+            dump_metrics_snapshot(scenario_name);
             abort_fuse_connections(&mount_path);
             // _exit() terminates immediately without waiting for threads or running atexit handlers.
             unsafe { libc::_exit(1) };
@@ -212,9 +211,8 @@ pub fn run(scenario: Scenario) {
         }
         if Instant::now() >= unmount_deadline {
             eprintln!("stress: unmount hung after 30s, aborting FUSE connection and failing test");
-            // Try to log memory metrics before exiting (best-effort)
-            eprintln!("stress: attempting to dump metrics before exit...");
-            log_peak_memory_metrics(scenario_name, mem_limit, part_size);
+            // Best-effort metrics dump before hard exit
+            dump_metrics_snapshot(scenario_name);
             // Abort FUSE connection - fails all in-flight requests with EIO, then exit immediately.
             abort_fuse_connections(&mount_path);
             unsafe { libc::_exit(1) };

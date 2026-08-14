@@ -7,7 +7,7 @@ use std::sync::Arc;
 use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
-use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
+use crate::stress::harness::{self, Scenario, Worker, default_max_idle, default_max_latency};
 use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader, Writer};
 
 const NUM_READERS: usize = 16;
@@ -36,5 +36,6 @@ fn mixed_rw() {
         setup: None,
         workers,
         max_latency: default_max_latency,
+        max_idle: default_max_idle,
     });
 }
