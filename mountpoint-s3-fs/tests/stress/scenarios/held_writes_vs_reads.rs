@@ -8,7 +8,7 @@ use crate::common::fuse::TestSessionConfig;
 use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
 use crate::stress::workers::{HoldingWriter, LARGE_READ_OBJECT, SequentialReader};
 
-const NUM_WRITERS: usize = 48; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT memory target
+const NUM_WRITERS: usize = 47; // Matches WriteHandleLimit for MINIMUM_MEM_LIMIT memory target
 const NUM_READERS: usize = 16;
 const PART_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
 const WRITE_BEFORE_HOLD: usize = PART_SIZE + 4 * 1024;
@@ -27,6 +27,7 @@ fn held_writes_vs_reads() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
+        direct_io: false,
     });
     let workers = chain(repeat_n(writer, NUM_WRITERS), repeat_n(reader, NUM_READERS)).collect();
     harness::run(Scenario {
@@ -34,6 +35,8 @@ fn held_writes_vs_reads() {
         session_config: TestSessionConfig::default()
             .with_mem_limit(MINIMUM_MEM_LIMIT)
             .with_part_size(PART_SIZE),
+        cache: false,
+        setup: None,
         workers,
         max_latency: default_max_latency,
     });

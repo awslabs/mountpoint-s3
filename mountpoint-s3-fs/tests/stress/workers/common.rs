@@ -1,7 +1,8 @@
 //! Shared worker-loop helpers and dataset descriptors.
 
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -62,13 +63,19 @@ pub(super) fn read_to_eof_once(
     scope: &str,
     path: &Path,
     buf: &mut [u8],
+    direct_io: bool,
     progress: &AtomicU64,
     latencies: &mut FileOpLatencies,
     stop: &AtomicBool,
 ) {
     let mut file = latencies
-        .time(FileOp::Open, || File::open(path))
-        .unwrap_or_else(|e| panic!("{scope}: open of {path:?} failed: {e:?}"));
+        .time(FileOp::Open, || {
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(if direct_io { libc::O_DIRECT } else { 0 })
+                .open(path)
+        })
+        .unwrap_or_else(|e| panic!("{scope}: open of {path:?} (direct_io={direct_io}) failed: {e:?}"));
     progress.fetch_add(1, Ordering::Relaxed);
     loop {
         if stop.load(Ordering::Relaxed) {

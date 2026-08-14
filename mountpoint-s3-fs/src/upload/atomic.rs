@@ -276,7 +276,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::fs::SseCorruptedError;
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
     use crate::sync::Arc;
     use crate::upload::{Uploader, UploaderConfig};
 
@@ -299,7 +299,7 @@ mod tests {
     {
         let buffer_size = client.write_part_size();
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_minimum_memory_limit()
             .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());

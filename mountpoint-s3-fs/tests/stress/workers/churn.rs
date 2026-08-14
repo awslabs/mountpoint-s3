@@ -24,6 +24,10 @@ impl Worker for Churn {
         self.pool.manifest()
     }
 
+    fn io_buffer_bytes(&self) -> usize {
+        self.pool.size
+    }
+
     fn run(
         &self,
         instance: usize,
@@ -39,7 +43,7 @@ impl Worker for Churn {
             let path = mount_path
                 .join(SHARED_OBJECTS_PREFIX)
                 .join(self.pool.pick_key(iter, instance));
-            read_to_eof_once("churn", &path, &mut buf, progress, latencies, stop);
+            read_to_eof_once("churn", &path, &mut buf, false, progress, latencies, stop);
         }
     }
 }

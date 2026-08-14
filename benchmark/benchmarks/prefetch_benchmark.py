@@ -1,10 +1,10 @@
 import logging
 import subprocess
-from typing import Dict, Any
+from typing import Any
 
 from benchmarks.base_benchmark import BaseBenchmark
-from benchmarks.command import Command, CommandResult
 from benchmarks.cargo_helper import build_example
+from benchmarks.command import Command, CommandResult
 from benchmarks.config_utils import get_s3_keys
 from omegaconf import DictConfig
 
@@ -12,11 +12,11 @@ log = logging.getLogger(__name__)
 
 
 class PrefetchBenchmark(BaseBenchmark):
-    def __init__(self, cfg: DictConfig, metadata: Dict[str, Any]):
+    def __init__(self, cfg: DictConfig, metadata: dict[str, Any]):
         self.cfg = cfg
         self.metadata = metadata
 
-    def setup(self, with_flamegraph: bool = False) -> Dict[str, Any]:
+    def setup(self, with_flamegraph: bool = False) -> dict[str, Any]:
         log.info("Compiling prefetch_benchmark example...")
         self.executable_path = build_example("prefetch_benchmark", with_flamegraph=with_flamegraph)
         log.info(f"Prefetch benchmark executable ready at: {self.executable_path}")
@@ -49,8 +49,8 @@ class PrefetchBenchmark(BaseBenchmark):
         if (max_throughput := self.cfg.network.maximum_throughput_gbps) is not None:
             subprocess_args.extend(["--maximum-throughput-gbps", str(max_throughput)])
 
-        if (max_memory_target := self.cfg.benchmarks.prefetch.max_memory_target) is not None:
-            subprocess_args.extend(["--max-memory-target", str(max_memory_target)])
+        if (memory_target := self.cfg.benchmarks.prefetch.memory_target) is not None:
+            subprocess_args.extend(["--memory-target", str(memory_target)])
 
         if (read_part_size := self.cfg.read_part_size) is not None:
             subprocess_args.extend(["--part-size", str(read_part_size)])
@@ -77,7 +77,7 @@ class PrefetchBenchmark(BaseBenchmark):
 
         return Command(args=subprocess_args, env=prefetch_env)
 
-    def post_process(self, result: CommandResult) -> Dict[str, Any]:
+    def post_process(self, result: CommandResult) -> dict[str, Any]:
         if result.returncode != 0:
             log.error(f"Prefetch benchmark failed with exit code {result.returncode}")
             if result.stderr:

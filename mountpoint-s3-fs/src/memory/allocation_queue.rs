@@ -1,6 +1,7 @@
 //! Priority-ordered allocation queue for buffer requests under memory pressure.
 
 use std::collections::VecDeque;
+use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use futures::channel::oneshot;
@@ -8,11 +9,18 @@ use mountpoint_s3_client::config::LivenessFn;
 use tracing::trace;
 
 use crate::prefetch::CursorId;
-use crate::sync::Mutex;
 use crate::sync::atomic::{AtomicBool, Ordering};
+use crate::sync::{Mutex, MutexGuard};
 
 use super::buffers::PoolBuffer;
 use super::stats::BufferKind;
+
+/// Metric: number of pending entries in the allocation queue.
+const ALLOCATION_QUEUE_DEPTH: &str = "pool.allocation_queue_depth";
+
+/// Metric: time (microseconds) an entry spent waiting in the allocation queue
+/// before being served.
+const ALLOCATION_QUEUE_WAIT: &str = "pool.allocation_queue_wait";
 
 /// Priority for an allocation request.
 ///
@@ -85,6 +93,33 @@ struct AllocationQueueInner {
     low: VecDeque<PendingAllocation>,
 }
 
+/// Guard around the locked [`AllocationQueueInner`] that refreshes the
+/// [`ALLOCATION_QUEUE_DEPTH`] gauge from the queue lengths when it is dropped.
+struct DepthTrackingGuard<'a> {
+    inner: MutexGuard<'a, AllocationQueueInner>,
+}
+
+impl Deref for DepthTrackingGuard<'_> {
+    type Target = AllocationQueueInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for DepthTrackingGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl Drop for DepthTrackingGuard<'_> {
+    fn drop(&mut self) {
+        metrics::gauge!(ALLOCATION_QUEUE_DEPTH, "priority" => "high").set(self.inner.high.len() as f64);
+        metrics::gauge!(ALLOCATION_QUEUE_DEPTH, "priority" => "low").set(self.inner.low.len() as f64);
+    }
+}
+
 impl std::fmt::Debug for AllocationQueue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AllocationQueue")
@@ -108,6 +143,14 @@ impl AllocationQueue {
                 low: VecDeque::new(),
             }),
             has_pending: AtomicBool::new(false),
+        }
+    }
+
+    /// Lock the queue's inner state, returning a [`DepthTrackingGuard`] that refreshes the
+    /// depth gauge when dropped.
+    fn lock_tracked(&self) -> DepthTrackingGuard<'_> {
+        DepthTrackingGuard {
+            inner: self.inner.lock().unwrap(),
         }
     }
 
@@ -156,7 +199,7 @@ impl AllocationQueue {
             is_alive,
         };
 
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_tracked();
         self.has_pending.store(true, Ordering::SeqCst);
         match priority {
             AllocationPriority::High => inner.high.push_back(entry),
@@ -208,7 +251,7 @@ impl AllocationQueue {
     /// Returns `None` if both queues are empty or the predicate returns `false`.
     /// Sets `has_pending` to `false` if both queues become empty after removal.
     fn pop_front_if(&self, predicate: impl FnOnce(&PendingAllocation) -> bool) -> Option<PendingAllocation> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_tracked();
 
         // Prune abandoned entries from the front of each queue.
         while inner.high.front().is_some_and(|e| e.is_abandoned()) {
@@ -231,7 +274,11 @@ impl AllocationQueue {
         if inner.high.is_empty() && inner.low.is_empty() {
             self.has_pending.store(false, Ordering::SeqCst);
         }
-        entry
+
+        drop(inner);
+        entry.inspect(|e| {
+            metrics::histogram!(ALLOCATION_QUEUE_WAIT).record(e.queued_at.elapsed().as_micros() as f64);
+        })
     }
 
     /// Moves all entries for `cursor_id` from the low-priority queue to the back
@@ -240,7 +287,7 @@ impl AllocationQueue {
     /// Called when a FUSE read arrives for a cursor that has pending speculative
     /// allocations — those allocations are now urgent.
     pub fn upgrade(&self, cursor_id: CursorId) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.lock_tracked();
         let n = inner.low.len();
         for _ in 0..n {
             let entry = inner.low.pop_front().unwrap();

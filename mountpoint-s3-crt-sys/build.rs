@@ -44,6 +44,7 @@ const CRT_HEADERS: &[&str] = &[
     "io/future.h",
     "io/host_resolver.h",
     "io/stream.h",
+    "io/tls_channel_handler.h",
     "io/uri.h",
     "s3/s3.h",
     "s3/s3_buffer_pool.h",

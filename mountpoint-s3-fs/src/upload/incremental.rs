@@ -445,7 +445,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
     use crate::sync::Arc;
 
     use super::super::{Uploader, UploaderConfig};
@@ -469,7 +469,10 @@ mod tests {
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let pool = PagedPool::config()
-            .with_candidate_sizes([client.read_part_size(), client.write_part_size()])
+            .with_candidate_sizes([
+                CandidateSize::new(client.read_part_size()),
+                CandidateSize::new(client.write_part_size()),
+            ])
             .with_minimum_memory_limit()
             .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -1141,7 +1144,7 @@ mod tests {
         // path on every part.
         const NON_BUFFER_FLOOR: usize = 128 * 1024 * 1024;
         let pool = PagedPool::config()
-            .with_candidate_sizes([part_size])
+            .with_candidate_sizes([CandidateSize::new(part_size)])
             .with_memory_limit(NON_BUFFER_FLOOR + part_size)
             .build();
 
@@ -1197,7 +1200,7 @@ mod tests {
         // so set `mem_limit` just above that floor to leave room for exactly one part.
         const LIMITER_MIN_RESERVED: usize = 128 * 1024 * 1024;
         let pool = PagedPool::config()
-            .with_candidate_sizes([part_size])
+            .with_candidate_sizes([CandidateSize::new(part_size)])
             .with_memory_limit(LIMITER_MIN_RESERVED + part_size)
             .build();
         assert_eq!(pool.memory_available_for_reservation(), part_size);

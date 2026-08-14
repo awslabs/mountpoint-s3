@@ -12,7 +12,7 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use mountpoint_s3_fs::S3Filesystem;
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use test_case::test_case;
 
 mod common;
@@ -216,7 +216,7 @@ async fn create_fs_with_mock_s3(bucket: &str) -> (S3Filesystem<S3CrtClient>, Moc
         .endpoint(endpoint);
     let part_size = 1024 * 1024;
     let pool = PagedPool::config()
-        .with_candidate_sizes([part_size])
+        .with_candidate_sizes([CandidateSize::new(part_size)])
         .with_minimum_memory_limit()
         .build();
     let client_config = S3ClientConfig::default()

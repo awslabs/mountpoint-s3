@@ -7,7 +7,7 @@ use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::data_cache::{ChecksummedBytes, DataCache, DiskDataCache, DiskDataCacheConfig};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
 use rand::Rng;
 use tempfile::TempDir;
@@ -40,7 +40,7 @@ fn cache_read_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Pat
         limit: mountpoint_s3_fs::data_cache::CacheLimit::Unbounded,
     };
     let pool = PagedPool::config()
-        .with_candidate_sizes([BLOCK_SIZE as usize])
+        .with_candidate_sizes([CandidateSize::new(BLOCK_SIZE as usize)])
         .with_no_memory_limit()
         .build();
     let cache = DiskDataCache::new(config, pool);

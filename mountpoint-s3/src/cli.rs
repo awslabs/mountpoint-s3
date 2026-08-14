@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, anyhow};
 use clap::{ArgGroup, Parser, ValueEnum, value_parser};
-use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig};
+use mountpoint_s3_client::config::{AWSCRT_LOG_TARGET, AddressingStyle, S3ClientAuthConfig, TlsConfig};
 use mountpoint_s3_client::instance_info::InstanceInfo;
 use mountpoint_s3_client::user_agent::UserAgent;
 use mountpoint_s3_fs::content_type::ContentTypeDetection;
@@ -13,7 +13,7 @@ use mountpoint_s3_fs::fs::{CacheConfig, ServerSideEncryption, TimeToLive, Upload
 use mountpoint_s3_fs::fuse::config::{FuseOptions, FuseSessionConfig, MountPoint};
 use mountpoint_s3_fs::logging::{LoggingConfig, prepare_log_file_name};
 use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, effective_total_memory};
-use mountpoint_s3_fs::s3::config::{ClientConfig, PartConfig, TargetThroughputSetting};
+use mountpoint_s3_fs::s3::config::{ClientConfig, MemoryLimitSetting, PartConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path, S3PathError, S3Personality};
 use mountpoint_s3_fs::{S3FilesystemConfig, autoconfigure, metrics};
 
@@ -183,8 +183,6 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
     )]
     pub max_threads: u64,
 
-    // This config is still unstable
-    #[cfg(feature = "mem_limiter")]
     #[clap(
         long,
         help = "Maximum memory usage target [default: 95% of total system memory with a minimum of 512 MiB]",
@@ -192,7 +190,7 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         value_parser = value_parser!(u64).range(512..),
         help_heading = CLIENT_OPTIONS_HEADER
     )]
-    pub max_memory_target: Option<u64>,
+    pub memory_target: Option<u64>,
 
     #[clap(
         long,
@@ -223,6 +221,21 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         conflicts_with = "part_size",
     )]
     pub write_part_size: Option<u64>,
+
+    #[clap(
+        long,
+        env = "AWS_CA_BUNDLE",
+        help = "The CA certificate bundle used to verify HTTPS connections.",
+        long_help = "\
+The CA certificate bundle used to verify HTTPS connections made by Mountpoint.
+
+When set, this bundle is used in place of the operating-system default trust \
+store.\
+        ",
+        value_name = "PATH",
+        help_heading = CLIENT_OPTIONS_HEADER,
+    )]
+    pub ca_bundle: Option<PathBuf>,
 
     #[clap(
         long,
@@ -492,18 +505,13 @@ impl CliArgs {
         Ok(s3path)
     }
 
-    pub fn mem_limit(&self) -> usize {
-        let mut mem_limit = MINIMUM_MEM_LIMIT;
-
-        let default_mem_target = (effective_total_memory() as f64 * 0.95) as usize;
-        mem_limit = mem_limit.max(default_mem_target);
-
-        #[cfg(feature = "mem_limiter")]
-        if let Some(max_mem_target) = self.max_memory_target {
-            mem_limit = max_mem_target as usize * 1024 * 1024;
+    pub fn memory_limit_setting(&self) -> MemoryLimitSetting {
+        if let Some(memory_target) = self.memory_target {
+            return MemoryLimitSetting::User(memory_target as usize * 1024 * 1024);
         }
 
-        mem_limit
+        let default = (effective_total_memory() as f64 * 0.95) as usize;
+        MemoryLimitSetting::Default(default.max(MINIMUM_MEM_LIMIT))
     }
 
     fn upload_checksum_algorithm(&self, s3_personality: S3Personality) -> Option<UploadChecksumAlgorithm> {
@@ -803,13 +811,13 @@ impl CliArgs {
         }
     }
 
-    pub fn client_config(&self, version: &str) -> ClientConfig {
+    pub fn client_config(&self, version: &str, memory_limit: MemoryLimitSetting) -> anyhow::Result<ClientConfig> {
         let instance_info = InstanceInfo::new();
         let user_agent = self.user_agent(&instance_info, version);
         let throughput_target = self.throughput_target_gbps(&instance_info);
         let region = autoconfigure::get_region(&instance_info, self.region.clone());
 
-        ClientConfig {
+        Ok(ClientConfig {
             region,
             endpoint_url: self.endpoint_url.clone(),
             addressing_style: self.addressing_style(),
@@ -820,9 +828,13 @@ impl CliArgs {
             expected_bucket_owner: self.expected_bucket_owner.clone(),
             throughput_target,
             bind: self.bind.clone(),
-            part_config: self.part_config(),
+            part_config: self.part_config().validate(memory_limit)?,
             user_agent,
-        }
+            tls_config: self
+                .ca_bundle
+                .clone()
+                .map(|p| TlsConfig::new().with_trust_store_path(p)),
+        })
     }
 }
 
@@ -951,6 +963,27 @@ mod tests {
         assert_eq!(filesystem_config.content_type_detection, ContentTypeDetection::Auto);
     }
 
+    #[test]
+    fn ca_bundle_flag_threads_through_to_client_config() {
+        let ca = PathBuf::from("/some/path/flag-ca.pem");
+        let cli_args = CliArgs::try_parse_from([
+            "mount-s3",
+            "bucket",
+            "test/location",
+            "--ca-bundle",
+            ca.to_str().unwrap(),
+        ])
+        .expect("parse succeeds");
+
+        let memory_limit = cli_args.memory_limit_setting();
+        let tls = cli_args
+            .client_config("test", memory_limit)
+            .expect("client config should build")
+            .tls_config
+            .expect("Some");
+        assert_eq!(tls.trust_store_path.as_deref(), Some(ca.as_path()));
+    }
+
     #[test_case("crc32c", S3Personality::Standard, Some(UploadChecksumAlgorithm::Crc32c); "crc32c flag")]
     #[test_case("crc64nvme", S3Personality::Standard, Some(UploadChecksumAlgorithm::Crc64nvme); "crc64nvme flag")]
     #[test_case("off", S3Personality::Standard, None; "off flag")]
@@ -981,5 +1014,64 @@ mod tests {
     fn parse_upload_checksums_rejects_unknown_value() {
         let result = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--upload-checksums", "md5"]);
         assert!(result.is_err(), "unsupported checksum algorithm should be rejected");
+    }
+
+    #[test]
+    fn memory_limit_setting_default() {
+        // Test that when --memory-target is NOT set, we get Default variant
+        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location"]).expect("CLI args should parse");
+
+        let memory_limit = cli_args.memory_limit_setting();
+        assert!(
+            !memory_limit.is_user_specified(),
+            "Should be Default when --memory-target not provided"
+        );
+        assert!(
+            memory_limit.bytes() >= mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT,
+            "Default memory should be at least MINIMUM_MEM_LIMIT"
+        );
+    }
+
+    #[test]
+    fn memory_limit_setting_user_specified() {
+        // Test that when --memory-target IS set, we get User variant
+        let cli_args = CliArgs::try_parse_from(["mount-s3", "bucket", "test/location", "--memory-target", "1024"])
+            .expect("CLI args should parse");
+
+        let memory_limit = cli_args.memory_limit_setting();
+        assert!(
+            memory_limit.is_user_specified(),
+            "Should be User when --memory-target is provided"
+        );
+        assert_eq!(
+            memory_limit.bytes(),
+            1024 * 1024 * 1024,
+            "Should match the specified 1024 MiB"
+        );
+    }
+
+    #[test_case("--read-part-size", "8388608",   true  ; "read-part within budget ok")]
+    #[test_case("--part-size",      "8388608",   true  ; "part-size within budget ok")]
+    #[test_case("--read-part-size", "524288000", false ; "read-part over budget fails")]
+    #[test_case("--part-size",      "524288000", false ; "part-size over budget fails")]
+    fn validate_read_part_size(flag: &str, value: &str, ok: bool) {
+        let args = CliArgs::try_parse_from([
+            "mount-s3",
+            "bucket",
+            "test/location",
+            "--memory-target",
+            "512",
+            flag,
+            value,
+        ])
+        .expect("parse");
+        let memory_limit = args.memory_limit_setting();
+        let result = args.client_config(build_info::FULL_VERSION, memory_limit);
+        assert_eq!(result.is_ok(), ok);
+        if !ok {
+            let msg = result.unwrap_err().to_string();
+            assert!(msg.contains("exceeds the memory available for data buffers"), "{msg}");
+            assert!(msg.contains("reserved for Mountpoint overhead"), "{msg}");
+        }
     }
 }

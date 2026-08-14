@@ -215,6 +215,18 @@ We also support the `AWS_ENDPOINT_URL` environment variable. The endpoint determ
 - Use `AWS_ENDPOINT_URL` if provided.
 - Fallback to automatically inferring the endpoint.
 
+### Custom CA trust bundle
+
+To verify HTTPS connections against a private certificate authority, pass a PEM file containing the CA certificate chain with `--ca-bundle`:
+
+```
+mount-s3 amzn-s3-demo-bucket /path/to/mount --ca-bundle /path/to/ca.pem
+```
+
+When set, this bundle is used in place of the operating-system default trust store for all HTTPS connections Mountpoint makes.
+
+Mountpoint also honours the `AWS_CA_BUNDLE` environment variable as a fallback when `--ca-bundle` is not provided.
+
 ### Data encryption
 
 Amazon S3 supports a number of [server-side encryption types](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingEncryption.html). Mountpoint supports reading and writing to buckets that are configured with Amazon S3 managed keys (SSE-S3), with AWS KMS keys (SSE-KMS), or with dual-layer encryption with AWS KMS keys (DSSE-KMS) as the default encryption method. It does not currently support reading objects encrypted with customer-provided keys (SSE-C).
@@ -311,13 +323,13 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 
 ### Maximum number of files open for writing
 
-Mountpoint enforces a cap on the number of files that may be open for writing at the same time, to control memory usage. The cap is computed at startup from the configured memory target and write part size:
+Mountpoint enforces a cap on the number of files that may be open for writing at the same time, to control memory usage. The cap is computed at startup from the configured memory target, the write part size, and one read part kept available for reads:
 
 ```
-max_concurrent_writes = (memory_target − additional_mem_reserved) / write_part_size
+max_concurrent_writes = (memory_target − additional_mem_reserved − read_part_size) / write_part_size
 ```
 
-`memory_target` is set with `--memory-target` and defaults to 95% of total system memory with a minimum of 512 MiB. `write_part_size` is set with `--write-part-size` (or with `--part-size`) and defaults to 8 MiB. `additional_mem_reserved` is `max(128 MiB, memory_target / 8)` and is held back from data buffers for Mountpoint's own overhead. With the minimum supported `memory_target` of 512 MiB and the default 8 MiB write part size, the cap is 48 concurrent writers.
+`memory_target` is set with `--memory-target` and defaults to 95% of total system memory with a minimum of 512 MiB. `additional_mem_reserved` is `max(128 MiB, memory_target / 8)` and is held back from data buffers for Mountpoint's own overhead. `read_part_size` and `write_part_size` are set with `--read-part-size` and `--write-part-size` (or both with `--part-size`) and each default to 8 MiB; one read part is kept available for reads. With the minimum `memory_target` of 512 MiB and the default 8 MiB part sizes, the cap is 47 concurrent writers.
 
 Once the cap is reached, `open()` calls for write return `ENOMEM` ("Cannot allocate memory") until an existing write handle is closed. To raise the cap, increase `--memory-target` or decrease `--write-part-size`.
 

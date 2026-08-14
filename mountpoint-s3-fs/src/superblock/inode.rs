@@ -578,8 +578,9 @@ mod tests {
 
         #[test]
         fn test_create_and_forget_race_condition() {
-            async fn test_helper() {
-                let bucket = Bucket::new("test_bucket").unwrap();
+            let bucket = Bucket::new("test_bucket").unwrap();
+
+            async fn test_helper(bucket: &Bucket) {
                 let client = Arc::new(
                     MockClient::config()
                         .bucket(bucket.to_string())
@@ -592,7 +593,7 @@ mod tests {
 
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
-                    S3Path::new(bucket, Default::default()),
+                    S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
 
@@ -618,14 +619,16 @@ mod tests {
                 assert_eq!(lookup_count, 0);
             }
 
-            check_random(|| block_on(test_helper()), 1000);
-            check_pct(|| block_on(test_helper()), 1000, 3);
+            let bucket_clone = bucket.clone();
+            check_random(move || block_on(test_helper(&bucket_clone)), 1000);
+            check_pct(move || block_on(test_helper(&bucket)), 1000, 3);
         }
 
         #[test]
         fn test_concurrent_rename_different_files() {
-            async fn test_helper() {
-                let bucket = Bucket::new("test_bucket").unwrap();
+            let bucket = Bucket::new("test_bucket").unwrap();
+
+            async fn test_helper(bucket: &Bucket) {
                 let client = Arc::new(
                     MockClient::config()
                         .bucket(bucket.to_string())
@@ -637,7 +640,7 @@ mod tests {
                 // Create directories first
                 let superblock = Arc::new(Superblock::new(
                     client.clone(),
-                    S3Path::new(bucket, Default::default()),
+                    S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
 
@@ -718,13 +721,14 @@ mod tests {
             }
 
             // Run the test multiple times with different interleavings
-            check_dfs(|| block_on(test_helper()), Some(100000));
+            check_dfs(move || block_on(test_helper(&bucket)), Some(100000));
         }
 
         #[test]
         fn test_concurrent_rename_and_lookup() {
-            async fn test_helper() {
-                let bucket = Bucket::new("test_bucket").unwrap();
+            let bucket = Bucket::new("test_bucket").unwrap();
+
+            async fn test_helper(bucket: &Bucket) {
                 let client = MockClient::config()
                     .bucket(bucket.to_string())
                     .part_size(1024 * 1024)
@@ -739,7 +743,7 @@ mod tests {
 
                 let superblock = Arc::new(Superblock::new(
                     client,
-                    S3Path::new(bucket, Default::default()),
+                    S3Path::new(bucket.clone(), Default::default()),
                     Default::default(),
                 ));
                 // Create two threads, one that renames and one that tries to open the destination
@@ -786,7 +790,7 @@ mod tests {
                 //);
             }
 
-            check_pct(|| block_on(test_helper()), 10000, 3);
+            check_pct(move || block_on(test_helper(&bucket)), 10000, 3);
         }
     }
 }

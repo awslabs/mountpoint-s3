@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
 use std::os::fd::AsFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use fuser::{Mount, MountOption, Session};
@@ -14,7 +14,7 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-use mountpoint_s3_fs::memory::{MINIMUM_MEM_LIMIT, PagedPool};
+use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -134,48 +134,22 @@ impl TestSessionConfig {
     }
 }
 
-// Holds resources for the testing session and cleans them on drop.
-pub struct TestSession {
+/// A mounted FUSE session that unmounts and joins its worker threads when dropped.
+pub struct MountedSession {
     mount_dir: TempDir,
-    test_client: Box<dyn TestClient>,
-    prefix: String,
     // Option so we can explicitly unmount
     session: Option<FuseSession>,
     // Only set if `pass_fuse_fd` is true, will unmount the filesystem on drop.
     mount: Option<Mount>,
 }
 
-impl TestSession {
-    pub fn new(
-        mount_dir: TempDir,
-        session: FuseSession,
-        test_client: impl TestClient + 'static,
-        prefix: String,
-        mount: Option<Mount>,
-    ) -> Self {
-        Self {
-            mount_dir,
-            test_client: Box::new(test_client),
-            session: Some(session),
-            mount,
-            prefix,
-        }
-    }
-
-    pub fn mount_path(&self) -> &Path {
+impl MountedSession {
+    pub fn path(&self) -> &Path {
         self.mount_dir.path()
-    }
-
-    pub fn client(&self) -> &dyn TestClient {
-        self.test_client.as_ref()
-    }
-
-    pub fn prefix(&self) -> &str {
-        &self.prefix
     }
 }
 
-impl Drop for TestSession {
+impl Drop for MountedSession {
     fn drop(&mut self) {
         // If the session created with a pre-existing mount (e.g., with `pass_fuse_fd`),
         // this will unmount it explicitly...
@@ -187,6 +161,35 @@ impl Drop for TestSession {
                 tracing::warn!(?error, "error while unmounting");
             }
         }
+    }
+}
+
+/// Holds resources for the testing session and cleans them on drop.
+pub struct TestSession {
+    mounted_session: MountedSession,
+    test_client: Box<dyn TestClient>,
+    prefix: String,
+}
+
+impl TestSession {
+    fn new(mounted_session: MountedSession, test_client: impl TestClient + 'static, prefix: String) -> Self {
+        Self {
+            mounted_session,
+            test_client: Box::new(test_client),
+            prefix,
+        }
+    }
+
+    pub fn mount_path(&self) -> &Path {
+        self.mounted_session.path()
+    }
+
+    pub fn client(&self) -> &dyn TestClient {
+        self.test_client.as_ref()
+    }
+
+    pub fn prefix(&self) -> &str {
+        &self.prefix
     }
 }
 
@@ -246,9 +249,9 @@ pub fn create_fuse_session<Client>(
     pool: PagedPool,
     runtime: Runtime,
     s3_path: S3Path,
-    mount_dir: &Path,
+    mount_dir: TempDir,
     test_config: TestSessionConfig,
-) -> (FuseSession, Option<Mount>)
+) -> MountedSession
 where
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
@@ -273,17 +276,18 @@ where
     );
     let fs = S3FuseFilesystem::new(fs, test_config.error_logger);
     let (session, mount) = if test_config.pass_fuse_fd {
-        let (fd, mount) = mount_for_passing_fuse_fd(mount_dir, &options);
+        let (fd, mount) = mount_for_passing_fuse_fd(mount_dir.path(), &options);
         let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
         (Session::from_fd(fs, owned_fd, session_acl), Some(mount))
     } else {
-        (Session::new(fs, mount_dir, &options).unwrap(), None)
+        (Session::new(fs, mount_dir.path(), &options).unwrap(), None)
     };
 
-    (
-        FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap(),
+    MountedSession {
+        mount_dir,
+        session: Some(FuseSession::from_session(session, test_config.max_worker_threads, false).unwrap()),
         mount,
-    )
+    }
 }
 
 /// Open `/dev/fuse` and call `mount` syscall with given `mount_point`.
@@ -327,7 +331,7 @@ pub mod mock_session {
 
         let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
         let pool = PagedPool::config()
-            .with_candidate_sizes([test_config.part_size])
+            .with_candidate_sizes([CandidateSize::new(test_config.part_size)])
             .with_memory_limit(test_config.mem_limit)
             .build();
         let client = Arc::new(
@@ -342,18 +346,18 @@ pub mod mock_session {
         );
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let prefetcher_builder = Prefetcher::default_builder(client.clone());
-        let (session, mount) = create_fuse_session(
+        let mounted_session = create_fuse_session(
             client.clone(),
             prefetcher_builder,
             pool,
             runtime,
             s3_path,
-            mount_dir.path(),
+            mount_dir,
             test_config,
         );
         let test_client = create_test_client(client, &prefix);
 
-        TestSession::new(mount_dir, session, test_client, prefix, mount)
+        TestSession::new(mounted_session, test_client, prefix)
     }
 
     /// Create a FUSE mount backed by a mock object client, with caching, that does not talk to S3
@@ -372,7 +376,10 @@ pub mod mock_session {
 
             let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
             let pool = PagedPool::config()
-                .with_candidate_sizes([test_config.cache_block_size, test_config.part_size])
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
                 .with_memory_limit(test_config.mem_limit)
                 .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
@@ -387,18 +394,18 @@ pub mod mock_session {
             );
             let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
             let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
-            let (session, mount) = create_fuse_session(
+            let mounted_session = create_fuse_session(
                 client.clone(),
                 prefetcher_builder,
                 pool,
                 runtime,
                 s3_path,
-                mount_dir.path(),
+                mount_dir,
                 test_config,
             );
             let test_client = create_test_client(client, &prefix);
 
-            TestSession::new(mount_dir, session, test_client, prefix, mount)
+            TestSession::new(mounted_session, test_client, prefix)
         }
     }
 
@@ -422,7 +429,10 @@ pub mod mock_session {
             params: PutObjectSingleParams,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let full_key = format!("{}{}", self.prefix, key);
-            _ = tokio_block_on(self.client.put_object_single(BUCKET_NAME, &full_key, &params, value))?;
+            _ = tokio_block_on(
+                self.client
+                    .put_object_single(BUCKET_NAME, &full_key, &params, value.to_vec()),
+            )?;
             Ok(())
         }
 
@@ -525,12 +535,39 @@ pub mod s3_session {
 
     /// Create a FUSE mount backed by a real S3 client, session will use a test client provided by the caller
     pub fn new_with_test_client(test_config: TestSessionConfig, sdk_client: Client, s3_path: S3Path) -> TestSession {
+        new_with_test_client_inner(test_config, sdk_client, s3_path, None)
+    }
+
+    /// Like [`new_with_test_client`], but mounts with an on-disk data cache rooted at `cache_dir`.
+    pub fn new_with_test_client_and_disk_cache(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        s3_path: S3Path,
+        cache_dir: PathBuf,
+    ) -> TestSession {
+        new_with_test_client_inner(test_config, sdk_client, s3_path, Some(cache_dir))
+    }
+
+    /// Shared implementation for [`new_with_test_client`] and
+    /// [`new_with_test_client_and_disk_cache`].
+    fn new_with_test_client_inner(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        s3_path: S3Path,
+        cache_dir: Option<PathBuf>,
+    ) -> TestSession {
+        use mountpoint_s3_fs::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+
         let mount_dir = tempfile::tempdir().unwrap();
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([test_config.part_size])
+            .with_candidate_sizes([
+                CandidateSize::prunable(test_config.cache_block_size),
+                CandidateSize::prunable(test_config.part_size),
+            ])
             .with_memory_limit(test_config.mem_limit)
             .build();
+
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(get_test_endpoint_config())
@@ -540,14 +577,29 @@ pub mod s3_session {
             .memory_pool(pool.clone());
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = Runtime::new(client.event_loop_group());
-        let prefetcher_builder = Prefetcher::default_builder(client.clone());
-        let (session, mount) = create_fuse_session(
+
+        let prefetcher_builder = match cache_dir {
+            Some(cache_dir) => {
+                let cache = DiskDataCache::new(
+                    DiskDataCacheConfig {
+                        cache_directory: cache_dir,
+                        block_size: test_config.cache_block_size as u64,
+                        limit: CacheLimit::default(),
+                    },
+                    pool.clone(),
+                );
+                Prefetcher::caching_builder(cache, client.clone())
+            }
+            None => Prefetcher::default_builder(client.clone()),
+        };
+
+        let mounted_session = create_fuse_session(
             client,
             prefetcher_builder,
             pool,
             runtime,
             s3_path.clone(),
-            mount_dir.path(),
+            mount_dir,
             test_config,
         );
 
@@ -556,7 +608,7 @@ pub mod s3_session {
             bucket: s3_path.bucket.to_string(),
             sdk_client,
         };
-        TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
+        TestSession::new(mounted_session, test_client, s3_path.prefix.to_string())
     }
 
     /// Create a FUSE mount backed by a real S3 client, with caching
@@ -571,7 +623,10 @@ pub mod s3_session {
             let region = get_test_region();
 
             let pool = PagedPool::config()
-                .with_candidate_sizes([test_config.cache_block_size, test_config.part_size])
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
                 .with_memory_limit(test_config.mem_limit)
                 .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
@@ -584,18 +639,18 @@ pub mod s3_session {
             );
             let runtime = Runtime::new(client.event_loop_group());
             let prefetcher_builder = Prefetcher::caching_builder(cache, client.clone());
-            let (session, mount) = create_fuse_session(
+            let mounted_session = create_fuse_session(
                 client,
                 prefetcher_builder,
                 pool,
                 runtime,
                 s3_path.clone(),
-                mount_dir.path(),
+                mount_dir,
                 test_config,
             );
             let test_client = create_test_client(&region, s3_path.bucket.as_str(), s3_path.prefix.as_str());
 
-            TestSession::new(mount_dir, session, test_client, s3_path.prefix.to_string(), mount)
+            TestSession::new(mounted_session, test_client, s3_path.prefix.to_string())
         }
     }
 

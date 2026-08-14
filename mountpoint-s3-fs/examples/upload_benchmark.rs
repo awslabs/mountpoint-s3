@@ -5,8 +5,8 @@ use clap::Parser;
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, RustLogAdapter, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::ChecksumAlgorithm;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::memory::effective_total_memory;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use tracing_subscriber::EnvFilter;
@@ -61,7 +61,7 @@ struct UploadBenchmarkArgs {
         help = "Maximum memory usage target for Mountpoint's memory limiter [default: 95% of total system memory]",
         value_name = "MiB"
     )]
-    pub max_memory_target: Option<usize>,
+    pub memory_target: Option<usize>,
 
     #[clap(long, help = "Write part size for the upload", default_value = "8388608")]
     pub write_part_size: usize,
@@ -96,15 +96,15 @@ fn main() {
         let endpoint_uri = Uri::new_from_str(&Allocator::default(), url).expect("Failed to parse endpoint URL");
         endpoint_config = endpoint_config.endpoint(endpoint_uri);
     }
-    let max_memory_target = if let Some(target) = args.max_memory_target {
+    let memory_target = if let Some(target) = args.memory_target {
         target * 1024 * 1024
     } else {
         // Default to 95% of total system memory (cgroup-aware)
         (effective_total_memory() as f64 * 0.95) as usize
     };
     let pool = PagedPool::config()
-        .with_candidate_sizes([args.write_part_size])
-        .with_memory_limit(max_memory_target)
+        .with_candidate_sizes([CandidateSize::new(args.write_part_size)])
+        .with_memory_limit(memory_target)
         .build();
     let config = S3ClientConfig::new()
         .endpoint_config(endpoint_config)

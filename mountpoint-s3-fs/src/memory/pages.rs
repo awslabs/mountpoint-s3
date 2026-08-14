@@ -73,7 +73,7 @@ impl Page {
         let (index, page_status) = consume(&mut self.inner.acquired_bitmask.lock().unwrap(), self.buffer_count())?;
         let offset = index * self.inner.stats.buffer_size;
         if let PageStatus::Empty = page_status {
-            self.inner.stats.remove_empty_page();
+            self.inner.stats.remove_empty_page(self.buffer_count());
         };
 
         self.inner.stats.acquire_buffer(kind);
@@ -107,7 +107,7 @@ impl Page {
         *bitmask &= mask;
 
         if *bitmask == 0 {
-            self.inner.stats.add_empty_page();
+            self.inner.stats.add_empty_page(self.buffer_count());
         }
         drop(bitmask);
 
@@ -129,7 +129,7 @@ impl Page {
             // arrives before the page is removed from the pool, it will be denied.
             *bitmask = FULL_MASK;
         }
-        self.inner.stats.remove_empty_page();
+        self.inner.stats.remove_empty_page(self.buffer_count());
         true
     }
 
@@ -141,7 +141,7 @@ impl Page {
 
     #[cfg(test)]
     pub(super) fn new_for_tests(buffer_size: usize) -> Page {
-        let limiter = super::limiter::MemoryLimiter::new(usize::MAX);
+        let limiter = super::limiter::MemoryLimiter::new(usize::MAX, 0);
         let stats = SizePoolStats::new(buffer_size, Arc::new(limiter));
         Page::try_new(&Arc::new(stats), MAX_BUFFERS_PER_PAGE).expect("allocation should succeed with usize::MAX limit")
     }

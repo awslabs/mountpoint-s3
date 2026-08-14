@@ -70,9 +70,11 @@ impl SeekWindow {
         Some(result.into())
     }
 
-    /// Reset the seek window to an empty state
-    pub fn clear(&mut self) {
+    /// Reset the seek window to an empty state, returning the number of bytes that were cleared.
+    pub fn clear(&mut self) -> usize {
+        let prev_size = self.current_size;
         self.parts.drain(..);
         self.current_size = 0;
+        prev_size
     }
 }

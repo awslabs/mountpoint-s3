@@ -302,7 +302,7 @@ mod tests {
         PoolBuffer::try_new_secondary(
             buffer_size,
             BufferKind::Other,
-            Arc::new(MemoryLimiter::new(usize::MAX)),
+            Arc::new(MemoryLimiter::new(usize::MAX, 0)),
             true,
         )
         .unwrap()

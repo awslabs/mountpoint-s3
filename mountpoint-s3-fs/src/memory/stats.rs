@@ -33,21 +33,36 @@ impl SizePoolStats {
         self.empty_pages.load(Ordering::SeqCst)
     }
 
-    pub(super) fn add_empty_page(&self) {
-        metrics::gauge!("pool.empty_pages", "size" => format!("{}", self.buffer_size)).increment(1.0);
+    pub(super) fn add_empty_page(&self, buffer_count: usize) {
+        metrics::gauge!(
+            "pool.empty_pages",
+            "buffer_size" => format!("{}", self.buffer_size),
+            "buffer_count" => format!("{}", buffer_count),
+        )
+        .increment(1.0);
         self.empty_pages.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub(super) fn remove_empty_page(&self) {
-        metrics::gauge!("pool.empty_pages", "size" => format!("{}", self.buffer_size)).decrement(1.0);
+    pub(super) fn remove_empty_page(&self, buffer_count: usize) {
+        metrics::gauge!(
+            "pool.empty_pages",
+            "buffer_size" => format!("{}", self.buffer_size),
+            "buffer_count" => format!("{}", buffer_count),
+        )
+        .decrement(1.0);
         self.empty_pages.fetch_sub(1, Ordering::SeqCst);
     }
 
     pub(super) fn try_allocate_page(&self, buffer_count: usize) -> Option<ManagedBuffer> {
         let size = self.buffer_size * buffer_count;
         let result = self.limiter.try_allocate(size, None, false)?;
-        metrics::gauge!("pool.allocated_pages", "size" => format!("{}", self.buffer_size)).increment(1.0);
-        self.add_empty_page();
+        metrics::gauge!(
+            "pool.allocated_pages",
+            "buffer_size" => format!("{}", self.buffer_size),
+            "buffer_count" => format!("{}", buffer_count),
+        )
+        .increment(1.0);
+        self.add_empty_page(buffer_count);
         Some(result)
     }
 
@@ -86,6 +101,14 @@ impl<T> Index<BufferKind> for [T; BUFFER_KIND_COUNT] {
 }
 
 impl BufferKind {
+    /// Whether allocations of this kind are prunable: reclaimable/re-fetchable so the memory
+    /// limiter reserves budget for them and lets them use the full memory limit. Reads
+    /// ([`GetObject`](Self::GetObject)) and disk-cache read-backs ([`DiskCache`](Self::DiskCache))
+    /// both serve in-flight reads; writes hold the only copy of their data and are not prunable.
+    pub fn is_prunable(&self) -> bool {
+        matches!(self, BufferKind::GetObject | BufferKind::DiskCache)
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             BufferKind::GetObject => "get_object",

@@ -22,6 +22,11 @@ pub trait Worker: Send + Sync {
         Duration::from_secs(20)
     }
 
+    /// Bytes of I/O buffer this worker allocates for its reads or writes. Default 0.
+    fn io_buffer_bytes(&self) -> usize {
+        0
+    }
+
     /// The worker body. Must loop until `stop` is set, incrementing `progress` to signal
     /// liveness. Time file-system operations via `latencies.time(op, || ...)` so the
     /// harness can aggregate per-op latency histograms and assert p100 ceilings at

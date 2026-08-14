@@ -25,6 +25,8 @@ env:
   S3_BUCKET_TEST_PREFIX: ${{ vars.S3_BUCKET_TEST_PREFIX || 'github-actions-tmp/' }}run-${{ github.run_id }}/attempt-${{ github.run_attempt }}/
   # An IAM role that tests can assume when they want to create session policies
   S3_SUBSESSION_IAM_ROLE: ${{ vars.S3_SUBSESSION_IAM_ROLE }}
+  # IAM role used to test the web_identity_token_file credential source
+  S3_WEB_IDENTITY_TEST_ROLE_ARN: ${{ vars.S3_WEB_IDENTITY_TEST_ROLE_ARN }}
   # Different Access Points Aliases and ARNs
   S3_ACCESS_POINT_ALIAS: ${{ vars.S3_ACCESS_POINT_ALIAS }}
   S3_ACCESS_POINT_ARN: ${{ vars.S3_ACCESS_POINT_ARN }}
@@ -81,24 +83,24 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install nextest
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -119,7 +121,7 @@ jobs:
 
     needs: approval
     env:
-      features: s3_tests,fips_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
+      features: s3_tests,fips_tests,web_identity_tests,${{ matrix.pool.feature }},${{ matrix.bucket-type.feature }}
       packages: --package mountpoint-s3-client --package mountpoint-s3-crt --package mountpoint-s3-crt-sys
 
     strategy:
@@ -145,24 +147,24 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
     - name: Install nextest
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -172,8 +174,22 @@ jobs:
         fuseVersion: 2
     - name: Build tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}' --no-run
+    - name: Fetch a GitHub Actions OIDC token for web identity tests
+      # Requests a fresh, real OIDC token distinct from the one used above to assume
+      # ACTIONS_IAM_ROLE, so tests can exercise the web_identity_token_file credential source
+      # by assuming S3_WEB_IDENTITY_TEST_ROLE_ARN with it.
+      run: |
+        set -euo pipefail
+        token=$(curl -sf -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+        token_file="${RUNNER_TEMP}/web_identity_token"
+        echo "$token" > "$token_file"
+        echo "S3_WEB_IDENTITY_TEST_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
     - name: Run tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
+    - name: Clean up web identity token
+      if: always()
+      run: rm -f "${S3_WEB_IDENTITY_TEST_TOKEN_FILE}"
     - name: Save dump files
       if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
@@ -196,18 +212,18 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
           # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
@@ -239,24 +255,25 @@ jobs:
 
     steps:
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         ref: ${{ inputs.ref }}
         submodules: true
+        persist-credentials: false
     - name: Set up Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
         # setup-rust-toolchain sets "-D warnings" by default, and Rust treats any warning as compile error.
         # We need to do this currently because `mountpoint-s3-fuser` contains some warnings and it breaks the build.
         rustflags: ""
         components: rust-src
     - name: Install nextest
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@c93ccc03e00cd0e08e494f5fd058a6c55a6a1907 # v2.82.8
       with:
         tool: nextest
     - name: Install operating system dependencies
@@ -289,18 +306,18 @@ jobs:
 
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
         with:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
       - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           rustflags: ""
       - name: Install operating system dependencies
@@ -334,10 +351,10 @@ jobs:
         rm -rf cargo-about-* checksum.sha256
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         ref: ${{ inputs.ref }}
         submodules: true
@@ -357,7 +374,7 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
     - name: Upload SRPM artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: srpm-package
         path: ~/rpmbuild/SRPMS/mount-s3-*.src.rpm
@@ -393,13 +410,13 @@ jobs:
         chmod 0400 /etc/shadow
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v6
+      uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
       with:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
 
     - name: Download SRPM artifact
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: srpm-package
         path: /tmp/srpms

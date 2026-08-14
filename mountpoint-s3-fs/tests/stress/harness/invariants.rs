@@ -1,7 +1,9 @@
 //! Teardown-time invariant assertions for stress scenarios.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use mountpoint_s3_fs::memory::data_buffer_budget_for;
 
 use crate::common::stress_recorder;
 use crate::common::test_recorder::stress::{HdrMetric, HdrRecorder};
@@ -10,16 +12,113 @@ use super::latency::{FileOp, FileOpLatencies};
 use super::report::{format_mib, us_to_ms_str};
 
 const RESERVED_MEMORY_METRIC: &str = "mem.bytes_reserved";
+const ALLOCATED_MEMORY_METRIC: &str = "pool.allocated_bytes";
 const IN_USE_MEMORY_METRIC: &str = "pool.bytes_in_use";
 
-/// Collect `(label_value, Arc<HdrMetric>)` for every registered gauge whose name matches
-/// `metric_name` and that carries a label keyed on `label_key`. Lets invariant checks
-/// auto-discover new `area=` / `kind=` values instead of hardcoding the allowlist.
+/// Maximum number of buffers that memory metrics may transiently overshoot the budget by.
+/// For `pool.allocated_bytes` this is due to forced allocations during cancellation fallback
+/// (see `MemoryLimiter::deallocate`). For `pool.bytes_in_use` this is due to concurrent
+/// release/acquire races (see `MemoryLimiter::release_bytes`).
+const MAX_OVERSHOOT_BUFFERS: usize = 1;
+
+/// A gauge handle carrying its identity for logging and violation messages.
+struct NamedGauge {
+    metric_name: &'static str,
+    /// `(label_key, label_value)`, or `None` for an unlabeled gauge.
+    label: Option<(&'static str, String)>,
+    metric: Arc<HdrMetric>,
+}
+
+impl NamedGauge {
+    /// Render the gauge's identity, e.g. `mem.bytes_reserved{area=prefetch}` for a labeled
+    /// gauge or `pool.allocated_bytes` for an unlabeled one.
+    fn id(&self) -> String {
+        match &self.label {
+            Some((key, value)) => format!("{}{{{key}={value}}}", self.metric_name),
+            None => self.metric_name.to_string(),
+        }
+    }
+
+    /// Current gauge value
+    fn value(&self) -> f64 {
+        self.metric.gauge()
+    }
+
+    /// Log the gauge's peak against the budget and, iff `peak > effective_budget`, push a
+    /// `{gauge_id} peak ... exceeds effective budget ...` message onto `violations`.
+    fn check_peak_violation(&self, scenario_name: &str, effective_budget: u64, violations: &mut Vec<String>) {
+        let peak = self.metric.gauge_peak();
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %self.id(),
+            peak = %format_mib(peak),
+            ceiling = %format_mib(effective_budget),
+            "stress: peak memory gauge"
+        );
+        if peak > effective_budget {
+            violations.push(format!(
+                "{} peak {} exceeds effective budget {}",
+                self.id(),
+                format_mib(peak),
+                format_mib(effective_budget),
+            ));
+        }
+    }
+
+    /// Log the gauge's peak against the budget with tolerance for transient overshoots.
+    /// Pushes to `violations` if peak exceeds `ceiling`, or to `warnings` if peak exceeds
+    /// `budget` but is within the tolerance range.
+    fn check_peak_violation_with_tolerance(
+        &self,
+        scenario_name: &str,
+        budget: u64,
+        tolerance: u64,
+        violations: &mut Vec<String>,
+        warnings: &mut Vec<String>,
+    ) {
+        let peak = self.metric.gauge_peak();
+        let ceiling = budget + tolerance;
+
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %self.id(),
+            peak = %format_mib(peak),
+            budget = %format_mib(budget),
+            ceiling = %format_mib(ceiling),
+            "stress: peak memory gauge"
+        );
+
+        if peak > ceiling {
+            // Exceeds even the tolerant ceiling — real violation
+            violations.push(format!(
+                "{} peak {} exceeds ceiling {} (budget {} + tolerance {})",
+                self.id(),
+                format_mib(peak),
+                format_mib(ceiling),
+                format_mib(budget),
+                format_mib(tolerance),
+            ));
+        } else if peak > budget {
+            // Within tolerance but above strict budget — warn for visibility
+            warnings.push(format!(
+                "{} peak {} exceeds budget {} but within tolerance (ceiling {})",
+                self.id(),
+                format_mib(peak),
+                format_mib(budget),
+                format_mib(ceiling),
+            ));
+        }
+    }
+}
+
+/// Collect a [`NamedGauge`] for every registered gauge whose name matches `metric_name` and that
+/// carries a label keyed on `label_key`. Lets invariant checks auto-discover new `area=` / `kind=`
+/// values instead of hardcoding the allowlist.
 fn collect_gauges_by_label(
     recorder: &HdrRecorder,
-    metric_name: &str,
-    label_key: &str,
-) -> Vec<(String, Arc<HdrMetric>)> {
+    metric_name: &'static str,
+    label_key: &'static str,
+) -> Vec<NamedGauge> {
     let mut out = Vec::new();
     recorder.for_each(|key, metric| {
         if key.name() != metric_name {
@@ -36,15 +135,23 @@ fn collect_gauges_by_label(
         else {
             return;
         };
-        out.push((label_value, Arc::clone(metric)));
+        out.push(NamedGauge {
+            metric_name,
+            label: Some((label_key, label_value)),
+            metric: Arc::clone(metric),
+        });
     });
-    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
 
-/// Assert each individual reserved-memory gauge stayed below the effective budget the
-/// limiter enforces against (`mem_limit - additional_mem_reserved`)
-pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
+/// Assert each memory gauge's peak stayed within the effective budget the limiter enforces
+/// against (`mem_limit - additional_mem_reserved`). Reservations may transiently overshoot, so
+/// `mem.bytes_reserved` is only logged. The pool metrics (`pool.allocated_bytes` and
+/// `pool.bytes_in_use`) allow a small tolerance for transient overshoots (forced allocations
+/// during cancellation fallback and concurrent release/acquire races respectively) but
+/// otherwise fail the assertion if exceeded.
+pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64, part_size: usize) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
             scenario = scenario_name,
@@ -52,101 +159,130 @@ pub fn assert_peak_reserved_invariant(scenario_name: &str, mem_limit: f64) {
         );
         return;
     };
-    let mem_limit_u64 = mem_limit as u64;
-    let additional_mem_reserved = (mem_limit_u64 / 8).max(128 * 1024 * 1024);
-    let effective_budget = mem_limit_u64.saturating_sub(additional_mem_reserved);
+    let effective_budget = data_buffer_budget_for(mem_limit as usize) as u64;
 
-    let mut mem_overshoots: Vec<String> = Vec::new();
-    for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
-        let peak = metric.gauge_history().max();
-        tracing::info!(
-            scenario = scenario_name,
-            area = %area,
-            peak = %format_mib(peak),
-            ceiling = %format_mib(effective_budget),
-            "stress: peak mem.bytes_reserved"
-        );
-        check_peak_violation(
-            RESERVED_MEMORY_METRIC,
-            "area",
-            &area,
-            peak,
-            effective_budget,
-            &mut mem_overshoots,
-        );
+    let mut reserved_overshoots: Vec<String> = Vec::new();
+    for gauge in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
+        gauge.check_peak_violation(scenario_name, effective_budget, &mut reserved_overshoots);
     }
-    if !mem_overshoots.is_empty() {
+    if !reserved_overshoots.is_empty() {
         tracing::warn!(
             scenario = scenario_name,
-            overshoots = ?mem_overshoots,
+            overshoots = ?reserved_overshoots,
             "stress: {} peak exceeded effective budget {} (informational — reservations may transiently exceed the limit)",
             RESERVED_MEMORY_METRIC,
             format_mib(effective_budget),
         );
     }
 
-    let mut pool_violations: Vec<String> = Vec::new();
-    for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        let peak = metric.gauge_history().max();
-        tracing::info!(
-            scenario = scenario_name,
-            kind = %kind,
-            peak = %format_mib(peak),
-            ceiling = %format_mib(effective_budget),
-            "stress: peak {}",
-            IN_USE_MEMORY_METRIC,
-        );
-        check_peak_violation(
-            IN_USE_MEMORY_METRIC,
-            "kind",
-            &kind,
-            peak,
+    // Both pool.allocated_bytes and pool.bytes_in_use may transiently overshoot the budget:
+    // - pool.allocated_bytes: forced allocations during cancellation fallback bypass budget
+    //   checks (see MemoryLimiter::deallocate)
+    // - pool.bytes_in_use: concurrent release/acquire race in bitmask clearing
+    //   (see MemoryLimiter::release_bytes)
+    // Allow a small tolerance to avoid test flakiness while still catching real regressions.
+    let tolerance = (part_size * MAX_OVERSHOOT_BUFFERS) as u64;
+    let ceiling = effective_budget + tolerance;
+
+    let mut allocated_violations: Vec<String> = Vec::new();
+    let mut allocated_warnings: Vec<String> = Vec::new();
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        let gauge = NamedGauge {
+            metric_name: ALLOCATED_MEMORY_METRIC,
+            label: None,
+            metric,
+        };
+        gauge.check_peak_violation_with_tolerance(
+            scenario_name,
             effective_budget,
-            &mut pool_violations,
+            tolerance,
+            &mut allocated_violations,
+            &mut allocated_warnings,
         );
     }
-    // TODO: promote from logging error to assert once production accounting is tight
-    // enough that breaches indicate real regressions rather than known-gap overshoot.
-    if !pool_violations.is_empty() {
-        tracing::error!(
+    if !allocated_warnings.is_empty() {
+        tracing::warn!(
             scenario = scenario_name,
-            violations = ?pool_violations,
-            "stress: assertion FAILED — peak {} invariant (ceiling {})",
-            IN_USE_MEMORY_METRIC,
-            format_mib(effective_budget),
+            warnings = ?allocated_warnings,
+            "stress: {} peak exceeded budget (within tolerance — likely forced allocation during cancellation)",
+            ALLOCATED_MEMORY_METRIC,
+        );
+    }
+    if allocated_violations.is_empty() {
+        tracing::info!(
+            scenario = scenario_name,
+            "stress: assertion PASSED — peak {} invariant (ceiling {} with {} buffer tolerance)",
+            ALLOCATED_MEMORY_METRIC,
+            format_mib(ceiling),
+            MAX_OVERSHOOT_BUFFERS,
         );
     } else {
-        tracing::info!(
+        tracing::error!(
             scenario = scenario_name,
-            "stress: assertion PASSED — peak {} invariant (ceiling {})",
-            IN_USE_MEMORY_METRIC,
-            format_mib(effective_budget),
+            violations = ?allocated_violations,
+            "stress: assertion FAILED — peak {} invariant (ceiling {})",
+            ALLOCATED_MEMORY_METRIC,
+            format_mib(ceiling),
         );
     }
-}
+    assert!(
+        allocated_violations.is_empty(),
+        "peak {} invariant violated (ceiling {} with {} buffer tolerance):\n  {}",
+        ALLOCATED_MEMORY_METRIC,
+        format_mib(ceiling),
+        MAX_OVERSHOOT_BUFFERS,
+        allocated_violations.join("\n  "),
+    );
 
-/// Push a `{metric}{{{label_key}={label_value}}} peak ... exceeds effective budget ...`
-/// message onto `violations` iff `peak > effective_budget`.
-fn check_peak_violation(
-    metric_name: &str,
-    label_key: &str,
-    label_value: &str,
-    peak: u64,
-    effective_budget: u64,
-    violations: &mut Vec<String>,
-) {
-    if peak > effective_budget {
-        violations.push(format!(
-            "{metric_name}{{{label_key}={label_value}}} peak {} exceeds effective budget {}",
-            format_mib(peak),
-            format_mib(effective_budget),
-        ));
+    let mut in_use_violations: Vec<String> = Vec::new();
+    let mut in_use_warnings: Vec<String> = Vec::new();
+    for gauge in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
+        gauge.check_peak_violation_with_tolerance(
+            scenario_name,
+            effective_budget,
+            tolerance,
+            &mut in_use_violations,
+            &mut in_use_warnings,
+        );
     }
+    if !in_use_warnings.is_empty() {
+        tracing::warn!(
+            scenario = scenario_name,
+            warnings = ?in_use_warnings,
+            "stress: {} peak exceeded budget (within tolerance — likely concurrent release/acquire race)",
+            IN_USE_MEMORY_METRIC,
+        );
+    }
+    if in_use_violations.is_empty() {
+        tracing::info!(
+            scenario = scenario_name,
+            "stress: assertion PASSED — peak {} invariant (ceiling {} with {} buffer tolerance)",
+            IN_USE_MEMORY_METRIC,
+            format_mib(ceiling),
+            MAX_OVERSHOOT_BUFFERS,
+        );
+    } else {
+        tracing::error!(
+            scenario = scenario_name,
+            violations = ?in_use_violations,
+            "stress: assertion FAILED — peak {} invariant (ceiling {})",
+            IN_USE_MEMORY_METRIC,
+            format_mib(ceiling),
+        );
+    }
+    assert!(
+        in_use_violations.is_empty(),
+        "peak {} invariant violated (ceiling {} with {} buffer tolerance):\n  {}",
+        IN_USE_MEMORY_METRIC,
+        format_mib(ceiling),
+        MAX_OVERSHOOT_BUFFERS,
+        in_use_violations.join("\n  "),
+    );
 }
 
-/// Assert the peak sampled `process.memory_usage` (OS-reported RSS) stayed under
-/// `ceiling_bytes`.
-pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
+/// Assert the peak sampled `process.memory_usage` (OS-reported RSS), minus
+/// `worker_io_buffer_bytes` of in-process worker I/O buffers, stayed under `ceiling_bytes`.
+pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64, worker_io_buffer_bytes: usize) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
             scenario = scenario_name,
@@ -161,13 +297,13 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
         );
         return;
     };
-    let peak = metric.gauge_history().max();
+    let peak = metric.gauge_peak().saturating_sub(worker_io_buffer_bytes as u64);
     let ceiling = ceiling_bytes as u64;
     tracing::info!(
         scenario = scenario_name,
         peak = %format_mib(peak),
         ceiling = %format_mib(ceiling),
-        "stress: peak process.memory_usage"
+        "stress: peak process.memory_usage (worker buffers subtracted)"
     );
     let mut violations: Vec<String> = Vec::new();
     if peak > ceiling {
@@ -195,7 +331,14 @@ pub fn assert_peak_rss_invariant(scenario_name: &str, ceiling_bytes: f64) {
     }
 }
 
-/// After the session is dropped, every reservation-tracking gauge must be back to zero.
+/// How long to wait for the tracked gauges to settle to zero after the session is dropped.
+///
+/// The CRT releases its pool references asynchronously on its own threads, so the gauges reach
+/// zero shortly after `drop(session)` returns. With no deterministic signal to await, we poll.
+const TEARDOWN_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// After the session is dropped, every tracked gauge must be back to zero.
+/// Polls until the gauges settle or [`TEARDOWN_SETTLE_TIMEOUT`] elapses.
 pub fn assert_teardown_invariants(scenario_name: &str) {
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::warn!(
@@ -204,21 +347,42 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
         );
         return;
     };
+
+    // Each handle holds a live value that CRT teardown decrements, so we poll them in place.
+    let mut gauges = collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area");
+    if let Some(metric) = recorder.get(ALLOCATED_MEMORY_METRIC, &[]) {
+        gauges.push(NamedGauge {
+            metric_name: ALLOCATED_MEMORY_METRIC,
+            label: None,
+            metric,
+        });
+    }
+    gauges.extend(collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind"));
+
+    let start = Instant::now();
+    while gauges.iter().any(|g| g.value() != 0.0) && start.elapsed() < TEARDOWN_SETTLE_TIMEOUT {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Log each gauge's resting value and record any that did not return to zero.
     let mut leaks: Vec<String> = Vec::new();
-    for (area, metric) in collect_gauges_by_label(recorder, RESERVED_MEMORY_METRIC, "area") {
-        let v = metric.gauge();
-        tracing::info!(scenario = scenario_name, area = %area, value = v, "stress: teardown {}", RESERVED_MEMORY_METRIC);
-        check_teardown_leak(RESERVED_MEMORY_METRIC, "area", &area, v, &mut leaks);
+    for gauge in &gauges {
+        let value = gauge.value();
+        tracing::info!(
+            scenario = scenario_name,
+            metric = %gauge.id(),
+            value,
+            "stress: teardown gauge"
+        );
+        if value != 0.0 {
+            leaks.push(format!("{} = {value}", gauge.id()));
+        }
     }
-    for (kind, metric) in collect_gauges_by_label(recorder, IN_USE_MEMORY_METRIC, "kind") {
-        let v = metric.gauge();
-        tracing::info!(scenario = scenario_name, kind = %kind, value = v, "stress: teardown {}", IN_USE_MEMORY_METRIC);
-        check_teardown_leak(IN_USE_MEMORY_METRIC, "kind", &kind, v, &mut leaks);
-    }
+
     if leaks.is_empty() {
         tracing::info!(
             scenario = scenario_name,
-            "stress: assertion PASSED — teardown invariants (all reservation gauges back to zero)"
+            "stress: assertion PASSED — teardown invariants (all tracked gauges back to zero)"
         );
     } else {
         tracing::error!(
@@ -232,13 +396,6 @@ pub fn assert_teardown_invariants(scenario_name: &str) {
         "teardown invariant violated:\n  {}",
         leaks.join("\n  ")
     );
-}
-
-/// Push a `{metric}{{{label_key}={label_value}}} = {v}` message onto `leaks` iff `v != 0`.
-fn check_teardown_leak(metric_name: &str, label_key: &str, label_value: &str, v: f64, leaks: &mut Vec<String>) {
-    if v != 0.0 {
-        leaks.push(format!("{metric_name}{{{label_key}={label_value}}} = {v}"));
-    }
 }
 
 /// Assert that the merged per-op p100 latency is within `max_latency(op)`.

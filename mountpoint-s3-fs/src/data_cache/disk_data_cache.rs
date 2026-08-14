@@ -650,6 +650,7 @@ mod tests {
 
     use super::*;
 
+    use crate::memory::CandidateSize;
     use futures::StreamExt as _;
     use futures::executor::{ThreadPool, block_on};
     use futures::task::SpawnExt;
@@ -692,7 +693,7 @@ mod tests {
     fn get_path_for_block_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_no_memory_limit()
             .build();
         let data_cache = DiskDataCache::new(
@@ -727,7 +728,7 @@ mod tests {
     fn get_path_for_block_key_huge_block_index() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_no_memory_limit()
             .build();
         let data_cache = DiskDataCache::new(
@@ -772,7 +773,7 @@ mod tests {
 
         let cache_directory = tempfile::tempdir().unwrap();
         let pool = PagedPool::config()
-            .with_candidate_sizes([pool_buffer_size])
+            .with_candidate_sizes([CandidateSize::new(pool_buffer_size)])
             .with_no_memory_limit()
             .build();
         let cache = DiskDataCache::new(
@@ -862,7 +863,7 @@ mod tests {
 
         let cache_directory = tempfile::tempdir().unwrap();
         let pool = PagedPool::config()
-            .with_candidate_sizes([8 * 1024 * 1024])
+            .with_candidate_sizes([CandidateSize::new(8 * 1024 * 1024)])
             .with_no_memory_limit()
             .build();
         let cache = DiskDataCache::new(
@@ -947,7 +948,7 @@ mod tests {
 
         let cache_directory = tempfile::tempdir().unwrap();
         let pool = PagedPool::config()
-            .with_candidate_sizes([BLOCK_SIZE])
+            .with_candidate_sizes([CandidateSize::new(BLOCK_SIZE)])
             .with_no_memory_limit()
             .build();
         let cache = DiskDataCache::new(
@@ -1133,7 +1134,7 @@ mod tests {
         replace_u64_at(&mut buf, offset, u64::MAX);
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([MAX_LENGTH as usize])
+            .with_candidate_sizes([CandidateSize::new(MAX_LENGTH as usize)])
             .with_no_memory_limit()
             .build();
         let err = block_on(DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None))
@@ -1153,7 +1154,7 @@ mod tests {
         let block_size = 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
         let pool = PagedPool::config()
-            .with_candidate_sizes([block_size])
+            .with_candidate_sizes([CandidateSize::new(block_size)])
             .with_no_memory_limit()
             .build();
         let data_cache = DiskDataCache::new(

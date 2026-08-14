@@ -30,14 +30,14 @@ pub use superblock::{Superblock, SuperblockConfig};
 
 /// Enable tracing and CRT logging when running unit tests.
 #[cfg(test)]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_tracing_subscriber() {
     let _ = mountpoint_s3_client::config::RustLogAdapter::try_init();
     let _ = tracing_subscriber::fmt::try_init();
 }
 
 #[cfg(test)]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_crt() {
     mountpoint_s3_client::config::io_library_init(&mountpoint_s3_client::config::Allocator::default());
     mountpoint_s3_client::config::s3_library_init(&mountpoint_s3_client::config::Allocator::default());

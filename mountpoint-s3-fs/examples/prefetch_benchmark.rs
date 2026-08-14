@@ -12,8 +12,8 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::memory::effective_total_memory;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
 use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
@@ -73,7 +73,7 @@ pub struct CliArgs {
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
     )]
-    pub max_memory_target: Option<u64>,
+    pub memory_target: Option<u64>,
 
     #[clap(
         long,
@@ -123,7 +123,7 @@ fn parse_duration(arg: &str) -> Result<Duration, String> {
 
 impl CliArgs {
     fn memory_target_in_bytes(&self) -> usize {
-        if let Some(target) = self.max_memory_target {
+        if let Some(target) = self.memory_target {
             target as usize * 1024 * 1024
         } else {
             // Default to 95% of total system memory (cgroup-aware)
@@ -168,7 +168,7 @@ fn main() -> anyhow::Result<()> {
 
     let bucket = args.bucket.as_str();
     let pool = PagedPool::config()
-        .with_candidate_sizes([args.part_size.unwrap_or(8 * 1024 * 1024) as usize])
+        .with_candidate_sizes([CandidateSize::new(args.part_size.unwrap_or(8 * 1024 * 1024) as usize)])
         .with_memory_limit(args.memory_target_in_bytes())
         .build();
     let client_config = args.s3_client_config().memory_pool(pool.clone());

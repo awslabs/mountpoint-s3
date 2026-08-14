@@ -378,12 +378,8 @@ mod tests {
     // It's convenient to write test constants like "1 * 1024 * 1024" for symmetry
     #![allow(clippy::identity_op)]
 
-    use crate::Runtime;
-    use crate::data_cache::InMemoryDataCache;
-    use crate::memory::PagedPool;
-    use crate::sync::Arc;
+    use std::collections::HashMap;
 
-    use super::*;
     use futures::executor::{ThreadPool, block_on};
     use mountpoint_s3_client::failure_client::{
         CountdownFailureConfig, GetObjectFailureMode, countdown_failure_client,
@@ -393,8 +389,14 @@ mod tests {
     use proptest::proptest;
     use proptest::strategy::{Just, Strategy};
     use proptest_derive::Arbitrary;
-    use std::collections::HashMap;
     use test_case::test_case;
+
+    use crate::Runtime;
+    use crate::data_cache::InMemoryDataCache;
+    use crate::memory::{CandidateSize, PagedPool};
+    use crate::sync::Arc;
+
+    use super::*;
 
     const KB: usize = 1024;
     const MB: usize = 1024 * 1024;
@@ -431,7 +433,10 @@ mod tests {
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
         let pool = PagedPool::config()
-            .with_candidate_sizes([client.read_part_size(), client.write_part_size()])
+            .with_candidate_sizes([
+                CandidateSize::new(client.read_part_size()),
+                CandidateSize::new(client.write_part_size()),
+            ])
             .with_minimum_memory_limit()
             .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
@@ -529,6 +534,27 @@ mod tests {
         };
 
         run_sequential_read_test(prefetcher_type, 256 * 1024 * 1024 + 111, 1024 * 1024, config);
+    }
+
+    /// Each read is larger than a part, so `do_read` must stitch multiple parts together (the
+    /// multi-part path that copies the first part off its pool buffer). Guards read correctness
+    /// across that path.
+    #[test_case(PrefetcherType::Default)]
+    #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
+    fn sequential_read_size_larger_than_part(prefetcher_type: PrefetcherType) {
+        let config = TestConfig {
+            initial_request_size: 256 * 1024,
+            max_read_window_size: 64 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 1 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
+            max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
+        };
+
+        // read_size (4 MiB + 111) > client_part_size (1 MiB), and the odd tail crosses part
+        // boundaries so reads straddle rather than align.
+        run_sequential_read_test(prefetcher_type, 16 * 1024 * 1024 + 111, 4 * 1024 * 1024 + 111, config);
     }
 
     fn fail_with_backpressure_precondition_test(
@@ -1198,10 +1224,12 @@ mod tests {
     #[cfg(feature = "shuttle")]
     mod shuttle_tests {
         use super::*;
+
         use futures::task::{FutureObj, Spawn, SpawnError};
         use shuttle::future::block_on;
         use shuttle::rand::Rng;
-        use shuttle::{check_pct, check_random};
+        use shuttle::scheduler::{PctScheduler, RandomScheduler};
+        use shuttle::{Config, Runner};
 
         struct ShuttleRuntime;
         impl Spawn for ShuttleRuntime {
@@ -1230,7 +1258,7 @@ mod tests {
                     .build(),
             );
             let pool = PagedPool::config()
-                .with_candidate_sizes([part_size])
+                .with_candidate_sizes([CandidateSize::new(part_size)])
                 .with_minimum_memory_limit()
                 .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -1266,10 +1294,17 @@ mod tests {
             assert_eq!(next_offset, object_size);
         }
 
+        // The default coroutine stack size in shuttle 0.9 is too small for these tests.
+        fn shuttle_config() -> Config {
+            let mut config = Config::default();
+            config.stack_size = 256 * 1024;
+            config
+        }
+
         #[test]
         fn sequential_read_stress() {
-            check_random(sequential_read_stress_helper, 1000);
-            check_pct(sequential_read_stress_helper, 1000, 3);
+            Runner::new(RandomScheduler::new(1000), shuttle_config()).run(sequential_read_stress_helper);
+            Runner::new(PctScheduler::new(3, 1000), shuttle_config()).run(sequential_read_stress_helper);
         }
 
         fn random_read_stress_helper() {
@@ -1294,7 +1329,7 @@ mod tests {
                     .build(),
             );
             let pool = PagedPool::config()
-                .with_candidate_sizes([part_size])
+                .with_candidate_sizes([CandidateSize::new(part_size)])
                 .with_minimum_memory_limit()
                 .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
@@ -1339,8 +1374,8 @@ mod tests {
 
         #[test]
         fn random_read_stress() {
-            check_random(random_read_stress_helper, 1000);
-            check_pct(random_read_stress_helper, 1000, 3);
+            Runner::new(RandomScheduler::new(1000), shuttle_config()).run(random_read_stress_helper);
+            Runner::new(PctScheduler::new(3, 1000), shuttle_config()).run(random_read_stress_helper);
         }
     }
 }

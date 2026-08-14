@@ -21,6 +21,7 @@ fn mixed_rw() {
     let reader: Arc<dyn Worker> = Arc::new(SequentialReader {
         target: LARGE_READ_OBJECT,
         chunk: READ_CHUNK,
+        direct_io: false,
     });
     let writer: Arc<dyn Worker> = Arc::new(Writer {
         scope: "mixed_rw",
@@ -31,6 +32,8 @@ fn mixed_rw() {
     harness::run(Scenario {
         name: "mixed_rw",
         session_config: TestSessionConfig::default().with_mem_limit(MINIMUM_MEM_LIMIT),
+        cache: false,
+        setup: None,
         workers,
         max_latency: default_max_latency,
     });

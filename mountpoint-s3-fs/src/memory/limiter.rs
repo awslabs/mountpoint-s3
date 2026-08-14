@@ -16,6 +16,33 @@ use super::stats::{BUFFER_KIND_COUNT, BufferKind};
 
 pub const MINIMUM_MEM_LIMIT: usize = 512 * 1024 * 1024;
 
+/// Calculate additional memory reserved for overhead (metadata and internal structures).
+/// Reserves 12.5% of total memory (or 128 MiB minimum) for non-buffer usage.
+fn additional_mem_reserved_for(mem_limit: usize) -> usize {
+    (mem_limit / 8).max(128 * 1024 * 1024)
+}
+
+/// Calculate the data buffer budget for a given memory limit.
+/// This is the memory available for actual data buffers after reserving overhead.
+pub fn data_buffer_budget_for(mem_limit: usize) -> usize {
+    mem_limit.saturating_sub(additional_mem_reserved_for(mem_limit))
+}
+
+/// Prunable-sized buffers reserved so prunable allocations aren't starved. A sequential read (the
+/// prunable kind today) holds one part while it prefetches the next.
+const PRUNABLE_RESERVED_PARTS: usize = 1;
+
+/// The budget reserved for prunable allocations (0 if none is configured).
+fn prunable_reserved_for(prunable_buffer_size: usize) -> usize {
+    prunable_buffer_size * PRUNABLE_RESERVED_PARTS
+}
+
+/// The buffer budget available to writes: `data_buffer_budget_for(mem_limit)` minus the prunable
+/// reserve. Source of truth for the write-handle cap (see [`MemoryLimiter::write_buffer_budget`]).
+pub fn write_buffer_budget_for(mem_limit: usize, prunable_buffer_size: usize) -> usize {
+    data_buffer_budget_for(mem_limit).saturating_sub(prunable_reserved_for(prunable_buffer_size))
+}
+
 /// Buffer areas that can be managed by the memory limiter. This is used for updating metrics.
 #[derive(Debug)]
 pub enum BufferArea {
@@ -59,6 +86,10 @@ pub struct MemoryLimiter {
     mem_limit: usize,
     /// Additional reserved memory for other non-buffer usage like storing metadata
     additional_mem_reserved: usize,
+    /// Bytes reserved for reads: non-read allocations stop this many bytes short of `mem_limit`, so
+    /// they can't starve active reads. Derived in [`Self::new`] from the prunable buffer size; zero
+    /// when none is configured.
+    prunable_reserved: usize,
     /// Memory allocated by the pool.
     allocated_bytes: AtomicUsize,
     /// Memory in use by [`BufferKind`].
@@ -82,18 +113,20 @@ pub struct MemoryLimiter {
 }
 
 impl MemoryLimiter {
-    pub fn new(mem_limit: usize) -> Self {
-        let min_reserved = 128 * 1024 * 1024;
-        let additional_mem_reserved = (mem_limit / 8).max(min_reserved);
+    pub fn new(mem_limit: usize, prunable_buffer_size: usize) -> Self {
+        let additional_mem_reserved = additional_mem_reserved_for(mem_limit);
+        let prunable_reserved = prunable_reserved_for(prunable_buffer_size);
         let formatter = make_format(humansize::BINARY);
         debug!(
-            "target memory usage is {} with {} reserved memory",
+            "target memory usage is {} with {} reserved memory and {} reserved for prunable buffers",
             formatter(mem_limit),
-            formatter(additional_mem_reserved)
+            formatter(additional_mem_reserved),
+            formatter(prunable_reserved)
         );
         Self {
             mem_limit,
             additional_mem_reserved,
+            prunable_reserved,
             allocated_bytes: Default::default(),
             acquired_bytes: Default::default(),
             mem_reserved: Default::default(),
@@ -112,10 +145,17 @@ impl MemoryLimiter {
     }
 
     /// The static memory budget available for data buffers, i.e. `mem_limit - additional_mem_reserved`.
-    /// This is the upper bound on buffer-backed allocations and is used by
-    /// [`crate::memory::WriteHandleLimiter`] to derive its cap.
+    /// This is the upper bound on buffer-backed allocations across all kinds.
     pub fn data_buffer_budget(&self) -> usize {
         self.mem_limit.saturating_sub(self.additional_mem_reserved)
+    }
+
+    /// The buffer budget available to writes, i.e. `data_buffer_budget - prunable_reserved`.
+    /// This is the ceiling writes actually see (reads may use the full `data_buffer_budget`), so
+    /// [`crate::memory::WriteHandleLimiter`] derives its cap from it: an admitted writer is then
+    /// always backed by budget and never waits on memory reserved for reads.
+    pub fn write_buffer_budget(&self) -> usize {
+        self.data_buffer_budget().saturating_sub(self.prunable_reserved)
     }
 
     /// Reserve the memory for future uses. Always succeeds, even if it means going beyond
@@ -246,7 +286,33 @@ impl MemoryLimiter {
         metrics::gauge!("mem.bytes_reserved", "area" => BufferArea::Prefetch.as_str()).decrement(decremented as f64);
     }
 
-    pub fn try_allocate(
+    /// The memory ceiling [`Self::try_allocate`] enforces.
+    ///
+    /// Every allocation stops `prunable_reserved` bytes short of `mem_limit` — that slice is the
+    /// headroom that lets a read still allocate when writes have taken the rest of the budget — with
+    /// one exception: a prunable ([`BufferKind::is_prunable`]) one-off allocation may spend it. Such
+    /// an allocation is the read the reserve exists for, and it takes the reserve in the only shape
+    /// that gives it back: an exact-size buffer, freed on drop.
+    ///
+    /// Withholding the reserve from paged allocations (`kind` is `None`) is what keeps it reachable.
+    /// A page holds up to [`MAX_BUFFERS_PER_PAGE`](super::pages::MAX_BUFFERS_PER_PAGE) buffers and is
+    /// freed only when wholly empty, while any [`BufferKind`] may claim a free buffer inside it. So a
+    /// page carved out of the reserve destroys it: the bytes stay committed to that one size pool,
+    /// where a non-prunable holder can pin them indefinitely.
+    fn allocation_ceiling(&self, kind: Option<BufferKind>) -> usize {
+        match kind {
+            Some(kind) if kind.is_prunable() => self.mem_limit,
+            _ => self.mem_limit.saturating_sub(self.prunable_reserved),
+        }
+    }
+
+    /// Try to allocate `size` bytes from the pool budget.
+    ///
+    /// `kind` is `Some` for an exact-size one-off buffer — the allocation is recorded against that
+    /// [`BufferKind`] and released on drop — and `None` for a page in a
+    /// [`SizePool`](super::pool::SizePool), whose individual buffers are tracked separately as they
+    /// are acquired. It also selects the ceiling; see [`Self::allocation_ceiling`].
+    pub(super) fn try_allocate(
         self: &Arc<Self>,
         size: usize,
         kind: Option<BufferKind>,
@@ -254,15 +320,17 @@ impl MemoryLimiter {
     ) -> Option<ManagedBuffer> {
         if forced {
             self.allocated_bytes.fetch_add(size, Ordering::SeqCst);
+            metrics::gauge!("pool.allocated_bytes").increment(size as f64);
         } else {
             let start = Instant::now();
+            let ceiling = self.allocation_ceiling(kind);
             let mut mem_allocated = self.allocated_bytes.load(Ordering::SeqCst);
             loop {
                 let new_mem_allocated = mem_allocated.saturating_add(size);
                 let new_total_mem_usage = new_mem_allocated.saturating_add(self.additional_mem_reserved);
-                if new_total_mem_usage > self.mem_limit {
+                if new_total_mem_usage > ceiling {
                     trace!(new_total_mem_usage, "not enough memory to allocate");
-                    metrics::histogram!("mem.allocate_latency_us").record(start.elapsed().as_micros() as f64);
+                    metrics::histogram!("pool.allocate_latency_us").record(start.elapsed().as_micros() as f64);
                     return None;
                 }
                 // Check that the value we have read is still the same before updating it
@@ -273,7 +341,8 @@ impl MemoryLimiter {
                     Ordering::SeqCst,
                 ) {
                     Ok(_) => {
-                        metrics::histogram!("mem.allocate_latency_us").record(start.elapsed().as_micros() as f64);
+                        metrics::gauge!("pool.allocated_bytes").increment(size as f64);
+                        metrics::histogram!("pool.allocate_latency_us").record(start.elapsed().as_micros() as f64);
                         break;
                     }
                     Err(current) => mem_allocated = current, // another thread updated the atomic before us, trying again
@@ -288,10 +357,13 @@ impl MemoryLimiter {
         Some(ManagedBuffer::new(size, kind, self.clone()))
     }
 
+    /// Deallocate a buffer. Note: `pool.allocated_bytes` may transiently exceed the budget due to
+    /// forced allocations (e.g., during cancellation fallback) that bypass budget checks.
     pub fn deallocate(&self, ptr: BufferPtr, kind: Option<BufferKind>) {
         let size = ptr.size();
         drop(ptr);
         self.allocated_bytes.fetch_sub(size, Ordering::SeqCst);
+        metrics::gauge!("pool.allocated_bytes").decrement(size as f64);
         if let Some(kind) = kind {
             self.release_bytes(size, kind);
         } else {
@@ -312,6 +384,8 @@ impl MemoryLimiter {
         metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).increment(bytes as f64);
     }
 
+    /// Release buffer bytes. Note: `pool.bytes_in_use` may transiently exceed the budget during
+    /// concurrent release/acquire due to the bitmask bit being cleared before this decrement.
     pub fn release_bytes(&self, bytes: usize, kind: BufferKind) {
         self.acquired_bytes[kind].fetch_sub(bytes, Ordering::SeqCst);
         metrics::gauge!("pool.bytes_in_use", "kind" => kind.as_str()).decrement(bytes as f64);
@@ -343,47 +417,19 @@ impl MemoryLimiter {
         &self.pruning_signal
     }
 
-    /// Returns `true` if any cursor is currently servicing a FUSE read.
-    pub(super) fn has_active_reads(&self) -> bool {
-        self.cursors.iter().any(|entry| {
-            entry
-                .value()
-                .upgrade()
-                .is_some_and(|state| matches!(*state.read_state.lock().unwrap(), ReadState::Active { .. }))
-        })
-    }
-
-    /// Reset the least-recently-read idle cursor.
+    /// Collect strong handles to every live cursor, draining the `DashMap`
+    /// iterator into a `Vec` before returning.
     ///
-    /// Returns `true` if a cursor was reset.
-    pub(super) fn reset_one_idle_cursor(&self) -> bool {
-        let lru = self
-            .cursors
+    /// A `DashMap` iterator holds shard locks while alive. Dropping the last
+    /// `Arc<CursorState>` runs its destructor → [`Self::release_cursor`] →
+    /// `self.cursors.remove(..)`; if that fired mid-iteration it would re-lock a
+    /// held shard and deadlock. Materializing the handles releases the iterator
+    /// first, so any later drop is safe.
+    pub(super) fn live_cursors(&self) -> Vec<Arc<CursorState>> {
+        self.cursors
             .iter()
-            .filter_map(|entry| {
-                let state = entry.value().upgrade()?;
-                let tick = match *state.read_state.lock().unwrap() {
-                    ReadState::Active { .. } => return None,
-                    ReadState::Last { tick } => tick,
-                };
-                Some((tick, state.cursor_id))
-            })
-            .min_by_key(|&(tick, _)| tick);
-
-        let Some((tick, cursor_id)) = lru else {
-            trace!("no idle cursor eligible for reset");
-            return false;
-        };
-
-        if self.request_reset(cursor_id) {
-            debug!(
-                ?cursor_id,
-                last_read_tick = tick,
-                "reset idle cursor under memory pressure"
-            );
-            return true;
-        }
-        false
+            .filter_map(|entry| entry.value().upgrade())
+            .collect()
     }
 }
 
@@ -446,6 +492,7 @@ impl ReadState {
 }
 
 type ResetFn = Box<dyn Fn() -> bool + Send + Sync>;
+type ClearSeekWindowFn = Box<dyn Fn() -> usize + Send + Sync>;
 
 /// Per-cursor state shared between the memory pool's limiter,
 /// the BackpressureController, and the Cursor.
@@ -462,6 +509,9 @@ pub struct CursorState {
     /// Callback that drops the cursor's expensive inner resources.
     /// `None` before registration.
     reset_fn: Mutex<Option<ResetFn>>,
+    /// Callback that clears the cursor's backward seek window,
+    /// without dropping the cursor. `None` before registration.
+    clear_seek_window_fn: Mutex<Option<ClearSeekWindowFn>>,
 }
 
 impl CursorState {
@@ -472,6 +522,7 @@ impl CursorState {
             mem_reserved: Default::default(),
             read_state: Mutex::new(ReadState::Last { tick: 0 }),
             reset_fn: Mutex::new(None),
+            clear_seek_window_fn: Mutex::new(None),
         }
     }
 
@@ -499,6 +550,25 @@ impl CursorState {
     pub fn memory_available_for_reservation(&self) -> usize {
         self.pool.limiter().memory_available_for_reservation()
     }
+
+    /// `true` while a FUSE read is in flight for this cursor.
+    pub(super) fn has_active_read(&self) -> bool {
+        matches!(*self.read_state.lock().unwrap(), ReadState::Active { .. })
+    }
+
+    /// The LRU tick if this cursor is idle (no active read), or `None` while a read is in flight.
+    pub(super) fn idle_tick(&self) -> Option<u64> {
+        match *self.read_state.lock().unwrap() {
+            ReadState::Active { .. } => None,
+            ReadState::Last { tick } => Some(tick),
+        }
+    }
+
+    /// Invoke the registered clear-seek-window callback, returning the number of
+    /// bytes freed, or `None` if no callback is registered.
+    pub(super) fn clear_seek_window(&self) -> Option<usize> {
+        self.clear_seek_window_fn.lock().unwrap().as_ref().map(|f| f())
+    }
 }
 
 impl std::fmt::Debug for CursorState {
@@ -508,6 +578,10 @@ impl std::fmt::Debug for CursorState {
             .field("mem_reserved", &self.mem_reserved)
             .field("read_state", &self.read_state)
             .field("has_reset_fn", &self.reset_fn.lock().unwrap().is_some())
+            .field(
+                "has_clear_seek_window_fn",
+                &self.clear_seek_window_fn.lock().unwrap().is_some(),
+            )
             .finish()
     }
 }
@@ -554,6 +628,12 @@ impl CursorHandle {
     pub fn register_reset_fn(&self, f: ResetFn) {
         *self.state.reset_fn.lock().unwrap() = Some(f);
     }
+
+    /// Register a callback that clears the cursor's backward seek window
+    /// and returns the number of bytes freed.
+    pub fn register_clear_seek_window_fn(&self, f: ClearSeekWindowFn) {
+        *self.state.clear_seek_window_fn.lock().unwrap() = Some(f);
+    }
 }
 
 /// RAII guard that clears the active read for a cursor when dropped and
@@ -574,12 +654,12 @@ mod tests {
     // TODO: Consider which tests are specific to the MemoryLimiter and which are testing the whole PagedPool.
 
     use super::*;
-    use crate::memory::{BufferKind, PagedPool};
+    use crate::memory::{BufferKind, CandidateSize, PagedPool};
     use crate::sync::atomic::Ordering;
 
     fn new_pool() -> PagedPool {
         PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build()
     }
@@ -678,7 +758,7 @@ mod tests {
         // Simulates the cancellation race: on_reserve fires after release_cursor
         // removed the entry. The callback should be a no-op.
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -701,7 +781,7 @@ mod tests {
     #[test]
     fn test_on_pool_acquire_saturates_on_over_decrement() {
         let pool = PagedPool::config()
-            .with_candidate_sizes([1024])
+            .with_candidate_sizes([CandidateSize::new(1024)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -727,7 +807,7 @@ mod tests {
         let buffer_size = 1024;
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -763,7 +843,7 @@ mod tests {
         let buffer_size = 1024;
 
         let pool = PagedPool::config()
-            .with_candidate_sizes([buffer_size])
+            .with_candidate_sizes([CandidateSize::new(buffer_size)])
             .with_minimum_memory_limit()
             .build();
         let limiter = pool.limiter();
@@ -784,6 +864,47 @@ mod tests {
         // Drop the buffer — available goes back up
         drop(buffer);
         assert_eq!(limiter.memory_available_for_reservation(), initial_available);
+    }
+
+    #[test]
+    fn allocation_ceiling_reserves_for_all_but_prunable_one_off() {
+        let mem_limit = 1000;
+        let prunable_buffer_size = 100;
+        let limiter = MemoryLimiter::new(mem_limit, prunable_buffer_size);
+        assert_eq!(limiter.prunable_reserved, prunable_buffer_size);
+        let reserved_ceiling = mem_limit - prunable_buffer_size;
+
+        // Prunable one-off: the read the reserve exists for — it may spend the full limit.
+        assert_eq!(limiter.allocation_ceiling(Some(BufferKind::GetObject)), mem_limit);
+        assert_eq!(limiter.allocation_ceiling(Some(BufferKind::DiskCache)), mem_limit);
+
+        // Paged (`None`): a page never gets the reserve, whatever kind fills it.
+        assert_eq!(limiter.allocation_ceiling(None), reserved_ceiling);
+
+        // Non-prunable one-off: always stops short of the reserve.
+        assert_eq!(
+            limiter.allocation_ceiling(Some(BufferKind::PutObject)),
+            reserved_ceiling
+        );
+        assert_eq!(limiter.allocation_ceiling(Some(BufferKind::Append)), reserved_ceiling);
+    }
+
+    #[test]
+    fn allocation_ceiling_without_reserve_is_always_full_limit() {
+        let mem_limit = 1000;
+        let limiter = MemoryLimiter::new(mem_limit, 0);
+        assert_eq!(limiter.prunable_reserved, 0);
+
+        for kind in [
+            None,
+            Some(BufferKind::GetObject),
+            Some(BufferKind::DiskCache),
+            Some(BufferKind::PutObject),
+            Some(BufferKind::Append),
+            Some(BufferKind::Other),
+        ] {
+            assert_eq!(limiter.allocation_ceiling(kind), mem_limit, "kind={kind:?}");
+        }
     }
 
     #[test]
@@ -887,99 +1008,5 @@ mod tests {
 
         // Cursor already dropped — weak upgrade fails
         assert!(!pool.reset_cursor(cursor_id));
-    }
-
-    /// Simple boolean-flag reset_fn for tests: flips the flag to true on first
-    /// call and returns true; subsequent calls return false (mirroring how the
-    /// real cursor reports "nothing left to reset").
-    fn install_test_reset_fn(cursor: &CursorHandle) -> Arc<std::sync::atomic::AtomicBool> {
-        let was_reset = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let flag = was_reset.clone();
-        cursor.register_reset_fn(Box::new(move || !flag.swap(true, std::sync::atomic::Ordering::SeqCst)));
-        was_reset
-    }
-
-    #[test]
-    fn reset_one_idle_picks_least_recently_read() {
-        let pool = new_pool();
-        let limiter = pool.limiter();
-
-        let oldest = pool.create_cursor();
-        let middle = pool.create_cursor();
-        let newest = pool.create_cursor();
-
-        // Bump each cursor's tick in order: oldest first, newest last.
-        drop(oldest.set_active_read(0, 1));
-        drop(middle.set_active_read(0, 1));
-        drop(newest.set_active_read(0, 1));
-
-        let oldest_reset = install_test_reset_fn(&oldest);
-        let middle_reset = install_test_reset_fn(&middle);
-        let newest_reset = install_test_reset_fn(&newest);
-
-        assert!(limiter.reset_one_idle_cursor());
-        assert!(oldest_reset.load(Ordering::SeqCst));
-        assert!(!middle_reset.load(Ordering::SeqCst));
-        assert!(!newest_reset.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn reset_one_idle_skips_active_cursors() {
-        let pool = new_pool();
-        let limiter = pool.limiter();
-
-        let active = pool.create_cursor();
-        let idle = pool.create_cursor();
-
-        // Active cursor was read first — it's the LRU candidate by tick alone,
-        // but its active_read guard makes it ineligible.
-        let _active_guard = active.set_active_read(0, 1);
-        drop(idle.set_active_read(0, 1));
-
-        let active_reset = install_test_reset_fn(&active);
-        let idle_reset = install_test_reset_fn(&idle);
-
-        assert!(limiter.reset_one_idle_cursor());
-        assert!(!active_reset.load(Ordering::SeqCst));
-        assert!(idle_reset.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn reset_one_idle_returns_false_when_all_active() {
-        let pool = new_pool();
-        let limiter = pool.limiter();
-
-        let a = pool.create_cursor();
-        let b = pool.create_cursor();
-        let _ga = a.set_active_read(0, 1);
-        let _gb = b.set_active_read(0, 1);
-
-        install_test_reset_fn(&a);
-        install_test_reset_fn(&b);
-
-        assert!(!limiter.reset_one_idle_cursor());
-    }
-
-    /// If the LRU candidate's `request_reset` fails (e.g. its inner mutex is
-    /// momentarily held by a worker), `reset_one_idle_cursor` returns false
-    /// without trying any other candidates — the maintenance loop's next
-    /// round (after `PRUNING_TICK`) will see fresh state and try again.
-    #[test]
-    fn reset_one_idle_returns_false_when_lru_reset_fails() {
-        let pool = new_pool();
-        let limiter = pool.limiter();
-
-        let stale = pool.create_cursor(); // LRU
-        let live = pool.create_cursor();
-
-        drop(stale.set_active_read(0, 1));
-        drop(live.set_active_read(0, 1));
-
-        // LRU candidate's reset_fn always returns false (e.g., already reset).
-        stale.register_reset_fn(Box::new(|| false));
-        let live_reset = install_test_reset_fn(&live);
-
-        assert!(!limiter.reset_one_idle_cursor());
-        assert!(!live_reset.load(Ordering::SeqCst));
     }
 }

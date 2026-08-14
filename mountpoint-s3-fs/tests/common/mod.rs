@@ -26,7 +26,7 @@ use mountpoint_s3_client::config::{
 };
 use mountpoint_s3_client::mock_client::MockClient;
 use mountpoint_s3_fs::fs::{DirectoryEntry, DirectoryReplier};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::metrics::metrics_tracing_span_layer;
 use mountpoint_s3_fs::prefetch::Prefetcher;
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
@@ -53,7 +53,7 @@ pub fn make_test_filesystem(
             .build(),
     );
     let pool = PagedPool::config()
-        .with_candidate_sizes([part_size])
+        .with_candidate_sizes([CandidateSize::new(part_size)])
         .with_minimum_memory_limit()
         .build();
     let fs = make_test_filesystem_with_client(client.clone(), pool, bucket, prefix, config);
@@ -142,7 +142,7 @@ pub fn get_crt_client_auth_config(credentials: Credentials) -> S3ClientAuthConfi
 }
 
 /// Enable tracing and CRT logging when running unit tests.
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_tracing_subscriber() {
     let _ = RustLogAdapter::try_init();
 
@@ -155,7 +155,7 @@ fn init_tracing_subscriber() {
         .try_init();
 }
 
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_crt() {
     mountpoint_s3_client::config::io_library_init(&mountpoint_s3_client::config::Allocator::default());
     mountpoint_s3_client::config::s3_library_init(&mountpoint_s3_client::config::Allocator::default());

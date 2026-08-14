@@ -13,8 +13,8 @@ jobs:
   create-github-release:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
-    - uses: taiki-e/create-gh-release-action@v1
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+    - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1.11.0
       with:
         title: "mountpoint-s3 v$version"
         # Strip this prefix off the tag to discover the version number

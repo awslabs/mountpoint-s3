@@ -5,10 +5,6 @@ set -e
 OTEL_COLLECTOR_CONFIG="otel-config.yaml"
 OTEL_COLLECTOR_METRICS="/tmp/otel-collector-metrics"
 OTLP_ENDPOINT="http://127.0.0.1:4318"
-TMP_DIR=$(mktemp -d /tmp/mountpoint-XXXXXXXXXXXX)
-MOUNT_DIR="$TMP_DIR/mnt"
-MOUNTPOINT_LOGS="$TMP_DIR/logs"
-MOUNTPOINT_CACHE="$TMP_DIR/cache"
 EXPECTED_METRICS=(
   "experimental.cache.evict_latency"
   "experimental.cache.get_latency"
@@ -48,12 +44,33 @@ if ! command -v jq &> /dev/null; then
 fi
 
 cleanup() {
-  ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}"
-  rm -rf "${TMP_DIR}"
+  local exit_code=$?
+
+  if [[ ${exit_code} -ne 0 ]]; then
+    echo "Cleaning up after failure (exit code ${exit_code})"
+  fi
+
+  if [[ -n "${TMP_DIR}" ]]; then
+    # Best-effort unmount.
+    ! mountpoint -q "${MOUNT_DIR}" || sudo umount "${MOUNT_DIR}" || true
+    rm -rf "${TMP_DIR}"
+    TMP_DIR=""
+  fi
 
   if [[ -n "${OTEL_COLLECTOR_PID}" ]]; then
     echo "Stopping OTel Collector with PID ${OTEL_COLLECTOR_PID}"
-    kill "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+    kill -TERM "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+
+    # Give it up to 5s to exit gracefully, then force-kill so cleanup can't hang.
+    for _ in $(seq 50); do
+      kill -0 "${OTEL_COLLECTOR_PID}" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -KILL "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+
+    # Reap the terminated job so the OTLP port is fully released before the next run.
+    wait "${OTEL_COLLECTOR_PID}" 2>/dev/null || true
+    OTEL_COLLECTOR_PID=""
   fi
   rm -f "${OTEL_COLLECTOR_CONFIG}" "${OTEL_COLLECTOR_METRICS}"
 }
@@ -123,10 +140,18 @@ trigger_metrics() {
   done
 
   cat "${MOUNT_DIR}/nonexistent_file.txt" 2>/dev/null || true
+
+  echo "Completed file operations."
 }
 
 setup_mount() {
   local mode=$1
+
+  # Set up temp directory tree. To be deleted in cleanup.
+  TMP_DIR=$(mktemp -d /tmp/mountpoint-XXXXXXXXXXXX)
+  MOUNT_DIR="$TMP_DIR/mnt"
+  MOUNTPOINT_LOGS="$TMP_DIR/logs"
+  MOUNTPOINT_CACHE="$TMP_DIR/cache"
   
   echo "Mount ${S3_BUCKET_NAME}, prefix: ${S3_BUCKET_TEST_PREFIX} ($mode)"
   mkdir -p "${MOUNT_DIR}" "${MOUNTPOINT_LOGS}" "${MOUNTPOINT_CACHE}"
@@ -152,8 +177,7 @@ setup_mount() {
       ;;
   esac
 
-  cargo run --quiet --release -- "${args[@]}"
-  if [ $? -ne 0 ]; then
+  if ! cargo run --quiet --release -- "${args[@]}"; then
     echo "Failed to mount file system"
     exit 1
   fi
@@ -208,20 +232,25 @@ verify_log_metrics() {
 run_test() {
   local mode=$1
   
+  echo "Running test ${mode}"
+  
   start_collector
   setup_mount "${mode}"
   trigger_metrics
   
   # Not ideal but we have to wait for periodic metrics to be generated and exported.
   sleep 10 
-  
+
+  echo "Verify metrics"
   verify_otel_metrics "${mode}"
   verify_log_metrics "${mode}"
+
+  echo "Completed test ${mode}"
+
   cleanup
 }
 
 for i in "with_otlp" "with_both" "with_logs"; do 
-  echo "Running test $i"
   run_test "$i"
 done
 echo "All tests passed!"
