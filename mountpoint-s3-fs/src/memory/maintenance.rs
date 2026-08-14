@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use tracing::{debug, trace};
 
+use crate::metrics::defs::{MEM_CURSOR_RESETS, MEM_SEEK_WINDOW_RESETS};
 use crate::sync::{Arc, Weak, thread};
 use crate::util::wake_signal::WakeSignal;
 
@@ -147,13 +148,13 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Dur
 
     // 5. Disruptive: reset one idle cursor.
     if reset_one_idle_cursor(limiter, &cursors) {
-        metrics::counter!("mem.cursor_resets").increment(1);
+        metrics::counter!(MEM_CURSOR_RESETS).increment(1);
         return PruningOutcome::ResetIdleCursor;
     }
 
     // 6. No idle cursor was eligible. Clear one active cursor's seek window to release the buffer.
     if starving && clear_one_seek_window(&cursors) {
-        metrics::counter!("mem.seek_window_clears").increment(1);
+        metrics::counter!(MEM_SEEK_WINDOW_RESETS).increment(1);
         return PruningOutcome::ClearedSeekWindow;
     }
 

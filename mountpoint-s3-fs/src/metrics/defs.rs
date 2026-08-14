@@ -40,6 +40,14 @@ pub const CACHE_PUT_ERRORS: &str = "cache.put_errors";
 pub const CACHE_TOTAL_SIZE: &str = "cache.total_size";
 pub const CACHE_OVERSIZED_OBJECTS: &str = "cache.oversized_objects";
 
+pub const FS_WRITE_HANDLE_LIMIT_EXCEEDED: &str = "fs.write_handle_limit_exceeded";
+
+pub const MEM_CURSOR_RESETS: &str = "mem.cursor_resets";
+pub const MEM_SEEK_WINDOW_RESETS: &str = "mem.seek_window_resets";
+
+pub const POOL_ALLOCATION_QUEUE_DEPTH: &str = "pool.allocation_queue_depth";
+pub const POOL_ALLOCATION_QUEUE_WAIT: &str = "pool.allocation_queue_wait";
+
 // Attribute constants
 pub const ATTR_FUSE_REQUEST: &str = "fuse_request";
 pub const ATTR_CACHE: &str = "cache";
@@ -138,6 +146,31 @@ pub fn lookup_config(name: &str) -> MetricConfig {
         CACHE_TOTAL_SIZE => MetricConfig {
             unit: Unit::Bytes,
             stability: MetricStability::Internal,
+            otlp_attributes: &[],
+        },
+        FS_WRITE_HANDLE_LIMIT_EXCEEDED => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[],
+        },
+        MEM_CURSOR_RESETS => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[],
+        },
+        MEM_SEEK_WINDOW_RESETS => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &[],
+        },
+        POOL_ALLOCATION_QUEUE_DEPTH => MetricConfig {
+            unit: Unit::Count,
+            stability: MetricStability::Experimental,
+            otlp_attributes: &["priority"],
+        },
+        POOL_ALLOCATION_QUEUE_WAIT => MetricConfig {
+            unit: Unit::Microseconds,
+            stability: MetricStability::Experimental,
             otlp_attributes: &[],
         },
         // Treat everything else as count metrics
