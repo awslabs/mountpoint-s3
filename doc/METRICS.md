@@ -100,6 +100,11 @@ Mountpoint emits the following metrics:
 | `experimental.fuse.cache_hit` | Counter | | Number of FUSE requests fully served from [data cache](CONFIGURATION.md#data-cache)<br> (Prefetched data served from memory or partial cache hits are not included in this metric) |
 | `experimental.fuse.idle_threads` | Histogram | | FUSE worker threads waiting for new requests |
 | `experimental.fuse.total_threads` | Gauge | | Total number of FUSE worker threads spawned |
+| `experimental.fs.write_handle_limit_exceeded` | Counter | | Number of times an open-for-write request was rejected due to reaching the concurrent write handle limit |
+| `experimental.mem.cursor_resets` | Counter | | Number of times an idle read cursor was reset to reclaim memory under pressure |
+| `experimental.mem.seek_window_resets` | Counter | | Number of times an active cursor's backward seek window was cleared to reclaim memory under pressure |
+| `experimental.pool.allocation_queue_depth` | Gauge | `priority` (high, low) | Number of pending buffer allocation requests in the queue |
+| `experimental.pool.allocation_queue_wait` | Histogram | | Time (microseconds) a buffer allocation request spent waiting in the queue |
 | `experimental.prefetch.reset_state` | Counter | | Times Mountpoint discarded prefetched data due to access patterns |
 
 > [!NOTE]

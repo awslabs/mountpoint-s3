@@ -36,6 +36,7 @@
 use thiserror::Error;
 use tracing::{info, warn};
 
+use crate::metrics::defs::FS_WRITE_HANDLE_LIMIT_EXCEEDED;
 use crate::sync::Arc;
 use crate::sync::atomic::{AtomicUsize, Ordering};
 
@@ -115,7 +116,7 @@ impl WriteHandleLimiter {
                 active: Arc::clone(&self.active),
             }),
             Err(_) => {
-                metrics::counter!("fs.write_handle_limit_exceeded").increment(1);
+                metrics::counter!(FS_WRITE_HANDLE_LIMIT_EXCEEDED).increment(1);
                 Err(WriteHandleLimitError {
                     max: self.max_concurrent_writes,
                     mem_limit_mib: self.mem_limit_mib,
