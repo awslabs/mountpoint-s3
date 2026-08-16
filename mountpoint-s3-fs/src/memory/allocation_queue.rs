@@ -201,11 +201,11 @@ impl AllocationQueue {
         receiver
     }
 
-    /// Fullfil the pending allocation at the front of the queue using the result of `try_get_buffer`.
+    /// Fulfill the pending allocation at the front of the queue using the result of `try_get_buffer`.
     ///
     /// Returns `false` if the queue was empty or `try_get_buffer` returned `None`.
     ///
-    /// Skips (and removes) cancelled entries in the queue.
+    /// Skips (and removes) abandoned entries in the queue.
     pub fn try_fulfill_front(&self, try_get_buffer: impl FnOnce(&PendingAllocation) -> Option<PoolBuffer>) -> bool {
         if !self.has_pending() {
             return false;

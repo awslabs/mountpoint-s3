@@ -328,7 +328,9 @@ impl PagedPoolInner {
             // Reservation cancelled while queued: abandon it so the CRT bridge leaves its
             // already-errored ticket future untouched, avoiding a wasted allocation.
             Err(_) if is_alive.is_some_and(|alive| !alive()) => None,
-            // Pool shutdown (or no liveness predicate): force the allocation.
+            // Unreachable: `rx` only errors if its `Sender` is dropped, but a parked caller keeps
+            // the pool (and its queue) alive, and the abandoned case is handled above. Force-allocate
+            // defensively so `None`-liveness callers never observe `None`.
             Err(_) => Some(
                 self.try_get_buffer(size, kind, cursor_id, true)
                     .expect("forced allocations cannot fail"),

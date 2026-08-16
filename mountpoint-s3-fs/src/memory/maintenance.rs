@@ -14,14 +14,9 @@ use super::pool::PagedPoolInner;
 /// Outcome of a single pruning round. Used for metrics and tracing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PruningOutcome {
-    /// Nothing to prune (queue empty). Pressure is defined as
-    /// "queue non-empty", so an empty queue means pressure has already cleared.
+    /// No live demand this round, so the drain loop parks. Either the queue is empty, or it
+    /// holds only abandoned waiters — either way there is nothing to serve and no reason to reclaim.
     Idle,
-    /// Queue is non-empty but every waiter is abandoned — e.g. a CRT meta request was cancelled
-    /// and its errored ticket future hasn't been pruned from the queue yet. There is no live
-    /// waiter to serve, so the pruner parks (like [`Self::Idle`]) instead of evicting a healthy
-    /// idle cursor for a phantom; a genuinely new waiter re-arms it via `trigger_pruning`.
-    NoLiveWaiter,
     /// In-flight uploads or active reads will release buffers naturally; wait.
     WaitingForRelease,
     /// One idle cursor was reset this round.
@@ -63,9 +58,9 @@ pub fn spawn_pool_maintenance_thread(
 /// 1. **Idle wait**: `wait_timeout(idle_interval)`. Returns early on `notify`,
 ///    or after the idle interval elapses, whichever first.
 /// 2. **Drain rounds**: run [`run_pruning_round`] in a loop. If the round
-///    returns [`PruningOutcome::Idle`] (no pressure) or [`PruningOutcome::NoLiveWaiter`]
-///    (only abandoned waiters left), break and park. Otherwise sleep
-///    [`PRUNING_TICK`] and run another round.
+///    returns [`PruningOutcome::Idle`] (no live demand — queue empty or only
+///    abandoned waiters), break and park. Otherwise sleep [`PRUNING_TICK`] and
+///    run another round.
 ///
 /// When there is no pressure, the drain loop exits immediately after one
 /// round (which still does the cheap pool trim), so the periodic trim is
@@ -87,7 +82,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
             trace!(?outcome, "pruning round complete");
             drop(strong);
 
-            if matches!(outcome, PruningOutcome::Idle | PruningOutcome::NoLiveWaiter) {
+            if matches!(outcome, PruningOutcome::Idle) {
                 break;
             }
             thread::sleep(PRUNING_TICK);
@@ -103,7 +98,7 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///   2. If the queue is empty, return [`PruningOutcome::Idle`] so the loop
 ///      exits its inner tick and goes back to parking.
 ///   3. If the queue is non-empty but has no *live* waiter (every entry abandoned, e.g. a
-///      CRT-cancelled reservation not yet pruned), return [`PruningOutcome::NoLiveWaiter`]:
+///      CRT-cancelled reservation not yet pruned), also return [`PruningOutcome::Idle`]:
 ///      there is nothing to serve, so don't evict an idle cursor for a phantom.
 ///   4. If uploads are in flight or active reads hold buffers, let the
 ///      natural release path do the work — unless the head of the queue
@@ -127,10 +122,11 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Dur
     //    `head_waited()` reports the wait of the next *live* waiter, skipping reservations
     //    cancelled while queued (a CRT meta request cancel errors the ticket future without
     //    calling back into the pool, so its entry lingers until the release path prunes it).
-    //    With no live waiter there is nothing to serve, so park rather than evict a healthy
-    //    idle cursor for a phantom — a real waiter re-arms us via `trigger_pruning`.
+    //    With no live waiter there is nothing to serve, so park (Idle) rather than evict a
+    //    healthy idle cursor for a phantom — a real waiter re-arms us via `trigger_pruning`.
     let Some(head_waited) = pool_inner.head_waited() else {
-        return PruningOutcome::NoLiveWaiter;
+        trace!("all queued waiters abandoned; parking without reclaim");
+        return PruningOutcome::Idle;
     };
     let starving = head_waited >= starvation_threshold;
 
