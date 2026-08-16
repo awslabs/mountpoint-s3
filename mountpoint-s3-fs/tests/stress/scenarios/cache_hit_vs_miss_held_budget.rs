@@ -5,13 +5,12 @@
 use std::iter::{chain, repeat_n};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
-use crate::stress::harness::{
-    self, Scenario, SetupGuard, Worker, budget_parts, default_max_latency, hold_budget_parts, warm_cache,
-};
+use crate::stress::harness::{self, Scenario, SetupGuard, Worker, budget_parts, hold_budget_parts, warm_cache};
 use crate::stress::workers::{LARGE_READ_OBJECT, MEDIUM_READ_OBJECT, SequentialReader};
 
 const SCOPE: &str = "cache_hit_vs_miss_held_budget";
@@ -54,6 +53,7 @@ fn cache_hit_vs_miss_held_budget() {
         cache: true,
         setup: Some(setup),
         workers,
-        max_latency: default_max_latency,
+        max_latency: |_op| Duration::from_secs(60),
+        max_idle: |_worker| Duration::from_secs(60),
     });
 }

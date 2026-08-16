@@ -37,6 +37,11 @@ pub(super) fn dump_summary(scenario_name: &str, aggregate: &FileOpLatencies) {
     }
 
     tracing::info!("");
+    dump_metrics_snapshot(scenario_name);
+}
+
+/// Print the global HdrRecorder snapshot (all counters, gauges, histograms).
+pub(super) fn dump_metrics_snapshot(scenario_name: &str) {
     tracing::info!("=== STRESS [{scenario_name}] AGGREGATED MOUNTPOINT METRICS ===");
     let Some(recorder) = stress_recorder::recorder() else {
         tracing::info!("(no stress recorder installed)");

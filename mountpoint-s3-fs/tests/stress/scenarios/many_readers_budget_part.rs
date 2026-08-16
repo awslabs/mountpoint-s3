@@ -3,11 +3,12 @@
 
 use std::iter::repeat_n;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
-use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
+use crate::stress::harness::{self, Scenario, Worker};
 use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 
 /// The read part size under test: the memory limiter's entire data-buffer budget. At
@@ -34,6 +35,7 @@ fn many_readers_budget_part() {
         cache: false,
         setup: None,
         workers,
-        max_latency: default_max_latency,
+        max_latency: |_op| Duration::from_secs(60),
+        max_idle: |_worker| Duration::from_secs(60),
     });
 }
