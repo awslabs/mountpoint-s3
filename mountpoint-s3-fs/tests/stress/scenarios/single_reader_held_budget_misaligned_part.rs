@@ -6,7 +6,7 @@ use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
 use crate::stress::harness::{
-    self, Scenario, SetupGuard, Worker, budget_parts, default_max_latency, hold_budget_parts,
+    self, Scenario, SetupGuard, Worker, budget_parts, default_max_idle, default_max_latency, hold_budget_parts,
 };
 use crate::stress::workers::{LARGE_READ_OBJECT, SequentialReader};
 
@@ -41,5 +41,6 @@ fn single_reader_held_budget_misaligned_part() {
         setup: Some(hold),
         workers,
         max_latency: default_max_latency,
+        max_idle: default_max_idle,
     });
 }

@@ -2,7 +2,6 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::time::Duration;
 
 use super::latency::FileOpLatencies;
 
@@ -14,12 +13,6 @@ pub trait Worker: Send + Sync {
     /// Shared S3 input objects this worker needs.
     fn shared_objects(&self) -> Vec<(String, usize)> {
         Vec::new()
-    }
-
-    /// Maximum time this worker may go without incrementing its progress counter before
-    /// the watchdog declares it stalled. Default 20s.
-    fn max_idle(&self) -> Duration {
-        Duration::from_secs(20)
     }
 
     /// Bytes of I/O buffer this worker allocates for its reads or writes. Default 0.
