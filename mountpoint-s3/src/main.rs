@@ -14,7 +14,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 // options string during initialisation. The value below is NUL-terminated.
 #[allow(non_upper_case_globals)]
 #[unsafe(export_name = "_rjem_malloc_conf")]
-pub static malloc_conf: &[u8] = b"background_thread:true,narenas:32\0";
+pub static malloc_conf: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
 
 fn main() -> anyhow::Result<()> {
     let cli_args = parse_cli_args(true);
