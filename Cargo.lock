@@ -2853,6 +2853,7 @@ dependencies = [
  "rand 0.10.2",
  "rcgen",
  "serde_json",
+ "smallvec",
  "static_assertions",
  "tempfile",
  "test-case",
