@@ -312,7 +312,16 @@ impl PagedPoolInner {
             Some(id) if self.limiter.has_active_read(id) => {
                 self.allocation_queue.push_high(cursor_id, size, kind, queued)
             }
-            Some(id) => self.allocation_queue.push_low(id, size, kind, queued),
+            Some(id) => {
+                let rx = self.allocation_queue.push_low(id, size, kind, queued);
+                // Re-check now that the entry is queued: `set_active_read` flips the cursor to
+                // `Active` before scanning the low queue, so an interleaving between the guard
+                // above and this push would strand the entry in `low` with nobody to promote it.
+                if self.limiter.has_active_read(id) {
+                    self.allocation_queue.upgrade(id);
+                }
+                rx
+            }
             None => self.allocation_queue.push_high(None, size, kind, queued), // uploads are urgent
         };
         // After pushing, try to wake immediately in case memory freed between the fast-path
