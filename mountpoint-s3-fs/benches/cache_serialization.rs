@@ -16,6 +16,11 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+// Keep in sync with the `mount-s3` binary's jemalloc config, see `mountpoint-s3/src/main.rs`.
+#[allow(non_upper_case_globals)]
+#[unsafe(export_name = "_rjem_malloc_conf")]
+pub static malloc_conf: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
+
 const BLOCK_SIZE: u64 = 1024 * 1024;
 const OBJECT_SIZE: usize = 10 * BLOCK_SIZE as usize;
 
