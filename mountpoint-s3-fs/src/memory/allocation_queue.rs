@@ -16,17 +16,6 @@ use crate::sync::{Mutex, MutexGuard};
 use super::buffers::PoolBuffer;
 use super::stats::BufferKind;
 
-/// Priority for an allocation request.
-///
-/// The queue serves all [`High`](Self::High) entries (FIFO) before any
-/// [`Low`](Self::Low) entries (FIFO). A [`Low`] request can be promoted to
-/// the back of [`High`] via [`AllocationQueue::upgrade`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AllocationPriority {
-    Low,
-    High,
-}
-
 /// A single entry in the allocation queue, representing a pending buffer request.
 pub struct PendingAllocation {
     /// Which cursor is requesting this buffer. `None` for upload requests
@@ -64,7 +53,8 @@ impl PendingAllocation {
 /// A priority-ordered allocation queue with two lanes: high and low.
 ///
 /// High-priority requests (active reads, uploads) are served before low-priority
-/// ones (speculative prefetch). Within each lane, requests are served FIFO.
+/// ones (speculative prefetch). Within each lane, requests are served FIFO. A low-priority
+/// request can be promoted to the back of the high lane via [`upgrade`](Self::upgrade).
 ///
 /// This queue does not allocate buffers or check available memory — it only manages
 /// ordering, signaling, and lifecycle. The pool drives the wake loop by calling
@@ -146,36 +136,44 @@ impl AllocationQueue {
         }
     }
 
-    /// Enqueue a high-priority buffer allocation request.
+    /// Enqueue a buffer allocation request for an upload. Uploads have no cursor and are always
+    /// urgent — a write syscall is blocked on the buffer — so they go straight to the high lane.
+    ///
     /// Returns a receiver that resolves to the allocated [PoolBuffer] when fulfilled,
     /// or `Err(Canceled)` if the sender is dropped.
-    pub fn push_high(
+    pub fn push_write(
         &self,
-        cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
         token: Option<CancellationToken>,
     ) -> oneshot::Receiver<PoolBuffer> {
-        self.push_inner(AllocationPriority::High, cursor_id, size, kind, token)
+        self.push_inner(|| true, None, size, kind, token)
     }
 
-    /// Enqueue a low-priority buffer allocation request.
-    /// Low-priority requests always have a cursor (speculative prefetch).
+    /// Enqueue a buffer allocation request for a read on `cursor_id`, in the lane reported by
+    /// `is_active`: high when the cursor has a FUSE read waiting on the buffer, low when the read
+    /// is speculative prefetch.
+    ///
+    /// `is_active` is evaluated *while the queue lock is held*, which is what makes the lane
+    /// decision race-free against a concurrent [`Self::upgrade`]: `set_active_read` marks the
+    /// cursor active before taking this lock to promote, so the lock totally orders the two paths.
+    ///
     /// Returns a receiver that resolves to the allocated [PoolBuffer] when fulfilled,
     /// or `Err(Canceled)` if the sender is dropped.
-    pub fn push_low(
+    pub fn push_read(
         &self,
         cursor_id: CursorId,
         size: usize,
         kind: BufferKind,
         token: Option<CancellationToken>,
+        is_active: impl FnOnce() -> bool,
     ) -> oneshot::Receiver<PoolBuffer> {
-        self.push_inner(AllocationPriority::Low, Some(cursor_id), size, kind, token)
+        self.push_inner(is_active, Some(cursor_id), size, kind, token)
     }
 
     fn push_inner(
         &self,
-        priority: AllocationPriority,
+        is_urgent: impl FnOnce() -> bool,
         cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
@@ -193,9 +191,12 @@ impl AllocationQueue {
 
         let mut inner = self.lock_tracked();
         self.has_pending.store(true, Ordering::SeqCst);
-        match priority {
-            AllocationPriority::High => inner.high.push_back(entry),
-            AllocationPriority::Low => inner.low.push_back(entry),
+        // `is_urgent` runs here, under the queue lock: that is what stops a concurrent `upgrade`
+        // scan from landing between the lane decision and the push. See [`Self::push_read`].
+        if is_urgent() {
+            inner.high.push_back(entry);
+        } else {
+            inner.low.push_back(entry);
         }
 
         receiver
@@ -355,19 +356,29 @@ mod tests {
         true
     }
 
+    /// Helper: enqueue a read for a cursor with an active read, so it lands in `high`.
+    fn push_high(queue: &AllocationQueue, cursor_id: CursorId, size: usize) -> oneshot::Receiver<PoolBuffer> {
+        queue.push_read(cursor_id, size, BufferKind::GetObject, None, || true)
+    }
+
+    /// Helper: enqueue a speculative read — a cursor with no active read, so it lands in `low`.
+    fn push_low(queue: &AllocationQueue, cursor_id: CursorId, size: usize) -> oneshot::Receiver<PoolBuffer> {
+        queue.push_read(cursor_id, size, BufferKind::GetObject, None, || false)
+    }
+
     #[test]
     fn test_push_sets_has_pending() {
         let queue = AllocationQueue::new();
         assert!(!queue.has_pending());
 
-        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
+        let _rx = push_high(&queue, CursorId::new_from_raw(1), 1024);
         assert!(queue.has_pending());
     }
 
     #[test]
     fn test_pop_front_if_fulfills_and_clears_pressure() {
         let queue = AllocationQueue::new();
-        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
+        let rx = push_high(&queue, CursorId::new_from_raw(1), 1024);
 
         let entry = queue.pop_front_if(always).unwrap();
         assert!(!queue.has_pending());
@@ -382,7 +393,7 @@ mod tests {
     #[test]
     fn test_pop_front_if_predicate_false_does_not_remove() {
         let queue = AllocationQueue::new();
-        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
+        let _rx = push_high(&queue, CursorId::new_from_raw(1), 1024);
 
         let result = queue.pop_front_if(|_pending| false);
         assert!(result.is_none());
@@ -393,19 +404,49 @@ mod tests {
     fn test_high_priority_served_before_low() {
         let queue = AllocationQueue::new();
 
-        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None);
-        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let _rx_low = push_low(&queue, CursorId::new_from_raw(1), 1024);
+        let _rx_high = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         let entry = queue.pop_front_if(always).unwrap();
         assert_eq!(entry.cursor_id, Some(CursorId::new_from_raw(2))); // high first
     }
 
     #[test]
+    fn test_push_read_with_active_read_goes_high() {
+        let queue = AllocationQueue::new();
+        let speculative = CursorId::new_from_raw(1);
+        let active = CursorId::new_from_raw(2);
+
+        let _rx_low = push_low(&queue, speculative, 1024);
+        let _rx_high = queue.push_read(active, 1024, BufferKind::GetObject, None, || true);
+
+        let entry = queue.pop_front_if(always).unwrap();
+        assert_eq!(entry.cursor_id, Some(active)); // active read first
+    }
+
+    #[test]
+    fn test_push_read_decides_lane_under_queue_lock() {
+        let queue = AllocationQueue::new();
+        let mut evaluated = false;
+
+        let _rx = queue.push_read(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None, || {
+            evaluated = true;
+            assert!(
+                queue.inner.try_lock().is_err(),
+                "active-read check must run while the queue lock is held",
+            );
+            false
+        });
+
+        assert!(evaluated, "active-read check must be evaluated");
+    }
+
+    #[test]
     fn test_fifo_within_same_priority() {
         let queue = AllocationQueue::new();
 
-        let _rx1 = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
-        let _rx2 = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let _rx1 = push_high(&queue, CursorId::new_from_raw(1), 1024);
+        let _rx2 = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         let first = queue.pop_front_if(always).unwrap();
         let second = queue.pop_front_if(always).unwrap();
@@ -419,8 +460,8 @@ mod tests {
         let cursor_a = CursorId::new_from_raw(1);
         let cursor_b = CursorId::new_from_raw(2);
 
-        let _rx_a = queue.push_low(cursor_a, 1024, BufferKind::GetObject, None);
-        let _rx_b = queue.push_low(cursor_b, 1024, BufferKind::GetObject, None);
+        let _rx_a = push_low(&queue, cursor_a, 1024);
+        let _rx_b = push_low(&queue, cursor_b, 1024);
 
         queue.upgrade(cursor_a);
 
@@ -434,9 +475,9 @@ mod tests {
         let cursor = CursorId::new_from_raw(1);
         let other = CursorId::new_from_raw(2);
 
-        let _rx1 = queue.push_low(cursor, 1024, BufferKind::GetObject, None);
-        let _rx2 = queue.push_low(cursor, 2048, BufferKind::GetObject, None);
-        let _rx_other = queue.push_low(other, 1024, BufferKind::GetObject, None);
+        let _rx1 = push_low(&queue, cursor, 1024);
+        let _rx2 = push_low(&queue, cursor, 2048);
+        let _rx_other = push_low(&queue, other, 1024);
 
         queue.upgrade(cursor);
 
@@ -455,8 +496,8 @@ mod tests {
         let cursor = CursorId::new_from_raw(1);
 
         // Upload (no cursor_id) in high queue, read in low queue
-        let _rx_upload = queue.push_high(None, 8192, BufferKind::PutObject, None);
-        let _rx_read = queue.push_low(cursor, 1024, BufferKind::GetObject, None);
+        let _rx_upload = queue.push_write(8192, BufferKind::PutObject, None);
+        let _rx_read = push_low(&queue, cursor, 1024);
 
         queue.upgrade(cursor);
 
@@ -472,13 +513,8 @@ mod tests {
     fn test_cancelled_large_entry_does_not_block_smaller_entry() {
         let queue = AllocationQueue::new();
 
-        let rx_large = queue.push_high(
-            Some(CursorId::new_from_raw(1)),
-            64 * 1024 * 1024,
-            BufferKind::GetObject,
-            None,
-        );
-        let _rx_small = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let rx_large = push_high(&queue, CursorId::new_from_raw(1), 64 * 1024 * 1024);
+        let _rx_small = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         drop(rx_large);
 
@@ -497,7 +533,7 @@ mod tests {
     #[test]
     fn test_cancelled_entry_pruned_on_pop() {
         let queue = AllocationQueue::new();
-        let rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
+        let rx = push_high(&queue, CursorId::new_from_raw(1), 1024);
         drop(rx);
 
         let entry = queue.pop_front_if(always);
@@ -509,11 +545,12 @@ mod tests {
     fn test_cancelled_token_entry_pruned_on_pop() {
         let queue = AllocationQueue::new();
         // Hold the receiver alive: only the token marks the entry abandoned.
-        let _rx = queue.push_high(
-            Some(CursorId::new_from_raw(1)),
+        let _rx = queue.push_read(
+            CursorId::new_from_raw(1),
             1024,
             BufferKind::GetObject,
             Some(cancelled_token()),
+            || true,
         );
 
         let entry = queue.pop_front_if(always);
@@ -524,11 +561,12 @@ mod tests {
     #[test]
     fn test_uncancelled_token_entry_not_pruned() {
         let queue = AllocationQueue::new();
-        let _rx = queue.push_high(
-            Some(CursorId::new_from_raw(7)),
+        let _rx = queue.push_read(
+            CursorId::new_from_raw(7),
             1024,
             BufferKind::GetObject,
             Some(CancellationToken::never_cancelled()),
+            || true,
         );
 
         let entry = queue.pop_front_if(always).expect("live entry must remain servable");
@@ -538,13 +576,14 @@ mod tests {
     #[test]
     fn test_cancelled_token_entry_does_not_block_live_entry() {
         let queue = AllocationQueue::new();
-        let _rx_dead = queue.push_high(
-            Some(CursorId::new_from_raw(1)),
+        let _rx_dead = queue.push_read(
+            CursorId::new_from_raw(1),
             64 * 1024 * 1024,
             BufferKind::GetObject,
             Some(cancelled_token()),
+            || true,
         );
-        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let _rx_live = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         let entry = queue.pop_front_if(always).expect("live entry should be served");
         assert_eq!(entry.cursor_id, Some(CursorId::new_from_raw(2)));
@@ -560,9 +599,9 @@ mod tests {
     fn test_head_queued_at_returns_oldest_high_priority_first() {
         let queue = AllocationQueue::new();
         // Push low first, then high. `head_queued_at` should report the high entry.
-        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None);
+        let _rx_low = push_low(&queue, CursorId::new_from_raw(1), 1024);
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let _rx_high = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let _rx_high = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         let head = queue.head_queued_at().expect("queue not empty");
         // The high entry was pushed last, so its elapsed time is shorter.
@@ -575,9 +614,9 @@ mod tests {
     #[test]
     fn test_head_queued_at_skips_cancelled_entries() {
         let queue = AllocationQueue::new();
-        let rx_old = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, None);
+        let rx_old = push_high(&queue, CursorId::new_from_raw(1), 1024);
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let _rx_live = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         drop(rx_old); // cancels the older entry without removing it
 
@@ -592,14 +631,15 @@ mod tests {
     fn test_head_queued_at_skips_cancelled_token_entries() {
         let queue = AllocationQueue::new();
         // The older entry's token reports cancelled (receiver still held); the newer one is live.
-        let _rx_dead = queue.push_high(
-            Some(CursorId::new_from_raw(1)),
+        let _rx_dead = queue.push_read(
+            CursorId::new_from_raw(1),
             1024,
             BufferKind::GetObject,
             Some(cancelled_token()),
+            || true,
         );
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
+        let _rx_live = push_high(&queue, CursorId::new_from_raw(2), 1024);
 
         let head = queue.head_queued_at().expect("live entry remains");
         assert!(
@@ -611,7 +651,7 @@ mod tests {
     #[test]
     fn test_head_queued_at_falls_back_to_low_when_high_empty() {
         let queue = AllocationQueue::new();
-        let _rx_low = queue.push_low(CursorId::new_from_raw(1), 1024, BufferKind::GetObject, None);
+        let _rx_low = push_low(&queue, CursorId::new_from_raw(1), 1024);
 
         let head = queue.head_queued_at().expect("low queue not empty");
         assert!(head.elapsed() < std::time::Duration::from_secs(1));

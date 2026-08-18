@@ -303,26 +303,12 @@ impl PagedPoolInner {
             return Ok(buffer);
         }
 
-        // Determine priority: a cursor with an active FUSE read is High (urgent),
-        // speculative prefetch (cursor with no active read) is Low.
-        // Uploads (no cursor) are always High — a write syscall is blocked.
-        // NOTE: We check if the cursor has an active read, not if this allocation serves it.
         let queued = token.clone();
         let rx = match cursor_id {
-            Some(id) if self.limiter.has_active_read(id) => {
-                self.allocation_queue.push_high(cursor_id, size, kind, queued)
-            }
-            Some(id) => {
-                let rx = self.allocation_queue.push_low(id, size, kind, queued);
-                // Re-check now that the entry is queued: `set_active_read` flips the cursor to
-                // `Active` before scanning the low queue, so an interleaving between the guard
-                // above and this push would strand the entry in `low` with nobody to promote it.
-                if self.limiter.has_active_read(id) {
-                    self.allocation_queue.upgrade(id);
-                }
-                rx
-            }
-            None => self.allocation_queue.push_high(None, size, kind, queued), // uploads are urgent
+            Some(id) => self
+                .allocation_queue
+                .push_read(id, size, kind, queued, || self.limiter.has_active_read(id)),
+            None => self.allocation_queue.push_write(size, kind, queued),
         };
         // After pushing, try to wake immediately in case memory freed between the fast-path
         // check above and the push (avoids the race where a buffer drop called trigger_process_pending
@@ -961,15 +947,15 @@ mod tests {
             }
 
             // Push both requests directly to the queue so ordering is deterministic.
-            // Low priority first (speculative read), then high priority (upload).
-            let low_rx =
-                pool.inner
-                    .allocation_queue
-                    .push_low(CursorId::new_from_raw(1), BUF, BufferKind::GetObject, None);
-            let high_rx = pool
-                .inner
-                .allocation_queue
-                .push_high(None, BUF, BufferKind::PutObject, None);
+            // Low priority first (speculative read, hence no active read), then high priority (upload).
+            let low_rx = pool.inner.allocation_queue.push_read(
+                CursorId::new_from_raw(1),
+                BUF,
+                BufferKind::GetObject,
+                None,
+                || false,
+            );
+            let high_rx = pool.inner.allocation_queue.push_write(BUF, BufferKind::PutObject, None);
 
             // Receive via threads + mpsc channels so we can use recv_timeout.
             let (low_tx, low_mpsc) = std::sync::mpsc::channel();
