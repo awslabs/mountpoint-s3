@@ -175,12 +175,10 @@ pub fn effective_total_memory() -> u64 {
     sys.refresh_processes_specifics(
         sysinfo::ProcessesToUpdate::Some(&[pid]),
         false, // don't remove dead processes
-        sysinfo::ProcessRefreshKind::nothing()
+        sysinfo::ProcessRefreshKind::nothing(),
     );
-    if let Some(process) = sys.process(pid) {
-        if let Some(cg) = process.cgroup_limits() {
-            return cg.total_memory;
-        }
+    if let Some(cg) = sys.process(pid).and_then(|p| p.cgroup_limits()) {
+        return cg.total_memory;
     }
 
     // Fallback to total system memory
@@ -224,7 +222,7 @@ mod tests {
         sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::Some(&[pid]),
             false,
-            sysinfo::ProcessRefreshKind::nothing()
+            sysinfo::ProcessRefreshKind::nothing(),
         );
         if sys.process(pid).and_then(|p| p.cgroup_limits()).is_some() {
             // A cgroup limit is active on this machine — the fallback path

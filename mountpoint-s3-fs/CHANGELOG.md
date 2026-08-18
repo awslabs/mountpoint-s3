@@ -1,5 +1,6 @@
 ## Unreleased (v0.10.1)
 
+* Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))
 * Update EC2 instance network throughput table. ([#1895](https://github.com/awslabs/mountpoint-s3/pull/1895))
 
