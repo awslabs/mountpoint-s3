@@ -22,6 +22,15 @@ use mountpoint_s3_fs::Runtime;
 use mountpoint_s3_fs::memory::PagedPool;
 use mountpoint_s3_fs::s3::config::{ClientConfig, TargetThroughputSetting};
 use mountpoint_s3_fs::s3::{S3Path, S3Personality};
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+// Keep in sync with the `mount-s3` binary's jemalloc config, see `mountpoint-s3/src/main.rs`.
+#[allow(non_upper_case_globals)]
+#[unsafe(export_name = "_rjem_malloc_conf")]
+pub static malloc_conf: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
 
 fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
