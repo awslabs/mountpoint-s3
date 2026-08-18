@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use mountpoint_s3_client::config::{LivenessFn, MemoryPool, MetaRequest};
+use mountpoint_s3_client::config::{Cancellation, CancellationToken, MemoryPool, MetaRequest};
 
 /// Creates a memory pool to use in tests.
 #[cfg(feature = "pool_tests")]
@@ -21,9 +21,9 @@ impl MemoryPool for NoReusePool {
         &self,
         size: usize,
         _meta_request: &MetaRequest,
-        _is_alive: LivenessFn,
-    ) -> Option<Self::Buffer> {
-        Some(vec![0u8; size].into_boxed_slice())
+        _token: CancellationToken,
+    ) -> Result<Self::Buffer, Cancellation> {
+        Ok(vec![0u8; size].into_boxed_slice())
     }
 
     fn trim(&self) -> bool {
@@ -50,10 +50,10 @@ impl MemoryPool for RecordingMemoryPool {
         &self,
         size: usize,
         meta_request: &MetaRequest,
-        _is_alive: LivenessFn,
-    ) -> Option<Self::Buffer> {
+        _token: CancellationToken,
+    ) -> Result<Self::Buffer, Cancellation> {
         self.observed_custom_ids.lock().unwrap().push(meta_request.custom_id());
-        Some(vec![0u8; size].into_boxed_slice())
+        Ok(vec![0u8; size].into_boxed_slice())
     }
 
     fn trim(&self) -> bool {

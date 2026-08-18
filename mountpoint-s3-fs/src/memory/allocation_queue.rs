@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
 use futures::channel::oneshot;
-use mountpoint_s3_client::config::LivenessFn;
+use mountpoint_s3_client::config::CancellationToken;
 use tracing::trace;
 
 use crate::metrics::defs::{POOL_ALLOCATION_QUEUE_DEPTH, POOL_ALLOCATION_QUEUE_WAIT};
@@ -42,9 +42,9 @@ pub struct PendingAllocation {
     /// Channel sender used to deliver the allocated [PoolBuffer] to the waiter.
     /// When dropped, the receiver resolves with `Err(Canceled)`.
     sender: oneshot::Sender<PoolBuffer>,
-    /// Optional predicate that reports `false` once the buffer is no longer needed — for
+    /// Optional token that reports cancellation once the buffer is no longer needed — for
     /// example, when the CRT cancels the meta request this reservation was serving.
-    is_alive: Option<LivenessFn>,
+    token: Option<CancellationToken>,
 }
 
 impl PendingAllocation {
@@ -57,7 +57,7 @@ impl PendingAllocation {
     /// Returns `true` if the queue should drop this request because it no longer wants its
     /// buffer.
     fn is_abandoned(&self) -> bool {
-        self.sender.is_canceled() || self.is_alive.as_ref().is_some_and(|alive| !alive())
+        self.sender.is_canceled() || self.token.as_ref().is_some_and(|token| token.is_cancelled())
     }
 }
 
@@ -154,9 +154,9 @@ impl AllocationQueue {
         cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
-        is_alive: Option<LivenessFn>,
+        token: Option<CancellationToken>,
     ) -> oneshot::Receiver<PoolBuffer> {
-        self.push_inner(AllocationPriority::High, cursor_id, size, kind, is_alive)
+        self.push_inner(AllocationPriority::High, cursor_id, size, kind, token)
     }
 
     /// Enqueue a low-priority buffer allocation request.
@@ -168,9 +168,9 @@ impl AllocationQueue {
         cursor_id: CursorId,
         size: usize,
         kind: BufferKind,
-        is_alive: Option<LivenessFn>,
+        token: Option<CancellationToken>,
     ) -> oneshot::Receiver<PoolBuffer> {
-        self.push_inner(AllocationPriority::Low, Some(cursor_id), size, kind, is_alive)
+        self.push_inner(AllocationPriority::Low, Some(cursor_id), size, kind, token)
     }
 
     fn push_inner(
@@ -179,7 +179,7 @@ impl AllocationQueue {
         cursor_id: Option<CursorId>,
         size: usize,
         kind: BufferKind,
-        is_alive: Option<LivenessFn>,
+        token: Option<CancellationToken>,
     ) -> oneshot::Receiver<PoolBuffer> {
         let (sender, receiver) = oneshot::channel();
         let entry = PendingAllocation {
@@ -188,7 +188,7 @@ impl AllocationQueue {
             kind,
             queued_at: Instant::now(),
             sender,
-            is_alive,
+            token,
         };
 
         let mut inner = self.lock_tracked();
@@ -341,6 +341,13 @@ mod tests {
         let page = Page::new_for_tests(size);
         let ptr = page.try_acquire(BufferKind::Other).unwrap();
         PoolBuffer::new_primary(ptr, size)
+    }
+
+    /// A token that already reports cancellation, standing in for a reservation the CRT
+    /// cancelled while it was queued. Uses `std` atomics explicitly: the token is a
+    /// `mountpoint-s3-client` type, so it is not built on Shuttle's instrumented primitives.
+    fn cancelled_token() -> CancellationToken {
+        CancellationToken::from_flag(Arc::new(std::sync::atomic::AtomicBool::new(true)))
     }
 
     /// Helper: always-true predicate (unconditionally pop).
@@ -499,26 +506,29 @@ mod tests {
     }
 
     #[test]
-    fn test_dead_liveness_entry_pruned_on_pop() {
+    fn test_cancelled_token_entry_pruned_on_pop() {
         let queue = AllocationQueue::new();
-        let dead: LivenessFn = Arc::new(|| false);
-        // Hold the receiver alive: only the liveness fn marks it dead.
-        let _rx = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, Some(dead));
+        // Hold the receiver alive: only the token marks the entry abandoned.
+        let _rx = queue.push_high(
+            Some(CursorId::new_from_raw(1)),
+            1024,
+            BufferKind::GetObject,
+            Some(cancelled_token()),
+        );
 
         let entry = queue.pop_front_if(always);
-        assert!(entry.is_none(), "dead-via-liveness entry must be pruned");
+        assert!(entry.is_none(), "entry with a cancelled token must be pruned");
         assert!(!queue.has_pending());
     }
 
     #[test]
-    fn test_live_liveness_entry_not_pruned() {
+    fn test_uncancelled_token_entry_not_pruned() {
         let queue = AllocationQueue::new();
-        let alive: LivenessFn = Arc::new(|| true);
         let _rx = queue.push_high(
             Some(CursorId::new_from_raw(7)),
             1024,
             BufferKind::GetObject,
-            Some(alive),
+            Some(CancellationToken::never_cancelled()),
         );
 
         let entry = queue.pop_front_if(always).expect("live entry must remain servable");
@@ -526,14 +536,13 @@ mod tests {
     }
 
     #[test]
-    fn test_dead_liveness_entry_does_not_block_live_entry() {
+    fn test_cancelled_token_entry_does_not_block_live_entry() {
         let queue = AllocationQueue::new();
-        let dead: LivenessFn = Arc::new(|| false);
         let _rx_dead = queue.push_high(
             Some(CursorId::new_from_raw(1)),
             64 * 1024 * 1024,
             BufferKind::GetObject,
-            Some(dead),
+            Some(cancelled_token()),
         );
         let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
@@ -580,18 +589,22 @@ mod tests {
     }
 
     #[test]
-    fn test_head_queued_at_skips_dead_liveness_entries() {
+    fn test_head_queued_at_skips_cancelled_token_entries() {
         let queue = AllocationQueue::new();
-        let dead: LivenessFn = Arc::new(|| false);
-        // Older entry is dead-via-liveness (receiver still held); newer entry is live.
-        let _rx_dead = queue.push_high(Some(CursorId::new_from_raw(1)), 1024, BufferKind::GetObject, Some(dead));
+        // The older entry's token reports cancelled (receiver still held); the newer one is live.
+        let _rx_dead = queue.push_high(
+            Some(CursorId::new_from_raw(1)),
+            1024,
+            BufferKind::GetObject,
+            Some(cancelled_token()),
+        );
         std::thread::sleep(std::time::Duration::from_millis(2));
         let _rx_live = queue.push_high(Some(CursorId::new_from_raw(2)), 1024, BufferKind::GetObject, None);
 
         let head = queue.head_queued_at().expect("live entry remains");
         assert!(
             head.elapsed() < std::time::Duration::from_millis(2),
-            "head_queued_at should skip dead-via-liveness entries to the next live one",
+            "head_queued_at should skip entries with a cancelled token to the next live one",
         );
     }
 

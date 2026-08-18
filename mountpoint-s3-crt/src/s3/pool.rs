@@ -4,6 +4,7 @@ use std::future::Future;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fmt::Debug, ptr::NonNull};
 
 use mountpoint_s3_crt_sys::{
@@ -21,14 +22,58 @@ use crate::io::event_loop::EventLoopGroup;
 use crate::io::futures::FutureSpawner;
 use crate::s3::client::MetaRequest;
 
-/// Predicate reporting whether a buffer reservation is still wanted.
+/// A buffer reservation was cancelled and its buffer is no longer wanted.
 ///
-/// Returns `true` while the reservation is still needed, and `false` once the CRT has
-/// cancelled it (the underlying buffer-ticket future has been errored out — see
+/// Returned by [MemoryPool::get_buffer_async] when the pool abandons a reservation rather than
+/// allocating a buffer that would be freed immediately. See [CancellationToken].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("buffer reservation was cancelled")]
+pub struct Cancellation;
+
+/// Reports whether a buffer reservation is still wanted.
+///
+/// A reservation is cancelled once the CRT errors out its buffer-ticket future, which it does
+/// when cancelling the meta request the reservation belongs to (see
 /// `aws_s3_meta_request_cancel_pending_buffer_futures`). A [MemoryPool] that defers a
-/// reservation under memory pressure can poll this to abandon a reservation that was
+/// reservation under memory pressure can poll this token to abandon a reservation that was
 /// cancelled while queued, avoiding a wasteful allocation that would be freed immediately.
-pub type LivenessFn = Arc<dyn Fn() -> bool + Send + Sync>;
+#[derive(Debug, Clone)]
+pub struct CancellationToken(TokenSource);
+
+#[derive(Debug, Clone)]
+enum TokenSource {
+    /// Backed by the reservation's ticket future: cancelled once the CRT errors it out.
+    Ticket(CrtTicketFuture),
+    /// Backed by a plain flag: cancelled once the flag is set. Only ever built by the
+    /// test-only constructors below, never by the CRT bridge.
+    Flag(Arc<AtomicBool>),
+}
+
+impl CancellationToken {
+    /// A token that never reports cancellation. For tests only.
+    pub fn never_cancelled() -> Self {
+        Self(TokenSource::Flag(Arc::new(AtomicBool::new(false))))
+    }
+
+    /// A token that reports cancellation once `flag` is set to `true`. For tests only.
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self(TokenSource::Flag(flag))
+    }
+
+    /// A token backed by a reservation's CRT ticket future.
+    fn for_ticket(future: CrtTicketFuture) -> Self {
+        Self(TokenSource::Ticket(future))
+    }
+
+    /// Returns `true` once this reservation has been cancelled, meaning its buffer is no
+    /// longer wanted.
+    pub fn is_cancelled(&self) -> bool {
+        match &self.0 {
+            TokenSource::Ticket(future) => future.is_errored(),
+            TokenSource::Flag(flag) => flag.load(Ordering::SeqCst),
+        }
+    }
+}
 
 /// A custom memory pool.
 ///
@@ -39,19 +84,19 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     type Buffer: AsMut<[u8]> + Send;
 
     /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
-    /// Returns a future that resolves to the buffer, or to `None` if the reservation was
-    /// abandoned because the CRT cancelled it while it was queued (see [LivenessFn]).
+    /// Returns a future that resolves to the buffer, or to [Cancellation] if the reservation
+    /// was abandoned because the CRT cancelled it while it was queued.
     ///
     /// Implementations must always eventually resolve. If memory is not immediately
     /// available, the implementation should block/await until it is — not panic or
-    /// deadlock. While waiting, the implementation may poll `is_alive` and resolve to
-    /// `None` once it reports the reservation is no longer wanted.
+    /// deadlock. While waiting, the implementation may poll `token` and resolve to
+    /// `Err(Cancellation)` once it reports the reservation is no longer wanted.
     fn get_buffer_async(
         &self,
         size: usize,
         meta_request: &MetaRequest,
-        is_alive: LivenessFn,
-    ) -> impl Future<Output = Option<Self::Buffer>> + Send;
+        token: CancellationToken,
+    ) -> impl Future<Output = Result<Self::Buffer, Cancellation>> + Send;
 
     /// Trim the pool.
     ///
@@ -334,19 +379,18 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         let ticket_vtable = self.ticket_vtable;
         let pool = self.pool.clone();
         let future_clone = future.clone();
-        // Liveness predicate for the pool: the reservation is alive until the CRT errors
+        // Cancellation token for the pool: the reservation is wanted until the CRT errors
         // this ticket future, which it does when cancelling the meta request (see
         // `aws_s3_meta_request_cancel_pending_buffer_futures`).
-        let liveness_future = future.clone();
-        let is_alive: LivenessFn = Arc::new(move || !liveness_future.is_errored());
+        let token = CancellationToken::for_ticket(future.clone());
         // Dropping the handle is intentional: the acquisition runs to completion on the
         // event loop and delivers its result out-of-band via `future_clone.set`.
         let _handle = self.event_loop_group.spawn_future(async move {
-            match pool.get_buffer_async(size, &meta_request, is_alive).await {
-                Some(buffer) => future_clone.set(CrtTicket::new(buffer, ticket_vtable)),
-                None => {
+            match pool.get_buffer_async(size, &meta_request, token).await {
+                Ok(buffer) => future_clone.set(CrtTicket::new(buffer, ticket_vtable)),
+                Err(Cancellation) => {
                     // The pool only declines a reservation after the CRT has errored this ticket
-                    // future — that is exactly what flips `is_alive` to `false` (see
+                    // future — that is exactly what makes the token report cancelled (see
                     // `aws_s3_meta_request_cancel_pending_buffer_futures`) — so it is already errored.
                     debug_assert!(
                         future_clone.is_errored(),
@@ -494,18 +538,17 @@ mod tests {
     use crate::s3::s3_library_init;
 
     #[test]
-    fn test_ticket_future_liveness_flips_on_error() {
+    fn test_ticket_token_reports_cancelled_on_error() {
         let allocator = Allocator::default();
         s3_library_init(&allocator);
 
         let future = CrtTicketFuture::new(&allocator);
         // Mirror exactly what `reserve()` builds for `get_buffer_async`.
-        let liveness_future = future.clone();
-        let is_alive: LivenessFn = Arc::new(move || !liveness_future.is_errored());
+        let token = CancellationToken::for_ticket(future.clone());
 
-        // A fresh reservation is not yet done, so it is alive.
+        // A fresh reservation is not yet done, so it is not cancelled.
         assert!(!future.is_errored(), "fresh future must not be errored");
-        assert!(is_alive(), "fresh reservation must report alive");
+        assert!(!token.is_cancelled(), "fresh reservation must not report cancelled");
 
         // Simulate the CRT cancelling the reservation.
         // SAFETY: `future.inner` is a valid `aws_future_s3_buffer_ticket`.
@@ -514,7 +557,7 @@ mod tests {
         }
 
         assert!(future.is_errored(), "errored future must report errored");
-        assert!(!is_alive(), "cancelled reservation must report dead");
+        assert!(token.is_cancelled(), "cancelled reservation must report cancelled");
     }
 }
 

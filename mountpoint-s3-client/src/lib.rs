@@ -85,7 +85,9 @@ pub mod config {
     pub use mountpoint_s3_crt::s3::s3_library_init;
 
     pub use mountpoint_s3_crt::s3::client::{MetaRequest, MetaRequestType};
-    pub use mountpoint_s3_crt::s3::pool::{LivenessFn, MemoryPool, MemoryPoolFactory, MemoryPoolFactoryOptions};
+    pub use mountpoint_s3_crt::s3::pool::{
+        Cancellation, CancellationToken, MemoryPool, MemoryPoolFactory, MemoryPoolFactoryOptions,
+    };
 }
 
 /// Types used by all object clients

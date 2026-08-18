@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mountpoint_s3_client::config::{LivenessFn, MemoryPool, MetaRequest};
+use mountpoint_s3_client::config::{Cancellation, CancellationToken, MemoryPool, MetaRequest};
 
 use crate::prefetch::CursorId;
 use crate::sync::thread::{self, JoinHandle};
@@ -121,7 +121,7 @@ impl PagedPool {
             .inner
             .get_buffer_async(capacity, kind, cursor_id, None)
             .await
-            .expect("get_buffer_async without a liveness predicate always returns a buffer");
+            .expect("get_buffer_async without a cancellation token always returns a buffer");
         PoolBufferMut::new(buffer)
     }
 
@@ -210,11 +210,11 @@ impl MemoryPool for PagedPool {
         &self,
         size: usize,
         meta_request: &MetaRequest,
-        is_alive: LivenessFn,
-    ) -> Option<Self::Buffer> {
+        token: CancellationToken,
+    ) -> Result<Self::Buffer, Cancellation> {
         let kind = meta_request.meta_request_type().into();
         let cursor_id = meta_request.custom_id().map(CursorId::new_from_raw);
-        self.inner.get_buffer_async(size, kind, cursor_id, Some(is_alive)).await
+        self.inner.get_buffer_async(size, kind, cursor_id, Some(token)).await
     }
 
     fn trim(&self) -> bool {
@@ -285,29 +285,29 @@ impl PagedPoolInner {
     /// - cursor without an active read (speculative prefetch) → low priority
     /// - no cursor (upload) → high priority (write syscall is blocked)
     ///
-    /// `is_alive` is an optional liveness predicate. When the
-    /// reservation is cancelled while queued, the queue prunes it and this method resolves to
-    /// `None` — so no buffer is allocated for a request that no longer wants it. Callers that
-    /// pass `None` (disk cache, incremental upload) always receive `Some`.
+    /// `token` is an optional cancellation token. When the reservation is cancelled while
+    /// queued, the queue prunes it and this method resolves to `Err(Cancellation)` — so no
+    /// buffer is allocated for a request that no longer wants it. Callers that pass `None`
+    /// (disk cache, incremental upload) always receive `Ok`.
     async fn get_buffer_async(
         &self,
         size: usize,
         kind: BufferKind,
         cursor_id: Option<CursorId>,
-        is_alive: Option<LivenessFn>,
-    ) -> Option<PoolBuffer> {
+        token: Option<CancellationToken>,
+    ) -> Result<PoolBuffer, Cancellation> {
         // Fast path: if the queue is empty, try to acquire immediately.
         if !self.allocation_queue.has_pending()
             && let Some(buffer) = self.try_get_buffer(size, kind, cursor_id, false)
         {
-            return Some(buffer);
+            return Ok(buffer);
         }
 
         // Determine priority: a cursor with an active FUSE read is High (urgent),
         // speculative prefetch (cursor with no active read) is Low.
         // Uploads (no cursor) are always High — a write syscall is blocked.
         // NOTE: We check if the cursor has an active read, not if this allocation serves it.
-        let queued = is_alive.clone();
+        let queued = token.clone();
         let rx = match cursor_id {
             Some(id) if self.limiter.has_active_read(id) => {
                 self.allocation_queue.push_high(cursor_id, size, kind, queued)
@@ -324,17 +324,16 @@ impl PagedPoolInner {
         self.limiter.trigger_pruning();
 
         match rx.await {
-            Ok(buffer) => Some(buffer),
+            Ok(buffer) => Ok(buffer),
             // Reservation cancelled while queued: abandon it so the CRT bridge leaves its
             // already-errored ticket future untouched, avoiding a wasted allocation.
-            Err(_) if is_alive.is_some_and(|alive| !alive()) => None,
+            Err(_) if token.is_some_and(|token| token.is_cancelled()) => Err(Cancellation),
             // Unreachable: `rx` only errors if its `Sender` is dropped, but a parked caller keeps
-            // the pool (and its queue) alive, and the abandoned case is handled above. Force-allocate
-            // defensively so `None`-liveness callers never observe `None`.
-            Err(_) => Some(
-                self.try_get_buffer(size, kind, cursor_id, true)
-                    .expect("forced allocations cannot fail"),
-            ),
+            // the pool (and its queue) alive, and the cancelled case is handled above. Force-allocate
+            // defensively so callers without a token never observe `Err`.
+            Err(_) => Ok(self
+                .try_get_buffer(size, kind, cursor_id, true)
+                .expect("forced allocations cannot fail")),
         }
     }
 
@@ -1075,7 +1074,7 @@ mod tests {
                                 let waker = futures::task::noop_waker();
                                 let mut cx = std::task::Context::from_waker(&waker);
                                 match std::future::Future::poll(fut.as_mut(), &mut cx) {
-                                    // Without a liveness predicate the fast path never resolves to `None`.
+                                    // Without a cancellation token the fast path never resolves to `Err`.
                                     std::task::Poll::Ready(buffer) => Some(buffer.expect("fast path returns a buffer")),
                                     std::task::Poll::Pending => None,
                                 }
@@ -1116,18 +1115,17 @@ mod tests {
                 blockers.push(buffer);
             }
 
-            // Request A: queues with a liveness predicate we later flip to "dead" (simulating
-            // the CRT erroring the reservation's ticket future after a cancel).
-            let alive = Arc::new(AtomicBool::new(true));
-            let alive_for_fn = alive.clone();
-            let liveness: LivenessFn = Arc::new(move || alive_for_fn.load(Ordering::SeqCst));
+            // Request A: queues with a cancellation token we later cancel (simulating the CRT
+            // erroring the reservation's ticket future after a cancel).
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let token = CancellationToken::from_flag(cancelled.clone());
             let (a_tx, a_rx) = std::sync::mpsc::channel();
             let pool_a = pool.clone();
             std::thread::spawn(move || {
                 let result = block_on(
                     pool_a
                         .inner
-                        .get_buffer_async(BUF, BufferKind::GetObject, None, Some(liveness)),
+                        .get_buffer_async(BUF, BufferKind::GetObject, None, Some(token)),
                 );
                 let _ = a_tx.send(result);
             });
@@ -1140,7 +1138,7 @@ mod tests {
             }
             assert!(pool.inner.is_memory_pressure(), "request A should be queued");
 
-            // Request B: queues behind A, no liveness predicate (always wants its buffer).
+            // Request B: queues behind A, no cancellation token (always wants its buffer).
             let (b_tx, b_rx) = std::sync::mpsc::channel();
             let pool_b = pool.clone();
             std::thread::spawn(move || {
@@ -1151,14 +1149,18 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
 
             // Cancel A, then free exactly one buffer. A is pruned without allocating (resolves
-            // to None); the single freed buffer is delivered to the live waiter B.
-            alive.store(false, Ordering::SeqCst);
+            // to `Err(Cancellation)`); the single freed buffer is delivered to the live waiter B.
+            cancelled.store(true, Ordering::SeqCst);
             blockers.pop();
 
             let a_result = a_rx
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("A timed out");
-            assert!(a_result.is_none(), "cancelled reservation must be abandoned (None)");
+            assert_eq!(
+                a_result.err(),
+                Some(Cancellation),
+                "cancelled reservation must be abandoned",
+            );
 
             let b_result = b_rx
                 .recv_timeout(std::time::Duration::from_secs(5))
