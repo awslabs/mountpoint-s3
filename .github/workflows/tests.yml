@@ -432,6 +432,27 @@ jobs:
       env:
         TEST_CGROUP_MEM_LIMIT_MB: "2048"
       run: cargo test -p mountpoint-s3-fs --lib mem_limiter::tests::test_effective_total_memory_respects_cgroup
+    - name: Test nested cgroup limit detection (inherited limits)
+      run: |
+        set -e
+        # Create parent cgroup with 2GB limit
+        mkdir -p /sys/fs/cgroup/mp-test-parent
+        echo '+memory' > /sys/fs/cgroup/mp-test-parent/cgroup.subtree_control
+        echo $((2 * 1024 * 1024 * 1024)) > /sys/fs/cgroup/mp-test-parent/memory.max
+
+        # Create child cgroup that inherits the limit
+        mkdir -p /sys/fs/cgroup/mp-test-parent/mp-test-child
+        echo 'max' > /sys/fs/cgroup/mp-test-parent/mp-test-child/memory.max
+
+        # Run test in child cgroup
+        bash -c "
+          echo \$\$ > /sys/fs/cgroup/mp-test-parent/mp-test-child/cgroup.procs
+          TEST_CGROUP_MEM_LIMIT_MB=2048 cargo test -p mountpoint-s3-fs --lib mem_limiter::tests::test_effective_total_memory_respects_cgroup
+        "
+
+        # Cleanup
+        rmdir /sys/fs/cgroup/mp-test-parent/mp-test-child || true
+        rmdir /sys/fs/cgroup/mp-test-parent || true
 
   workflow-complete:
     name: "Tests Workflow Complete"
