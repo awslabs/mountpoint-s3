@@ -14,8 +14,8 @@ use super::pool::PagedPoolInner;
 /// Outcome of a single pruning round. Used for metrics and tracing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PruningOutcome {
-    /// Nothing to prune (queue empty). Pressure is defined as
-    /// "queue non-empty", so an empty queue means pressure has already cleared.
+    /// No live demand this round, so the drain loop parks. Either the queue is empty, or it
+    /// holds only abandoned waiters — either way there is nothing to serve and no reason to reclaim.
     Idle,
     /// In-flight uploads or active reads will release buffers naturally; wait.
     WaitingForRelease,
@@ -58,8 +58,9 @@ pub fn spawn_pool_maintenance_thread(
 /// 1. **Idle wait**: `wait_timeout(idle_interval)`. Returns early on `notify`,
 ///    or after the idle interval elapses, whichever first.
 /// 2. **Drain rounds**: run [`run_pruning_round`] in a loop. If the round
-///    returns [`PruningOutcome::Idle`] (no pressure), break. Otherwise sleep
-///    [`PRUNING_TICK`] and run another round.
+///    returns [`PruningOutcome::Idle`] (no live demand — queue empty or only
+///    abandoned waiters), break and park. Otherwise sleep [`PRUNING_TICK`] and
+///    run another round.
 ///
 /// When there is no pressure, the drain loop exits immediately after one
 /// round (which still does the cheap pool trim), so the periodic trim is
@@ -96,11 +97,14 @@ fn maintenance_loop(pool_inner: Weak<PagedPoolInner>, signal: Arc<WakeSignal>, i
 ///      allocator. Does NOT directly progress the allocation queue.
 ///   2. If the queue is empty, return [`PruningOutcome::Idle`] so the loop
 ///      exits its inner tick and goes back to parking.
-///   3. If uploads are in flight or active reads hold buffers, let the
+///   3. If the queue is non-empty but has no *live* waiter (every entry abandoned, e.g. a
+///      CRT-cancelled reservation not yet pruned), also return [`PruningOutcome::Idle`]:
+///      there is nothing to serve, so don't evict an idle cursor for a phantom.
+///   4. If uploads are in flight or active reads hold buffers, let the
 ///      natural release path do the work — unless the head of the queue
 ///      has been waiting beyond [`PRUNING_STARVATION_THRESHOLD`].
-///   4. Otherwise reset one idle cursor.
-///   5. If no idle cursor was available and a waiter is starving, clear one active cursor's
+///   5. Otherwise reset one idle cursor.
+///   6. If no idle cursor was available and a waiter is starving, clear one active cursor's
 ///      backward seek window.
 fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Duration) -> PruningOutcome {
     // 1. Pool trim — idempotent and harmless. Empty pages may now be reusable
@@ -114,27 +118,37 @@ fn run_pruning_round(pool_inner: &Arc<PagedPoolInner>, starvation_threshold: Dur
         return PruningOutcome::Idle;
     }
 
-    let starving = pool_inner.head_waited().is_some_and(|d| d >= starvation_threshold);
+    // 3. The queue is non-empty, but `is_memory_pressure()` counts abandoned entries too.
+    //    `head_waited()` reports the wait of the next *live* waiter, skipping reservations
+    //    cancelled while queued (a CRT meta request cancel errors the ticket future without
+    //    calling back into the pool, so its entry lingers until the release path prunes it).
+    //    With no live waiter there is nothing to serve, so park (Idle) rather than evict a
+    //    healthy idle cursor for a phantom — a real waiter re-arms us via `trigger_pruning`.
+    let Some(head_waited) = pool_inner.head_waited() else {
+        trace!("all queued waiters abandoned; parking without reclaim");
+        return PruningOutcome::Idle;
+    };
+    let starving = head_waited >= starvation_threshold;
 
     // Snapshot the live cursors once and make every decision below against it,
     // rather than re-scanning the cursor `DashMap` in each check.
     let limiter = pool_inner.limiter();
     let cursors = limiter.live_cursors();
 
-    // 3. Natural release path: in-flight uploads or active reads will free
+    // 4. Natural release path: in-flight uploads or active reads will free
     //    buffers without our help — defer to that path.
     let in_flight = has_uploads_in_flight(pool_inner) || has_active_reads(&cursors);
     if in_flight && !starving {
         return PruningOutcome::WaitingForRelease;
     }
 
-    // 4. Disruptive: reset one idle cursor.
+    // 5. Disruptive: reset one idle cursor.
     if reset_one_idle_cursor(limiter, &cursors) {
         metrics::counter!(MEM_CURSOR_RESETS).increment(1);
         return PruningOutcome::ResetIdleCursor;
     }
 
-    // 5. No idle cursor was eligible. Clear one active cursor's seek window to release the buffer.
+    // 6. No idle cursor was eligible. Clear one active cursor's seek window to release the buffer.
     if starving && clear_one_seek_window(&cursors) {
         metrics::counter!(MEM_SEEK_WINDOW_RESETS).increment(1);
         return PruningOutcome::ClearedSeekWindow;

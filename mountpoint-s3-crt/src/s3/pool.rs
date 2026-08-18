@@ -4,14 +4,16 @@ use std::future::Future;
 use std::marker::PhantomPinned;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fmt::Debug, ptr::NonNull};
 
 use mountpoint_s3_crt_sys::{
     aws_allocator, aws_byte_buf, aws_byte_buf_from_empty_array, aws_byte_cursor, aws_future_s3_buffer_ticket,
-    aws_future_s3_buffer_ticket_acquire, aws_future_s3_buffer_ticket_new, aws_future_s3_buffer_ticket_release,
+    aws_future_s3_buffer_ticket_acquire, aws_future_s3_buffer_ticket_get_error, aws_future_s3_buffer_ticket_is_done,
+    aws_future_s3_buffer_ticket_new, aws_future_s3_buffer_ticket_release, aws_future_s3_buffer_ticket_set_error,
     aws_future_s3_buffer_ticket_set_result_by_move, aws_ref_count_init, aws_s3_buffer_pool, aws_s3_buffer_pool_config,
     aws_s3_buffer_pool_factory_fn, aws_s3_buffer_pool_reserve_meta, aws_s3_buffer_pool_vtable, aws_s3_buffer_ticket,
-    aws_s3_buffer_ticket_vtable,
+    aws_s3_buffer_ticket_vtable, aws_s3_errors,
 };
 
 use crate::ToAwsByteCursor as _;
@@ -19,6 +21,59 @@ use crate::common::allocator::Allocator;
 use crate::io::event_loop::EventLoopGroup;
 use crate::io::futures::FutureSpawner;
 use crate::s3::client::MetaRequest;
+
+/// A buffer reservation was cancelled and its buffer is no longer wanted.
+///
+/// Returned by [MemoryPool::get_buffer_async] when the pool abandons a reservation rather than
+/// allocating a buffer that would be freed immediately. See [CancellationToken].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("buffer reservation was cancelled")]
+pub struct Cancellation;
+
+/// Reports whether a buffer reservation is still wanted.
+///
+/// A reservation is cancelled once the CRT errors out its buffer-ticket future, which it does
+/// when cancelling the meta request the reservation belongs to (see
+/// `aws_s3_meta_request_cancel_pending_buffer_futures`). A [MemoryPool] that defers a
+/// reservation under memory pressure can poll this token to abandon a reservation that was
+/// cancelled while queued, avoiding a wasteful allocation that would be freed immediately.
+#[derive(Debug, Clone)]
+pub struct CancellationToken(TokenSource);
+
+#[derive(Debug, Clone)]
+enum TokenSource {
+    /// Backed by the reservation's ticket future: cancelled once the CRT errors it out.
+    Ticket(CrtTicketFuture),
+    /// Backed by a plain flag: cancelled once the flag is set. Only ever built by the
+    /// test-only constructors below, never by the CRT bridge.
+    Flag(Arc<AtomicBool>),
+}
+
+impl CancellationToken {
+    /// A token that never reports cancellation. For tests only.
+    pub fn never_cancelled() -> Self {
+        Self(TokenSource::Flag(Arc::new(AtomicBool::new(false))))
+    }
+
+    /// A token that reports cancellation once `flag` is set to `true`. For tests only.
+    pub fn from_flag(flag: Arc<AtomicBool>) -> Self {
+        Self(TokenSource::Flag(flag))
+    }
+
+    /// A token backed by a reservation's CRT ticket future.
+    fn for_ticket(future: CrtTicketFuture) -> Self {
+        Self(TokenSource::Ticket(future))
+    }
+
+    /// Returns `true` once this reservation has been cancelled, meaning its buffer is no
+    /// longer wanted.
+    pub fn is_cancelled(&self) -> bool {
+        match &self.0 {
+            TokenSource::Ticket(future) => future.is_errored(),
+            TokenSource::Flag(flag) => flag.load(Ordering::SeqCst),
+        }
+    }
+}
 
 /// A custom memory pool.
 ///
@@ -29,12 +84,19 @@ pub trait MemoryPool: Clone + Send + Sync + 'static {
     type Buffer: AsMut<[u8]> + Send;
 
     /// Get a buffer of at least `size` bytes asynchronously for the given meta request.
-    /// Returns a future that resolves to the buffer.
+    /// Returns a future that resolves to the buffer, or to [Cancellation] if the reservation
+    /// was abandoned because the CRT cancelled it while it was queued.
     ///
     /// Implementations must always eventually resolve. If memory is not immediately
     /// available, the implementation should block/await until it is — not panic or
-    /// deadlock.
-    fn get_buffer_async(&self, size: usize, meta_request: &MetaRequest) -> impl Future<Output = Self::Buffer> + Send;
+    /// deadlock. While waiting, the implementation may poll `token` and resolve to
+    /// `Err(Cancellation)` once it reports the reservation is no longer wanted.
+    fn get_buffer_async(
+        &self,
+        size: usize,
+        meta_request: &MetaRequest,
+        token: CancellationToken,
+    ) -> impl Future<Output = Result<Self::Buffer, Cancellation>> + Send;
 
     /// Trim the pool.
     ///
@@ -317,18 +379,29 @@ impl<Pool: MemoryPool> CrtBufferPool<Pool> {
         let ticket_vtable = self.ticket_vtable;
         let pool = self.pool.clone();
         let future_clone = future.clone();
-        // Dropping the handle is intentional: if the CRT cancels the meta request
-        // while the task is in flight, the buffer will be allocated (eventually) and
-        // set on an already-done future — the CRT handles this safely by destroying
-        // the ticket via `s_future_impl_result_dtor`. This results in a wasted
-        // allocation that is immediately freed, but no leak or error.
-        // TODO: The CRT does not currently provide a cancellation mechanism for
-        // in-flight ticket futures. If one is added, we could propagate it to
-        // `get_buffer_async` to avoid the wasteful buffer allocation.
+        // Cancellation token for the pool: the reservation is wanted until the CRT errors
+        // this ticket future, which it does when cancelling the meta request (see
+        // `aws_s3_meta_request_cancel_pending_buffer_futures`).
+        let token = CancellationToken::for_ticket(future.clone());
+        // Dropping the handle is intentional: the acquisition runs to completion on the
+        // event loop and delivers its result out-of-band via `future_clone.set`.
         let _handle = self.event_loop_group.spawn_future(async move {
-            let buffer = pool.get_buffer_async(size, &meta_request).await;
-            let ticket = CrtTicket::new(buffer, ticket_vtable);
-            future_clone.set(ticket);
+            match pool.get_buffer_async(size, &meta_request, token).await {
+                Ok(buffer) => future_clone.set(CrtTicket::new(buffer, ticket_vtable)),
+                Err(Cancellation) => {
+                    // The pool only declines a reservation after the CRT has errored this ticket
+                    // future — that is exactly what makes the token report cancelled (see
+                    // `aws_s3_meta_request_cancel_pending_buffer_futures`) — so it is already errored.
+                    debug_assert!(
+                        future_clone.is_errored(),
+                        "pool declined a reservation whose ticket future was not errored",
+                    );
+                    // Error it for completeness so the CRT never waits on an unset ticket, even if
+                    // some future path were to decline without the CRT erroring it first. A no-op
+                    // when already errored: the CRT keeps its original error.
+                    future_clone.set_error(aws_s3_errors::AWS_ERROR_S3_CANCELED as i32);
+                }
+            }
         });
 
         future
@@ -456,6 +529,38 @@ unsafe extern "C" fn ticket_destroy<Buffer: AsMut<[u8]>>(data: *mut libc::c_void
     _ = unsafe { CrtTicket::<Buffer>::from_raw(ticket) };
 }
 
+#[cfg(test)]
+mod tests {
+    use mountpoint_s3_crt_sys::{aws_future_s3_buffer_ticket_set_error, aws_s3_errors};
+
+    use super::*;
+    use crate::common::allocator::Allocator;
+    use crate::s3::s3_library_init;
+
+    #[test]
+    fn test_ticket_token_reports_cancelled_on_error() {
+        let allocator = Allocator::default();
+        s3_library_init(&allocator);
+
+        let future = CrtTicketFuture::new(&allocator);
+        // Mirror exactly what `reserve()` builds for `get_buffer_async`.
+        let token = CancellationToken::for_ticket(future.clone());
+
+        // A fresh reservation is not yet done, so it is not cancelled.
+        assert!(!future.is_errored(), "fresh future must not be errored");
+        assert!(!token.is_cancelled(), "fresh reservation must not report cancelled");
+
+        // Simulate the CRT cancelling the reservation.
+        // SAFETY: `future.inner` is a valid `aws_future_s3_buffer_ticket`.
+        unsafe {
+            aws_future_s3_buffer_ticket_set_error(future.inner, aws_s3_errors::AWS_ERROR_S3_CANCELED as i32);
+        }
+
+        assert!(future.is_errored(), "errored future must report errored");
+        assert!(token.is_cancelled(), "cancelled reservation must report cancelled");
+    }
+}
+
 /// Wrapper for [aws_future_s3_buffer_ticket].
 #[derive(Debug)]
 struct CrtTicketFuture {
@@ -481,6 +586,28 @@ impl CrtTicketFuture {
         // SAFETY: `self.inner` is a valid future and we are setting it to `ticket`.
         unsafe {
             aws_future_s3_buffer_ticket_set_result_by_move(self.inner, &mut ticket);
+        }
+    }
+
+    /// Complete the future with `error_code`, reporting to the CRT that this reservation will
+    /// not be fulfilled.
+    fn set_error(&self, error_code: i32) {
+        // SAFETY: `self.inner` is a valid `aws_future_s3_buffer_ticket` (a reference is held by
+        // this struct for its lifetime); the setter is thread-safe (guarded by the future's
+        // own internal lock).
+        unsafe {
+            aws_future_s3_buffer_ticket_set_error(self.inner, error_code);
+        }
+    }
+
+    /// Returns `true` if the future is done and completed with an error, which is how the
+    /// CRT signals that this reservation was cancelled (`AWS_ERROR_S3_CANCELED`).
+    fn is_errored(&self) -> bool {
+        // SAFETY: `self.inner` is a valid `aws_future_s3_buffer_ticket` (a reference is held
+        // by this struct for its lifetime); both accessors are thread-safe reads guarded by
+        // the future's own internal lock.
+        unsafe {
+            aws_future_s3_buffer_ticket_is_done(self.inner) && aws_future_s3_buffer_ticket_get_error(self.inner) != 0
         }
     }
 
