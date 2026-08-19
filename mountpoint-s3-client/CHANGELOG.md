@@ -1,4 +1,8 @@
-## Unreleased (v0.21.0)
+## Unreleased (v0.21.1)
+
+### Other changes
+
+* Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))
 
 ## v0.21.0 (July 20, 2026)
 

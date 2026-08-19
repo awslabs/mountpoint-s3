@@ -72,12 +72,12 @@ jobs:
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: AL2 arm
+        - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
         exclude:
           # fuse3 is not available on Amazon Linux 2
           - runner:
-              name: AL2 arm
+              name: AL2023 arm
               tags: [self-hosted, linux, arm64]
             fuseVersion: 3
 
@@ -88,11 +88,13 @@ jobs:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
@@ -112,7 +114,7 @@ jobs:
     - name: Run tests
       run: cargo nextest run --profile ci ${{ env.packages }} --features '${{ env.features }}'
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2023 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   client-test:
@@ -135,7 +137,7 @@ jobs:
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04] # GitHub-hosted
-        - name: AL2 arm
+        - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
         pool:
         - name: Default Pool
@@ -152,11 +154,13 @@ jobs:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
@@ -191,7 +195,7 @@ jobs:
       if: always()
       run: rm -f "${S3_WEB_IDENTITY_TEST_TOKEN_FILE}"
     - name: Save dump files
-      if: ${{ failure() && matrix.runner.name == 'AL2 arm' }}
+      if: ${{ failure() && matrix.runner.name == 'AL2023 arm' }}
       run: ./.github/actions/scripts/save-coredump.sh
 
   fstab:
@@ -207,7 +211,7 @@ jobs:
         runner:
           - name: Ubuntu x86
             tags: [ubuntu-22.04] # GitHub-hosted
-          - name: AL2 arm
+          - name: AL2023 arm
             tags: [self-hosted, linux, arm64]
 
     steps:
@@ -217,11 +221,13 @@ jobs:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
+          # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+          allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
@@ -260,11 +266,13 @@ jobs:
         role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
         aws-region: ${{ vars.S3_REGION }}
     - name: Checkout code
-      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
     - name: Set up Rust toolchain
       uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
       with:
@@ -301,7 +309,7 @@ jobs:
         runner:
         - name: Ubuntu x86
           tags: [ubuntu-22.04]
-        - name: AL2 arm
+        - name: AL2023 arm
           tags: [self-hosted, linux, arm64]
 
     steps:
@@ -311,11 +319,13 @@ jobs:
           role-to-assume: ${{ vars.ACTIONS_IAM_ROLE }}
           aws-region: ${{ vars.S3_REGION }}
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           submodules: true
           persist-credentials: false
+          # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+          allow-unsafe-pr-checkout: true
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
@@ -354,11 +364,13 @@ jobs:
       uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
     - name: Checkout code
-      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ inputs.ref }}
         submodules: true
         persist-credentials: false
+        # Allow fork PR checkouts since we gate deployments and the code only has access to ephemeral test cluster
+        allow-unsafe-pr-checkout: true
 
     - name: Create SRPM
       id: build-srpm
