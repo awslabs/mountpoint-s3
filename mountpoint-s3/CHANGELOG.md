@@ -1,4 +1,4 @@
-## Unreleased (v1.23.1)
+## Unreleased (v1.24.0)
 
 ## v1.23.0 (July 20, 2026)
 

@@ -1,4 +1,4 @@
-## Unreleased (v0.21.1)
+## Unreleased (v0.22.0)
 
 ### Other changes
 
