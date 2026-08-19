@@ -181,7 +181,11 @@ pub fn effective_total_memory() -> u64 {
         return cg.total_memory;
     }
 
-    // Fallback to total system memory
+    // Fallback to system-level cgroup detection
+    if let Some(cg) = sys.cgroup_limits() {
+        return cg.total_memory;
+    }
+
     sys.total_memory()
 }
 
