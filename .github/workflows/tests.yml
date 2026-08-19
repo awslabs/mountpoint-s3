@@ -431,8 +431,6 @@ jobs:
         cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo "not found"
         echo "=== Process cgroup location ==="
         cat /proc/self/cgroup
-        echo "=== Check if we can write to cgroups ==="
-        mkdir -p /sys/fs/cgroup/test-write 2>&1 || echo "Cannot create cgroups"
     - name: Run cgroup-aware memory detection test
       env:
         TEST_CGROUP_MEM_LIMIT_MB: "2048"
