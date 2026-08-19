@@ -618,7 +618,7 @@
       "width": 24,
       "height": 2,
       "properties": {
-        "markdown": "# Memory usage",
+        "markdown": "# Memory metrics",
         "background": "transparent"
       }
     },
@@ -638,9 +638,142 @@
         "view": "timeSeries",
         "stacked": false,
         "region": "us-east-1",
-        "title": "Memory usage",
+        "title": "Process memory usage",
         "period": 60,
         "stat": "Maximum"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 44,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "experimental.mem.cursor_resets"
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Memory cursor resets",
+        "period": 60,
+        "stat": "Sum"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 44,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "experimental.mem.seek_window_resets"
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Memory seek window resets",
+        "period": 60,
+        "stat": "Sum"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 50,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "experimental.pool.allocation_queue_depth",
+            "priority",
+            "high"
+          ],
+          [
+            "...",
+            "priority",
+            "low"
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Allocation queue depth",
+        "period": 60,
+        "stat": "Maximum"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 50,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "experimental.pool.allocation_queue_wait",
+            {
+              "stat": "p50"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p99.9"
+            }
+          ],
+          [
+            "...",
+            {
+              "stat": "p100"
+            }
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Allocation queue wait time",
+        "period": 60,
+        "stat": "p99"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 50,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [
+            "CWAgent",
+            "experimental.fs.write_handle_limit_exceeded"
+          ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Write handle limit exceeded",
+        "period": 60,
+        "stat": "Sum"
       }
     }
   ]
