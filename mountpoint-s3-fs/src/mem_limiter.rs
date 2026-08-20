@@ -2,7 +2,7 @@ use std::{sync::atomic::Ordering, time::Instant};
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tracing::{debug, trace};
 
 use crate::memory::{BufferKind, PagedPool};
@@ -173,9 +173,9 @@ pub fn effective_total_memory() -> u64 {
     // walks the ancestor cgroup tree to find inherited limits.
     let pid = Pid::from_u32(std::process::id());
     sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        ProcessesToUpdate::Some(&[pid]),
         false, // don't remove dead processes
-        sysinfo::ProcessRefreshKind::nothing(),
+        ProcessRefreshKind::nothing(),
     );
     if let Some(cg) = sys.process(pid).and_then(|p| p.cgroup_limits()) {
         return cg.total_memory;
@@ -223,11 +223,7 @@ mod tests {
         sys.refresh_memory();
 
         let pid = Pid::from_u32(std::process::id());
-        sys.refresh_processes_specifics(
-            sysinfo::ProcessesToUpdate::Some(&[pid]),
-            false,
-            sysinfo::ProcessRefreshKind::nothing(),
-        );
+        sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), false, ProcessRefreshKind::nothing());
         if sys.process(pid).and_then(|p| p.cgroup_limits()).is_some() {
             // A cgroup limit is active on this machine — the fallback path
             // won't be exercised, so there's nothing to assert here.
