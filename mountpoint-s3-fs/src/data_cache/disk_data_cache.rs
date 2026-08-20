@@ -26,6 +26,7 @@ use crate::metrics::defs::{
     CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY, CACHE_TOTAL_SIZE,
 };
 use crate::object::ObjectId;
+use crate::prefetch::CursorId;
 use crate::sync::Mutex;
 
 use super::{BlockIndex, ChecksummedBytes, DataCache, DataCacheResult};
@@ -258,7 +259,12 @@ impl DiskBlock {
     }
 
     /// Deserialize an instance from `reader`.
-    fn read(reader: &mut impl Read, block_size: u64, pool: &PagedPool) -> Result<Self, DiskBlockReadWriteError> {
+    async fn read(
+        reader: &mut impl Read,
+        block_size: u64,
+        pool: &PagedPool,
+        cursor_id: Option<CursorId>,
+    ) -> Result<Self, DiskBlockReadWriteError> {
         let header: DiskBlockHeader = bincode::decode_from_std_read(reader, BINCODE_CONFIG)?;
 
         if header.block_len > block_size {
@@ -266,7 +272,7 @@ impl DiskBlock {
         }
 
         let size = header.block_len as usize;
-        let mut buffer = pool.get_buffer_mut(size, BufferKind::DiskCache);
+        let mut buffer = pool.get_buffer_mut_async(size, BufferKind::DiskCache, cursor_id).await;
         buffer.fill_from_reader(reader)?;
         let data = buffer.into_bytes();
 
@@ -331,12 +337,13 @@ impl DiskDataCache {
         path
     }
 
-    fn read_block(
+    async fn read_block(
         &self,
         path: impl AsRef<Path>,
         cache_key: &ObjectId,
         block_idx: BlockIndex,
         block_offset: u64,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         trace!(
             key = ?cache_key.key(),
@@ -360,7 +367,8 @@ impl DiskDataCache {
             return Err(DataCacheError::InvalidBlockContent);
         }
 
-        let block = DiskBlock::read(&mut file, self.block_size(), &self.pool)
+        let block = DiskBlock::read(&mut file, self.block_size(), &self.pool, cursor_id)
+            .await
             .inspect_err(|e| warn!(path = ?path.as_ref(), "block could not be deserialized: {:?}", e))?;
         let bytes = block
             .data(cache_key, block_idx, block_offset)
@@ -464,6 +472,7 @@ impl DataCache for DiskDataCache {
         block_idx: BlockIndex,
         block_offset: u64,
         _object_size: usize,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if block_offset != block_idx * self.config.block_size {
             return Err(DataCacheError::InvalidBlockOffset);
@@ -471,7 +480,10 @@ impl DataCache for DiskDataCache {
         let start = Instant::now();
         let block_key = DiskBlockKey::new(cache_key, block_idx);
         let path = self.get_path_for_block_key(&block_key);
-        let result = match self.read_block(&path, cache_key, block_idx, block_offset) {
+        let result = match self
+            .read_block(&path, cache_key, block_idx, block_offset, cursor_id)
+            .await
+        {
             Ok(None) => {
                 // Cache miss.
                 Ok(None)
@@ -638,6 +650,7 @@ mod tests {
 
     use super::*;
 
+    use crate::memory::CandidateSize;
     use futures::StreamExt as _;
     use futures::executor::{ThreadPool, block_on};
     use futures::task::SpawnExt;
@@ -679,7 +692,10 @@ mod tests {
     #[test]
     fn get_path_for_block_key() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(1024)])
+            .with_no_memory_limit()
+            .build();
         let data_cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_dir,
@@ -711,7 +727,10 @@ mod tests {
     #[test]
     fn get_path_for_block_key_huge_block_index() {
         let cache_dir = PathBuf::from("mountpoint-cache/");
-        let pool = PagedPool::new_with_candidate_sizes([1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(1024)])
+            .with_no_memory_limit()
+            .build();
         let data_cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_dir,
@@ -753,7 +772,10 @@ mod tests {
         let object_2_size = data_2.len();
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([pool_buffer_size]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(pool_buffer_size)])
+            .with_no_memory_limit()
+            .build();
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -769,7 +791,7 @@ mod tests {
         );
 
         let block = cache
-            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .get_block(&cache_key_1, 0, 0, object_1_size, None)
             .await
             .expect("cache should be accessible");
         assert!(
@@ -783,7 +805,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .get_block(&cache_key_1, 0, 0, object_1_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -798,7 +820,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_2, 0, 0, object_2_size)
+            .get_block(&cache_key_2, 0, 0, object_2_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -813,7 +835,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 1, block_size, object_1_size)
+            .get_block(&cache_key_1, 1, block_size, object_1_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -824,7 +846,7 @@ mod tests {
 
         // Entry 1's first block still intact
         let entry = cache
-            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .get_block(&cache_key_1, 0, 0, object_1_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -840,7 +862,10 @@ mod tests {
         let slice = data.slice(1..5);
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([8 * 1024 * 1024]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(8 * 1024 * 1024)])
+            .with_no_memory_limit()
+            .build();
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -856,7 +881,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key, 0, 0, slice.len())
+            .get_block(&cache_key, 0, 0, slice.len(), None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -890,7 +915,7 @@ mod tests {
             object_size: usize,
         ) -> bool {
             if let Some(retrieved) = cache
-                .get_block(cache_key, block_idx, block_idx * (BLOCK_SIZE) as u64, object_size)
+                .get_block(cache_key, block_idx, block_idx * (BLOCK_SIZE) as u64, object_size, None)
                 .await
                 .expect("cache should be accessible")
             {
@@ -922,7 +947,10 @@ mod tests {
         let small_object_key = ObjectId::new("small".into(), ETag::for_tests());
 
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([BLOCK_SIZE]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(BLOCK_SIZE)])
+            .with_no_memory_limit()
+            .build();
         let cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -1105,8 +1133,12 @@ mod tests {
         // "Corrupt" the serialized value with an invalid length.
         replace_u64_at(&mut buf, offset, u64::MAX);
 
-        let pool = PagedPool::new_with_candidate_sizes([MAX_LENGTH as usize]);
-        let err = DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool).expect_err("deserialization should fail");
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(MAX_LENGTH as usize)])
+            .with_no_memory_limit()
+            .build();
+        let err = block_on(DiskBlock::read(&mut Cursor::new(buf), MAX_LENGTH, &pool, None))
+            .expect_err("deserialization should fail");
         match length_to_corrupt {
             "key" | "etag" => assert!(matches!(
                 err,
@@ -1121,7 +1153,10 @@ mod tests {
     fn test_concurrent_access() {
         let block_size = 1024 * 1024;
         let cache_directory = tempfile::tempdir().unwrap();
-        let pool = PagedPool::new_with_candidate_sizes([block_size]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(block_size)])
+            .with_no_memory_limit()
+            .build();
         let data_cache = DiskDataCache::new(
             DiskDataCacheConfig {
                 cache_directory: cache_directory.path().to_path_buf(),
@@ -1147,7 +1182,7 @@ mod tests {
             let handle = pool
                 .spawn_with_handle(async move {
                     let block = data_cache
-                        .get_block(&cache_key, block_idx, block_offset, object_size)
+                        .get_block(&cache_key, block_idx, block_offset, object_size, None)
                         .await
                         .expect("get_block should not return error");
                     if block.is_none() {

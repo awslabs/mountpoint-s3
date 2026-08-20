@@ -34,6 +34,10 @@ impl Worker for Idle {
         self.pool.manifest()
     }
 
+    fn io_buffer_bytes(&self) -> usize {
+        PREFETCH_PROBE_READ_SIZE
+    }
+
     fn run(
         &self,
         instance: usize,

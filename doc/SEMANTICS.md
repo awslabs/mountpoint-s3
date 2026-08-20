@@ -89,6 +89,8 @@ Your application should not write to the same object from multiple instances at 
 
 By default, Mountpoint ensures that new file uploads to a single key are atomic. As soon as an upload completes, other clients are able to see the new key and the entire content of the object. If the `--incremental-upload` flag is set, however, Mountpoint may issue multiple separate uploads during file writes to append data to the object. After each upload, the appended object in your S3 bucket will be visible to other clients.
 
+Mountpoint enforces a cap on the number of files that may be open for writing at the same time, derived from `--memory-target` and `--write-part-size`. When the cap is reached, `open()` for write returns `ENOMEM` until an existing write handle is closed. See [CONFIGURATION.md](CONFIGURATION.md#maximum-number-of-files-open-for-writing) for more details.
+
 ### Optional metadata and object content caching
 
 Mountpoint also offers optional metadata and object content caching.

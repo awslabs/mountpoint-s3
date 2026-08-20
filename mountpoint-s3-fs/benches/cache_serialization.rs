@@ -7,10 +7,18 @@ use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, Criterion, criterion_group, criterion_main};
 use mountpoint_s3_client::types::ETag;
 use mountpoint_s3_fs::data_cache::{ChecksummedBytes, DataCache, DiskDataCache, DiskDataCacheConfig};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
 use rand::Rng;
 use tempfile::TempDir;
+use tikv_jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+// Keep in sync with the `mount-s3` binary's jemalloc config, see `mountpoint-s3/src/main.rs`.
+#[unsafe(export_name = "_rjem_malloc_conf")]
+pub static MALLOC_CONF: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
 
 const BLOCK_SIZE: u64 = 1024 * 1024;
 const OBJECT_SIZE: usize = 10 * BLOCK_SIZE as usize;
@@ -19,7 +27,7 @@ const OBJECT_SIZE: usize = 10 * BLOCK_SIZE as usize;
 async fn read_cache_block(cache: &DiskDataCache, cache_key: &ObjectId) {
     _ = black_box(
         cache
-            .get_block(cache_key, 0, 0, OBJECT_SIZE)
+            .get_block(cache_key, 0, 0, OBJECT_SIZE, None)
             .await
             .expect("is able to read")
             .expect("data is there"),
@@ -39,7 +47,10 @@ fn cache_read_benchmark(group: &mut BenchmarkGroup<'_, WallTime>, dir_path: &Pat
         block_size: BLOCK_SIZE,
         limit: mountpoint_s3_fs::data_cache::CacheLimit::Unbounded,
     };
-    let pool = PagedPool::new_with_candidate_sizes([BLOCK_SIZE as usize]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(BLOCK_SIZE as usize)])
+        .with_no_memory_limit()
+        .build();
     let cache = DiskDataCache::new(config, pool);
     let cache_key = ObjectId::new("a".into(), ETag::for_tests());
     let bytes = ChecksummedBytes::new(data.to_owned().into());

@@ -16,9 +16,7 @@ use tracing::{Instrument, debug_span, trace};
 use crate::ServerSideEncryption;
 use crate::async_util::Runtime;
 use crate::content_type::{ContentTypeDetection, infer_content_type};
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
 use crate::memory::{BufferKind, PagedPool, PoolBufferMut};
-use crate::sync::Arc;
 
 use super::hasher::ChecksumHasher;
 use super::{ChecksumHasherError, UploadError};
@@ -63,11 +61,10 @@ where
         client: Client,
         buffer_size: usize,
         pool: PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
         params: AppendUploadQueueParams,
     ) -> Self {
         let offset = params.initial_offset;
-        let upload_queue = AppendUploadQueue::new(runtime, client, pool, mem_limiter, params);
+        let upload_queue = AppendUploadQueue::new(runtime, client, pool, params);
         Self {
             buffer: None,
             upload_queue,
@@ -160,27 +157,18 @@ struct AppendUploadQueue<Client: ObjectClient> {
     /// Channel handle for receiving the events from the background queue.
     event_receiver: Receiver<AppendUploadEvent<Client::ClientError>>,
     pool: PagedPool,
-    mem_limiter: Arc<MemoryLimiter>,
     _task_handle: RemoteHandle<()>,
     /// Algorithm used to compute checksums. Lazily initialized.
     checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
     /// Stores the last successful result to return in [join].
     last_known_result: Option<PutObjectResult>,
-    /// Tracks the requests pushed to the queue but still pending a response.
-    requests_in_queue: usize,
 }
 
 impl<Client> AppendUploadQueue<Client>
 where
     Client: ObjectClient + Send + Sync + 'static,
 {
-    pub fn new(
-        runtime: &Runtime,
-        client: Client,
-        pool: PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
-        params: AppendUploadQueueParams,
-    ) -> Self {
+    pub fn new(runtime: &Runtime, client: Client, pool: PagedPool, params: AppendUploadQueueParams) -> Self {
         assert!(params.capacity > 0, "append queue capacity must be greater than 0");
         let span = debug_span!("append", key = params.key, initial_offset = params.initial_offset);
         let (buffer_sender, buffer_receiver) = bounded(params.capacity);
@@ -208,10 +196,8 @@ where
             buffer_sender,
             event_receiver,
             last_known_result: None,
-            requests_in_queue: 0,
             checksum_algorithm: None,
             pool,
-            mem_limiter,
             _task_handle: task_handle,
         }
     }
@@ -224,7 +210,6 @@ where
             while self.consume_next_response().await? {}
             return Err(UploadError::UploadAlreadyTerminated);
         }
-        self.requests_in_queue += 1;
         Ok(())
     }
 
@@ -267,25 +252,9 @@ where
                 AppendUploadEvent::Error(upload_error) => return Err(upload_error),
             }
         };
-        while self.requests_in_queue > 0 {
-            match UploadBuffer::try_new(capacity, &checksum_algorithm, &self.pool, self.mem_limiter.clone())? {
-                Some(buffer) => return Ok(buffer),
-                None => {
-                    // wait for requests in the queue to complete before trying to reserve memory again
-                    trace!("wait for the next request to be processed");
-                    if !self.consume_next_response().await? {
-                        return Err(UploadError::UploadAlreadyTerminated);
-                    }
-                }
-            }
-        }
-        // no more requests in the queue, so we force creating a new buffer
-        Ok(UploadBuffer::new(
-            capacity,
-            &checksum_algorithm,
-            &self.pool,
-            self.mem_limiter.clone(),
-        )?)
+        let hasher = ChecksumHasher::new(&checksum_algorithm)?;
+        let data = self.pool.get_buffer_mut_async(capacity, BufferKind::Append, None).await;
+        Ok(UploadBuffer { data, hasher })
     }
 
     /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
@@ -309,7 +278,6 @@ where
                 }
                 AppendUploadEvent::PutResponse(result) => {
                     trace!(?result, "received result");
-                    self.requests_in_queue -= 1;
                     self.last_known_result = Some(result);
                     return Ok(true);
                 }
@@ -443,61 +411,26 @@ async fn append<Client: ObjectClient>(
 
 #[derive(Debug)]
 struct UploadBuffer {
-    data: ReservedBuffer,
+    data: PoolBufferMut,
     // Running checksum for the data.
     hasher: ChecksumHasher,
 }
 
 impl UploadBuffer {
-    /// Force creating a new buffer regardless of available memory
-    fn new(
-        capacity: usize,
-        checksum_algorithm: &Option<ChecksumAlgorithm>,
-        pool: &PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
-    ) -> Result<Self, ChecksumHasherError> {
-        let hasher = ChecksumHasher::new(checksum_algorithm)?;
-        mem_limiter.reserve(BufferArea::Upload, capacity as u64);
-        let data = ReservedBuffer {
-            buffer: pool.get_buffer_mut(capacity, BufferKind::Append),
-            mem_limiter,
-        };
-        Ok(Self { data, hasher })
-    }
-
-    /// Try creating a new buffer, return `None` if unable to reserve memory for a buffer with the given capacity
-    fn try_new(
-        capacity: usize,
-        checksum_algorithm: &Option<ChecksumAlgorithm>,
-        pool: &PagedPool,
-        mem_limiter: Arc<MemoryLimiter>,
-    ) -> Result<Option<Self>, ChecksumHasherError> {
-        if mem_limiter.try_reserve(BufferArea::Upload, capacity as u64) {
-            let hasher = ChecksumHasher::new(checksum_algorithm)?;
-            let data = ReservedBuffer {
-                buffer: pool.get_buffer_mut(capacity, BufferKind::Append),
-                mem_limiter,
-            };
-            Ok(Some(Self { data, hasher }))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Write a slice to the buffer. The slice will be trimmed to fit into the buffer,
     /// remaining slice is returned back to the caller.
     fn write<'a>(&mut self, mut slice: &'a [u8]) -> Result<&'a [u8], ChecksumHasherError> {
-        let remaining = self.data.buffer.append_from_slice(&mut slice);
+        let remaining = self.data.append_from_slice(&mut slice);
         self.hasher.update(slice)?;
         Ok(remaining)
     }
 
     fn is_full(&self) -> bool {
-        self.data.buffer.is_full()
+        self.data.is_full()
     }
 
     fn len(&self) -> usize {
-        self.data.buffer.len()
+        self.data.len()
     }
 
     fn freeze(self) -> Result<(Bytes, Option<UploadChecksum>), ChecksumHasherError> {
@@ -507,32 +440,13 @@ impl UploadBuffer {
     }
 }
 
-#[derive(Debug)]
-struct ReservedBuffer {
-    buffer: PoolBufferMut,
-    mem_limiter: Arc<MemoryLimiter>,
-}
-
-impl Drop for ReservedBuffer {
-    fn drop(&mut self) {
-        self.mem_limiter
-            .release(BufferArea::Upload, self.buffer.capacity() as u64);
-    }
-}
-
-impl AsRef<[u8]> for ReservedBuffer {
-    fn as_ref(&self) -> &[u8] {
-        &self.buffer
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use crate::mem_limiter::MINIMUM_MEM_LIMIT;
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
+    use crate::sync::Arc;
 
     use super::super::{Uploader, UploaderConfig};
     use super::*;
@@ -554,14 +468,18 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([
+                CandidateSize::new(client.read_part_size()),
+                CandidateSize::new(client.write_part_size()),
+            ])
+            .with_minimum_memory_limit()
+            .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let mem_limiter = MemoryLimiter::new(pool.clone(), MINIMUM_MEM_LIMIT);
         Uploader::new(
             client,
             runtime,
             pool,
-            mem_limiter.into(),
             UploaderConfig::new(buffer_size)
                 .server_side_encryption(server_side_encryption.unwrap_or_default())
                 .default_checksum_algorithm(default_checksum_algorithm),
@@ -610,8 +528,8 @@ mod tests {
 
         // The buffer should be updated
         let buffer = upload_request.buffer.as_ref().unwrap();
-        assert_eq!(buffer_size, buffer.data.buffer.capacity());
-        assert_eq!(&append_data, &buffer.data.as_ref()[..buffer.len()]);
+        assert_eq!(buffer_size, buffer.data.capacity());
+        assert_eq!(&append_data, &buffer.data[..buffer.len()]);
 
         // Write more data to make the buffer full
         let append_data = [0xab; 128];
@@ -1212,23 +1130,30 @@ mod tests {
         assert_eq!(expected_content, *actual);
     }
 
-    #[test_case(1024, 128, 10)]
-    #[test_case(1024, 4096, 20)]
+    #[test_case(8 * 1024, 128, 10)]
+    #[test_case(8 * 1024, 16 * 1024, 20)]
     #[tokio::test]
     async fn test_append_on_low_memory(part_size: usize, write_size: usize, part_count: usize) {
         let bucket = "bucket";
         let key = "hello";
 
-        let client = Arc::new(MockClient::config().bucket(bucket).part_size(32).build());
-        let pool = PagedPool::new_with_candidate_sizes([32]);
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
+        // `MemoryLimiter::new` reserves max(mem_limit/8, 128 MiB) for non-buffer use,
+        // so set `mem_limit` just above that floor to leave room for exactly one part.
+        // This serializes writes through the allocation queue, exercising the wait-then-wake
+        // path on every part.
+        const NON_BUFFER_FLOOR: usize = 128 * 1024 * 1024;
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(part_size)])
+            .with_memory_limit(NON_BUFFER_FLOOR + part_size)
+            .build();
 
-        // Use a memory limiter with 0 limit
-        let mem_limiter = MemoryLimiter::new(pool.clone(), 0);
+        assert_eq!(pool.memory_available_for_reservation(), part_size);
+
         let uploader = Uploader::new(
             client.clone(),
             Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
             pool,
-            mem_limiter.into(),
             UploaderConfig::new(part_size),
         );
 
@@ -1259,5 +1184,69 @@ mod tests {
             .expect("get_object failed");
         let actual = get_request.collect().await.expect("failed to collect body");
         assert_eq!(expected_content, *actual);
+    }
+
+    /// Two concurrent handles sharing a pool that fits exactly one part at a time.
+    /// Each handle's PUT completion must free a buffer that the other handle is waiting
+    /// on through the pool's allocation queue.
+    #[tokio::test]
+    async fn test_append_two_handles_share_one_part() {
+        let bucket = "bucket";
+        let part_size = 8 * 1024;
+        let part_count = 4;
+
+        let client = Arc::new(MockClient::config().bucket(bucket).part_size(part_size).build());
+        // `MemoryLimiter::new` reserves max(mem_limit/8, 128 MiB) for non-buffer use,
+        // so set `mem_limit` just above that floor to leave room for exactly one part.
+        const LIMITER_MIN_RESERVED: usize = 128 * 1024 * 1024;
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(part_size)])
+            .with_memory_limit(LIMITER_MIN_RESERVED + part_size)
+            .build();
+        assert_eq!(pool.memory_available_for_reservation(), part_size);
+
+        let uploader = Uploader::new(
+            client.clone(),
+            Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap()),
+            pool.clone(),
+            UploaderConfig::new(part_size),
+        );
+
+        async fn drive_handle<Client>(
+            mut request: AppendUploadRequest<Client>,
+            part_size: usize,
+            part_count: usize,
+        ) -> Vec<u8>
+        where
+            Client: ObjectClient + Send + Sync + 'static,
+        {
+            let mut written = Vec::new();
+            let mut offset = 0u64;
+            for i in 0..part_count {
+                let data = vec![i as u8; part_size];
+                written.extend_from_slice(&data);
+                offset += request.write(offset, &data).await.expect("write should succeed") as u64;
+            }
+            request.complete().await.expect("upload should complete");
+            written
+        }
+
+        let request_a = uploader.start_incremental_upload(bucket.to_owned(), "key_a".to_owned(), 0, None);
+        let request_b = uploader.start_incremental_upload(bucket.to_owned(), "key_b".to_owned(), 0, None);
+        let (expected_a, expected_b) = tokio::join!(
+            drive_handle(request_a, part_size, part_count),
+            drive_handle(request_b, part_size, part_count),
+        );
+
+        for (key, expected) in [("key_a", expected_a), ("key_b", expected_b)] {
+            let get_request = client
+                .get_object(bucket, key, &GetObjectParams::default())
+                .await
+                .expect("get_object failed");
+            let actual = get_request.collect().await.expect("failed to collect body");
+            assert_eq!(expected, *actual, "content mismatch for {key}");
+        }
+
+        assert_eq!(pool.memory_available_for_reservation(), part_size);
     }
 }

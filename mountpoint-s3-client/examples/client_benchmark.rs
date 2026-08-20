@@ -13,11 +13,19 @@ use mountpoint_s3_client::mock_client::{MockClient, MockObject};
 use mountpoint_s3_client::types::{ClientBackpressureHandle, ETag, GetObjectParams, GetObjectResponse};
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_crt::common::rust_log_adapter::RustLogAdapter;
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use serde_json::{json, to_writer};
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+// Keep in sync with the `mount-s3` binary's jemalloc config, see `mountpoint-s3/src/main.rs`.
+#[unsafe(export_name = "_rjem_malloc_conf")]
+pub static MALLOC_CONF: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
 
 const SECONDS_PER_DAY: u64 = 86400;
 
@@ -222,7 +230,10 @@ struct CliArgs {
 }
 
 fn create_s3_client_config(region: &str, args: &CliArgs, nics: Vec<String>) -> S3ClientConfig {
-    let pool = PagedPool::new_with_candidate_sizes([args.part_size]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(args.part_size)])
+        .with_no_memory_limit()
+        .build();
     let mut config = S3ClientConfig::new()
         .endpoint_config(EndpointConfig::new(region))
         .throughput_target_gbps(args.throughput_target_gbps)

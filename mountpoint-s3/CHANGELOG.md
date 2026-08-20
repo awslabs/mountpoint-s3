@@ -1,4 +1,4 @@
-## Unreleased (v1.23.1)
+## Unreleased (v1.24.0)
 
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 

@@ -6,6 +6,7 @@ use std::time::Duration;
 use crate::common::fuse::TestSessionConfig;
 
 use super::latency::FileOp;
+use super::setup::SetupFn;
 use super::worker::Worker;
 
 /// A stress-test scenario: the complete description of one run.
@@ -16,15 +17,32 @@ pub struct Scenario {
     /// FUSE/Mountpoint session configuration (memory limit, part size, etc.).
     pub session_config: TestSessionConfig,
 
+    /// When `true`, the harness mounts with local cache.
+    pub cache: bool,
+
+    /// Optional setup step run to completion after mount and before workers start. Its returned
+    /// [`SetupGuard`] is held for the entire run, so anything it establishes (pinned memory, a warmed
+    /// cache, …) stays in effect while the workers execute. `None` for scenarios that need no setup.
+    pub setup: Option<SetupFn>,
+
     /// The workers to spawn, one thread per entry.
     pub workers: Vec<Arc<dyn Worker>>,
 
     /// Maximum allowed p100 latency for each file op, aggregated across all workers.
     pub max_latency: fn(FileOp) -> Duration,
+
+    /// Maximum time a worker may idle before the watchdog declares it stalled.
+    pub max_idle: fn(&dyn Worker) -> Duration,
 }
 
 /// Default per-op latency ceiling: 20s for every op. Scenarios may provide their own
 /// function if they have a different natural profile.
 pub fn default_max_latency(_op: FileOp) -> Duration {
+    Duration::from_secs(20)
+}
+
+/// Default per-worker stall timeout: 20s. Scenarios may provide their own function if
+/// certain worker kinds legitimately need longer idle periods.
+pub fn default_max_idle(_worker: &dyn Worker) -> Duration {
     Duration::from_secs(20)
 }

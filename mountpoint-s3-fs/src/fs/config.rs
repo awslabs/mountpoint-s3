@@ -4,7 +4,6 @@ use mountpoint_s3_client::types::ChecksumAlgorithm;
 use nix::unistd::{getgid, getuid};
 
 use crate::content_type::ContentTypeDetection;
-use crate::mem_limiter::MINIMUM_MEM_LIMIT;
 use crate::metablock::WriteMode;
 use crate::prefetch::PrefetcherConfig;
 use crate::s3::S3Personality;
@@ -60,8 +59,6 @@ pub struct S3FilesystemConfig {
     /// Algorithm used to compute additional checksums for uploads.
     /// `None` disables upload checksums.
     pub upload_checksum_algorithm: Option<UploadChecksumAlgorithm>,
-    /// Memory limit
-    pub mem_limit: u64,
     /// Prefetcher configuration
     pub prefetcher_config: PrefetcherConfig,
     /// Content type inference mode for uploaded objects
@@ -70,6 +67,8 @@ pub struct S3FilesystemConfig {
     /// This option may also be configured by `UNSTABLE_MOUNTPOINT_MAX_BACKGROUND` environment variable,
     /// but the value specified in the config takes priority.
     pub max_background_fuse_requests: Option<u16>,
+    /// Whether this mount is read-only.
+    pub read_only: bool,
 }
 
 impl Default for S3FilesystemConfig {
@@ -93,9 +92,9 @@ impl Default for S3FilesystemConfig {
             server_side_encryption: Default::default(),
             upload_checksum_algorithm: Some(UploadChecksumAlgorithm::Crc32c),
             content_type_detection: ContentTypeDetection::Disabled,
-            mem_limit: MINIMUM_MEM_LIMIT,
             prefetcher_config: Default::default(),
             max_background_fuse_requests: None,
+            read_only: false,
         }
     }
 }

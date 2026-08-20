@@ -1,5 +1,5 @@
+use std::ops::Range;
 use std::time::Instant;
-use std::{ops::Range, sync::Arc};
 
 use futures::task::{Spawn, SpawnExt};
 use futures::{Stream, StreamExt, pin_mut};
@@ -8,11 +8,12 @@ use mountpoint_s3_client::types::GetBodyPart;
 use tracing::{Instrument, debug_span, trace, warn};
 
 use crate::async_util::Runtime;
-use crate::checksums::ChecksummedBytes;
+use crate::checksums::{ChecksummedBytes, ChecksummedBytesBuilder};
 use crate::data_cache::{BlockIndex, DataCache};
-use crate::mem_limiter::MemoryLimiter;
+use crate::memory::PagedPool;
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
+use crate::sync::Arc;
 
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
@@ -30,16 +31,16 @@ pub struct CachingPartStream<Cache, Client: ObjectClient + Clone + Send + Sync +
     cache: Arc<Cache>,
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
 }
 
 impl<Cache, Client: ObjectClient + Clone + Send + Sync + 'static> CachingPartStream<Cache, Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>, cache: Cache) -> Self {
+    pub fn new(runtime: Runtime, client: Client, pool: PagedPool, cache: Cache) -> Self {
         Self {
             cache: Arc::new(cache),
             runtime,
             client,
-            mem_limiter,
+            pool,
         }
     }
 }
@@ -49,20 +50,17 @@ where
     Cache: DataCache + Send + Sync + 'static,
     Client: ObjectClient + Clone + Send + Sync + 'static,
 {
-    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
+    fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client> {
         let range = config.range;
 
-        let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size(),
-            min_read_window_size: config.read_part_size,
-            max_read_window_size: config.max_read_window_size,
-            read_window_size_multiplier: config.read_window_size_multiplier,
-            request_range: range.into(),
-            read_window_alignment_config: ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
-        };
+        let backpressure_config = BackpressureConfig::new(
+            &config,
+            ReadWindowAlignmentConfig::Disable, // we don't know where S3 request starts, so can not align the read window
+        );
+        let cursor_state = config.cursor_state.clone();
         let (backpressure_controller, backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, cursor_state);
+        let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
         let request_task = {
@@ -84,6 +82,10 @@ where
 
     fn client(&self) -> &Client {
         &self.client
+    }
+
+    fn pool(&self) -> &PagedPool {
+        &self.pool
     }
 }
 
@@ -147,7 +149,13 @@ where
         for block_index in block_range.clone() {
             match self
                 .cache
-                .get_block(cache_key, block_index, block_offset, range.object_size())
+                .get_block(
+                    cache_key,
+                    block_index,
+                    block_offset,
+                    range.object_size(),
+                    Some(self.backpressure_limiter.cursor_id()),
+                )
                 .await
             {
                 Ok(Some(block)) => {
@@ -213,6 +221,7 @@ where
             "fetching data from client"
         );
 
+        let cursor_id = self.backpressure_limiter.cursor_id();
         let request_stream = read_from_client_stream(
             &mut self.backpressure_limiter,
             &self.client,
@@ -220,7 +229,7 @@ where
             cache_key.clone(),
             initial_request_end_offset,
             block_aligned_byte_range,
-            self.config.handle_id,
+            cursor_id,
         );
 
         let mut part_composer = CachingPartComposer {
@@ -282,16 +291,18 @@ where
     ) -> Result<(), PrefetchReadError<E>> {
         let key = self.cache_key.key();
         let block_size = self.cache.block_size();
-        let mut buffer = ChecksummedBytes::default();
+        let object_size = self.original_range.object_size();
+
+        let mut block_builder = ChecksummedBytesBuilder::new(block_size as usize);
 
         pin_mut!(request_stream);
         while let Some(next) = request_stream.next().await {
             assert!(
-                buffer.len() < block_size as usize,
-                "buffer should be flushed when we get a full block"
+                block_builder.len() < block_size as usize,
+                "a full block should have been flushed already"
             );
             let GetBodyPart { offset, data: mut body } = next?;
-            let expected_offset = self.block_offset + buffer.len() as u64;
+            let expected_offset = self.block_offset + block_builder.len() as u64;
             if offset != expected_offset {
                 warn!(key, offset, expected_offset, "wrong offset for GetObject body part");
                 return Err(PrefetchReadError::GetRequestReturnedWrongOffset {
@@ -303,8 +314,10 @@ where
             // Split the body into blocks.
             let mut offset = offset;
             while !body.is_empty() {
-                let remaining = (block_size as usize).saturating_sub(buffer.len()).min(body.len());
-                let chunk: ChecksummedBytes = body.split_to(remaining).into();
+                let chunk_len = (block_size as usize)
+                    .saturating_sub(block_builder.len())
+                    .min(body.len());
+                let chunk: ChecksummedBytes = body.split_to(chunk_len).into();
 
                 // We need to return some bytes to the part queue even before we can fill an entire caching block because
                 // we want to start the feedback loop for the flow-control window.
@@ -323,31 +336,45 @@ where
                     self.part_queue_producer.push(Ok(part));
                 }
                 offset += chunk.len() as u64;
-                buffer
-                    .extend(chunk)
-                    .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;
-                if buffer.len() < block_size as usize {
-                    break;
-                }
 
-                // We have a full block: write it to the cache, send it to the queue, and flush the buffer.
-                self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key, range);
+                // A full block, except for the object's last one which may be shorter.
+                let block_len = (object_size.saturating_sub(self.block_offset as usize)).min(block_size as usize);
+                let block = if block_builder.is_empty() && chunk.len() == block_len {
+                    // This chunk covers the whole block on its own, so cache it as is.
+                    chunk
+                } else {
+                    block_builder
+                        .append(chunk)
+                        .inspect_err(|e| warn!(key, error=?e, "integrity check for body part failed"))?;
+                    if block_builder.len() < block_size as usize {
+                        break;
+                    }
+                    block_builder.finish()
+                };
+
+                // We have a full block: write it to the cache and move on to the next one.
+                self.update_cache(block, self.block_index, self.block_offset, &self.cache_key, range);
                 self.block_index += 1;
                 self.block_offset += block_size;
-                buffer = ChecksummedBytes::default();
             }
         }
 
-        if !buffer.is_empty() {
-            // If we still have data in the buffer, this must be the last block for this object,
+        if !block_builder.is_empty() {
+            // If we still have a partial block, this must be the last block for this object,
             // which can be smaller than block_size (and ends at the end of the object).
             assert_eq!(
-                self.block_offset as usize + buffer.len(),
+                self.block_offset as usize + block_builder.len(),
                 self.original_range.object_size(),
                 "a partial block is only allowed at the end of the object"
             );
             // Write the last block to the cache.
-            self.update_cache(buffer, self.block_index, self.block_offset, &self.cache_key, range);
+            self.update_cache(
+                block_builder.finish(),
+                self.block_index,
+                self.block_offset,
+                &self.cache_key,
+                range,
+            );
         }
         Ok(())
     }
@@ -409,19 +436,13 @@ mod tests {
     use std::{thread, time::Duration};
 
     use futures::executor::{ThreadPool, block_on};
-    use mountpoint_s3_client::{
-        mock_client::{MockClient, MockObject, Operation},
-        types::ETag,
-    };
+    use mountpoint_s3_client::mock_client::{MockClient, MockObject, Operation};
+    use mountpoint_s3_client::types::ETag;
     use test_case::test_case;
 
-    use crate::{
-        data_cache::InMemoryDataCache,
-        mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter},
-        memory::PagedPool,
-        object::ObjectId,
-        prefetch::HandleId,
-    };
+    use crate::data_cache::InMemoryDataCache;
+    use crate::memory::{CandidateSize, PagedPool};
+    use crate::object::ObjectId;
 
     use super::*;
 
@@ -446,7 +467,6 @@ mod tests {
         let seed = 0xaa;
         let object = MockObject::ramp(seed, object_size, ETag::for_tests());
         let id = ObjectId::new(key.to_owned(), object.etag());
-        let handle_id = HandleId::new(1);
 
         // backpressure config
         let initial_request_size = 1 * MB;
@@ -464,12 +484,14 @@ mod tests {
                 .initial_read_window_size(client_part_size)
                 .build(),
         );
-        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(block_size), CandidateSize::new(client_part_size)])
+            .with_minimum_memory_limit()
+            .build();
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let stream = CachingPartStream::new(runtime, mock_client.clone(), mem_limiter.clone(), cache);
+        let stream = CachingPartStream::new(runtime, mock_client.clone(), pool.clone(), cache);
         let range = RequestRange::new(object_size, offset as u64, preferred_size);
         let expected_start_block = (range.start() as usize).div_euclid(block_size);
         let expected_end_block = (range.end() as usize).div_ceil(block_size);
@@ -478,9 +500,9 @@ mod tests {
             // First request (from client)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let config = RequestTaskConfig {
+                cursor_state: pool.create_cursor().state(),
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
-                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
@@ -488,7 +510,7 @@ mod tests {
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(config);
+            let request_task = stream.spawn_request_task(config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -505,9 +527,9 @@ mod tests {
             // Second request (from cache)
             let get_object_counter = mock_client.new_counter(Operation::GetObject);
             let config = RequestTaskConfig {
+                cursor_state: pool.create_cursor().state(),
                 bucket: bucket.to_owned(),
                 object_id: id.clone(),
-                handle_id,
                 range,
                 read_part_size: client_part_size,
                 preferred_part_size: 256 * KB,
@@ -515,7 +537,7 @@ mod tests {
                 max_read_window_size,
                 read_window_size_multiplier,
             };
-            let request_task = stream.spawn_get_object_request(config);
+            let request_task = stream.spawn_request_task(config);
             compare_read(&id, &object, request_task);
             get_object_counter.count()
         };
@@ -549,19 +571,21 @@ mod tests {
                 .initial_read_window_size(client_part_size)
                 .build(),
         );
-        let pool = PagedPool::new_with_candidate_sizes([block_size, client_part_size]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(block_size), CandidateSize::new(client_part_size)])
+            .with_minimum_memory_limit()
+            .build();
         mock_client.add_object(key, object.clone());
 
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
-        let stream = CachingPartStream::new(runtime, mock_client, mem_limiter.clone(), cache);
+        let stream = CachingPartStream::new(runtime, mock_client, pool.clone(), cache);
 
         for offset in [0, 512 * KB, 1 * MB, 4 * MB, 9 * MB] {
             for preferred_size in [1 * KB, 512 * KB, 4 * MB, 12 * MB, 16 * MB] {
                 let config = RequestTaskConfig {
+                    cursor_state: pool.create_cursor().state(),
                     bucket: bucket.to_owned(),
                     object_id: id.clone(),
-                    handle_id: HandleId::new(1),
                     range: RequestRange::new(object_size, offset as u64, preferred_size),
                     read_part_size: client_part_size,
                     preferred_part_size: 256 * KB,
@@ -569,7 +593,7 @@ mod tests {
                     max_read_window_size,
                     read_window_size_multiplier,
                 };
-                let request_task = stream.spawn_get_object_request(config);
+                let request_task = stream.spawn_request_task(config);
                 compare_read(&id, &object, request_task);
             }
         }

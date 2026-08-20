@@ -5,6 +5,7 @@ use crate::metrics::defs::{
     CACHE_PUT_ERRORS, CACHE_PUT_IO_SIZE, CACHE_PUT_LATENCY,
 };
 use crate::object::ObjectId;
+use crate::prefetch::CursorId;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -169,6 +170,7 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if object_size > self.config.max_object_size {
             metrics::counter!(CACHE_OVERSIZED_OBJECTS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
@@ -185,7 +187,9 @@ where
             .get_object(
                 &self.config.bucket_name,
                 &object_key,
-                &GetObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+                &GetObjectParams::new()
+                    .checksum_mode(Some(ChecksumMode::Enabled))
+                    .custom_id(cursor_id.map(|id| id.as_raw())),
             )
             .await
         {
@@ -298,9 +302,13 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let start = Instant::now();
-        let result = match self.read_block(cache_key, block_idx, block_offset, object_size).await {
+        let result = match self
+            .read_block(cache_key, block_idx, block_offset, object_size, cursor_id)
+            .await
+        {
             Ok(Some(data)) => {
                 metrics::histogram!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).record(data.len() as f64);
                 Ok(Some(data))
@@ -523,7 +531,7 @@ mod tests {
         );
 
         let block = cache
-            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .get_block(&cache_key_1, 0, 0, object_1_size, None)
             .await
             .expect("cache should be accessible");
         assert!(
@@ -537,7 +545,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .get_block(&cache_key_1, 0, 0, object_1_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -553,7 +561,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_2, 0, 0, object_2_size)
+            .get_block(&cache_key_2, 0, 0, object_2_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -569,7 +577,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let entry = cache
-            .get_block(&cache_key_1, 1, block_size, object_1_size)
+            .get_block(&cache_key_1, 1, block_size, object_1_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -581,7 +589,7 @@ mod tests {
 
         // Entry 1's first block still intact
         let entry = cache
-            .get_block(&cache_key_1, 0, 0, object_1_size)
+            .get_block(&cache_key_1, 0, 0, object_1_size, None)
             .await
             .expect("cache should be accessible")
             .expect("cache entry should be returned");
@@ -616,7 +624,7 @@ mod tests {
             .await
             .expect("cache should be accessible");
         let get_result = cache
-            .get_block(&cache_key_1, 0, 0, data_1.len())
+            .get_block(&cache_key_1, 0, 0, data_1.len(), None)
             .await
             .expect("cache should be accessible");
         assert!(get_result.is_none());
@@ -662,7 +670,7 @@ mod tests {
             .await
             .unwrap();
         let (received_data, _) = cache
-            .get_block(&cache_key, 0, 0, data.len())
+            .get_block(&cache_key, 0, 0, data.len(), None)
             .await
             .expect("get should succeed with intact metadata")
             .expect("block should be non-empty")
@@ -677,7 +685,7 @@ mod tests {
             .await
             .unwrap();
         let err = cache
-            .get_block(&cache_key, 0, 0, data.len())
+            .get_block(&cache_key, 0, 0, data.len(), None)
             .await
             .expect_err("cache should return error if checksum isn't present");
         assert!(matches!(err, DataCacheError::InvalidBlockChecksum));
@@ -694,7 +702,7 @@ mod tests {
             .await
             .unwrap();
         let err = cache
-            .get_block(&cache_key, 0, 0, data.len())
+            .get_block(&cache_key, 0, 0, data.len(), None)
             .await
             .expect_err("cache should return error if object metadata isn't present");
         assert!(matches!(err, DataCacheError::InvalidBlockHeader(_)));
@@ -718,7 +726,7 @@ mod tests {
             .await
             .unwrap();
         let err = cache
-            .get_block(&cache_key, 0, 0, data_2.len())
+            .get_block(&cache_key, 0, 0, data_2.len(), None)
             .await
             .expect_err("cache should return error if object metadata doesn't match data");
         assert!(matches!(err, DataCacheError::InvalidBlockHeader(_)));
@@ -737,14 +745,14 @@ mod tests {
             .await
             .unwrap();
         let err = cache
-            .get_block(&cache_key, 0, 0, data.len())
+            .get_block(&cache_key, 0, 0, data.len(), None)
             .await
             .expect_err("cache should return error if source bucket does not match");
         assert!(matches!(err, DataCacheError::InvalidBlockHeader(_)));
 
         // Get data that's not been written yet
         let result = cache
-            .get_block(&cache_key_non_existent, 0, 0, data.len())
+            .get_block(&cache_key_non_existent, 0, 0, data.len(), None)
             .await
             .expect("cache should return None if data is not present");
         assert_eq!(result, None);

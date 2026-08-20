@@ -1,14 +1,17 @@
 //! Core harness for stress scenarios.
 
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use mountpoint_s3_fs::s3::{Bucket, Prefix, S3Path};
+use tempfile::TempDir;
 
-use crate::common::fuse;
+use crate::common::fuse::{self, TestSession};
 use crate::common::stress_recorder;
 use crate::stress::test_objects::ensure_shared_objects;
 
@@ -17,6 +20,7 @@ mod latency;
 mod memory_monitor;
 mod report;
 mod scenario;
+mod setup;
 mod watchdog;
 mod worker;
 use invariants::{
@@ -24,8 +28,9 @@ use invariants::{
 };
 pub use latency::{FileOp, FileOpLatencies};
 use memory_monitor::spawn_memory_monitor;
-use report::dump_summary;
-pub use scenario::{Scenario, default_max_latency};
+use report::{dump_metrics_snapshot, dump_summary};
+pub use scenario::{Scenario, default_max_idle, default_max_latency};
+pub use setup::{SetupGuard, budget_parts, hold_budget_parts, warm_cache};
 use watchdog::{NO_STALL, spawn_watchdog};
 pub use worker::Worker;
 
@@ -48,11 +53,15 @@ pub fn run(scenario: Scenario) {
     let Scenario {
         name: scenario_name,
         mut session_config,
+        cache,
+        setup,
         workers,
         max_latency,
+        max_idle,
     } = scenario;
 
-    let mem_limit = session_config.filesystem_config.mem_limit as f64;
+    let mem_limit = session_config.mem_limit as f64;
+    let part_size = session_config.part_size;
     let num_workers = workers.len();
     assert!(
         num_workers > 0,
@@ -74,20 +83,31 @@ pub fn run(scenario: Scenario) {
     let shared_refs: Vec<(&str, usize)> = shared_objects.iter().map(|(k, s)| (k.as_str(), *s)).collect();
     ensure_shared_objects(&shared_refs);
 
-    let session = {
+    // The cache directory (if any) must outlive the session — hold it here.
+    let _cache_dir: Option<TempDir>;
+
+    let session: TestSession = {
         session_config.filesystem_config.allow_delete = true;
         session_config.filesystem_config.allow_overwrite = true;
         let s3_path = stress_mount_s3_path();
         let region = crate::common::s3::get_test_region();
         let sdk_client = crate::common::tokio_block_on(async { crate::common::s3::get_test_sdk_client(&region).await });
-        fuse::s3_session::new_with_test_client(session_config, sdk_client, s3_path)
+        if cache {
+            let dir = new_cache_dir();
+            let cache_dir_path = dir.path().to_path_buf();
+            _cache_dir = Some(dir);
+            fuse::s3_session::new_with_test_client_and_disk_cache(session_config, sdk_client, s3_path, cache_dir_path)
+        } else {
+            _cache_dir = None;
+            fuse::s3_session::new_with_test_client(session_config, sdk_client, s3_path)
+        }
     };
 
     let stop = Arc::new(AtomicBool::new(false));
     let progress: Vec<Arc<AtomicU64>> = (0..num_workers).map(|_| Arc::new(AtomicU64::new(0))).collect();
     let stalled_worker = Arc::new(AtomicUsize::new(NO_STALL));
 
-    let max_idles: Vec<Duration> = workers.iter().map(|w| w.max_idle()).collect();
+    let max_idles: Vec<Duration> = workers.iter().map(|w| max_idle(w.as_ref())).collect();
     let max_join_wait = max_idles
         .iter()
         .copied()
@@ -95,6 +115,18 @@ pub fn run(scenario: Scenario) {
         .expect("scenario must declare at least one worker");
 
     let mount_path: std::path::PathBuf = session.mount_path().to_path_buf();
+
+    // Setup phase: run any setup step to completion *before* spawning workers, so whatever it
+    // establishes (pinned memory, a warmed cache, …) is fully in effect and the workers do not race
+    // it. The returned guard is held until just before unmount (see the explicit `drop` after the
+    // workers join).
+    let setup_guard = setup.map(|setup| {
+        tracing::info!(scenario = scenario_name, "stress: setup phase starting");
+        let guard = setup(&mount_path);
+        tracing::info!(scenario = scenario_name, "stress: setup phase complete");
+        guard
+    });
+
     let mut handles: Vec<thread::JoinHandle<FileOpLatencies>> = Vec::with_capacity(num_workers);
     for (worker_id, worker) in workers.iter().enumerate() {
         let worker = Arc::clone(worker);
@@ -133,9 +165,9 @@ pub fn run(scenario: Scenario) {
 
     // Bounded join: workers observe `stop` between ops and should finish quickly. If any
     // are wedged in a kernel FUSE syscall they cannot observe `stop` and `JoinHandle` has
-    // no timeout API, so we poll `is_finished()` up to a deadline. On timeout we drop
-    // (unmount) the session to force EIO/EINTR on stuck syscalls, then panic with the
-    // stuck worker labels.
+    // no timeout API, so we poll `is_finished()` up to a deadline. On timeout we skip
+    // clean unmount (which would hang waiting for the stuck workers in a circular
+    // dependency) and let process exit force-unmount the filesystem.
     let join_deadline = Instant::now() + max_join_wait;
     while !handles.iter().all(|h| h.is_finished()) {
         if Instant::now() >= join_deadline {
@@ -144,8 +176,17 @@ pub fn run(scenario: Scenario) {
                 .enumerate()
                 .filter_map(|(id, h)| (!h.is_finished()).then_some(labels[id].as_str()))
                 .collect();
-            drop(session);
-            panic!("stress: workers {stuck:?} did not finish within {max_join_wait:?} after stop");
+            // Workers are wedged (likely in uninterruptible FUSE syscalls). Abort FUSE connection
+            // to fail in-flight operations with EIO, then terminate immediately.
+            eprintln!(
+                "stress: workers wedged after stop; aborting FUSE connection and exiting. \
+                 Workers {stuck:?} did not finish within {max_join_wait:?} after stop"
+            );
+            // Best-effort metrics dump before hard exit
+            dump_metrics_snapshot(scenario_name);
+            abort_fuse_connections(&mount_path);
+            // _exit() terminates immediately without waiting for threads or running atexit handlers.
+            unsafe { libc::_exit(1) };
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -158,7 +199,43 @@ pub fn run(scenario: Scenario) {
         aggregate.merge(&rec);
     }
 
-    drop(session);
+    drop(setup_guard);
+
+    // Attempt unmount with timeout. If it hangs, abort FUSE connection.
+    let session_thread = thread::spawn(move || drop(session));
+    let unmount_deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if session_thread.is_finished() {
+            let _ = session_thread.join();
+            break;
+        }
+        if Instant::now() >= unmount_deadline {
+            eprintln!("stress: unmount hung after 30s, aborting FUSE connection and failing test");
+            // Best-effort metrics dump before hard exit
+            dump_metrics_snapshot(scenario_name);
+            // Abort FUSE connection - fails all in-flight requests with EIO, then exit immediately.
+            abort_fuse_connections(&mount_path);
+            unsafe { libc::_exit(1) };
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    // Always dump metrics and run invariant checks before testing for stalls, so that
+    // memory/latency data and pass/fail verdicts are visible in CI output even when the
+    // test fails due to a stall.
+    dump_summary(scenario_name, &aggregate);
+
+    // Workers run in this process, so their I/O buffers count toward RSS; sum them so the
+    // peak-RSS invariant can exclude memory a real out-of-process application would own.
+    let worker_io_buffer_bytes: usize = workers.iter().map(|w| w.io_buffer_bytes()).sum();
+
+    tracing::info!("");
+    tracing::info!("=== STRESS [{}] INVARIANT ASSERTIONS ===", scenario_name);
+    assert_peak_reserved_invariant(scenario_name, mem_limit, part_size);
+    assert_peak_rss_invariant(scenario_name, mem_limit, worker_io_buffer_bytes);
+    assert_teardown_invariants(scenario_name);
+    assert_p100_latency(scenario_name, &aggregate, max_latency);
+    tracing::info!("");
 
     let stalled = stalled_worker.load(Ordering::SeqCst);
     if stalled != NO_STALL {
@@ -167,16 +244,6 @@ pub fn run(scenario: Scenario) {
             labels[stalled], max_idles[stalled],
         );
     }
-
-    dump_summary(scenario_name, &aggregate);
-
-    tracing::info!("");
-    tracing::info!("=== STRESS [{}] INVARIANT ASSERTIONS ===", scenario_name);
-    assert_peak_reserved_invariant(scenario_name, mem_limit);
-    assert_peak_rss_invariant(scenario_name, mem_limit);
-    assert_teardown_invariants(scenario_name);
-    assert_p100_latency(scenario_name, &aggregate, max_latency);
-    tracing::info!("");
 
     tracing::info!(scenario = scenario_name, "stress: finished");
 }
@@ -224,10 +291,62 @@ fn collect_shared_objects(workers: &[Arc<dyn Worker>], scenario_name: &str) -> V
     out
 }
 
+/// Create the temporary directory backing a cached scenario's on-disk data cache.
+///
+/// When `S3_STRESS_CACHE_DIR` is set (in CI it points at a freshly-formatted local NVMe mount, the
+/// same fast disk the cache benchmark uses) the cache is rooted there; otherwise it falls back to
+/// the system temp dir for local runs. The returned [`TempDir`] is deleted on drop.
+fn new_cache_dir() -> TempDir {
+    match std::env::var_os("S3_STRESS_CACHE_DIR") {
+        Some(dir) => tempfile::tempdir_in(dir).expect("failed to create cache dir under S3_STRESS_CACHE_DIR"),
+        None => tempfile::tempdir().expect("failed to create cache dir"),
+    }
+}
+
 fn read_duration_env() -> Duration {
     let secs = std::env::var("STRESS_DURATION_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_DURATION_SECS);
     Duration::from_secs(secs)
+}
+
+/// Abort the FUSE connection for the given mount path by writing to
+/// /sys/fs/fuse/connections/<minor>/abort. This fails all in-flight FUSE
+/// operations on that mount with EIO, unblocking stuck threads.
+fn abort_fuse_connections(mount_path: &Path) {
+    // Find the FUSE minor number for our mount by parsing /proc/self/mountinfo.
+    // Each line has format: "id parent major:minor root mount_point ..."
+    let minor = (|| -> Option<String> {
+        let mountinfo = fs::read_to_string("/proc/self/mountinfo").ok()?;
+        let mount_path_str = mount_path.to_str()?;
+        for line in mountinfo.lines() {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 5 && fields[4] == mount_path_str {
+                // Field 2 is "major:minor"
+                let dev = fields[2];
+                let minor = dev.split(':').nth(1)?;
+                return Some(minor.to_string());
+            }
+        }
+        None
+    })();
+
+    match minor {
+        Some(minor) => {
+            let abort_file = Path::new("/sys/fs/fuse/connections").join(&minor).join("abort");
+            if let Err(e) = fs::write(&abort_file, b"1") {
+                eprintln!(
+                    "stress: failed to abort FUSE connection {}: {}",
+                    abort_file.display(),
+                    e
+                );
+            } else {
+                eprintln!("stress: aborted FUSE connection (minor={})", minor);
+            }
+        }
+        None => {
+            eprintln!("stress: could not find FUSE minor number for {:?}", mount_path);
+        }
+    }
 }

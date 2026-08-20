@@ -8,10 +8,10 @@
 use std::iter::{chain, repeat_n};
 use std::sync::Arc;
 
-use mountpoint_s3_fs::mem_limiter::MINIMUM_MEM_LIMIT;
+use mountpoint_s3_fs::memory::MINIMUM_MEM_LIMIT;
 
 use crate::common::fuse::TestSessionConfig;
-use crate::stress::harness::{self, Scenario, Worker, default_max_latency};
+use crate::stress::harness::{self, Scenario, Worker, default_max_idle, default_max_latency};
 use crate::stress::workers::{Churn, Idle, SMALL_OBJECT_POOL};
 
 const NUM_CHURN_WORKERS: usize = 8;
@@ -29,7 +29,10 @@ fn idle_and_churn() {
     harness::run(Scenario {
         name: "idle_and_churn",
         session_config: TestSessionConfig::default().with_mem_limit(MINIMUM_MEM_LIMIT),
+        cache: false,
+        setup: None,
         workers,
         max_latency: default_max_latency,
+        max_idle: default_max_idle,
     });
 }

@@ -1,4 +1,4 @@
-## Unreleased (v0.10.1)
+## Unreleased (v0.11.0)
 
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))

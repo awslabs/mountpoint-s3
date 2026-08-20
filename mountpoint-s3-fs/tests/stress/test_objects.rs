@@ -11,15 +11,12 @@
 //! e.g. `LARGE_OBJECT_KEY` in `workers/sequential_reader.rs`, the small-object pool in
 //! `workers/common.rs`.
 
-use std::sync::Arc;
-
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::head_object::HeadObjectError;
 use mountpoint_s3_client::S3CrtClient;
 use mountpoint_s3_client::config::S3ClientConfig;
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool, effective_total_memory};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 
 use crate::common::s3::{get_test_bucket, get_test_endpoint_config, get_test_region, get_test_sdk_client};
@@ -88,12 +85,10 @@ const DEFAULT_WRITE_PART_SIZE: usize = 8 * 1024 * 1024;
 const MAX_PARTS: u64 = 10_000;
 const TEST_OBJECT_FILL_BYTE: u8 = 0xA5;
 
-/// Memory budget for the test object uploader: 95% of total system memory, floored at
-/// `MINIMUM_MEM_LIMIT`. Matches the pattern used by Mountpoint.
-fn compute_test_object_mem_budget() -> u64 {
-    use sysinfo::{RefreshKind, System};
-    let sys = System::new_with_specifics(RefreshKind::everything());
-    let ninety_five_pct = ((sys.total_memory() as f64) * 0.95) as u64;
+/// Memory budget for the test object uploader: 95% of effective total memory (cgroup-aware),
+/// floored at `MINIMUM_MEM_LIMIT`. Matches the pattern used by Mountpoint.
+fn compute_test_object_mem_budget() -> usize {
+    let ninety_five_pct = ((effective_total_memory() as f64) * 0.95) as usize;
     ninety_five_pct.max(MINIMUM_MEM_LIMIT)
 }
 
@@ -106,8 +101,10 @@ fn build_test_object_uploader(max_object_size: usize) -> (Uploader<S3CrtClient>,
     let min_part_size = (max_object_size as u64).div_ceil(MAX_PARTS) as usize;
     let part_size = DEFAULT_WRITE_PART_SIZE.max(min_part_size);
 
-    let pool = PagedPool::new_with_candidate_sizes([part_size]);
-    let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), compute_test_object_mem_budget()));
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(part_size)])
+        .with_memory_limit(compute_test_object_mem_budget())
+        .build();
 
     let client_config = S3ClientConfig::default()
         .part_size(part_size)
@@ -115,7 +112,7 @@ fn build_test_object_uploader(max_object_size: usize) -> (Uploader<S3CrtClient>,
         .memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).expect("failed to build S3CrtClient for test object upload");
     let runtime = Runtime::new(client.event_loop_group());
-    let uploader = Uploader::new(client, runtime, pool, mem_limiter, UploaderConfig::new(part_size));
+    let uploader = Uploader::new(client, runtime, pool, UploaderConfig::new(part_size));
 
     (uploader, bucket, part_size)
 }

@@ -12,14 +12,22 @@ use mountpoint_s3_client::config::{EndpointConfig, RustLogAdapter, S3ClientConfi
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
 use mountpoint_s3_fs::Runtime;
-use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::effective_total_memory;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{HandleId, PrefetchGetObject, Prefetcher, PrefetcherConfig};
+use mountpoint_s3_fs::prefetch::{PrefetchGetObject, Prefetcher, PrefetcherConfig};
 use serde_json::{json, to_writer};
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::Subscriber;
 use tracing_subscriber::util::SubscriberInitExt;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+// Keep in sync with the `mount-s3` binary's jemalloc config, see `mountpoint-s3/src/main.rs`.
+#[unsafe(export_name = "_rjem_malloc_conf")]
+pub static MALLOC_CONF: &[u8] = b"abort_conf:true,background_thread:true,narenas:32\0";
 
 const SECONDS_PER_DAY: u64 = 86400;
 
@@ -73,7 +81,7 @@ pub struct CliArgs {
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
     )]
-    pub max_memory_target: Option<u64>,
+    pub memory_target: Option<u64>,
 
     #[clap(
         long,
@@ -122,12 +130,12 @@ fn parse_duration(arg: &str) -> Result<Duration, String> {
 }
 
 impl CliArgs {
-    fn memory_target_in_bytes(&self) -> u64 {
-        if let Some(target) = self.max_memory_target {
-            target * 1024 * 1024
+    fn memory_target_in_bytes(&self) -> usize {
+        if let Some(target) = self.memory_target {
+            target as usize * 1024 * 1024
         } else {
             // Default to 95% of total system memory (cgroup-aware)
-            (effective_total_memory() as f64 * 0.95) as u64
+            (effective_total_memory() as f64 * 0.95) as usize
         }
     }
 
@@ -167,10 +175,12 @@ fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     let bucket = args.bucket.as_str();
-    let pool = PagedPool::new_with_candidate_sizes([args.part_size.unwrap_or(8 * 1024 * 1024) as usize]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(args.part_size.unwrap_or(8 * 1024 * 1024) as usize)])
+        .with_memory_limit(args.memory_target_in_bytes())
+        .build();
     let client_config = args.s3_client_config().memory_pool(pool.clone());
     let client = S3CrtClient::new(client_config).context("failed to create S3 CRT client")?;
-    let mem_limiter = Arc::new(MemoryLimiter::new(pool, args.memory_target_in_bytes()));
     let runtime = Runtime::new(client.event_loop_group());
 
     // Verify if all objects exist and collect metadata
@@ -195,18 +205,17 @@ fn main() -> anyhow::Result<()> {
         let start = Instant::now();
         let manager = Prefetcher::default_builder(client.clone()).build(
             runtime.clone(),
-            mem_limiter.clone(),
+            pool.clone(),
             PrefetcherConfig::default(),
         );
 
         thread::scope(|scope| {
             let mut download_tasks = Vec::new();
 
-            for (idx, (object_id, size)) in object_metadata.iter().enumerate() {
+            for (object_id, size) in &object_metadata {
                 let received_bytes = received_bytes.clone();
                 let object_id = object_id.clone();
-                let handle_id = HandleId::new(idx as u64);
-                let request = manager.prefetch(bucket.to_string(), object_id.clone(), handle_id, *size);
+                let request = manager.prefetch(bucket.to_string(), object_id.clone(), *size);
                 let read_size = args.read_size;
 
                 let task = scope.spawn(move || {

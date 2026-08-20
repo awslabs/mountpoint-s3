@@ -9,8 +9,9 @@
 //! up to some maximum. If the reader ever makes a non-sequential read, we abandon the prefetching
 //! and start again with a new GetObject request with minimum read window size.
 //!
-//! In more technical details, the prefetcher creates a RequestTask when receiving the first read
-//! request from the file system or after it has just been reset. The RequestTask consists of two main
+//! In more technical details, the prefetcher creates a Cursor when receiving the first read
+//! request from the file system or after it has just been reset. The Cursor manages the read
+//! position, backward seek window, and owns a RequestTask. The RequestTask consists of two main
 //! components.
 //! 1.  An ObjectPartStream that has a role to continuously fetch data from the sources which can be
 //!     either S3 or the cache on disk. The ObjectPartStream is spawned and run in a separate thread
@@ -33,7 +34,6 @@
 
 use std::fmt::Debug;
 
-use metrics::{counter, histogram};
 use mountpoint_s3_client::error::{GetObjectError, ObjectClientError};
 use mountpoint_s3_client::{ObjectClient, error_metadata::ProvideErrorMetadata};
 use thiserror::Error;
@@ -42,14 +42,13 @@ use tracing::trace;
 use crate::checksums::{ChecksummedBytes, IntegrityError};
 use crate::data_cache::DataCache;
 use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
-use crate::mem_limiter::{BufferArea, MemoryLimiter};
-use crate::metrics::defs::{FUSE_CACHE_HIT, PREFETCH_RESET_STATE};
+use crate::metrics::defs::FUSE_CACHE_HIT;
 use crate::object::ObjectId;
-use crate::sync::Arc;
 
 mod backpressure_controller;
 mod builder;
 mod caching_stream;
+mod cursor;
 mod part;
 mod part_queue;
 mod part_stream;
@@ -57,24 +56,9 @@ mod seek_window;
 mod task;
 
 pub use builder::PrefetcherBuilder;
+pub use cursor::{Cursor, CursorId};
 use part::PartOperationError;
 use part_stream::{PartStream, RequestRange, RequestTaskConfig};
-use seek_window::SeekWindow;
-use task::RequestTask;
-
-/// Opaque identifier for a file handle, used to attribute prefetch requests to their origin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HandleId(u64);
-
-impl HandleId {
-    pub fn new(id: u64) -> Self {
-        Self(id)
-    }
-
-    pub fn as_raw(&self) -> u64 {
-        self.0
-    }
-}
 
 // This is a weird looking number! We really want our first request size to be 1MiB,
 // which is a common IO size. But Linux's readahead will try to read an extra 128k on on
@@ -202,7 +186,6 @@ fn determine_max_read_size() -> usize {
 pub struct Prefetcher<Client> {
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
-    mem_limiter: Arc<MemoryLimiter>,
 }
 
 impl<Client> Prefetcher<Client>
@@ -223,34 +206,16 @@ where
     }
 
     /// Create a new [Prefetcher] from the given [ObjectPartStream] instance.
-    pub fn new(part_stream: PartStream<Client>, config: PrefetcherConfig, mem_limiter: Arc<MemoryLimiter>) -> Self {
-        Self {
-            part_stream,
-            config,
-            mem_limiter,
-        }
+    pub fn new(part_stream: PartStream<Client>, config: PrefetcherConfig) -> Self {
+        Self { part_stream, config }
     }
 
     /// Start a new prefetch request to the specified object.
-    pub fn prefetch(
-        &self,
-        bucket: String,
-        object_id: ObjectId,
-        handle_id: HandleId,
-        size: u64,
-    ) -> PrefetchGetObject<Client>
+    pub fn prefetch(&self, bucket: String, object_id: ObjectId, size: u64) -> PrefetchGetObject<Client>
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        PrefetchGetObject::new(
-            self.part_stream.clone(),
-            self.config,
-            bucket,
-            object_id,
-            handle_id,
-            size,
-            self.mem_limiter.clone(),
-        )
+        PrefetchGetObject::new(self.part_stream.clone(), self.config, bucket, object_id, size)
     }
 }
 
@@ -262,22 +227,12 @@ where
 {
     part_stream: PartStream<Client>,
     config: PrefetcherConfig,
-    backpressure_task: Option<RequestTask<Client>>,
-    // Invariant: the offset of the last byte in this window is always
-    // self.next_sequential_read_offset - 1.
-    backward_seek_window: SeekWindow,
     bucket: String,
     object_id: ObjectId,
+    size: u64,
+    cursor: Option<Cursor<Client>>,
     // preferred part size in the prefetcher's part queue, not the object part
     preferred_part_size: usize,
-    /// Start offset for sequential read, used for calculating contiguous read metric
-    sequential_read_start_offset: u64,
-    next_sequential_read_offset: u64,
-    next_request_offset: u64,
-    size: u64,
-    mem_limiter: Arc<MemoryLimiter>,
-    /// File handle ID that owns this prefetch request, for per-handle memory accounting.
-    handle_id: HandleId,
 }
 
 impl<Client> PrefetchGetObject<Client>
@@ -290,30 +245,16 @@ where
         config: PrefetcherConfig,
         bucket: String,
         object_id: ObjectId,
-        handle_id: HandleId,
         size: u64,
-        mem_limiter: Arc<MemoryLimiter>,
     ) -> Self {
-        let max_backward_seek_distance = config.max_backward_seek_distance as usize;
-        // a conservative memory reservation to avoid violating the memory limit with the large number of file handles
-        // note that this reservation is done in addition to the one in [PartQueue::push_front]
-        let seek_window_reservation =
-            Self::seek_window_reservation(part_stream.client().read_part_size(), max_backward_seek_distance);
-        mem_limiter.reserve(BufferArea::Prefetch, seek_window_reservation);
         PrefetchGetObject {
             part_stream,
             config,
-            backpressure_task: None,
-            backward_seek_window: SeekWindow::new(max_backward_seek_distance),
-            preferred_part_size: 128 * 1024,
-            sequential_read_start_offset: 0,
-            next_sequential_read_offset: 0,
-            next_request_offset: 0,
             bucket,
             object_id,
             size,
-            mem_limiter,
-            handle_id,
+            cursor: None,
+            preferred_part_size: 128 * 1024,
         }
     }
 
@@ -325,12 +266,12 @@ where
         offset: u64,
         length: usize,
     ) -> Result<ChecksummedBytes, PrefetchReadError<Client::ClientError>> {
-        trace!(
-            offset,
-            length,
-            next_seq_offset = self.next_sequential_read_offset,
-            "read"
-        );
+        trace!(offset, length, "read");
+
+        let remaining = self.size.saturating_sub(offset);
+        if remaining == 0 {
+            return Ok(ChecksummedBytes::default());
+        }
 
         match self.try_read(offset, length).await {
             Ok((data, cache_hit)) => {
@@ -349,7 +290,7 @@ where
                 Ok(data)
             }
             Err(err) => {
-                self.reset_prefetch_to_offset(offset);
+                self.reset_prefetch();
                 Err(err)
             }
         }
@@ -370,213 +311,65 @@ where
         let max_preferred_part_size = 1024 * 1024;
         self.preferred_part_size = self.preferred_part_size.max(length).min(max_preferred_part_size);
 
-        let remaining = self.size.saturating_sub(offset);
-        if remaining == 0 {
-            return Ok((ChecksummedBytes::default(), false));
+        // Try to use the current cursor, if present. Allows for limited non sequential reads.
+        if let Some(ref mut cursor) = self.cursor
+            && let Some(result) = cursor.try_read(offset, length).await?
+        {
+            Ok(result)
+        } else {
+            // Otherwise, create a new cursor at `offset` and read from it.
+            let (cursor, result) = self.read_from_new_cursor(offset, length).await?;
+            self.cursor = Some(cursor);
+            Ok(result)
         }
-        let mut to_read = (length as u64).min(remaining);
-
-        // Try to seek if this read is not sequential, and if seeking fails, cancel and reset the
-        // prefetcher.
-        if self.next_sequential_read_offset != offset {
-            if self.try_seek(offset).await? {
-                trace!("seek succeeded");
-            } else {
-                trace!(
-                    expected = self.next_sequential_read_offset,
-                    actual = offset,
-                    "out-of-order read, resetting prefetch"
-                );
-                counter!(PREFETCH_RESET_STATE).increment(1);
-
-                // This is an approximation, tolerating some seeking caused by concurrent readahead.
-                self.record_contiguous_read_metric();
-
-                self.reset_prefetch_to_offset(offset);
-            }
-        }
-        assert_eq!(self.next_sequential_read_offset, offset);
-
-        if self.backpressure_task.is_none() {
-            self.backpressure_task = Some(self.spawn_read_backpressure_request()?);
-        }
-
-        let mut all_parts_from_cache = true;
-        let mut response = ChecksummedBytes::default();
-        while to_read > 0 {
-            let Some(current_task) = self.backpressure_task.as_mut() else {
-                trace!(offset, length, "read beyond object size");
-                break;
-            };
-            debug_assert!(current_task.remaining() > 0);
-
-            let part = current_task.read(to_read as usize).await?;
-            all_parts_from_cache &= part.is_from_cache();
-            self.backward_seek_window.push(part.clone());
-            let part_bytes = part.into_bytes(&self.object_id, self.next_sequential_read_offset)?;
-
-            self.next_sequential_read_offset += part_bytes.len() as u64;
-            // If we can complete the read with just a single buffer, early return to avoid copying
-            // into a new buffer. This should be the common case as long as part size is larger than
-            // read size, which it almost always is for real S3 clients and FUSE.
-            if response.is_empty() && part_bytes.len() == to_read as usize {
-                return Ok((part_bytes, all_parts_from_cache));
-            }
-
-            let part_len = part_bytes.len() as u64;
-            response.extend(part_bytes)?;
-            to_read -= part_len;
-        }
-
-        Ok((response, all_parts_from_cache))
     }
 
-    /// Spawn a backpressure GetObject request which has a range from current offset to the end of the file.
-    /// We will be using flow-control window to control how much data we want to download into the prefetcher.
-    fn spawn_read_backpressure_request(
-        &mut self,
-    ) -> Result<RequestTask<Client>, PrefetchReadError<Client::ClientError>> {
-        let start = self.next_sequential_read_offset;
+    /// Create a new [`Cursor`] and start reading from it.
+    /// The new cursor starts a backpressure GetObject request with a range from current offset
+    /// to the end of the file.
+    async fn read_from_new_cursor(
+        &self,
+        offset: u64,
+        initial_read_length: usize,
+    ) -> Result<(Cursor<Client>, (ChecksummedBytes, bool)), PrefetchReadError<Client::ClientError>> {
         let object_size = self.size as usize;
-        let read_part_size = self.part_stream.client().read_part_size();
-        let range = RequestRange::new(object_size, start, object_size);
+        let client = self.part_stream.client();
 
-        // The prefetcher now relies on backpressure mechanism so it must be enabled
-        match self.part_stream.client().initial_read_window_size() {
-            Some(value) => {
-                // Also, make sure that we don't get blocked from the beginning
-                if value == 0 {
-                    return Err(PrefetchReadError::BackpressurePreconditionFailed);
-                }
-            }
-            None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
-        };
+        // Validate backpressure preconditions: client must have backpressure enabled
+        // with an initial read window size greater than 0.
+        match client.initial_read_window_size() {
+            Some(0) | None => return Err(PrefetchReadError::BackpressurePreconditionFailed),
+            Some(_) => {}
+        }
 
-        let config = RequestTaskConfig {
+        let pool = self.part_stream.pool();
+        let cursor_handle = pool.create_cursor();
+        let task_config = RequestTaskConfig {
+            cursor_state: cursor_handle.state(),
             bucket: self.bucket.clone(),
             object_id: self.object_id.clone(),
-            handle_id: self.handle_id,
-            range,
-            read_part_size,
+            range: RequestRange::new(object_size, offset, object_size),
+            read_part_size: client.read_part_size(),
             preferred_part_size: self.preferred_part_size,
             initial_request_size: self.config.initial_request_size,
             max_read_window_size: self.config.max_read_window_size,
             read_window_size_multiplier: self.config.sequential_prefetch_multiplier,
         };
-        Ok(self.part_stream.spawn_get_object_request(config))
+        let request_task = self.part_stream.spawn_request_task(task_config);
+        Cursor::new_and_read(
+            request_task,
+            cursor_handle,
+            &self.config,
+            self.object_id.clone(),
+            offset,
+            initial_read_length,
+        )
+        .await
     }
 
-    /// Reset this prefetch request to a new offset, clearing any existing tasks queued.
-    fn reset_prefetch_to_offset(&mut self, offset: u64) {
-        self.backpressure_task = None;
-        self.backward_seek_window.clear();
-        self.sequential_read_start_offset = offset;
-        self.next_sequential_read_offset = offset;
-        self.next_request_offset = offset;
-    }
-
-    /// Try to seek within the current inflight requests without restarting them. Returns true if
-    /// the seek succeeded, in which case self.next_sequential_read_offset will be updated to the
-    /// new offset. If this returns false, the prefetcher is in an unknown state and must be reset.
-    async fn try_seek(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
-        assert_ne!(offset, self.next_sequential_read_offset);
-        trace!(from = self.next_sequential_read_offset, to = offset, "trying to seek");
-        if offset > self.next_sequential_read_offset {
-            self.try_seek_forward(offset).await
-        } else {
-            self.try_seek_backward(offset).await
-        }
-    }
-
-    async fn try_seek_forward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
-        assert!(offset > self.next_sequential_read_offset);
-        let total_seek_distance = offset - self.next_sequential_read_offset;
-        histogram!("prefetch.seek_distance", "dir" => "forward").record(total_seek_distance as f64);
-
-        let Some(task) = self.backpressure_task.as_mut() else {
-            // Can't seek if there's no requests in flight at all
-            return Ok(false);
-        };
-
-        // Not enough data in the read window to serve the forward seek
-        if offset >= task.read_window_end_offset() {
-            return Ok(false);
-        }
-
-        // If we have enough bytes already downloaded (`available`) to skip straight to this read, then do
-        // it. Otherwise, we're willing to wait for the bytes to download only if they're coming "soon", where
-        // soon is defined as up to `max_forward_seek_wait_distance` bytes ahead of the available offset.
-        let available_offset = task.available_offset();
-        let available_soon_offset = available_offset.saturating_add(self.config.max_forward_seek_wait_distance);
-        if offset >= available_soon_offset {
-            trace!(
-                requested_offset = offset,
-                available_offset = available_offset,
-                "seek failed: not enough data available"
-            );
-            return Ok(false);
-        }
-        let mut seek_distance = offset - self.next_sequential_read_offset;
-        while seek_distance > 0 {
-            let part = task.read(seek_distance as usize).await?;
-            seek_distance -= part.len() as u64;
-            self.next_sequential_read_offset += part.len() as u64;
-            self.backward_seek_window.push(part);
-        }
-        Ok(true)
-    }
-
-    async fn try_seek_backward(&mut self, offset: u64) -> Result<bool, PrefetchReadError<Client::ClientError>> {
-        assert!(offset < self.next_sequential_read_offset);
-
-        // When the task is None it means either we have just started prefetching or recently reset it,
-        // in both cases the backward seek window would be empty so we can bail out early.
-        let Some(task) = self.backpressure_task.as_mut() else {
-            return Ok(false);
-        };
-        let backwards_length_needed = self.next_sequential_read_offset - offset;
-        histogram!("prefetch.seek_distance", "dir" => "backward").record(backwards_length_needed as f64);
-
-        let Some(parts) = self.backward_seek_window.read_back(backwards_length_needed as usize) else {
-            trace!("seek failed: not enough data in backwards seek window");
-            return Ok(false);
-        };
-        // This also increase `prefetcher_mem_reserved` value in memory limiter.
-        // At least one subsequent `RequestTask::read` is required for memory tracking to work correctly
-        // because `BackpressureController::drop` needs to know the start offset of the part queue to
-        // release the right amount of memory.
-        task.push_front(parts).await?;
-        self.next_sequential_read_offset = offset;
-        Ok(true)
-    }
-
-    /// Record the end of a contiguous read.
-    ///
-    /// This should be invoked at the end of each set of contiguous reads, including if no further read occurs.
-    fn record_contiguous_read_metric(&self) {
-        histogram!("prefetch.contiguous_read_len")
-            .record((self.next_sequential_read_offset - self.sequential_read_start_offset) as f64);
-    }
-
-    /// The amount of memory reserved for a backwards seek window.
-    ///
-    /// The seek window size is rounded up to the nearest multiple of part_size.
-    fn seek_window_reservation(part_size: usize, seek_window_size: usize) -> u64 {
-        (seek_window_size.div_ceil(part_size) * part_size) as u64
-    }
-}
-
-impl<Client> Drop for PrefetchGetObject<Client>
-where
-    Client: ObjectClient + Clone + Send + Sync + 'static,
-{
-    fn drop(&mut self) {
-        let seek_window_reservation = Self::seek_window_reservation(
-            self.part_stream.client().read_part_size(),
-            self.backward_seek_window.max_size(),
-        );
-        self.mem_limiter.release(BufferArea::Prefetch, seek_window_reservation);
-        self.record_contiguous_read_metric();
+    /// Reset this prefetch request, clearing any existing tasks queued.
+    fn reset_prefetch(&mut self) {
+        self.cursor = None;
     }
 }
 
@@ -600,8 +393,8 @@ mod tests {
 
     use crate::Runtime;
     use crate::data_cache::InMemoryDataCache;
-    use crate::mem_limiter::{MINIMUM_MEM_LIMIT, MemoryLimiter};
-    use crate::memory::PagedPool;
+    use crate::memory::{CandidateSize, PagedPool};
+    use crate::sync::Arc;
 
     use super::*;
 
@@ -639,8 +432,13 @@ mod tests {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        let pool = PagedPool::new_with_candidate_sizes([client.read_part_size(), client.write_part_size()]);
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+        let pool = PagedPool::config()
+            .with_candidate_sizes([
+                CandidateSize::new(client.read_part_size()),
+                CandidateSize::new(client.write_part_size()),
+            ])
+            .with_minimum_memory_limit()
+            .build();
         let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
         let builder = match prefetcher_type {
             PrefetcherType::Default => Prefetcher::default_builder(client),
@@ -649,7 +447,7 @@ mod tests {
                 Prefetcher::caching_builder(cache, client)
             }
         };
-        builder.build(runtime, mem_limiter, prefetcher_config)
+        builder.build(runtime, pool, prefetcher_config)
     }
 
     fn run_sequential_read_test(prefetcher_type: PrefetcherType, size: u64, read_size: usize, test_config: TestConfig) {
@@ -676,8 +474,7 @@ mod tests {
 
         let prefetcher = build_prefetcher(client.clone(), prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let fh = HandleId::new(1);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, size);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, size);
 
         let mut next_offset = 0;
         loop {
@@ -739,6 +536,27 @@ mod tests {
         run_sequential_read_test(prefetcher_type, 256 * 1024 * 1024 + 111, 1024 * 1024, config);
     }
 
+    /// Each read is larger than a part, so `do_read` must stitch multiple parts together (the
+    /// multi-part path that copies the first part off its pool buffer). Guards read correctness
+    /// across that path.
+    #[test_case(PrefetcherType::Default)]
+    #[test_case(PrefetcherType::InMemoryCache(1 * MB))]
+    fn sequential_read_size_larger_than_part(prefetcher_type: PrefetcherType) {
+        let config = TestConfig {
+            initial_request_size: 256 * 1024,
+            max_read_window_size: 64 * 1024 * 1024,
+            sequential_prefetch_multiplier: 8,
+            client_part_size: 1 * 1024 * 1024,
+            max_forward_seek_wait_distance: 16 * 1024 * 1024,
+            max_backward_seek_distance: 2 * 1024 * 1024,
+            cache_block_size: 1 * MB,
+        };
+
+        // read_size (4 MiB + 111) > client_part_size (1 MiB), and the odd tail crosses part
+        // boundaries so reads straddle rather than align.
+        run_sequential_read_test(prefetcher_type, 16 * 1024 * 1024 + 111, 4 * 1024 * 1024 + 111, config);
+    }
+
     fn fail_with_backpressure_precondition_test(
         prefetcher_type: PrefetcherType,
         test_config: TestConfig,
@@ -758,8 +576,7 @@ mod tests {
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let fh = HandleId::new(1);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size as u64);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size as u64);
         let result = block_on(request.read(0, read_size));
         assert!(matches!(result, Err(PrefetchReadError::BackpressurePreconditionFailed)));
     }
@@ -844,8 +661,7 @@ mod tests {
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let fh = HandleId::new(1);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, size);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, size);
 
         let mut next_offset = 0;
         loop {
@@ -975,8 +791,7 @@ mod tests {
 
         let prefetcher = build_prefetcher(client, prefetcher_type, prefetcher_config);
         let object_id = ObjectId::new("hello".to_owned(), etag);
-        let fh = HandleId::new(1);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
 
         for (offset, length) in reads {
             assert!(offset < object_size);
@@ -1139,8 +954,7 @@ mod tests {
         let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
         block_on(async {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let fh = HandleId::new(1);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
 
             // The first read should trigger the prefetcher to try and get the whole object (in 2 parts).
             _ = request.read(0, 1).await.expect("first read should succeed");
@@ -1203,8 +1017,7 @@ mod tests {
 
         block_on(async {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let fh = HandleId::new(1);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
 
             // First read will terminate early
             assert!(matches!(
@@ -1259,8 +1072,7 @@ mod tests {
         // Try every possible seek from first_read_size
         for offset in first_read_size + 1..OBJECT_SIZE {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let fh = HandleId::new(1);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
             if first_read_size > 0 {
                 let _first_read = block_on(request.read(0, first_read_size)).unwrap();
             }
@@ -1295,8 +1107,7 @@ mod tests {
         // Try every possible seek from first_read_size
         for offset in 0..first_read_size {
             let object_id = ObjectId::new("hello".to_owned(), etag.clone());
-            let fh = HandleId::new(1);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, OBJECT_SIZE as u64);
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
             if first_read_size > 0 {
                 let _first_read = block_on(request.read(0, first_read_size)).unwrap();
             }
@@ -1305,14 +1116,6 @@ mod tests {
             let expected = ramp_bytes(0xaa + offset, 1);
             assert_eq!(byte.into_bytes().unwrap()[..], expected[..]);
         }
-    }
-
-    #[test_case(8 * 1024 * 1024, 1 * 1024 * 1024, 8 * 1024 * 1024; "8MiB part_size, 1MiB window")]
-    #[test_case(1 * 1024 * 1024, 1 * 1024 * 1024, 1 * 1024 * 1024; "equal part_size and window")]
-    #[test_case(250 * 1024, 1 * 1024 * 1024, 1250 * 1024; "window larger than part_size")]
-    fn test_seek_window_reservation(part_size: usize, seek_window_size: usize, expected: u64) {
-        let reservation = PrefetchGetObject::<MockClient>::seek_window_reservation(part_size, seek_window_size);
-        assert_eq!(reservation, expected);
     }
 
     #[test_case(8 * MB, 8 * MB, 1 * MB + 128 * KB; "default")]
@@ -1345,8 +1148,7 @@ mod tests {
 
         let prefetcher = build_prefetcher(client.clone(), PrefetcherType::Default, prefetcher_config);
         let object_id = ObjectId::new("test-object".to_owned(), etag);
-        let fh = HandleId::new(1);
-        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
 
         // Perform sequential reads to test the download functionality
         let mut next_offset = 0;
@@ -1361,6 +1163,62 @@ mod tests {
             next_offset += buf.len() as u64;
         }
         assert_eq!(next_offset, object_size);
+    }
+
+    /// Resetting a cursor mid-read reclaims memory, and the next read transparently
+    /// creates a new cursor and returns correct data.
+    #[test]
+    fn reset_cursor_mid_read_recovers() {
+        const PART_SIZE: usize = 256 * KB;
+        const OBJECT_SIZE: usize = 4 * MB;
+        const READ_SIZE: usize = 256 * KB;
+
+        let client = Arc::new(
+            MockClient::config()
+                .bucket("test-bucket")
+                .part_size(PART_SIZE)
+                .enable_backpressure(true)
+                .initial_read_window_size(PART_SIZE)
+                .build(),
+        );
+        let object = MockObject::ramp(0xaa, OBJECT_SIZE, ETag::for_tests());
+        let expected = object.read(0, READ_SIZE * 2);
+        let etag = object.etag();
+        client.add_object("hello", object);
+
+        let prefetcher = build_prefetcher(client, PrefetcherType::Default, Default::default());
+        let object_id = ObjectId::new("hello".to_owned(), etag);
+        let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, OBJECT_SIZE as u64);
+
+        block_on(async {
+            // Read the first chunk
+            let buf = request.read(0, READ_SIZE).await.unwrap();
+            assert_eq!(buf.into_bytes().unwrap()[..], expected[..READ_SIZE]);
+
+            // Reset the cursor via the pool
+            let cursor_id = request
+                .cursor
+                .as_ref()
+                .expect("cursor should still be populated")
+                .cursor_id();
+            let pool = request.part_stream.pool();
+            let available_before = pool.memory_available_for_reservation();
+            assert!(pool.reset_cursor(cursor_id));
+
+            // Memory should be reclaimed (reservation released)
+            let available_after = pool.memory_available_for_reservation();
+            assert!(
+                available_after > available_before,
+                "expected memory to be reclaimed: before={available_before}, after={available_after}"
+            );
+
+            // Second reset should return false
+            assert!(!pool.reset_cursor(cursor_id));
+
+            // Next read should succeed transparently (creates a new cursor)
+            let buf = request.read(READ_SIZE as u64, READ_SIZE).await.unwrap();
+            assert_eq!(buf.into_bytes().unwrap()[..], expected[READ_SIZE..]);
+        });
     }
 
     #[cfg(feature = "shuttle")]
@@ -1399,8 +1257,10 @@ mod tests {
                     .initial_read_window_size(part_size)
                     .build(),
             );
-            let pool = PagedPool::new_with_candidate_sizes([part_size]);
-            let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+            let pool = PagedPool::config()
+                .with_candidate_sizes([CandidateSize::new(part_size)])
+                .with_minimum_memory_limit()
+                .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1415,10 +1275,9 @@ mod tests {
             };
 
             let prefetcher =
-                Prefetcher::default_builder(client).build(Runtime::new(ShuttleRuntime), mem_limiter, prefetcher_config);
+                Prefetcher::default_builder(client).build(Runtime::new(ShuttleRuntime), pool, prefetcher_config);
             let object_id = ObjectId::new("hello".to_owned(), file_etag);
-            let fh = HandleId::new(1);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
 
             let mut next_offset = 0;
             loop {
@@ -1469,8 +1328,10 @@ mod tests {
                     .initial_read_window_size(part_size)
                     .build(),
             );
-            let pool = PagedPool::new_with_candidate_sizes([part_size]);
-            let mem_limiter = Arc::new(MemoryLimiter::new(pool, MINIMUM_MEM_LIMIT));
+            let pool = PagedPool::config()
+                .with_candidate_sizes([CandidateSize::new(part_size)])
+                .with_minimum_memory_limit()
+                .build();
             let object = MockObject::ramp(0xaa, object_size as usize, ETag::for_tests());
             let file_etag = object.etag();
 
@@ -1485,10 +1346,9 @@ mod tests {
             };
 
             let prefetcher =
-                Prefetcher::default_builder(client).build(Runtime::new(ShuttleRuntime), mem_limiter, prefetcher_config);
+                Prefetcher::default_builder(client).build(Runtime::new(ShuttleRuntime), pool, prefetcher_config);
             let object_id = ObjectId::new("hello".to_owned(), file_etag);
-            let fh = HandleId::new(1);
-            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, fh, object_size);
+            let mut request = prefetcher.prefetch("test-bucket".to_owned(), object_id, object_size);
 
             let num_reads = rng.gen_range(10usize..50);
             for _ in 0..num_reads {

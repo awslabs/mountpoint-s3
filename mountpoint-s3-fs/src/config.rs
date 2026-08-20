@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use fuser::MountOption;
 use futures::executor::block_on;
 use mountpoint_s3_client::ObjectClient;
 
@@ -54,14 +55,24 @@ impl MountpointConfig {
     {
         let prefetcher_builder =
             create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool.clone())?;
-        tracing::trace!(filesystem_config=?self.filesystem_config, "creating file system");
+        // Mirror the FUSE-level read-only flag onto the filesystem config so the FS layer can skip
+        // work that doesn't apply to a read-only mount. Awkward but
+        // intentional: `read_only` is a mount-time fact that today lives on `FuseOptions`, and we
+        // don't want every embedder to remember to set the flag on both configs.
+        let mut filesystem_config = self.filesystem_config;
+        filesystem_config.read_only = self
+            .fuse_session_config
+            .options
+            .iter()
+            .any(|o| matches!(o, MountOption::RO));
+        tracing::trace!(filesystem_config=?filesystem_config, "creating file system");
         let fs = S3Filesystem::new(
             client,
             prefetcher_builder,
             memory_pool,
             runtime,
             metablock,
-            self.filesystem_config,
+            filesystem_config,
         );
 
         let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);

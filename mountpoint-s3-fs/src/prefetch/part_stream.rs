@@ -4,40 +4,43 @@ use futures::{Stream, StreamExt, pin_mut};
 use mountpoint_s3_client::ObjectClient;
 use mountpoint_s3_client::types::{ClientBackpressureHandle, GetBodyPart, GetObjectParams, GetObjectResponse};
 use std::marker::{Send, Sync};
-use std::sync::Arc;
 use std::{fmt::Debug, ops::Range};
 use tracing::{Instrument, debug_span, error, trace};
 
 use crate::async_util::Runtime;
 use crate::checksums::ChecksummedBytes;
-use crate::mem_limiter::MemoryLimiter;
+use crate::memory::{CursorState, PagedPool};
 use crate::object::ObjectId;
 use crate::prefetch::backpressure_controller::ReadWindowAlignmentConfig;
+use crate::sync::Arc;
 
-use super::HandleId;
 use super::PrefetchReadError;
 use super::backpressure_controller::{BackpressureConfig, BackpressureLimiter, new_backpressure_controller};
+use super::cursor::CursorId;
 use super::part::{Part, PartSource};
 use super::part_queue::{PartQueueProducer, unbounded_part_queue};
 use super::task::RequestTask;
 
 /// A generic interface to retrieve data from objects in a S3-like store.
 pub trait ObjectPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
-    /// Spawns a request to get the content of an object. The object data will be retrieved in fixed size
-    /// parts and can then be consumed using [RequestTask::read]. Callers need to specify a preferred
-    /// size for the parts, but implementations are allowed to ignore it.
-    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client>;
+    /// Spawn a background task that issues GetObject requests and pushes parts into the
+    /// returned [RequestTask]. Implementations differ in how they source data (direct S3
+    /// vs cache-then-S3).
+    fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client>;
 
     /// The underlying [ObjectClient].
     fn client(&self) -> &Client;
+
+    /// The shared [PagedPool].
+    fn pool(&self) -> &PagedPool;
 }
 
+/// Internal configuration for spawning a [RequestTask].
 #[derive(Clone, Debug)]
-/// The configs for spawning a task in [ObjectPartStream::spawn_get_object_request].
 pub struct RequestTaskConfig {
+    pub cursor_state: Arc<CursorState>,
     pub bucket: String,
     pub object_id: ObjectId,
-    pub handle_id: HandleId,
     pub range: RequestRange,
     pub read_part_size: usize,
     pub preferred_part_size: usize,
@@ -194,12 +197,16 @@ where
         }
     }
 
-    pub fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
-        self.inner.spawn_get_object_request(config)
+    pub fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client> {
+        self.inner.spawn_request_task(config)
     }
 
     pub fn client(&self) -> &Client {
         self.inner.client()
+    }
+
+    pub fn pool(&self) -> &PagedPool {
+        self.inner.pool()
     }
 }
 
@@ -214,43 +221,34 @@ impl<Client> Debug for PartStream<Client> {
 pub struct ClientPartStream<Client: ObjectClient + Clone + Send + Sync + 'static> {
     runtime: Runtime,
     client: Client,
-    mem_limiter: Arc<MemoryLimiter>,
+    pool: PagedPool,
 }
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ClientPartStream<Client> {
-    pub fn new(runtime: Runtime, client: Client, mem_limiter: Arc<MemoryLimiter>) -> Self {
-        Self {
-            runtime,
-            client,
-            mem_limiter,
-        }
+    pub fn new(runtime: Runtime, client: Client, pool: PagedPool) -> Self {
+        Self { runtime, client, pool }
     }
 }
 
 pub type RequestReaderOutput<E> = Result<GetBodyPart, PrefetchReadError<E>>;
 
 impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Client> for ClientPartStream<Client> {
-    fn spawn_get_object_request(&self, config: RequestTaskConfig) -> RequestTask<Client> {
+    fn spawn_request_task(&self, config: RequestTaskConfig) -> RequestTask<Client> {
         assert!(config.preferred_part_size > 0);
 
         let range = config.range;
 
-        let backpressure_config = BackpressureConfig {
-            initial_read_window_size: config.initial_read_window_size(),
-            // We don't want to completely block the stream so let's use
-            // the read part size as minimum read window.
-            min_read_window_size: config.read_part_size,
-            max_read_window_size: config.max_read_window_size,
-            read_window_size_multiplier: config.read_window_size_multiplier,
-            request_range: range.into(),
-            read_window_alignment_config: ReadWindowAlignmentConfig::AlignToPartSize {
+        let backpressure_config = BackpressureConfig::new(
+            &config,
+            ReadWindowAlignmentConfig::AlignToPartSize {
                 from_offset: range.start() + config.initial_request_size as u64,
                 part_size: config.read_part_size as u64,
             },
-        };
+        );
+        let cursor_state = config.cursor_state.clone();
         let (backpressure_controller, mut backpressure_limiter) =
-            new_backpressure_controller(backpressure_config, self.mem_limiter.clone());
-        let (part_queue, part_queue_producer) = unbounded_part_queue(self.mem_limiter.clone());
+            new_backpressure_controller(backpressure_config, cursor_state);
+        let (part_queue, part_queue_producer) = unbounded_part_queue();
         trace!(?range, "spawning request");
 
         let span = debug_span!("prefetch", ?range);
@@ -259,6 +257,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
             .runtime
             .spawn_with_handle(
                 async move {
+                    let cursor_id = backpressure_limiter.cursor_id();
                     let initial_request_end_offset = config.range.start() + config.initial_request_size as u64;
                     let request_stream = read_from_client_stream(
                         &mut backpressure_limiter,
@@ -267,7 +266,7 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
                         config.object_id.clone(),
                         initial_request_end_offset,
                         config.range,
-                        config.handle_id,
+                        cursor_id,
                     );
 
                     let part_composer = ClientPartComposer {
@@ -286,6 +285,10 @@ impl<Client: ObjectClient + Clone + Send + Sync + 'static> ObjectPartStream<Clie
 
     fn client(&self) -> &Client {
         &self.client
+    }
+
+    fn pool(&self) -> &PagedPool {
+        &self.pool
     }
 }
 
@@ -348,7 +351,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
     object_id: ObjectId,
     initial_request_end_offset: u64,
     range: RequestRange,
-    handle_id: HandleId,
+    cursor_id: CursorId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         // Let's start by issuing the first request with a range trimmed to initial read window offset
@@ -361,7 +364,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 first_req_range.into(),
-                handle_id,
+                cursor_id,
             );
             pin_mut!(first_request_stream);
             while let Some(next) = first_request_stream.next().await {
@@ -414,7 +417,7 @@ pub fn read_from_client_stream<'a, Client: ObjectClient + Clone + 'a>(
                 bucket.clone(),
                 object_id.clone(),
                 range.into(),
-                handle_id,
+                cursor_id,
             );
             pin_mut!(request_stream);
             while let Some(next) = request_stream.next().await {
@@ -433,11 +436,11 @@ fn read_from_request<'a, Client: ObjectClient + 'a>(
     bucket: String,
     id: ObjectId,
     request_range: Range<u64>,
-    handle_id: HandleId,
+    cursor_id: CursorId,
 ) -> impl Stream<Item = RequestReaderOutput<Client::ClientError>> + 'a {
     try_stream! {
         let mut request = client
-            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(handle_id.as_raw())))
+            .get_object(&bucket, id.key(), &GetObjectParams::new().range(Some(request_range.clone())).if_match(Some(id.etag().clone())).custom_id(Some(cursor_id.as_raw())))
             .await
             .inspect_err(|e| error!(key=id.key(), error=?e, "GetObject request failed"))
             .map_err(|err| PrefetchReadError::get_request_failed(err, &bucket, id.key()))?;

@@ -25,7 +25,7 @@ use mountpoint_s3_fs::fs::error_metadata::MOUNTPOINT_ERROR_LOOKUP_NONEXISTENT;
 #[cfg(all(feature = "s3_tests", not(feature = "s3express_tests")))]
 use mountpoint_s3_fs::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
 use mountpoint_s3_fs::fs::{CacheConfig, FUSE_ROOT_INODE, OpenFlags, RenameFlags, TimeToLive, ToErrno};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::s3::{Prefix, S3Personality};
 use mountpoint_s3_fs::{S3Filesystem, S3FilesystemConfig};
 use nix::unistd::{getgid, getuid};
@@ -730,7 +730,10 @@ async fn test_upload_aborted_on_write_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
-        PagedPool::new_with_candidate_sizes([part_size]),
+        PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(part_size)])
+            .with_minimum_memory_limit()
+            .build(),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -806,7 +809,10 @@ async fn test_upload_aborted_on_fsync_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
-        PagedPool::new_with_candidate_sizes([part_size]),
+        PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(part_size)])
+            .with_minimum_memory_limit()
+            .build(),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -867,7 +873,10 @@ async fn test_upload_aborted_on_release_failure() {
     );
     let fs = make_test_filesystem_with_client(
         Arc::new(failure_client),
-        PagedPool::new_with_candidate_sizes([part_size]),
+        PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(part_size)])
+            .with_minimum_memory_limit()
+            .build(),
         BUCKET_NAME,
         &Default::default(),
         Default::default(),
@@ -1531,7 +1540,10 @@ async fn test_lookup_404_not_an_error() {
     let name = "test_lookup_404_not_an_error";
     let (bucket, prefix) = get_test_bucket_and_prefix(name);
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new_with_candidate_sizes([part_size]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(part_size)])
+        .with_minimum_memory_limit()
+        .build();
     let client_config = S3ClientConfig::default()
         .endpoint_config(get_test_endpoint_config())
         .read_backpressure(true)
@@ -1568,7 +1580,10 @@ async fn test_lookup_forbidden() {
     let policy = deny_single_object_access_policy(&bucket, &key);
 
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new_with_candidate_sizes([part_size]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(part_size)])
+        .with_minimum_memory_limit()
+        .build();
     let auth_config = get_crt_client_auth_config(get_scoped_down_credentials(&policy).await);
     let client_config = S3ClientConfig::default()
         .auth_config(auth_config)
@@ -1651,7 +1666,10 @@ async fn test_rename_support_is_cached() {
     const FILE_NAME: &str = "a.txt";
 
     let part_size = 1024 * 1024;
-    let pool = PagedPool::new_with_candidate_sizes([part_size]);
+    let pool = PagedPool::config()
+        .with_candidate_sizes([CandidateSize::new(part_size)])
+        .with_minimum_memory_limit()
+        .build();
     let client = Arc::new(
         MockClient::config()
             .bucket(BUCKET_NAME)

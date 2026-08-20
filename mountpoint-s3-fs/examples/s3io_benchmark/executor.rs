@@ -1,16 +1,14 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use mountpoint_s3_client::config::{Allocator, EndpointConfig, S3ClientConfig, Uri};
 use mountpoint_s3_client::types::HeadObjectParams;
 use mountpoint_s3_client::{ObjectClient, S3CrtClient};
-use mountpoint_s3_fs::mem_limiter::{MemoryLimiter, effective_total_memory};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::effective_total_memory;
+use mountpoint_s3_fs::memory::{CandidateSize, PagedPool};
 use mountpoint_s3_fs::object::ObjectId;
-use mountpoint_s3_fs::prefetch::{HandleId, Prefetcher, PrefetcherConfig};
+use mountpoint_s3_fs::prefetch::{Prefetcher, PrefetcherConfig};
 use mountpoint_s3_fs::upload::{Uploader, UploaderConfig};
 use mountpoint_s3_fs::{Runtime, ServerSideEncryption};
 use rand::{RngExt, SeedableRng};
@@ -39,7 +37,6 @@ pub struct Executor {
     pub client: S3CrtClient,
     pub uploader: Uploader<S3CrtClient>,
     prefetcher: Prefetcher<S3CrtClient>,
-    next_handle_id: AtomicU64,
 }
 
 impl Executor {
@@ -48,8 +45,8 @@ impl Executor {
         let read_part_size = global.read_part_size.unwrap_or(8 * 1024 * 1024);
         let write_part_size = global.write_part_size.unwrap_or(8 * 1024 * 1024);
 
-        let max_memory_target = global
-            .max_memory_target
+        let memory_target = global
+            .memory_target
             .unwrap_or_else(|| ((effective_total_memory() as f64 * 0.95) / (1024.0 * 1024.0)) as usize);
 
         let bind = global.bind.clone().unwrap_or_default();
@@ -68,7 +65,11 @@ impl Executor {
             ChecksumAlgorithm::Off => None,
         };
 
-        let pool = PagedPool::new_with_candidate_sizes([read_part_size, write_part_size]);
+        let memory_target_bytes = memory_target * 1024 * 1024;
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(read_part_size), CandidateSize::new(write_part_size)])
+            .with_memory_limit(memory_target_bytes)
+            .build();
 
         let mut endpoint_config = EndpointConfig::new(region);
         if let Some(url) = &global.endpoint_url {
@@ -95,9 +96,6 @@ impl Executor {
         let client = S3CrtClient::new(client_config)
             .map_err(|e| ExecutionError::ResourceInitError(format!("Failed to create S3 client: {}", e)))?;
 
-        let memory_target_bytes = (max_memory_target * 1024 * 1024) as u64;
-        let mem_limiter = Arc::new(MemoryLimiter::new(pool.clone(), memory_target_bytes));
-
         let runtime = Runtime::new(client.event_loop_group());
 
         let server_side_encryption = ServerSideEncryption::new(sse_type, global.sse_kms_key_id.clone());
@@ -106,20 +104,17 @@ impl Executor {
             client.clone(),
             runtime.clone(),
             pool.clone(),
-            mem_limiter.clone(),
             UploaderConfig::new(write_part_size)
                 .server_side_encryption(server_side_encryption)
                 .default_checksum_algorithm(checksum_algorithm),
         );
 
-        let prefetcher =
-            Prefetcher::default_builder(client.clone()).build(runtime, mem_limiter, PrefetcherConfig::default());
+        let prefetcher = Prefetcher::default_builder(client.clone()).build(runtime, pool, PrefetcherConfig::default());
 
         Ok(Self {
             client,
             uploader,
             prefetcher,
-            next_handle_id: AtomicU64::new(1),
         })
     }
 
@@ -155,7 +150,6 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
-        let handle_id = HandleId::new(self.next_handle_id.fetch_add(1, Ordering::Relaxed));
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -179,7 +173,7 @@ impl Executor {
                 break;
             }
 
-            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), handle_id, size);
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
             let mut offset = 0;
             while offset < size {
                 if let Some(max_dur) = max_duration
@@ -229,7 +223,6 @@ impl Executor {
         let prefetcher = &self.prefetcher;
         let bucket = &config.bucket;
         let object_key = &config.object_key;
-        let handle_id = HandleId::new(self.next_handle_id.fetch_add(1, Ordering::Relaxed));
 
         let head_result = client
             .head_object(bucket, object_key, &HeadObjectParams::new())
@@ -255,7 +248,7 @@ impl Executor {
             }
 
             let iteration_start = Instant::now();
-            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), handle_id, size);
+            let mut request = prefetcher.prefetch(bucket.to_string(), object_id.clone(), size);
 
             // Create a unique, deterministic seed by combining randseed with object_id hash
             // and iteration. This ensures each object/iteration has a different but reproducible

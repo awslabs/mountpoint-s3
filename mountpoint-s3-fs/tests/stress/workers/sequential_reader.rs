@@ -15,10 +15,19 @@ pub const LARGE_READ_OBJECT: SharedObject = SharedObject {
     size: 100 * 1024 * 1024 * 1024,
 };
 
+/// The canonical 1 GiB shared object used by the `cache_hit_vs_miss_held_budget` scenario.
+pub const MEDIUM_READ_OBJECT: SharedObject = SharedObject {
+    key: "read_1gib.bin",
+    size: 1024 * 1024 * 1024,
+};
+
 /// A worker that repeatedly opens `target` and reads it front-to-back.
 pub struct SequentialReader {
     pub target: SharedObject,
+    /// Size of each read (the application-level read buffer).
     pub chunk: usize,
+    /// If set, open with `O_DIRECT`.
+    pub direct_io: bool,
 }
 
 impl Worker for SequentialReader {
@@ -28,6 +37,10 @@ impl Worker for SequentialReader {
 
     fn shared_objects(&self) -> Vec<(String, usize)> {
         vec![(self.target.key.to_string(), self.target.size)]
+    }
+
+    fn io_buffer_bytes(&self) -> usize {
+        self.chunk
     }
 
     fn run(
@@ -41,7 +54,15 @@ impl Worker for SequentialReader {
         let path = mount_path.join(SHARED_OBJECTS_PREFIX).join(self.target.key);
         let mut buf = vec![0u8; self.chunk];
         while !stop.load(Ordering::Relaxed) {
-            read_to_eof_once("sequential_reader", &path, &mut buf, progress, latencies, stop);
+            read_to_eof_once(
+                "sequential_reader",
+                &path,
+                &mut buf,
+                self.direct_io,
+                progress,
+                latencies,
+                stop,
+            );
         }
     }
 }

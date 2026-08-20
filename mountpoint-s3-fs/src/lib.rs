@@ -11,7 +11,6 @@ pub mod fuse;
 pub mod logging;
 #[cfg(feature = "manifest")]
 pub mod manifest;
-pub mod mem_limiter;
 pub mod memory;
 pub mod metablock;
 pub mod metrics;
@@ -22,6 +21,7 @@ pub mod s3;
 mod superblock;
 mod sync;
 pub mod upload;
+mod util;
 
 pub use async_util::Runtime;
 pub use config::MountpointConfig;

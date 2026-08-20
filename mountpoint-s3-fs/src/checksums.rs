@@ -3,7 +3,7 @@ use std::{
     ops::{Bound, Range, RangeBounds},
 };
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{self, Visitor},
@@ -160,54 +160,6 @@ impl ChecksummedBytes {
         Ok(())
     }
 
-    /// Append the given checksummed bytes to current [ChecksummedBytes]. Will combine the
-    /// existing checksums if possible, or compute a new one and validate data integrity.
-    ///
-    /// Return [IntegrityError] if data corruption is detected.
-    pub fn extend(&mut self, mut extend: ChecksummedBytes) -> Result<(), IntegrityError> {
-        if extend.is_empty() {
-            // No op, but check that `extend` was not corrupted
-            extend.validate()?;
-            return Ok(());
-        }
-
-        if self.is_empty() {
-            // Replace with `extend`, but check that `self` was not corrupted
-            self.validate()?;
-            *self = extend;
-            return Ok(());
-        }
-
-        // When appending two slices, we can combine their checksums and obtain the new checksum
-        // without having to recompute it from the data.
-        // However, since a `ChecksummedBytes` potentially holds the checksum of some larger buffer,
-        // rather than the exact one for the slice, we need to first invoke `shrink_to_fit` on each
-        // slice and use the resulting exact checksums.
-        self.shrink_to_fit()?;
-        assert_eq!(self.buffer.len(), self.len());
-        extend.shrink_to_fit()?;
-        assert_eq!(extend.buffer.len(), extend.len());
-
-        // Combine the checksums.
-        let new_checksum = combine_checksums(self.checksum, extend.checksum, extend.len());
-
-        // Combine the slices.
-        let new_bytes = {
-            let mut bytes_mut = BytesMut::with_capacity(self.len() + extend.len());
-            bytes_mut.extend_from_slice(&self.buffer);
-            bytes_mut.extend_from_slice(&extend.buffer);
-            bytes_mut.freeze()
-        };
-
-        let new_range = 0..(new_bytes.len());
-        *self = Self {
-            buffer: new_bytes,
-            range: new_range,
-            checksum: new_checksum,
-        };
-        Ok(())
-    }
-
     /// Validate data integrity in this [ChecksummedBytes].
     ///
     /// Return [IntegrityError] on data corruption.
@@ -238,6 +190,72 @@ impl ChecksummedBytes {
     /// Note that no data is copied: the returned `Bytes` still points to a subslice of `buffer`.
     fn buffer_slice(&self) -> Bytes {
         self.buffer.slice(self.range.clone())
+    }
+}
+
+/// Accumulates several [ChecksummedBytes] into one buffer, copying each piece exactly once and
+/// combining their checksums rather than recomputing one over the result.
+///
+/// The buffer is only allocated on the first append, reserving the `capacity` given to [Self::new],
+/// so appending up to that much data allocates exactly once and a builder that is never appended to
+/// does not allocate at all. Appending more still succeeds, growing the buffer as [Vec] normally
+/// would.
+#[must_use]
+pub struct ChecksummedBytesBuilder {
+    /// Destination buffer, filled from the front. Empty until the first append.
+    buffer: Vec<u8>,
+    /// Bytes to reserve for [Self::buffer] when it is first allocated.
+    capacity: usize,
+    /// Combined checksum of [Self::buffer].
+    checksum: Crc32c,
+}
+
+impl ChecksummedBytesBuilder {
+    /// Create a builder that can hold `capacity` bytes without reallocating.
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buffer: Vec::new(),
+            capacity,
+            checksum: Crc32c::new(0),
+        }
+    }
+
+    /// Number of bytes appended so far.
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Returns true if nothing has been appended yet.
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
+    /// Copy `bytes` into the buffer and fold its checksum into the running one.
+    ///
+    /// Return [IntegrityError] if data corruption is detected in `bytes`.
+    pub fn append(&mut self, bytes: ChecksummedBytes) -> Result<(), IntegrityError> {
+        if bytes.is_empty() {
+            // No op, but check that `bytes` was not corrupted.
+            bytes.validate()?;
+            return Ok(());
+        }
+
+        // Shrink to fit so `checksum` covers exactly `bytes`, as `combine_checksums` requires.
+        let (bytes, checksum) = bytes.into_inner()?;
+
+        if self.buffer.is_empty() {
+            self.buffer.reserve_exact(self.capacity);
+        }
+        self.buffer.extend_from_slice(&bytes);
+        self.checksum = combine_checksums(self.checksum, checksum, bytes.len());
+        Ok(())
+    }
+
+    /// Take the accumulated data, leaving the builder empty and ready to accumulate again.
+    pub fn finish(&mut self) -> ChecksummedBytes {
+        let buffer = std::mem::take(&mut self.buffer);
+        let checksum = std::mem::replace(&mut self.checksum, Crc32c::new(0));
+        ChecksummedBytes::new_from_inner_data(Bytes::from(buffer), checksum)
     }
 }
 
@@ -376,6 +394,79 @@ mod tests {
 
         let actual = checksummed_bytes.into_bytes();
         assert!(matches!(actual, Err(IntegrityError::ChecksumMismatch(_, _))));
+    }
+
+    /// Append `pieces` into a builder sized to their total length, and return the result.
+    fn build(pieces: impl IntoIterator<Item = ChecksummedBytes>) -> Result<ChecksummedBytes, IntegrityError> {
+        let pieces: Vec<_> = pieces.into_iter().collect();
+        let capacity = pieces.iter().map(|p| p.len()).sum();
+        let mut builder = ChecksummedBytesBuilder::new(capacity);
+        for piece in pieces {
+            builder.append(piece)?;
+        }
+        Ok(builder.finish())
+    }
+
+    #[test]
+    fn builder_combines_pieces_into_one_buffer() {
+        let expected = Bytes::from_static(b"some bytes and some more bytes");
+        let pieces = [
+            ChecksummedBytes::new(expected.slice(..10)),
+            ChecksummedBytes::new(expected.slice(10..19)),
+            ChecksummedBytes::new(expected.slice(19..)),
+        ];
+
+        let result = build(pieces).unwrap();
+
+        // The combined checksum must match one computed over the whole result, and must be exact
+        // for the buffer so `validate` (which checksums the entire buffer) passes.
+        assert_eq!(crc32c::checksum(&expected), result.checksum);
+        assert_eq!(result.range, 0..expected.len());
+        assert_eq!(expected, result.into_bytes().unwrap());
+    }
+
+    #[test]
+    fn builder_combines_pieces_whose_checksums_cover_a_larger_buffer() {
+        // `split_off` is zero-copy: each half carries the checksum of the whole parent buffer rather
+        // than its own slice. The builder must reconcile that before combining.
+        let full = Bytes::from_static(b"some bytes and some more bytes");
+        let mut first = ChecksummedBytes::new(full.clone());
+        let second = first.split_off(10);
+        assert_ne!(first.checksum, crc32c::checksum(&full.slice(..10)));
+
+        let result = build([first, second]).unwrap();
+
+        assert_eq!(crc32c::checksum(&full), result.checksum);
+        assert_eq!(full, result.into_bytes().unwrap());
+    }
+
+    #[test]
+    fn builder_skips_empty_pieces() {
+        let expected = Bytes::from_static(b"some bytes");
+        let pieces = [
+            ChecksummedBytes::default(),
+            ChecksummedBytes::new(expected.clone()),
+            ChecksummedBytes::default(),
+        ];
+
+        let result = build(pieces).unwrap();
+
+        assert_eq!(crc32c::checksum(&expected), result.checksum);
+        assert_eq!(expected, result.into_bytes().unwrap());
+    }
+
+    #[test]
+    fn builder_tolerates_a_mis_sized_capacity() {
+        // The capacity is only a hint for how much to reserve, not a limit.
+        let expected = Bytes::from_static(b"some bytes");
+        for capacity in [0, 4, expected.len(), 2 * expected.len()] {
+            let mut builder = ChecksummedBytesBuilder::new(capacity);
+            builder.append(ChecksummedBytes::new(expected.clone())).unwrap();
+            let result = builder.finish();
+
+            assert_eq!(crc32c::checksum(&expected), result.checksum);
+            assert_eq!(expected, result.into_bytes().unwrap());
+        }
     }
 
     #[test]
@@ -521,149 +612,6 @@ mod tests {
         assert_eq!(slice.buffer_slice(), shrunken_bytes);
         assert_ne!(slice.buffer, shrunken_bytes);
         assert_ne!(slice.checksum, shrunken_checksum);
-    }
-
-    #[test]
-    fn test_extend() {
-        let expected = Bytes::from_static(b"some bytes extended");
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        let extend_bytes = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-        checksummed_bytes.extend(extend_bytes).unwrap();
-        let actual = checksummed_bytes.buffer_slice();
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_extend_after_split() {
-        let expected = Bytes::from_static(b"some bytes extended");
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        let mut extend = ChecksummedBytes::new(Bytes::from_static(b"bytes extended"));
-        _ = checksummed_bytes.split_off(7);
-        extend = extend.split_off(2);
-        checksummed_bytes.extend(extend).unwrap();
-        let actual = checksummed_bytes.buffer_slice();
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_extend_self_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-
-        // alter the content
-        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
-
-        assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
-        ));
-
-        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-        assert!(matches!(extend.validate(), Ok(())));
-
-        checksummed_bytes.extend(extend).unwrap();
-        assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
-        ));
-    }
-
-    #[test]
-    fn test_extend_after_split_self_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-
-        // alter the content
-        checksummed_bytes.buffer = Bytes::from_static(b"otherbytes");
-
-        assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
-        ));
-
-        _ = checksummed_bytes.split_off(4);
-
-        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-        assert!(matches!(extend.validate(), Ok(())));
-
-        let result = checksummed_bytes.extend(extend);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
-    }
-
-    #[test]
-    fn test_extend_split_off_self_corrupted() {
-        let mut split_off = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-
-        // alter the content
-        split_off.buffer = Bytes::from_static(b"otherbytes");
-
-        split_off = split_off.split_off(4);
-
-        assert!(matches!(
-            split_off.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
-        ));
-
-        let extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-        assert!(matches!(extend.validate(), Ok(())));
-
-        let result = split_off.extend(extend);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
-    }
-
-    #[test]
-    fn test_extend_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        assert!(matches!(checksummed_bytes.validate(), Ok(())));
-
-        let mut extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-
-        // alter the content
-        extend.buffer = Bytes::from_static(b"corrupted");
-
-        assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
-
-        checksummed_bytes.extend(extend).unwrap();
-        assert!(matches!(
-            checksummed_bytes.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
-        ));
-    }
-
-    #[test]
-    fn test_extend_after_split_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        assert!(matches!(checksummed_bytes.validate(), Ok(())));
-
-        let mut extend = ChecksummedBytes::new(Bytes::from_static(b" extended"));
-
-        // alter the content
-        extend.buffer = Bytes::from_static(b"corrupted");
-
-        assert!(matches!(extend.validate(), Err(IntegrityError::ChecksumMismatch(_, _))));
-
-        _ = extend.split_off(4);
-
-        let result = checksummed_bytes.extend(extend);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
-    }
-
-    #[test]
-    fn test_extend_split_off_other_corrupted() {
-        let mut checksummed_bytes = ChecksummedBytes::new(Bytes::from_static(b"some bytes"));
-        assert!(matches!(checksummed_bytes.validate(), Ok(())));
-
-        let mut split_off = ChecksummedBytes::new(Bytes::from_static(b"bytes extended"));
-
-        // alter the content
-        split_off.buffer = Bytes::from_static(b"bytescorrupted");
-
-        split_off = split_off.split_off(5);
-        assert!(matches!(
-            split_off.validate(),
-            Err(IntegrityError::ChecksumMismatch(_, _))
-        ));
-
-        let result = checksummed_bytes.extend(split_off);
-        assert!(matches!(result, Err(IntegrityError::ChecksumMismatch(_, _))));
     }
 
     #[test]

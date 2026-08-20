@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{File, ReadDir};
 use std::os::fd::AsFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use fuser::{Mount, MountOption, Session};
@@ -14,7 +14,7 @@ use mountpoint_s3_fs::fuse::session::FuseSession;
 use mountpoint_s3_fs::fuse::{ErrorLogger, S3FuseFilesystem};
 #[cfg(feature = "manifest")]
 use mountpoint_s3_fs::manifest::{Manifest, ManifestMetablock};
-use mountpoint_s3_fs::memory::PagedPool;
+use mountpoint_s3_fs::memory::{CandidateSize, MINIMUM_MEM_LIMIT, PagedPool};
 use mountpoint_s3_fs::prefetch::PrefetcherBuilder;
 use mountpoint_s3_fs::s3::{Prefix, S3Path};
 use mountpoint_s3_fs::{Runtime, S3Filesystem, S3FilesystemConfig, Superblock, SuperblockConfig};
@@ -77,6 +77,7 @@ pub struct TestSessionConfig {
     #[cfg(feature = "manifest")]
     pub manifest: Option<Manifest>,
     pub fail_on_non_aligned_read_window: bool,
+    pub mem_limit: usize,
 }
 
 impl Default for TestSessionConfig {
@@ -96,6 +97,7 @@ impl Default for TestSessionConfig {
             #[cfg(feature = "manifest")]
             manifest: None,
             fail_on_non_aligned_read_window: false,
+            mem_limit: MINIMUM_MEM_LIMIT,
         }
     }
 }
@@ -120,8 +122,14 @@ impl TestSessionConfig {
     }
 
     /// Override the memory limit for this test session.
-    pub fn with_mem_limit(mut self, mem_limit: u64) -> Self {
-        self.filesystem_config.mem_limit = mem_limit;
+    pub fn with_mem_limit(mut self, mem_limit: usize) -> Self {
+        self.mem_limit = mem_limit;
+        self
+    }
+
+    /// Override the part size for this test session.
+    pub fn with_part_size(mut self, part_size: usize) -> Self {
+        self.part_size = part_size;
         self
     }
 }
@@ -322,7 +330,10 @@ pub mod mock_session {
         };
 
         let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
-        let pool = PagedPool::new_with_candidate_sizes([test_config.part_size]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(test_config.part_size)])
+            .with_memory_limit(test_config.mem_limit)
+            .build();
         let client = Arc::new(
             MockClient::config()
                 .bucket(s3_path.bucket.to_string())
@@ -364,7 +375,13 @@ pub mod mock_session {
             };
 
             let s3_path = S3Path::new(Bucket::new(BUCKET_NAME).unwrap(), Prefix::new(&prefix).unwrap());
-            let pool = PagedPool::new_with_candidate_sizes([test_config.cache_block_size, test_config.part_size]);
+            let pool = PagedPool::config()
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
+                .with_memory_limit(test_config.mem_limit)
+                .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
 
             let client = Arc::new(
@@ -518,9 +535,39 @@ pub mod s3_session {
 
     /// Create a FUSE mount backed by a real S3 client, session will use a test client provided by the caller
     pub fn new_with_test_client(test_config: TestSessionConfig, sdk_client: Client, s3_path: S3Path) -> TestSession {
+        new_with_test_client_inner(test_config, sdk_client, s3_path, None)
+    }
+
+    /// Like [`new_with_test_client`], but mounts with an on-disk data cache rooted at `cache_dir`.
+    pub fn new_with_test_client_and_disk_cache(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        s3_path: S3Path,
+        cache_dir: PathBuf,
+    ) -> TestSession {
+        new_with_test_client_inner(test_config, sdk_client, s3_path, Some(cache_dir))
+    }
+
+    /// Shared implementation for [`new_with_test_client`] and
+    /// [`new_with_test_client_and_disk_cache`].
+    fn new_with_test_client_inner(
+        test_config: TestSessionConfig,
+        sdk_client: Client,
+        s3_path: S3Path,
+        cache_dir: Option<PathBuf>,
+    ) -> TestSession {
+        use mountpoint_s3_fs::data_cache::{CacheLimit, DiskDataCache, DiskDataCacheConfig};
+
         let mount_dir = tempfile::tempdir().unwrap();
 
-        let pool = PagedPool::new_with_candidate_sizes([test_config.part_size]);
+        let pool = PagedPool::config()
+            .with_candidate_sizes([
+                CandidateSize::prunable(test_config.cache_block_size),
+                CandidateSize::prunable(test_config.part_size),
+            ])
+            .with_memory_limit(test_config.mem_limit)
+            .build();
+
         let client_config = S3ClientConfig::default()
             .part_size(test_config.part_size)
             .endpoint_config(get_test_endpoint_config())
@@ -530,7 +577,22 @@ pub mod s3_session {
             .memory_pool(pool.clone());
         let client = S3CrtClient::new(client_config).unwrap();
         let runtime = Runtime::new(client.event_loop_group());
-        let prefetcher_builder = Prefetcher::default_builder(client.clone());
+
+        let prefetcher_builder = match cache_dir {
+            Some(cache_dir) => {
+                let cache = DiskDataCache::new(
+                    DiskDataCacheConfig {
+                        cache_directory: cache_dir,
+                        block_size: test_config.cache_block_size as u64,
+                        limit: CacheLimit::default(),
+                    },
+                    pool.clone(),
+                );
+                Prefetcher::caching_builder(cache, client.clone())
+            }
+            None => Prefetcher::default_builder(client.clone()),
+        };
+
         let mounted_session = create_fuse_session(
             client,
             prefetcher_builder,
@@ -560,7 +622,13 @@ pub mod s3_session {
             let s3_path = get_test_s3_path(test_name);
             let region = get_test_region();
 
-            let pool = PagedPool::new_with_candidate_sizes([test_config.cache_block_size, test_config.part_size]);
+            let pool = PagedPool::config()
+                .with_candidate_sizes([
+                    CandidateSize::new(test_config.cache_block_size),
+                    CandidateSize::new(test_config.part_size),
+                ])
+                .with_memory_limit(test_config.mem_limit)
+                .build();
             let cache = cache_factory(test_config.cache_block_size as u64, pool.clone());
 
             let client = create_crt_client(
