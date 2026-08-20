@@ -170,6 +170,7 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         if object_size > self.config.max_object_size {
             metrics::counter!(CACHE_OVERSIZED_OBJECTS, ATTR_CACHE => CACHE_EXPRESS).increment(1);
@@ -186,7 +187,9 @@ where
             .get_object(
                 &self.config.bucket_name,
                 &object_key,
-                &GetObjectParams::new().checksum_mode(Some(ChecksumMode::Enabled)),
+                &GetObjectParams::new()
+                    .checksum_mode(Some(ChecksumMode::Enabled))
+                    .custom_id(cursor_id.map(|id| id.as_raw())),
             )
             .await
         {
@@ -299,10 +302,13 @@ where
         block_idx: BlockIndex,
         block_offset: u64,
         object_size: usize,
-        _cursor_id: Option<CursorId>,
+        cursor_id: Option<CursorId>,
     ) -> DataCacheResult<Option<ChecksummedBytes>> {
         let start = Instant::now();
-        let result = match self.read_block(cache_key, block_idx, block_offset, object_size).await {
+        let result = match self
+            .read_block(cache_key, block_idx, block_offset, object_size, cursor_id)
+            .await
+        {
             Ok(Some(data)) => {
                 metrics::histogram!(CACHE_GET_IO_SIZE, ATTR_CACHE => CACHE_EXPRESS).record(data.len() as f64);
                 Ok(Some(data))
