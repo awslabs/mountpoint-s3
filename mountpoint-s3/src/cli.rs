@@ -45,6 +45,9 @@ Arguments:
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
+    long_about = "Mountpoint for Amazon S3\n\n\
+Learn more in Mountpoint's configuration documentation:\n\
+https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md",
     version = build_info::FULL_VERSION,
     group(
         ArgGroup::new("cache_group")
@@ -185,7 +188,18 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Maximum memory usage target [default: 95% of total system memory with a minimum of 512 MiB]",
+        help = "Maximum memory usage target [default: 95% of available memory, minimum: 512 MiB]",
+        long_help = "\
+Target (not a guaranteed limit) for Mountpoint's total memory usage, in MiB.
+
+Mountpoint manages the memory used to buffer reads and writes to stay within this
+target. Lowering it can reduce throughput, and it caps how many files can be open
+for writing at the same time -- once that cap is reached, opening a file for
+writing fails with ENOMEM.
+
+Defaults to 95% of available memory (the cgroup limit where one applies, otherwise
+total system memory).\
+        ",
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
         help_heading = CLIENT_OPTIONS_HEADER
