@@ -2,7 +2,7 @@ use std::{sync::atomic::Ordering, time::Instant};
 
 use humansize::make_format;
 use metrics::atomics::AtomicU64;
-use sysinfo::System;
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tracing::{debug, trace};
 
 use crate::memory::{BufferKind, PagedPool};
@@ -160,14 +160,33 @@ impl MemoryLimiter {
 
 /// Returns the effective total memory available to this process in bytes.
 ///
-/// On Linux, this respects cgroup memory limits when set.
+/// On Linux, this respects cgroup memory limits when set, including limits
+/// inherited from ancestor cgroups (e.g., when running in a nested scope
+/// under a parent slice with memory constraints).
+///
 /// On other platforms, returns the total physical memory.
 pub fn effective_total_memory() -> u64 {
     let mut sys = System::new();
     sys.refresh_memory();
-    sys.cgroup_limits()
-        .map(|cg| cg.total_memory)
-        .unwrap_or_else(|| sys.total_memory())
+
+    // Try to get cgroup limits for this specific process. Process::cgroup_limits()
+    // walks the ancestor cgroup tree to find inherited limits.
+    let pid = Pid::from_u32(std::process::id());
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        false, // don't remove dead processes
+        ProcessRefreshKind::nothing(),
+    );
+    if let Some(cg) = sys.process(pid).and_then(|p| p.cgroup_limits()) {
+        return cg.total_memory;
+    }
+
+    // Fallback to system-level cgroup detection
+    if let Some(cg) = sys.cgroup_limits() {
+        return cg.total_memory;
+    }
+
+    sys.total_memory()
 }
 
 #[cfg(test)]
@@ -202,11 +221,15 @@ mod tests {
     fn test_effective_total_memory_falls_back_to_system_memory() {
         let mut sys = System::new();
         sys.refresh_memory();
-        if sys.cgroup_limits().is_some() {
+
+        let pid = Pid::from_u32(std::process::id());
+        sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), false, ProcessRefreshKind::nothing());
+        if sys.process(pid).and_then(|p| p.cgroup_limits()).is_some() {
             // A cgroup limit is active on this machine — the fallback path
             // won't be exercised, so there's nothing to assert here.
             return;
         }
+
         assert_eq!(
             effective_total_memory(),
             sys.total_memory(),
