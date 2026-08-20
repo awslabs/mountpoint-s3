@@ -244,6 +244,8 @@ There are two recommendations for this scenario:
 
 If you're seeing slower throughput than expected (i.e. significantly slower than the network bandwidth for an EC2 instance type), there may be a few areas to investigate.
 
+Throughput may be reduced by memory pressure, especially in containers with a low memory limit: see the [memory pressure section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/TROUBLESHOOTING.md#slow-reads-or-writes-under-memory-pressure).
+
 If you're only reading from one file at a given time, the network interface may not be fully saturated.
 Mountpoint supports Linux file system operations using FUSE.
 Operations on files pass through several subsystems including the Linux VFS layer as well as the Mountpoint process.
@@ -259,6 +261,27 @@ We recommend reviewing Mountpoint logs to confirm if requests may be failing and
 For example, throttled requests being retried may introduce latency to file system requests.
 Learn more about how to use Mountpoint logging in our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md).
 To further debug throttling errors, see the [throttling errors section](https://github.com/awslabs/mountpoint-s3/blob/main/doc/TROUBLESHOOTING.md#throttling-errors) of this page.
+
+## Slow reads or writes under memory pressure
+
+Mountpoint buffers object data for reads and writes within a budget derived from `--memory-target`.
+When that budget is exhausted, Mountpoint slows I/O down: prefetch windows shrink, buffer allocations queue until memory is released, and speculatively prefetched data is discarded to serve reads that applications are waiting on.
+Throughput degrades, and any discarded data has to be fetched from S3 again.
+
+Memory pressure can be identified from Mountpoint's metrics, which you can write to logs with `--log-metrics` (see our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#metrics)) or export (see our [metrics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/METRICS.md)).
+If the following metrics are emitted, then Mountpoint is under memory pressure:
+
+| Metric | Meaning |
+|--------|---------|
+| `pool.allocation_queue_wait` | Time buffer allocations spent waiting for memory to be released |
+| `pool.allocation_queue_depth` | Buffer allocations currently waiting for memory |
+| `mem.cursor_resets` | Prefetched data discarded to reclaim memory |
+| `mem.seek_window_resets` | Backward seek windows cleared to reclaim memory |
+
+These are the names as they appear in logs; exported over OTLP they are prefixed with `experimental.`.
+
+To reduce memory pressure, increase `--memory-target` if the host or container has memory to spare, reduce the number of files your application keeps open at the same time, or lower `--read-part-size` and `--write-part-size`.
+For more about the memory target, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#configuring-memory-usage).
 
 ## Throttling Errors
 
@@ -305,6 +328,20 @@ mountpoint_s3_fs::fuse: write failed: upload error: object exceeded maximum uplo
 
 For workloads uploading files larger than 78GiB, we recommend configuring a larger part size using the `--write-part-size <MiB>` command-line argument.
 For more information, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#maximum-object-size).
+
+## Cannot open file for writing
+
+Mountpoint caps how many files may be open for writing at the same time, because each one reserves a part-sized buffer until it is closed.
+Once the cap is reached, opening a file for writing fails with `ENOMEM` ("Cannot allocate memory") and Mountpoint logs an error:
+
+```
+WARN open{req=25 ino=2 pid=1234}:
+mountpoint_s3_fs::fuse: open failed with errno 12: cannot open file for writing: exceeded max allowed concurrent write file handles of 47 based on memory target 512MiB (part size is 8MiB). Increase --memory-target or decrease --write-part-size to allow for more concurrent writes, or close existing open-for-write file handles and retry open() operation.
+```
+
+Mountpoint logs the cap at startup, and increments the `fs.write_handle_limit_exceeded` metric each time an open is rejected.
+To resolve this, close write file handles your application no longer needs, or raise the cap by increasing `--memory-target` or decreasing `--write-part-size`.
+For how the cap is calculated, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#maximum-number-of-files-open-for-writing).
 
 ## Credentials errors
 
