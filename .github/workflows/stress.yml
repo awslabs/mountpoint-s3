@@ -63,6 +63,13 @@ jobs:
           - cache_hit_vs_miss_held_budget
           - cache_miss_held_budget_misaligned_part
           - sustained_writes_incremental_upload
+          - many_handlers
+          - page_fragmentation
+          - mixed_rw_read16_write8
+          - mixed_rw_read8_write16
+          - mixed_rw_oversized
+          - page_creation_under_pressure
+          - sustained_reads_large_window
         include:
           - scenario: sustained_writes_incremental_upload
             s3_bucket_name: ${{ vars.S3_EXPRESS_ONE_ZONE_BENCH_BUCKET_NAME }}
