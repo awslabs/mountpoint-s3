@@ -395,6 +395,7 @@ jobs:
       options: >-
         --memory=4g
         --memory-swap=4g
+        --privileged
 
     steps:
     - name: Install prerequisites for container
@@ -430,10 +431,47 @@ jobs:
         cat /sys/fs/cgroup/memory.max 2>/dev/null || echo "not found"
         echo "=== cgroup v1 ==="
         cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo "not found"
+        echo "=== Process cgroup location ==="
+        cat /proc/self/cgroup
     - name: Run cgroup-aware memory detection test
       env:
         TEST_CGROUP_MEM_LIMIT_MB: "4096"
       run: cargo test -p mountpoint-s3-fs --lib memory::limiter::tests::test_effective_total_memory_respects_cgroup
+    - name: Test inherited cgroup memory limit detection
+      run: |
+        set -e
+
+        readonly LIMIT_BYTES=$((1 * 1024 * 1024 * 1024))
+        readonly SLICE=/sys/fs/cgroup/mp-test.slice
+        readonly LEAF="$SLICE/mp-test.scope"
+
+        # Move all processes out of root so we can enable subtree_control
+        mkdir -p /sys/fs/cgroup/init.scope
+        for pid in $(cat /sys/fs/cgroup/cgroup.procs); do
+          echo "$pid" > /sys/fs/cgroup/init.scope/cgroup.procs 2>/dev/null || true
+        done
+        echo '+memory' > /sys/fs/cgroup/cgroup.subtree_control
+
+        # Create nested hierarchy with limit only on parent slice
+        mkdir -p "$SLICE"
+        echo '+memory' > "$SLICE/cgroup.subtree_control"
+        mkdir -p "$LEAF"
+
+        echo "$LIMIT_BYTES" > "$SLICE/memory.max"
+        echo max > "$LEAF/memory.max"
+
+        echo "Parent slice memory.max: $(cat "$SLICE/memory.max")"
+        echo "Child scope memory.max: $(cat "$LEAF/memory.max")"
+
+        # Run test from inside the child cgroup
+        bash -c "
+          echo \$\$ > '$LEAF/cgroup.procs'
+          cat /proc/self/cgroup
+          TEST_CGROUP_MEM_LIMIT_MB=1024 cargo test -p mountpoint-s3-fs --lib memory::limiter::tests::test_effective_total_memory_respects_cgroup
+        "
+
+        # Cleanup
+        rmdir "$LEAF" "$SLICE" /sys/fs/cgroup/init.scope 2>/dev/null || true
 
   workflow-complete:
     name: "Tests Workflow Complete"
