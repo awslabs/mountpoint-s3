@@ -318,6 +318,8 @@ where
             Ok(result)
         } else {
             // Otherwise, create a new cursor at `offset` and read from it.
+            // Drop the stale cursor first to cancel its inflight requests and release its buffers.
+            self.cursor = None;
             let (cursor, result) = self.read_from_new_cursor(offset, length).await?;
             self.cursor = Some(cursor);
             Ok(result)
