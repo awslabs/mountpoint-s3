@@ -149,11 +149,12 @@ where
         runtime: Runtime,
         metablock: impl Metablock + 'static,
         config: S3FilesystemConfig,
+        read_only: bool,
     ) -> Self {
-        trace!(?config, "new filesystem");
+        trace!(?config, read_only, "new filesystem");
 
         let pool = pool.clone();
-        let write_handle_limiter = (!config.read_only)
+        let write_handle_limiter = (!read_only)
             .then(|| WriteHandleLimiter::new(pool.mem_limit(), pool.write_buffer_budget(), client.write_part_size()));
         let prefetcher = prefetch_builder.build(runtime.clone(), pool.clone(), config.prefetcher_config);
         let uploader = Uploader::new(
@@ -807,6 +808,7 @@ mod tests {
     use futures::executor::ThreadPool;
     use mountpoint_s3_client::mock_client::{MockClient, MockObject};
     use mountpoint_s3_client::types::ETag;
+    use test_case::test_case;
 
     #[tokio::test]
     async fn test_open_with_corrupted_sse() {
@@ -842,7 +844,7 @@ mod tests {
                 s3_personality: fs_config.s3_personality,
             },
         );
-        let mut fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
+        let mut fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config, false);
 
         // Lookup inode of the dir1 directory
         let entry = fs.lookup(FUSE_ROOT_INODE, "dir1".as_ref()).await.unwrap();
@@ -1108,7 +1110,44 @@ mod tests {
                 s3_personality: fs_config.s3_personality,
             },
         );
-        S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config)
+        S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config, false)
+    }
+
+    #[test_case(false, true)]
+    #[test_case(true, false)]
+    fn test_write_handle_limiter_follows_read_only(read_only: bool, expect_limiter: bool) {
+        let bucket = Bucket::new("bucket").unwrap();
+        let client = MockClient::config()
+            .bucket(bucket.to_string())
+            .enable_backpressure(true)
+            .initial_read_window_size(1024 * 1024)
+            .part_size(1024 * 1024)
+            .build();
+        let runtime = Runtime::new(ThreadPool::builder().pool_size(1).create().unwrap());
+        let pool = PagedPool::config()
+            .with_candidate_sizes([CandidateSize::new(32)])
+            .with_minimum_memory_limit()
+            .build();
+        let fs_config = S3FilesystemConfig::default();
+        let superblock = Superblock::new(
+            client.clone(),
+            S3Path::new(bucket, Default::default()),
+            SuperblockConfig {
+                cache_config: fs_config.cache_config.clone(),
+                s3_personality: fs_config.s3_personality,
+            },
+        );
+        let fs = S3Filesystem::new(
+            client.clone(),
+            Prefetcher::default_builder(client),
+            pool,
+            runtime,
+            superblock,
+            fs_config,
+            read_only,
+        );
+
+        assert_eq!(fs.write_handle_limiter.is_some(), expect_limiter);
     }
 
     /// Verifies that the limiter rejects opens for write past the configured cap with `ENOMEM`,
@@ -1155,13 +1194,13 @@ mod tests {
                 s3_personality: fs_config.s3_personality,
             },
         );
-        let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config);
+        let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, fs_config, false);
 
         // Sanity-check the derivation: tunings above must yield exactly `EXPECTED_CAP` writer slots.
         let cap = fs
             .write_handle_limiter
             .as_ref()
-            .expect("limiter should exist when read_only is false")
+            .expect("limiter should exist for a read-write mount")
             .max_concurrent_writes();
         assert_eq!(cap, EXPECTED_CAP);
 

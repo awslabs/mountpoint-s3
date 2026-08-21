@@ -222,6 +222,7 @@ where
             runtime,
             ManifestMetablock::new(manifest.clone()).expect("metablock must be created"),
             filesystem_config,
+            false,
         );
     };
 
@@ -239,6 +240,7 @@ where
             },
         ),
         filesystem_config,
+        false,
     )
 }
 

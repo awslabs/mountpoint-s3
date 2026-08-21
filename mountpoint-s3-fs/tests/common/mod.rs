@@ -80,7 +80,7 @@ where
             s3_personality: config.s3_personality,
         },
     );
-    S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, config)
+    S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, config, false)
 }
 
 #[track_caller]

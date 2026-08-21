@@ -84,6 +84,16 @@ impl FuseSessionConfig {
     pub fn mount_point(&self) -> &MountPoint {
         &self.mount_point
     }
+
+    /// Whether this mount was requested read-only, i.e. [`FuseOptions::read_only`], which
+    /// [`Self::new`] is the only thing that can put in the mount options.
+    ///
+    /// This is always `false` when the mount point is a file descriptor: there the mount has
+    /// already been performed by the caller and its options are not visible to us.
+    /// Such callers should state it explicitly with [`crate::MountpointConfig::read_only`].
+    pub fn read_only(&self) -> bool {
+        self.options.iter().any(|o| matches!(o, MountOption::RO))
+    }
 }
 
 /// OS mount point where S3 file system should be mounted.
