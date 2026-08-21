@@ -27,7 +27,7 @@ Mountpoint is available directly in the Amazon Linux 2023 repository since AL202
    mount-s3 1.21.0+1.amzn2023
    ```
 
-### Other RPM-based distributions (Amazon Linux 2, Fedora, CentOS, RHEL; excluding SUSE)
+### Other RPM-based distributions (Fedora, CentOS, RHEL; excluding SUSE)
 
 To download and install Mountpoint for Amazon S3 on RPM-based distributions, including Amazon Linux, follow these steps:
 
