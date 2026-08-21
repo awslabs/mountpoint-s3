@@ -264,9 +264,7 @@ To further debug throttling errors, see the [throttling errors section](https://
 
 ## Slow reads or writes under memory pressure
 
-Mountpoint buffers object data for reads and writes within a budget derived from `--memory-target`.
-When that budget is exhausted, Mountpoint slows I/O down: prefetch windows shrink, buffer allocations queue until memory is released, and speculatively prefetched data is discarded to serve reads that applications are waiting on.
-Throughput degrades, and any discarded data has to be fetched from S3 again.
+Mountpoint may slow down read and write operations under memory pressure, resulting in reduced throughput and increased latency. When Mountpoint reaches its memory budget, it starts issuing fewer parallel requests, reducing or stopping speculative prefetching, and even discarding data already prefetched, in order to prioritize I/O operations that applications are waiting on. 
 
 Memory pressure can be identified from Mountpoint's metrics, which you can write to logs with `--log-metrics` (see our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#metrics)) or export (see our [metrics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/METRICS.md)).
 If the following metrics are emitted, then Mountpoint is under memory pressure:
