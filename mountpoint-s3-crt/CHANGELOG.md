@@ -2,7 +2,7 @@
 
 ### Breaking changes
 
-* Remove `s3::pool::MemoryPool::get_buffer`. `get_buffer_async` is now a required method, so implementations can defer allocation when memory is not immediately available. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+* Redesign the experimental `MemoryPool` trait. The `get_buffer` method was removed in favor of the now required `get_buffer_async` method, which allows implementations to defer allocation when memory is not immediately available. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 
 ## v0.15.0 (July 20, 2026)
 
