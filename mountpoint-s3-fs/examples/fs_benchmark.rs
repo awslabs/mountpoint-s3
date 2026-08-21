@@ -187,7 +187,15 @@ fn mount_file_system(
             s3_personality: filesystem_config.s3_personality,
         },
     );
-    let fs = S3Filesystem::new(client, prefetcher_builder, pool, runtime, superblock, filesystem_config);
+    let fs = S3Filesystem::new(
+        client,
+        prefetcher_builder,
+        pool,
+        runtime,
+        superblock,
+        filesystem_config,
+        true,
+    );
 
     let options = FuseOptions {
         read_only: true,

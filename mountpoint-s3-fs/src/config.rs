@@ -1,5 +1,4 @@
 use anyhow::Context as _;
-use fuser::MountOption;
 use futures::executor::block_on;
 use mountpoint_s3_client::ObjectClient;
 
@@ -20,6 +19,7 @@ pub struct MountpointConfig {
     data_cache_config: DataCacheConfig,
     filesystem_config: S3FilesystemConfig,
     error_logger: Option<Box<dyn ErrorLogger + Send + Sync>>,
+    read_only: Option<bool>,
 }
 
 impl MountpointConfig {
@@ -33,6 +33,7 @@ impl MountpointConfig {
             data_cache_config,
             filesystem_config,
             error_logger: None,
+            read_only: None,
         }
     }
 
@@ -40,6 +41,23 @@ impl MountpointConfig {
     pub fn error_logger(mut self, error_logger: impl ErrorLogger + Send + Sync + 'static) -> Self {
         self.error_logger = Some(Box::new(error_logger));
         self
+    }
+
+    /// Override whether the file system treats this mount as read-only.
+    ///
+    /// By default this is taken from the FUSE mount options
+    /// ([`FuseSessionConfig::read_only`]). Set it explicitly when the mount point is a file
+    /// descriptor: there the mount has already been performed by the caller, so Mountpoint cannot
+    /// see whether it was mounted read-only.
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = Some(read_only);
+        self
+    }
+
+    /// Whether to build the file system read-only: the caller's [`Self::read_only`] override if
+    /// set, otherwise whatever the FUSE mount options say.
+    fn is_read_only(&self) -> bool {
+        self.read_only.unwrap_or(self.fuse_session_config.read_only())
     }
 
     /// Create a new FUSE session
@@ -53,26 +71,18 @@ impl MountpointConfig {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
+        let read_only = self.is_read_only();
         let prefetcher_builder =
             create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool.clone())?;
-        // Mirror the FUSE-level read-only flag onto the filesystem config so the FS layer can skip
-        // work that doesn't apply to a read-only mount. Awkward but
-        // intentional: `read_only` is a mount-time fact that today lives on `FuseOptions`, and we
-        // don't want every embedder to remember to set the flag on both configs.
-        let mut filesystem_config = self.filesystem_config;
-        filesystem_config.read_only = self
-            .fuse_session_config
-            .options
-            .iter()
-            .any(|o| matches!(o, MountOption::RO));
-        tracing::trace!(filesystem_config=?filesystem_config, "creating file system");
+        tracing::trace!(filesystem_config=?self.filesystem_config, read_only, "creating file system");
         let fs = S3Filesystem::new(
             client,
             prefetcher_builder,
             memory_pool,
             runtime,
             metablock,
-            filesystem_config,
+            self.filesystem_config,
+            read_only,
         );
 
         let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);
@@ -115,4 +125,52 @@ where
         _ => Prefetcher::default_builder(client),
     };
     Ok(builder)
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+    use crate::fuse::config::{FuseOptions, MountPoint};
+
+    fn mountpoint_config(read_only: bool, mount_dir: &tempfile::TempDir) -> MountpointConfig {
+        let fuse_options = FuseOptions {
+            read_only,
+            ..Default::default()
+        };
+        let fuse_session_config = FuseSessionConfig::new(
+            MountPoint::new(mount_dir.path()).expect("mount point should be valid"),
+            fuse_options,
+            1,
+        )
+        .expect("session config should be valid");
+        MountpointConfig::new(
+            fuse_session_config,
+            S3FilesystemConfig::default(),
+            DataCacheConfig::default(),
+        )
+    }
+
+    /// By default read-only-ness follows the FUSE mount options, so embedders don't have to state
+    /// it twice.
+    #[test_case(false)]
+    #[test_case(true)]
+    fn test_read_only_defaults_to_fuse_options(read_only: bool) {
+        let mount_dir = tempfile::tempdir().unwrap();
+        assert_eq!(mountpoint_config(read_only, &mount_dir).is_read_only(), read_only);
+    }
+
+    /// An explicit override wins over the FUSE mount options, in both directions. This is how a
+    /// caller that mounted `/dev/fuse` read-only itself tells us so: the `ro` flag it passed to
+    /// `mount` isn't visible in our mount options.
+    #[test_case(false, true)]
+    #[test_case(true, false)]
+    #[test_case(true, true)]
+    #[test_case(false, false)]
+    fn test_read_only_override_wins(fuse_read_only: bool, override_read_only: bool) {
+        let mount_dir = tempfile::tempdir().unwrap();
+        let config = mountpoint_config(fuse_read_only, &mount_dir).read_only(override_read_only);
+        assert_eq!(config.is_read_only(), override_read_only);
+    }
 }

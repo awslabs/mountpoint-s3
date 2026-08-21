@@ -1,5 +1,6 @@
 ## Unreleased (v0.11.0)
 
+* `S3Filesystem::new` now takes an explicit `read_only` argument, and `MountpointConfig::read_only` overrides it. ([#1939](https://github.com/awslabs/mountpoint-s3/pull/1939))
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))
 * Update EC2 instance network throughput table. ([#1895](https://github.com/awslabs/mountpoint-s3/pull/1895))
