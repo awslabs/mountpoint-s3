@@ -1,5 +1,9 @@
 ## Unreleased (v0.22.0)
 
+### Breaking changes
+
+* Redesign the experimental `MemoryPool` trait. The `get_buffer` method was removed in favor of the now required `get_buffer_async` method, which allows implementations to defer allocation when memory is not immediately available. This affects implementations passed to `S3ClientConfig::memory_pool`. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+
 ### Other changes
 
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))

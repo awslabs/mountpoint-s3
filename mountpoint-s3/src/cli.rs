@@ -69,8 +69,7 @@ Directory or FUSE file descriptor to mount the bucket at.
 
 For directory mount points, the passed path must be an existing directory.
 
-For FUSE file descriptors (Linux-only), it should be of the format `/dev/fd/N`.
-Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
+For FUSE file descriptors (Linux-only), it should be of the format `/dev/fd/N`.\
         ",
         value_name = "DIRECTORY"
     )]
@@ -190,15 +189,15 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
         long,
         help = "Maximum memory usage target [default: 95% of available memory, minimum: 512 MiB]",
         long_help = "\
-Target (not a guaranteed limit) for Mountpoint's total memory usage, in MiB.
+Target for Mountpoint's total memory usage, in MiB.
 
-Mountpoint manages the memory used to buffer reads and writes to stay within this
-target. Lowering it can reduce throughput, and it caps how many files can be open
-for writing at the same time -- once that cap is reached, opening a file for
+Mountpoint manages the memory used to buffer reads and writes to stay within this target but it is
+not a guaranteed limit. Lowering it may reduce throughput and increase latency. The target caps how
+many files can be open for writing at the same time. Once that cap is reached, opening a file for
 writing fails with ENOMEM.
 
-Defaults to 95% of available memory (the cgroup limit where one applies, otherwise
-total system memory).\
+Defaults to 95% of available memory (the cgroup limit where one applies, otherwise total system
+memory).\
         ",
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),

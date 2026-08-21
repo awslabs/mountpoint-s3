@@ -323,7 +323,7 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 
 ### Configuring memory usage
 
-Mountpoint buffers object data in memory while reading (prefetching ahead of an application's reads) and writing (holding parts to upload). The `--memory-target` command-line argument sets a target (not a guaranteed limit), in MiB, for Mountpoint's total memory usage, with a minimum of 512 MiB. Mountpoint manages the memory available for these buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs and reduces prefetching.
+Mountpoint buffers object data in memory while reading (prefetching ahead of an application's reads) and writing (holding parts to upload). The `--memory-target` command-line argument sets a target, in MiB, for Mountpoint's total memory usage, with a minimum of 512 MiB. The target is not a guaranteed limit but Mountpoint manages the memory available for these buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs, and reduces prefetching.
 
 `--memory-target` defaults to 95% of available memory, which is the cgroup limit where one applies and otherwise total system memory. A portion of the target, `max(128 MiB, memory_target / 8)`, is held back for Mountpoint's own overhead such as metadata and file handles; the rest is the budget for data buffers.
 
@@ -349,7 +349,7 @@ The cap is computed as:
 cap = (memory_target − overhead − read_part_size) / write_part_size
 ```
 
-where `additional_mem_reserved` is the portion of the memory target held back for Mountpoint's own overhead: `max(128 MiB, memory_target / 8)`. For example, with the minimum memory target of 512 MiB and the default 8 MiB part sizes, 128 MiB is held back for overhead and one 8 MiB read part is kept available for reads, leaving 376 MiB for write buffers — enough for 47 files open for writing.
+where `overhead` is the portion of the memory target held back for Mountpoint's own overhead: `max(128 MiB, memory_target / 8)`. For example, with the minimum memory target of 512 MiB and the default 8 MiB part sizes, 128 MiB is held back for overhead and one 8 MiB read part is kept available for reads, leaving 376 MiB for write buffers — enough for 47 files open for writing.
 
 ### Maximum object size
 
