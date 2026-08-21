@@ -325,7 +325,7 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 
 Mountpoint buffers object data in memory while reading (prefetching ahead of an application's reads) and writing (holding parts to upload). The `--memory-target` command-line argument sets a target, in MiB, for Mountpoint's total memory usage, with a minimum of 512 MiB. The target is not a guaranteed limit but Mountpoint manages the memory available for these buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs, and reduces prefetching.
 
-`--memory-target` defaults to 95% of available memory, which is the cgroup limit where one applies and otherwise total system memory. A portion of the target, `max(128 MiB, memory_target / 8)`, is held back for Mountpoint's own overhead such as metadata and file handles; the rest is the budget for data buffers.
+`--memory-target` defaults to 95% of total (or cgroup-limited) memory. A portion of the target, `max(128 MiB, memory_target / 8)`, is held back for Mountpoint's own overhead such as metadata and file handles; the rest is the budget for data buffers.
 
 The memory target and the write part size determine the maximum number of files that can be open for writing at the same time: once that maximum is reached, opening a file for writing fails with `ENOMEM`. See [Maximum number of files open for writing](#maximum-number-of-files-open-for-writing).
 

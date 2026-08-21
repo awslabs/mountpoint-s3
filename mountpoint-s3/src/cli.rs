@@ -187,7 +187,7 @@ For FUSE file descriptors (Linux-only), it should be of the format `/dev/fd/N`.\
 
     #[clap(
         long,
-        help = "Maximum memory usage target [default: 95% of available memory, minimum: 512 MiB]",
+        help = "Maximum memory usage target [default: 95% of total (or cgroup-limited) memory, minimum: 512 MiB]",
         long_help = "\
 Target for Mountpoint's total memory usage, in MiB.
 
@@ -196,8 +196,7 @@ not a guaranteed limit. Lowering it may reduce throughput and increase latency. 
 many files can be open for writing at the same time. Once that cap is reached, opening a file for
 writing fails with ENOMEM.
 
-Defaults to 95% of available memory (the cgroup limit where one applies, otherwise total system
-memory).\
+Defaults to 95% of total (or cgroup-limited) memory.\
         ",
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
