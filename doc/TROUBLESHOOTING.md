@@ -266,8 +266,7 @@ To further debug throttling errors, see the [throttling errors section](https://
 
 Mountpoint may slow down read and write operations under memory pressure, resulting in reduced throughput and increased latency. When Mountpoint reaches its memory budget, it starts issuing fewer parallel requests, reducing or stopping speculative prefetching, and even discarding data already prefetched, in order to prioritize I/O operations that applications are waiting on. 
 
-Memory pressure can be identified from Mountpoint's metrics, which you can write to logs with `--log-metrics` (see our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#metrics)) or export (see our [metrics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/METRICS.md)).
-If the following metrics are emitted, then Mountpoint is under memory pressure:
+When Mountpoint is under memory pressure, the following metrics are emitted:
 
 | Metric | Meaning |
 |--------|---------|
@@ -276,7 +275,7 @@ If the following metrics are emitted, then Mountpoint is under memory pressure:
 | `mem.cursor_resets` | Prefetched data discarded to reclaim memory |
 | `mem.seek_window_resets` | Backward seek windows cleared to reclaim memory |
 
-These are the names as they appear in logs; exported over OTLP they are prefixed with `experimental.`.
+Metrics can be written to the logs (with `--log-metrics`, see our [logging documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/LOGGING.md#metrics)) or exported using OpenTelemetry (see our [metrics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/METRICS.md)). Note that the above metrics are prefixed with `experimental.` when exported.
 
 To reduce memory pressure, increase `--memory-target` if the host or container has memory to spare, reduce the number of files your application keeps open at the same time, or lower `--read-part-size` and `--write-part-size`.
 For more about the memory target, see [Mountpoint's configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#configuring-memory-usage).
