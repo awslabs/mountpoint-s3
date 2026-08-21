@@ -1,8 +1,7 @@
 ## Unreleased (v1.24.0)
 
 ### New features
-
-* Add the `--memory-target` CLI argument, which sets a target for Mountpoint's total memory usage. This target is not a guaranteed limit but Mountpoint manages the memory available for data buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs and reduces prefetching. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+* Mountpoint now supports setting a target for total memory usage via the `--memory-target` CLI argument. This target is not a guaranteed limit but Mountpoint manages the memory available for data buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs and reduces prefetching. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#configuring-memory-usage). ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 
 ### Breaking changes
 
