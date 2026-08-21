@@ -346,7 +346,7 @@ The cap depends mainly on the [memory target](#configuring-memory-usage) and the
 The cap is computed as:
 
 ```
-max_concurrent_writes = (memory_target − additional_mem_reserved − read_part_size) / write_part_size
+cap = (memory_target − overhead − read_part_size) / write_part_size
 ```
 
 where `additional_mem_reserved` is the portion of the memory target held back for Mountpoint's own overhead: `max(128 MiB, memory_target / 8)`. For example, with the minimum memory target of 512 MiB and the default 8 MiB part sizes, 128 MiB is held back for overhead and one 8 MiB read part is kept available for reads, leaving 376 MiB for write buffers — enough for 47 files open for writing.
