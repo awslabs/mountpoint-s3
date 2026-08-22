@@ -1,142 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787272687883,
+  "lastUpdate": 1787409297980,
   "repoUrl": "https://github.com/awslabs/mountpoint-s3",
   "entries": {
     "Throughput Benchmark - Peak Memory Usage (S3 Standard, Memory-Limited)": [
-      {
-        "commit": {
-          "author": {
-            "email": "kiron1@gmail.com",
-            "name": "kiron1",
-            "username": "kiron1"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7c6a7779eec77dcab7493ffda7292433577524ed",
-          "message": "mountpoint-s3-fs: allow mounting on top of autofs (#1762)\n\nAllow mounting on a directory if it is already a mountpoint as long as\nit is of type `autofs`.\nThe fs_type autofs is used by autofs (and therefor SystemD automount\nunits) to enable the automatic mount functionallity.\n\n### Does this change impact existing behavior?\n\nOnly slightly, it enables now to use mount-s3 in combination with auto\nmount.\n\nuser @StarlightSyndrome mentions this problem already in #44, but no\nsolution was provided so far.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nShould be added: mount-s3 can now be used with autofs.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/).\n\nSigned-off-by: Kiron <kiron1@gmail.com>\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>\nCo-authored-by: Renan Magagnin <renanmag@amazon.co.uk>",
-          "timestamp": "2026-06-02T16:53:34Z",
-          "tree_id": "17510215aa930a3e166ce1180aefca7f65636758",
-          "url": "https://github.com/awslabs/mountpoint-s3/commit/7c6a7779eec77dcab7493ffda7292433577524ed"
-        },
-        "date": 1780427734637,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "mix_1r4w",
-            "value": 1554.75390625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_2r2w",
-            "value": 925.12890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "mix_4r1w",
-            "value": 582,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct",
-            "value": 21,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_direct_small",
-            "value": 60.37109375,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t",
-            "value": 21,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_4t_small",
-            "value": 51.328125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct",
-            "value": 15.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_direct_small",
-            "value": 30.41796875,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read",
-            "value": 16.1953125,
-            "unit": "MiB"
-          },
-          {
-            "name": "rand_read_small",
-            "value": 29.890625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct",
-            "value": 400.5,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_direct_small",
-            "value": 47.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t",
-            "value": 401.25,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_4t_small",
-            "value": 48.75,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct",
-            "value": 303.3359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_direct_small",
-            "value": 21,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read",
-            "value": 301.7265625,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_skip_17m",
-            "value": 299.5703125,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_read_small",
-            "value": 21,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write_direct",
-            "value": 1154.93359375,
-            "unit": "MiB"
-          },
-          {
-            "name": "seq_write",
-            "value": 495,
-            "unit": "MiB"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -4019,6 +3885,140 @@ window.BENCHMARK_DATA = {
           {
             "name": "seq_write",
             "value": 427.0703125,
+            "unit": "MiB"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "renanmag@amazon.co.uk",
+            "name": "Renan Magagnin",
+            "username": "renanmagagnin"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "58817cab2fc3020a422d8aa14049a86b296f4498",
+          "message": "Document memory limiter configuration and troubleshooting (#1938)\n\nDocuments the memory limiter shipped in #1936: a new memory usage\nsection in `CONFIGURATION.md`, expanded `--memory-target` help text, two\ntroubleshooting sections, and `CHANGELOG.md` entries.\n\n### Does this change impact existing behavior?\n\nNo.\n\n### Does this change need a changelog entry? Does it require a version\nchange?\n\nYes, added.\n\n---\n\nBy submitting this pull request, I confirm that my contribution is made\nunder the terms of the Apache 2.0 license and I agree to the terms of\nthe [Developer Certificate of Origin\n(DCO)](https://developercertificate.org/)\n\n---------\n\nSigned-off-by: Renan Magagnin <renanmag@amazon.co.uk>\nSigned-off-by: Renan Magagnin <renanmagagnin@gmail.com>\nCo-authored-by: Alessandro Passaro <alessandro.passaro@gmail.com>",
+          "timestamp": "2026-08-22T12:14:21Z",
+          "tree_id": "5ef2a8456744180117174ce74395fe1f82f66c62",
+          "url": "https://github.com/awslabs/mountpoint-s3/commit/58817cab2fc3020a422d8aa14049a86b296f4498"
+        },
+        "date": 1787409297903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "mix_1r4w",
+            "value": 469.99609375,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_2r2w",
+            "value": 481.50390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "mix_4r1w",
+            "value": 468.625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct",
+            "value": 54.95703125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_direct_small",
+            "value": 89.671875,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t",
+            "value": 56.68359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_4t_small",
+            "value": 88.73828125,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct",
+            "value": 46.66015625,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_direct_small",
+            "value": 59.08984375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read",
+            "value": 49.0859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "rand_read_small",
+            "value": 58.171875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct",
+            "value": 418.12109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_direct_small",
+            "value": 84.54296875,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t",
+            "value": 434.859375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_4t_small",
+            "value": 86.4375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct",
+            "value": 333.9453125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_direct_small",
+            "value": 53.3359375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read",
+            "value": 333.36328125,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_skip_17m",
+            "value": 334.2109375,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_read_small",
+            "value": 54.0390625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write_direct",
+            "value": 436.47265625,
+            "unit": "MiB"
+          },
+          {
+            "name": "seq_write",
+            "value": 345.38671875,
             "unit": "MiB"
           }
         ]
