@@ -1,5 +1,7 @@
 ## Unreleased (v0.11.0)
 
+* Remove the `mem_limiter` module. `MemoryLimiter` and related types now live in `memory`, and the memory limit is configured on the pool with `PagedPool::config()` rather than through `S3FilesystemConfig::mem_limit`, which has been removed. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+* Add `memory::WriteHandleLimiter`, which caps the number of concurrently open write file handles, and `InodeError::WriteHandleLimitExceeded`, which maps to `ENOMEM`. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))
 * Update EC2 instance network throughput table. ([#1895](https://github.com/awslabs/mountpoint-s3/pull/1895))

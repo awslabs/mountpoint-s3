@@ -45,6 +45,9 @@ Arguments:
 #[clap(
     name = "mount-s3",
     about = "Mountpoint for Amazon S3",
+    long_about = "Mountpoint for Amazon S3\n\n\
+Learn more in Mountpoint's configuration documentation:\n\
+https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md",
     version = build_info::FULL_VERSION,
     group(
         ArgGroup::new("cache_group")
@@ -66,8 +69,7 @@ Directory or FUSE file descriptor to mount the bucket at.
 
 For directory mount points, the passed path must be an existing directory.
 
-For FUSE file descriptors (Linux-only), it should be of the format `/dev/fd/N`.
-Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
+For FUSE file descriptors (Linux-only), it should be of the format `/dev/fd/N`.\
         ",
         value_name = "DIRECTORY"
     )]
@@ -185,7 +187,17 @@ Learn more in Mountpoint's configuration documentation (CONFIGURATION.md).\
 
     #[clap(
         long,
-        help = "Maximum memory usage target [default: 95% of total system memory with a minimum of 512 MiB]",
+        help = "Maximum memory usage target [default: 95% of total (or cgroup-limited) memory, minimum: 512 MiB]",
+        long_help = "\
+Target for Mountpoint's total memory usage, in MiB.
+
+Mountpoint manages the memory used to buffer reads and writes to stay within this target but it is
+not a guaranteed limit. Lowering it may reduce throughput and increase latency. The target caps how
+many files can be open for writing at the same time. Once that cap is reached, opening a file for
+writing fails with ENOMEM.
+
+Defaults to 95% of total (or cgroup-limited) memory.\
+        ",
         value_name = "MiB",
         value_parser = value_parser!(u64).range(512..),
         help_heading = CLIENT_OPTIONS_HEADER

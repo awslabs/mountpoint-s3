@@ -1,5 +1,17 @@
 ## Unreleased (v1.24.0)
 
+### New features
+* Mountpoint now supports setting a target for total memory usage via the `--memory-target` CLI argument. This target is not a guaranteed limit but Mountpoint manages the memory available for data buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs and reduces prefetching. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#configuring-memory-usage). ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+
+### Breaking changes
+
+* Mountpoint now limits how many files can be open for writing at the same time, derived from `--memory-target` and `--write-part-size`. Once the limit is reached, opening a file for writing fails with `ENOMEM` until an existing write file handle is closed. See [the configuration documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/CONFIGURATION.md#maximum-number-of-files-open-for-writing) for how the limit is calculated. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+
+### Other changes
+
+* Mountpoint now fails at startup if `--read-part-size` exceeds the memory available for data buffers and `--memory-target` was set explicitly. If the memory target is the default, the read part size is reduced to fit and a warning is logged instead. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+* Add experimental metrics for observing memory pressure: `experimental.pool.allocation_queue_depth`, `experimental.pool.allocation_queue_wait`, `experimental.mem.cursor_resets`, `experimental.mem.seek_window_resets`, and `experimental.fs.write_handle_limit_exceeded`. See [the metrics documentation](https://github.com/awslabs/mountpoint-s3/blob/main/doc/METRICS.md). ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+* Change memory pool metrics in logs. `pool.reserved_bytes` is replaced by `pool.acquired_bytes` and `pool.bytes_in_use`, `pool.allocated_bytes` and `pool.allocate_latency_us` are new, and the `size` dimension on `pool.allocated_pages`, `pool.empty_pages`, `pool.slack_bytes` and `pool.trim_pages` is renamed to `buffer_size`. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 
 ## v1.23.0 (July 20, 2026)

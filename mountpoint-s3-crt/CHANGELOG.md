@@ -1,5 +1,9 @@
 ## Unreleased (v0.16.0)
 
+### Breaking changes
+
+* Redesign the experimental `MemoryPool` trait. The `get_buffer` method was removed in favor of the now required `get_buffer_async` method, which allows implementations to defer allocation when memory is not immediately available. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
+
 ## v0.15.0 (July 20, 2026)
 
 * Add `io::tls` module with safe wrappers around `aws-c-io`'s TLS primitives (`TlsContextOptions`, `TlsContext`, `TlsConnectionOptions`). ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))

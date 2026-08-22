@@ -321,17 +321,35 @@ At mount time, Mountpoint automatically selects appropriate defaults to provide 
 * By default, Mountpoint can serve up to 16 concurrent file or directory operations, and automatically scales up to reach this limit. If your application makes more than this many concurrent reads and writes (including to the same or different files), you can improve performance by increasing this limit with the `--max-threads` command-line argument. Higher values of this flag might cause Mountpoint to use more of your instance's resources.
 * When reading or writing files to S3, Mountpoint divides them into parts and uses parallel requests to improve throughput. You can change the part size Mountpoint uses for these parallel requests using the `--read-part-size` and `--write-part-size` command-line arguments, providing a maximum number of bytes per part for reading or writing respectively. For Mountpoint v1.7.2 or earlier, use `--part-size` instead. The default value for these arguments is 8 MiB (8,306,688 bytes), which in our testing is the largest value that achieves maximum throughput. Larger values can reduce the number of billed requests Mountpoint makes, but also reduce the throughput of object reads and writes to S3.
 
+### Configuring memory usage
+
+Mountpoint buffers object data in memory while reading (prefetching ahead of an application's reads) and writing (holding parts to upload). The `--memory-target` command-line argument sets a target, in MiB, for Mountpoint's total memory usage, with a minimum of 512 MiB. The target is not a guaranteed limit but Mountpoint manages the memory available for these buffers to stay within the target: under memory pressure it slows down I/O, reclaims buffers it no longer needs, and reduces prefetching.
+
+`--memory-target` defaults to 95% of total (or cgroup-limited) memory. A portion of the target, `max(128 MiB, memory_target / 8)`, is held back for Mountpoint's own overhead such as metadata and file handles; the rest is the budget for data buffers.
+
+The memory target and the write part size determine the maximum number of files that can be open for writing at the same time: once that maximum is reached, opening a file for writing fails with `ENOMEM`. See [Maximum number of files open for writing](#maximum-number-of-files-open-for-writing).
+
+The [read and write part sizes](#configuring-mountpoint-performance) must also fit within the data buffer budget. A read part size larger than the budget is rejected at startup when `--memory-target` is set explicitly, or reduced to fit with a warning when the target is the default.
+
+At startup, Mountpoint logs the memory target and the resulting maximum number of files that can be open for writing:
+
+```
+INFO mountpoint_s3_fs::memory::write_handle_limiter: max files concurrently open for write: 47 (memory target 512 MiB, write part size 8 MiB)
+```
+
 ### Maximum number of files open for writing
 
-Mountpoint enforces a cap on the number of files that may be open for writing at the same time, to control memory usage. The cap is computed at startup from the configured memory target, the write part size, and one read part kept available for reads:
+Mountpoint caps how many files may be open for writing at the same time. Once the cap is reached, `open()` calls for write return `ENOMEM` ("Cannot allocate memory") until an existing write handle is closed. The cap exists because each file open for writing reserves a part-sized buffer for as long as it is open, and one read part is kept available for reads.
+
+The cap depends mainly on the [memory target](#configuring-memory-usage) and the [part size](#configuring-mountpoint-performance). With the default 8 MiB part sizes, a 512 MiB memory target allows 47 files open for writing, and a 4 GiB target allows 447. To raise the cap, increase `--memory-target` or decrease `--write-part-size`. Mountpoint logs the resulting maximum number of files that can be open for writing at startup.
+
+The cap is computed as:
 
 ```
-max_concurrent_writes = (memory_target − additional_mem_reserved − read_part_size) / write_part_size
+cap = (memory_target − overhead − read_part_size) / write_part_size
 ```
 
-`memory_target` is set with `--memory-target` and defaults to 95% of total system memory with a minimum of 512 MiB. `additional_mem_reserved` is `max(128 MiB, memory_target / 8)` and is held back from data buffers for Mountpoint's own overhead. `read_part_size` and `write_part_size` are set with `--read-part-size` and `--write-part-size` (or both with `--part-size`) and each default to 8 MiB; one read part is kept available for reads. With the minimum `memory_target` of 512 MiB and the default 8 MiB part sizes, the cap is 47 concurrent writers.
-
-Once the cap is reached, `open()` calls for write return `ENOMEM` ("Cannot allocate memory") until an existing write handle is closed. To raise the cap, increase `--memory-target` or decrease `--write-part-size`.
+where `overhead` is the portion of the memory target held back for Mountpoint's own overhead: `max(128 MiB, memory_target / 8)`. For example, with the minimum memory target of 512 MiB and the default 8 MiB part sizes, 128 MiB is held back for overhead and one 8 MiB read part is kept available for reads, leaving 376 MiB for write buffers — enough for 47 files open for writing.
 
 ### Maximum object size
 
