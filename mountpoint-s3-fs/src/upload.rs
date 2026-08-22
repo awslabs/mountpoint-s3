@@ -170,9 +170,6 @@ where
         initial_offset: u64,
         initial_etag: Option<ETag>,
     ) -> AppendUploadRequest<Client> {
-        // Limit the queue capacity to hold buffers for a total of at most
-        // MAX_BYTES_IN_QUEUE, but ensure it allows at least 1 buffer.
-        let capacity = (MAX_BYTES_IN_QUEUE / self.buffer_size).max(1);
         let params = AppendUploadQueueParams {
             bucket,
             key,
@@ -180,7 +177,7 @@ where
             initial_etag,
             server_side_encryption: self.server_side_encryption.clone(),
             default_checksum_algorithm: self.default_checksum_algorithm.clone(),
-            capacity,
+            capacity: APPEND_QUEUE_CAPACITY_PARTS,
             content_type_detection: self.content_type_detection,
         };
         AppendUploadRequest::new(
@@ -198,9 +195,9 @@ where
     }
 }
 
-/// Maximum number of bytes an `AppendUploadQueue` can take.
+/// Maximum number of part-sized buffers an `AppendUploadQueue` can take.
 ///
 /// We use this limit to prevent a single pipeline from consuming all memory.
 /// The limit may slow down writes eventually, but the overall upload throughput
 /// is already capped by a single PutObject request.
-const MAX_BYTES_IN_QUEUE: usize = 2 * 1024 * 1024 * 1024;
+const APPEND_QUEUE_CAPACITY_PARTS: usize = 4;
