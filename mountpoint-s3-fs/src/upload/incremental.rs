@@ -162,6 +162,8 @@ struct AppendUploadQueue<Client: ObjectClient> {
     checksum_algorithm: Option<Option<ChecksumAlgorithm>>,
     /// Stores the last successful result to return in [join].
     last_known_result: Option<PutObjectResult>,
+    /// Tracks the requests pushed to the queue but still pending a response.
+    requests_in_queue: usize,
 }
 
 impl<Client> AppendUploadQueue<Client>
@@ -196,6 +198,7 @@ where
             buffer_sender,
             event_receiver,
             last_known_result: None,
+            requests_in_queue: 0,
             checksum_algorithm: None,
             pool,
             _task_handle: task_handle,
@@ -210,6 +213,7 @@ where
             while self.consume_next_response().await? {}
             return Err(UploadError::UploadAlreadyTerminated);
         }
+        self.requests_in_queue += 1;
         Ok(())
     }
 
@@ -253,8 +257,31 @@ where
             }
         };
         let hasher = ChecksumHasher::new(&checksum_algorithm)?;
-        let data = self.pool.get_buffer_mut_async(capacity, BufferKind::Append, None).await;
-        Ok(UploadBuffer { data, hasher })
+        // Three-way decision per iteration:
+        //   1. Nothing pushed-but-not-acked → queue an urgent (high-lane) allocation. The handle
+        //      holds no buffer and has nothing of its own to wait on, so it must be served — and is:
+        //      `WriteHandleLimiter` admits `write_buffer_budget / write_part_size` handles exactly so
+        //      one filling buffer each fits, and every other claim on that budget frees without a
+        //      FUSE thread. So this waits on request completion, never on another blocked writer.
+        //   2. Spare capacity → take it without queueing. `try_get_buffer_mut` succeeds only when
+        //      nothing is pending, so slack can't jump parked readers or writers. Only this branch
+        //      lets the queue reach a depth above one.
+        //   3. Otherwise → drain one response from our own pipeline and re-evaluate. While we have
+        //      recourse, this keeps append allocations out of *both* lanes, so speculative prefetch
+        //      is never preempted by a writer that could recycle its own memory instead.
+        loop {
+            if self.requests_in_queue == 0 {
+                let data = self.pool.get_buffer_mut_async(capacity, BufferKind::Append, None).await;
+                return Ok(UploadBuffer { data, hasher });
+            }
+            if let Some(data) = self.pool.try_get_buffer_mut(capacity, BufferKind::Append, None) {
+                return Ok(UploadBuffer { data, hasher });
+            }
+            trace!("wait for the next request to be processed");
+            if !self.consume_next_response().await? {
+                return Err(UploadError::UploadAlreadyTerminated);
+            }
+        }
     }
 
     /// Wait on the response channel, updating the state of the [AppendUploadQueue] when the next response arrives.
@@ -278,6 +305,7 @@ where
                 }
                 AppendUploadEvent::PutResponse(result) => {
                     trace!(?result, "received result");
+                    self.requests_in_queue -= 1;
                     self.last_known_result = Some(result);
                     return Ok(true);
                 }
