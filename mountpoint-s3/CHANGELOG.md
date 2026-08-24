@@ -14,6 +14,8 @@
 * Change memory pool metrics in logs. `pool.reserved_bytes` is replaced by `pool.acquired_bytes` and `pool.bytes_in_use`, `pool.allocated_bytes` and `pool.allocate_latency_us` are new, and the `size` dimension on `pool.allocated_pages`, `pool.empty_pages`, `pool.slack_bytes` and `pool.trim_pages` is renamed to `buffer_size`. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))
 
+* Deleting the last file in a directory no longer makes the directory itself disappear. The directory stays visible until it is removed with `rmdir`, matching how other file systems behave. Directories that are emptied by something other than this Mountpoint process are unaffected. ([#1898](https://github.com/awslabs/mountpoint-s3/pull/1898) by @akhileshvattumilli)
+
 ## v1.23.0 (July 20, 2026)
 
 * Add `--ca-bundle` flag (and `AWS_CA_BUNDLE` environment variable fallback) for trusting a custom certificate authority when Mountpoint makes HTTPS calls. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834) by @yerzhan7)

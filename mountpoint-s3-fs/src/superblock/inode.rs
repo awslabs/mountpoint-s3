@@ -274,6 +274,14 @@ pub enum InodeKindData {
 
         /// True if this directory has been deleted (`rmdir`) from its parent
         deleted: bool,
+
+        /// True if an entry has been removed from this directory by `unlink`.
+        ///
+        /// An implicit directory only exists in S3 while there are objects under its prefix, so
+        /// deleting the last of them makes the directory disappear remotely. This records that we
+        /// should keep serving our local view of the directory in that case, until it is removed
+        /// with `rmdir`.
+        unlinked_children: bool,
     },
 }
 
@@ -285,6 +293,7 @@ impl InodeKindData {
                 children: Default::default(),
                 writing_children: Default::default(),
                 deleted: false,
+                unlinked_children: false,
             },
         }
     }

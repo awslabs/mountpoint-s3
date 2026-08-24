@@ -6,6 +6,8 @@
 * Bump `libgit2-sys` build dependency to 0.18.7+1.9.6 ([#1916](https://github.com/awslabs/mountpoint-s3/pull/1916))
 * Update EC2 instance network throughput table. ([#1895](https://github.com/awslabs/mountpoint-s3/pull/1895))
 
+* Keep serving an implicit directory after Mountpoint deletes the last file in it, until it is removed with `rmdir`. ([#1898](https://github.com/awslabs/mountpoint-s3/pull/1898))
+
 ## v0.10.0 (July 20, 2026)
 
 * Add `tls_config` field on `s3::config::ClientConfig` so callers can configure a custom CA trust store through to the underlying S3 client. ([#1834](https://github.com/awslabs/mountpoint-s3/pull/1834))
