@@ -1,4 +1,6 @@
-## Unreleased (v0.16.0)
+## Unreleased
+
+## v0.16.0 (August 24, 2026)
 
 ### Breaking changes
 
