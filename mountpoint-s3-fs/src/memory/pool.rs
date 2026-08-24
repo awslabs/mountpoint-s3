@@ -125,6 +125,26 @@ impl PagedPool {
         PoolBufferMut::new(buffer)
     }
 
+    /// Take a buffer from the pool, but only if it can be served *right now* without queueing.
+    ///
+    /// Returns `None` when the allocation queue is non-empty — so an opportunistic caller can never
+    /// jump ahead of a reader or writer already parked in either lane — or when serving the request
+    /// would exceed the memory limit. Unlike [Self::get_buffer_mut] this never forces an over-limit
+    /// allocation, and unlike [Self::get_buffer_mut_async] it never parks the caller.
+    pub fn try_get_buffer_mut(
+        &self,
+        capacity: usize,
+        kind: BufferKind,
+        cursor_id: Option<CursorId>,
+    ) -> Option<PoolBufferMut> {
+        if self.inner.is_memory_pressure() {
+            return None;
+        }
+        self.inner
+            .try_get_buffer(capacity, kind, cursor_id, false)
+            .map(PoolBufferMut::new)
+    }
+
     fn get_buffer(&self, size: usize, kind: BufferKind, cursor_id: Option<CursorId>) -> PoolBuffer {
         self.inner
             .try_get_buffer(size, kind, cursor_id, true)
@@ -341,7 +361,7 @@ impl PagedPoolInner {
     ///     - Return a buffer from the new page if successful.
     /// - In all other cases:
     ///   - Try to allocate and return a single buffer.
-    ///     
+    ///
     /// Returns `None` if allocating the required memory would exceed the memory limit.
     ///
     /// **NOTE:** guarantees to return `Some` if invoked with `ignore_limit == true`.
