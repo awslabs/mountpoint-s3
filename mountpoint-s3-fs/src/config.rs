@@ -1,5 +1,4 @@
-use anyhow::Context as _;
-use fuser::MountOption;
+use anyhow::{Context as _, anyhow};
 use futures::executor::block_on;
 use mountpoint_s3_client::ObjectClient;
 
@@ -42,6 +41,19 @@ impl MountpointConfig {
         self
     }
 
+    /// Check that the configurations we were given agree with each other.
+    fn validate(&self) -> anyhow::Result<()> {
+        if self.filesystem_config.read_only != self.fuse_session_config.read_only() {
+            return Err(anyhow!(
+                "read-only must be set consistently: `FuseOptions::read_only` is {} but \
+                `S3FilesystemConfig::read_only` is {}",
+                self.fuse_session_config.read_only(),
+                self.filesystem_config.read_only,
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a new FUSE session
     pub fn create_fuse_session<Client>(
         self,
@@ -53,26 +65,18 @@ impl MountpointConfig {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
+        self.validate()?;
+
         let prefetcher_builder =
             create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool.clone())?;
-        // Mirror the FUSE-level read-only flag onto the filesystem config so the FS layer can skip
-        // work that doesn't apply to a read-only mount. Awkward but
-        // intentional: `read_only` is a mount-time fact that today lives on `FuseOptions`, and we
-        // don't want every embedder to remember to set the flag on both configs.
-        let mut filesystem_config = self.filesystem_config;
-        filesystem_config.read_only = self
-            .fuse_session_config
-            .options
-            .iter()
-            .any(|o| matches!(o, MountOption::RO));
-        tracing::trace!(filesystem_config=?filesystem_config, "creating file system");
+        tracing::trace!(filesystem_config=?self.filesystem_config, "creating file system");
         let fs = S3Filesystem::new(
             client,
             prefetcher_builder,
             memory_pool,
             runtime,
             metablock,
-            filesystem_config,
+            self.filesystem_config,
         );
 
         let fuse_fs = S3FuseFilesystem::new(fs, self.error_logger);
@@ -115,4 +119,56 @@ where
         _ => Prefetcher::default_builder(client),
     };
     Ok(builder)
+}
+
+#[cfg(test)]
+mod tests {
+    use fuser::MountOption;
+    use test_case::test_case;
+
+    use super::*;
+    use crate::fuse::config::MountPoint;
+
+    /// Built directly rather than through [`FuseSessionConfig::new`] + [`MountPoint::new`], which
+    /// validate the mount point against the real file system and `/proc`. The tests below only care
+    /// about read-only.
+    fn fuse_session_config(read_only: bool) -> FuseSessionConfig {
+        FuseSessionConfig {
+            mount_point: MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
+            options: if read_only { vec![MountOption::RO] } else { vec![] },
+            max_threads: 1,
+            clone_fuse_fd: false,
+        }
+    }
+
+    fn mountpoint_config(fuse_read_only: bool, fs_read_only: bool) -> MountpointConfig {
+        MountpointConfig::new(
+            fuse_session_config(fuse_read_only),
+            S3FilesystemConfig {
+                read_only: fs_read_only,
+                ..Default::default()
+            },
+            DataCacheConfig::default(),
+        )
+    }
+
+    #[test_case(false, false)]
+    #[test_case(true, true)]
+    fn test_read_only_consistent_is_accepted(fuse_read_only: bool, fs_read_only: bool) {
+        mountpoint_config(fuse_read_only, fs_read_only)
+            .validate()
+            .expect("consistent read-only configuration should be accepted");
+    }
+
+    #[test_case(true, false)]
+    #[test_case(false, true)]
+    fn test_read_only_inconsistent_is_rejected(fuse_read_only: bool, fs_read_only: bool) {
+        let err = mountpoint_config(fuse_read_only, fs_read_only)
+            .validate()
+            .expect_err("inconsistent read-only configuration should be rejected");
+        assert!(
+            err.to_string().contains("read-only must be set consistently"),
+            "unexpected error: {err}"
+        );
+    }
 }

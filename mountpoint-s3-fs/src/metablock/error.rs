@@ -3,7 +3,7 @@ use mountpoint_s3_client::error_metadata::ProvideErrorMetadata;
 use std::ffi::OsString;
 use thiserror::Error;
 
-use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT};
+use crate::fs::error_metadata::{ErrorMetadata, MOUNTPOINT_ERROR_CLIENT, MOUNTPOINT_ERROR_FS_READ_ONLY};
 #[cfg(feature = "manifest")]
 use crate::manifest::ManifestError;
 use crate::memory::WriteHandleLimitError;
@@ -60,6 +60,8 @@ pub enum InodeError {
     },
     #[error("rename is not supported on this bucket")]
     RenameNotSupported(),
+    #[error("mount is read-only")]
+    ReadOnlyMount(),
     #[error("S3 key {0:?} was too long")]
     NameTooLong(String),
     #[error("corrupted metadata for inode {0}")]
@@ -141,6 +143,13 @@ impl InodeError {
     pub fn meta(&self) -> ErrorMetadata {
         match self {
             Self::ClientError { source: _, metadata } => (**metadata).clone(),
+            // Refusing to modify a read-only mount is the mount working as configured. Without an
+            // error code of its own it would be reported to the event log as `error.internal`, which
+            // is reserved for problems needing investigation.
+            Self::ReadOnlyMount() => ErrorMetadata {
+                error_code: Some(MOUNTPOINT_ERROR_FS_READ_ONLY.to_string()),
+                ..Default::default()
+            },
             _ => Default::default(),
         }
     }

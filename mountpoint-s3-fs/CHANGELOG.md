@@ -1,5 +1,6 @@
 ## Unreleased (v0.11.0)
 
+* `S3FilesystemConfig::read_only` is now enforced by the file system, which refuses operations that would modify the mount with the new `InodeError::ReadOnlyMount` (`EROFS`) instead of relying on the kernel to do so. `FuseOptions::read_only` is now also accepted with a `MountPoint::FileDescriptor` mount point, where it records that the caller performed the mount read-only. `MountpointConfig::create_fuse_session` now fails if `FuseOptions::read_only` and `S3FilesystemConfig::read_only` disagree. ([#1939](https://github.com/awslabs/mountpoint-s3/pull/1939))
 * Remove the `mem_limiter` module. `MemoryLimiter` and related types now live in `memory`, and the memory limit is configured on the pool with `PagedPool::config()` rather than through `S3FilesystemConfig::mem_limit`, which has been removed. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 * Add `memory::WriteHandleLimiter`, which caps the number of concurrently open write file handles, and `InodeError::WriteHandleLimitExceeded`, which maps to `ENOMEM`. ([#1936](https://github.com/awslabs/mountpoint-s3/pull/1936))
 * Fix cgroup memory limit detection for inherited limits from parent slices. ([#1933](https://github.com/awslabs/mountpoint-s3/pull/1933))

@@ -104,6 +104,47 @@ fn run_in_background_with_passed_fuse_fd() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
+fn run_in_background_with_passed_fuse_fd_read_only() -> Result<(), Box<dyn std::error::Error>> {
+    let (bucket, prefix) = get_test_bucket_and_prefix("run_in_background_with_passed_fuse_fd_read_only");
+    let region = get_test_region();
+    let mount_point = assert_fs::TempDir::new()?;
+
+    let (fd, _mount) = mount_for_passing_fuse_fd(
+        mount_point.path(),
+        &[MountOption::FSName("mountpoint-s3-fd".to_string())],
+    );
+
+    let mut cmd = Command::new(cargo::cargo_bin!("mount-s3"));
+    cmd.arg(&bucket)
+        .arg(format!("/dev/fd/{}", fd.as_raw_fd()))
+        .arg(format!("--prefix={prefix}"))
+        .arg(format!("--region={region}"))
+        .arg(MOUNT_OPTION_READ_ONLY);
+    if let Some(endpoint_url) = get_test_endpoint_url() {
+        cmd.arg(format!("--endpoint-url={endpoint_url}"));
+    }
+    let child = cmd.spawn().expect("unable to spawn child");
+
+    let exit_status = wait_for_exit(child);
+
+    // verify mount status and mount entry
+    assert!(exit_status.success());
+    assert!(mount_exists("mountpoint-s3-fd", mount_point.path().to_str().unwrap()));
+
+    // reads are unaffected
+    test_read_files(&bucket, &prefix, &region, &mount_point.to_path_buf());
+
+    // writes are refused by Mountpoint, even though the kernel would have allowed them
+    let err =
+        File::create(mount_point.path().join("new.txt")).expect_err("creating a file on a read-only mount should fail");
+    assert_eq!(err.kind(), io::ErrorKind::ReadOnlyFilesystem);
+
+    unmount(mount_point.path());
+
+    Ok(())
+}
+
+#[test]
 fn run_in_background_region_from_env() -> Result<(), Box<dyn std::error::Error>> {
     let (bucket, prefix) = get_test_bucket_and_prefix("test_run_in_background_region_from_env");
     let region = get_test_region();
@@ -467,7 +508,6 @@ fn run_fail_on_non_fuse_fd() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[test_case(&[MOUNT_OPTION_READ_ONLY])]
 #[test_case(&[MOUNT_OPTION_AUTO_UNMOUNT])]
 #[test_case(&[MOUNT_OPTION_READ_ONLY, MOUNT_OPTION_AUTO_UNMOUNT])]
 fn run_fail_on_non_fuse_fd_if_mount_options_passed(mount_options: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
@@ -500,11 +540,8 @@ fn run_fail_on_non_fuse_fd_if_mount_options_passed(mount_options: &[&str]) -> Re
     assert!(!exit_status.success());
 
     // verify error message
-    let error_message = format!(
-        "Mount options: {} are ignored with FUSE fd mount point.\
-        Mount options should be passed while performing `mount` syscall in the caller process.",
-        mount_options.join(", "),
-    );
+    let error_message = "Mount option: --auto-unmount is ignored with FUSE fd mount point. \
+        It should be passed while performing `mount` syscall in the caller process.";
     cmd.assert().failure().stderr(predicate::str::contains(error_message));
 
     Ok(())

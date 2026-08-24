@@ -559,6 +559,7 @@ impl CliArgs {
             filesystem_config.file_mode = file_mode;
         }
         filesystem_config.storage_class = self.storage_class.clone();
+        filesystem_config.read_only = self.read_only;
         filesystem_config.allow_delete = self.allow_delete;
         filesystem_config.allow_overwrite = self.allow_overwrite;
         filesystem_config.incremental_upload = self.incremental_upload;

@@ -54,23 +54,11 @@ impl FuseSessionConfig {
         }
 
         #[cfg(target_os = "linux")]
-        if matches!(mount_point, MountPoint::FileDescriptor(_)) {
-            let passed_mount_options = &[
-                (fuse_options.read_only, "--read-only"),
-                (fuse_options.auto_unmount, "--auto-unmount"),
-            ]
-            .iter()
-            .filter(|o| o.0)
-            .map(|o| o.1)
-            .collect::<Vec<_>>();
-
-            if !passed_mount_options.is_empty() {
-                return Err(anyhow!(
-                    "Mount options: {} are ignored with FUSE fd mount point.\
-                    Mount options should be passed while performing `mount` syscall in the caller process.",
-                    passed_mount_options.join(", ")
-                ));
-            }
+        if matches!(mount_point, MountPoint::FileDescriptor(_)) && fuse_options.auto_unmount {
+            return Err(anyhow!(
+                "Mount option: --auto-unmount is ignored with FUSE fd mount point. \
+                It should be passed while performing `mount` syscall in the caller process."
+            ));
         }
 
         Ok(Self {
@@ -83,6 +71,11 @@ impl FuseSessionConfig {
 
     pub fn mount_point(&self) -> &MountPoint {
         &self.mount_point
+    }
+
+    /// Whether this mount is read-only.
+    pub(crate) fn read_only(&self) -> bool {
+        self.options.contains(&MountOption::RO)
     }
 }
 
@@ -238,6 +231,23 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
+
+    #[test_case(false)]
+    #[test_case(true)]
+    fn test_read_only_follows_fuse_options(read_only: bool) {
+        let config = FuseSessionConfig::new(
+            MountPoint::Directory("/mnt/mountpoint-s3-test".into()),
+            FuseOptions {
+                read_only,
+                ..Default::default()
+            },
+            1,
+        )
+        .expect("session config should be valid");
+
+        assert_eq!(config.read_only(), read_only);
+        assert_eq!(config.options.contains(&MountOption::RO), read_only);
+    }
 
     #[test_case("/dev/fd/3", Some(3); "valid file descriptor")]
     #[test_case("/dev/fd/378", Some(378); "long valid file descriptor")]
