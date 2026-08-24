@@ -232,7 +232,7 @@ fn mount(args: CliArgs, client_builder: impl ClientBuilder) -> anyhow::Result<Fu
         },
     );
 
-    let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)
+    let mut fuse_session = MountpointConfig::new(fuse_session_config, filesystem_config, data_cache_config)?
         .create_fuse_session(superblock, client, runtime, pool)?;
     tracing::info!("successfully mounted {} at {}", bucket_description, mount_point_path);
 

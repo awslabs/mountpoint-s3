@@ -305,7 +305,7 @@ fn mount_filesystem(
     let fs_config = config.build_filesystem_config()?;
     let mut data_cache_config = config.build_data_cache_config()?;
     let managed_cache_dir = setup_disk_cache_directory(&mut data_cache_config)?;
-    let mp_config = MountpointConfig::new(config.build_fuse_session_config()?, fs_config, data_cache_config)
+    let mp_config = MountpointConfig::new(config.build_fuse_session_config()?, fs_config, data_cache_config)?
         .error_logger(error_logger);
 
     // Create the client and runtime

@@ -26,32 +26,28 @@ impl MountpointConfig {
         fuse_session_config: FuseSessionConfig,
         filesystem_config: S3FilesystemConfig,
         data_cache_config: DataCacheConfig,
-    ) -> Self {
-        Self {
+    ) -> anyhow::Result<Self> {
+        if filesystem_config.read_only != fuse_session_config.read_only() {
+            return Err(anyhow!(
+                "read-only must be set consistently: `FuseOptions::read_only` is {} but \
+                `S3FilesystemConfig::read_only` is {}",
+                fuse_session_config.read_only(),
+                filesystem_config.read_only,
+            ));
+        }
+
+        Ok(Self {
             fuse_session_config,
             data_cache_config,
             filesystem_config,
             error_logger: None,
-        }
+        })
     }
 
     /// Set the [Self::error_logger] field
     pub fn error_logger(mut self, error_logger: impl ErrorLogger + Send + Sync + 'static) -> Self {
         self.error_logger = Some(Box::new(error_logger));
         self
-    }
-
-    /// Check that the configurations we were given agree with each other.
-    fn validate(&self) -> anyhow::Result<()> {
-        if self.filesystem_config.read_only != self.fuse_session_config.read_only() {
-            return Err(anyhow!(
-                "read-only must be set consistently: `FuseOptions::read_only` is {} but \
-                `S3FilesystemConfig::read_only` is {}",
-                self.fuse_session_config.read_only(),
-                self.filesystem_config.read_only,
-            ));
-        }
-        Ok(())
     }
 
     /// Create a new FUSE session
@@ -65,8 +61,6 @@ impl MountpointConfig {
     where
         Client: ObjectClient + Clone + Send + Sync + 'static,
     {
-        self.validate()?;
-
         let prefetcher_builder =
             create_prefetcher_builder(self.data_cache_config, &client, &runtime, memory_pool.clone())?;
         tracing::trace!(filesystem_config=?self.filesystem_config, "creating file system");
@@ -141,7 +135,7 @@ mod tests {
         }
     }
 
-    fn mountpoint_config(fuse_read_only: bool, fs_read_only: bool) -> MountpointConfig {
+    fn mountpoint_config(fuse_read_only: bool, fs_read_only: bool) -> anyhow::Result<MountpointConfig> {
         MountpointConfig::new(
             fuse_session_config(fuse_read_only),
             S3FilesystemConfig {
@@ -155,16 +149,13 @@ mod tests {
     #[test_case(false, false)]
     #[test_case(true, true)]
     fn test_read_only_consistent_is_accepted(fuse_read_only: bool, fs_read_only: bool) {
-        mountpoint_config(fuse_read_only, fs_read_only)
-            .validate()
-            .expect("consistent read-only configuration should be accepted");
+        mountpoint_config(fuse_read_only, fs_read_only).expect("consistent read-only configuration should be accepted");
     }
 
     #[test_case(true, false)]
     #[test_case(false, true)]
     fn test_read_only_inconsistent_is_rejected(fuse_read_only: bool, fs_read_only: bool) {
         let err = mountpoint_config(fuse_read_only, fs_read_only)
-            .validate()
             .expect_err("inconsistent read-only configuration should be rejected");
         assert!(
             err.to_string().contains("read-only must be set consistently"),
